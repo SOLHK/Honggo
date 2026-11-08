@@ -35,10 +35,10 @@ jobs:
           git rev-parse HEAD > build/source-commit.txt
           printf '%s\n' "$PLUGIN_VERSION" > build/VERSION
           (cd build && shasum -a 256 "Honggo-$PLUGIN_VERSION.dylib" > SHA256SUMS.txt)
-      - name: Check settings in UIKit with a simulated host
-        run: bash tools/test-settings-ios.sh
       - name: Check glass tab bar in UIKit with a simulated host
         run: bash tools/test-tabbar-ios.sh
+      - name: Check settings in UIKit with a simulated host
+        run: bash tools/test-settings-ios.sh
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: Honggo-${{ steps.version.outputs.value }}

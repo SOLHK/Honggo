@@ -55,6 +55,22 @@ PY
 
 build_variant current "$source_root/src/TabBar.m"
 build_variant legacy "$work/legacy/TabBar.m"
+# A separate test application changes only the global compatibility flag and
+# bundle identity. Its --native-reference mode does not install Honggo hooks.
+mkdir -p "$work/reference-modern/HGTabBarTests.app"
+cp -R "$work/current/HGTabBarTests.app/." "$work/reference-modern/HGTabBarTests.app/"
+python3 - "$work/reference-modern/HGTabBarTests.app/Info.plist" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+info = plistlib.loads(path.read_bytes())
+info["CFBundleIdentifier"] = "org.honggo.tabbar.tests.reference-modern"
+info["UIDesignRequiresCompatibility"] = False
+path.write_bytes(plistlib.dumps(info))
+PY
+codesign --force --sign - "$work/reference-modern/HGTabBarTests.app"
 xcrun simctl list --json > "$work/simulators.json"
 selection=$(python3 - "$work/simulators.json" <<'PY'
 import json
@@ -98,18 +114,38 @@ run_variant() {
     xcrun simctl install "$device_id" "$app"
     local data_directory
     data_directory=$(xcrun simctl get_app_container "$device_id" "$bundle_id" data)
-    rm -f -- "$data_directory/Documents/$result_name"
+    rm -f -- "$data_directory/Documents/$result_name" \
+        "$data_directory/Documents/tabbar-capture-phase.txt" \
+        "$data_directory/Documents/tabbar-capture-ack.txt"
     xcrun simctl launch "$device_id" "$bundle_id" "$@"
-    for ((attempt=0; attempt<60; attempt++)); do
+    local captured_phase=
+    for ((attempt=0; attempt<120; attempt++)); do
         if [ -f "$data_directory/Documents/$result_name" ]; then
             break
+        fi
+        if [ -f "$data_directory/Documents/tabbar-capture-phase.txt" ]; then
+            local phase
+            phase=$(tr -d '\r\n' < "$data_directory/Documents/tabbar-capture-phase.txt")
+            case "$phase" in
+                tabbar-light|tabbar-dark|tabbar-scroll|tabbar-disabled|native-reference-light|native-reference-dark)
+                    if [ "$phase" != "$captured_phase" ]; then
+                        xcrun simctl io "$device_id" screenshot "$work/$variant/$phase-system-simulator.png"
+                        printf '%s\n' "$phase" > "$data_directory/Documents/tabbar-capture-ack.txt"
+                        captured_phase=$phase
+                    fi
+                    ;;
+                *)
+                    printf 'Unexpected screenshot phase: %s\n' "$phase" >&2
+                    return 1
+                    ;;
+            esac
         fi
         sleep 1
     done
     xcrun simctl spawn "$device_id" log show --style compact --last 3m \
         --predicate 'process == "HGTabBarTests"' > "$work/$variant/simulator.log" 2>&1 || true
     if [ ! -f "$data_directory/Documents/$result_name" ]; then
-        printf 'Tab-bar integration app (%s) did not write its result within 60 seconds.\n' "$variant" >&2
+        printf 'Tab-bar integration app (%s) did not finish within 120 polling iterations.\n' "$variant" >&2
         return 1
     fi
     cp "$data_directory/Documents/$result_name" "$work/$variant/$result_name"
@@ -124,6 +160,7 @@ run_variant() {
 run_variant current tabbar-results.json
 run_variant current tabbar-disabled-results.json --glass-off
 run_variant legacy tabbar-results.json --legacy-control
+run_variant reference-modern tabbar-reference-results.json --native-reference
 
 python3 - "$work" <<'PY'
 import json
@@ -136,6 +173,7 @@ for name, path in {
     "current": root / "current/tabbar-results.json",
     "disabled": root / "current/tabbar-disabled-results.json",
     "legacy": root / "legacy/tabbar-results.json",
+    "reference-modern": root / "reference-modern/tabbar-reference-results.json",
 }.items():
     report = json.loads(path.read_text())
     reports[name] = report
@@ -143,10 +181,28 @@ for name, path in {
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
 failed = []
-for name, minimum in (("current", 43), ("disabled", 7)):
+for name, minimum in (("current", 48), ("disabled", 7), ("reference-modern", 2)):
     report = reports[name]
     if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < minimum:
         failed.append(f"{name} UIKit integration checks failed")
+
+for name, expected in {
+    "current": ("tabbar-light", "tabbar-dark", "tabbar-scroll", "native-reference-light", "native-reference-dark"),
+    "disabled": ("tabbar-disabled",),
+    "legacy": ("tabbar-light", "tabbar-dark", "tabbar-scroll", "native-reference-light", "native-reference-dark"),
+    "reference-modern": ("native-reference-light", "native-reference-dark"),
+}.items():
+    directory = root / ("current" if name == "disabled" else name)
+    acknowledged = reports[name].get("systemScreenshotsAcknowledged", [])
+    if list(expected) != acknowledged or any(
+        not (directory / f"{phase}-system-simulator.png").is_file() for phase in expected
+    ):
+        failed.append(f"{name} did not provide all runloop-settled simctl screenshots")
+
+if reports["current"].get("UIDesignRequiresCompatibility") is not True or \
+        reports["reference-modern"].get("UIDesignRequiresCompatibility") is not False or \
+        reports["reference-modern"].get("nativeReferenceOnly") is not True:
+    failed.append("native compatibility comparison does not have the intended isolated test configuration")
 
 # The old code has an effect view too. Requiring these behavior failures proves
 # the regression suite is sensitive to the actual occlusion and viewport bugs.
@@ -168,6 +224,10 @@ summary = {
     "disabledFailed": reports["disabled"].get("failed"),
     "legacyDetectedFailures": legacy.get("failed"),
     "nativeGlassAvailable": reports["current"].get("nativeGlassAvailable"),
+    "referenceModernTotal": reports["reference-modern"].get("total"),
+    "referenceModernFailed": reports["reference-modern"].get("failed"),
+    "systemScreenshotPhases": {name: report.get("systemScreenshotsAcknowledged", [])
+                               for name, report in reports.items()},
     "errors": failed,
 }
 (root / "tabbar-suite-results.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n")
