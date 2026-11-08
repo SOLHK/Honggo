@@ -8,10 +8,12 @@ work="$source_root/build/tabbar-tests"
 sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
 architecture=$(uname -m)
 baseline_ref=65758841996f7e7ce8187c776032b04fd1b0e2c5
-mkdir -p "$work/current" "$work/legacy"
+background_reset_baseline_ref=5d16b2411c262313b58585b5920e83599f2a0e99
+mkdir -p "$work/current" "$work/legacy" "$work/background-baseline"
 
 git -C "$source_root" show "$baseline_ref:src/TabBar.m" |
     sed 's/"HongguoGlass.h"/"Honggo.h"/' > "$work/legacy/TabBar.m"
+git -C "$source_root" show "$background_reset_baseline_ref:src/TabBar.m" > "$work/background-baseline/TabBar.m"
 
 build_variant() {
     local variant=$1
@@ -62,6 +64,7 @@ PY
 
 build_variant current "$source_root/src/TabBar.m"
 build_variant legacy "$work/legacy/TabBar.m"
+build_variant background-baseline "$work/background-baseline/TabBar.m"
 # Reuse the compiled test executable. Reference modes install no Honggo hooks;
 # the unprepared fallback runs only its compact behavior and compositor checks.
 clone_variant() {
@@ -92,6 +95,7 @@ PY
 clone_variant reference-modern prepared
 clone_variant reference-compat unprepared
 clone_variant fallback unprepared
+clone_variant background-current prepared
 xcrun simctl list --json > "$work/simulators.json"
 selection=$(python3 - "$work/simulators.json" <<'PY'
 import json
@@ -142,6 +146,7 @@ run_variant() {
     local captured_phase=
     local phase_count=7
     case "$result_name:$variant" in
+        tabbar-background-reset-results.json:*) phase_count=0 ;;
         tabbar-disabled-results.json:*) phase_count=1 ;;
         tabbar-reference-results.json:*|tabbar-fallback-results.json:*) phase_count=2 ;;
         tabbar-results.json:legacy) phase_count=5 ;;
@@ -221,6 +226,8 @@ run_variant legacy tabbar-results.json --legacy-control
 run_variant reference-modern tabbar-reference-results.json --native-reference
 run_variant reference-compat tabbar-reference-results.json --native-reference
 run_variant fallback tabbar-fallback-results.json --compat-fallback
+run_variant background-current tabbar-background-reset-results.json --background-reset-only
+run_variant background-baseline tabbar-background-reset-results.json --background-reset-only
 
 python3 - "$work" <<'PY'
 import json
@@ -239,6 +246,8 @@ for name, path in {
     "reference-modern": root / "reference-modern/tabbar-reference-results.json",
     "reference-compat": root / "reference-compat/tabbar-reference-results.json",
     "fallback": root / "fallback/tabbar-fallback-results.json",
+    "background-current": root / "background-current/tabbar-background-reset-results.json",
+    "background-baseline": root / "background-baseline/tabbar-background-reset-results.json",
 }.items():
     report = json.loads(path.read_text())
     reports[name] = report
@@ -247,7 +256,7 @@ for name, path in {
 
 failed = []
 for name, minimum in (("current", 59), ("disabled", 7), ("reference-modern", 2),
-                      ("reference-compat", 2), ("fallback", 10)):
+                      ("reference-compat", 2), ("fallback", 10), ("background-current", 14)):
     report = reports[name]
     if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < minimum:
         failed.append(f"{name} UIKit integration checks failed")
@@ -260,6 +269,8 @@ for name, expected in {
     "reference-modern": ("native-reference-light", "native-reference-dark"),
     "reference-compat": ("native-reference-light", "native-reference-dark"),
     "fallback": ("tabbar-material-light", "tabbar-material-dark"),
+    "background-current": (),
+    "background-baseline": (),
 }.items():
     directory = root / ("current" if name == "disabled" else name)
     acknowledged = reports[name].get("systemScreenshotsAcknowledged", [])
@@ -278,6 +289,37 @@ if reports["current"].get("UIDesignRequiresCompatibility") is not False or \
         reports["fallback"].get("UIDesignRequiresCompatibility") is not True or \
         reports["fallback"].get("compatibilityFallbackOnly") is not True:
     failed.append("prepared, compatibility-negative, and fallback modes do not have their intended isolated metadata")
+
+# Run exactly the same immediate-state assertions against the candidate and
+# frozen 1.0.5 source. No image capture or layout may conceal a setter-time leak.
+reset_names = (
+    "background image hidden reset is suppressed before its setter returns",
+    "light background hidden reset is suppressed before its setter returns",
+    "rebuilt image hidden reset is suppressed before its setter returns",
+    "rebuilt light hidden reset is suppressed before its setter returns",
+)
+reset_reports = {name: reports[name] for name in ("background-current", "background-baseline")}
+reset_checks = {name: {item["name"]: item["passed"] for item in report.get("checks", [])}
+                for name, report in reset_reports.items()}
+if list(reset_checks["background-current"]) != list(reset_checks["background-baseline"]):
+    failed.append("background-reset candidate and 1.0.5 control did not execute identical assertions")
+for name, report in reset_reports.items():
+    if report.get("backgroundResetOnly") is not True or report.get("UIDesignRequiresCompatibility") is not False or \
+            report.get("drawCaptureResults") != [] or report.get("systemCaptureEvents") != [] or \
+            report.get("total") != 14:
+        failed.append(f"{name} did not honor the 14-check synchronous no-capture mode")
+    fixture = "background reset fixture starts with live glass and attached suppressed backgrounds"
+    if reset_checks[name].get(fixture) is not True:
+        failed.append(f"{name} did not establish the suppressed-background precondition")
+    snapshot = next((item for item in report.get("snapshots", [])
+                     if item.get("phase") == "background-reset-setter-returns"), {})
+    if any(snapshot.get(key) != 0 for key in ("barLayoutDelta", "hostLayoutDelta", "appearanceDelta")):
+        failed.append(f"{name} relied on a layout or appearance callback during background setters")
+if reset_reports["background-baseline"].get("status") != "failed" or \
+        reset_reports["background-baseline"].get("failed", 0) < len(reset_names) or any(
+            reset_checks["background-baseline"].get(name) is not False or
+            reset_checks["background-current"].get(name) is not True for name in reset_names):
+    failed.append("1.0.5 background-reset negative control did not expose all four immediate setter leaks")
 
 # Decode simctl's 8-bit RGB/RGBA PNGs using only the standard library. Compare
 # pixels from the system compositor, not drawViewHierarchy or object properties.
@@ -546,6 +588,12 @@ summary = {
     "referenceCompatibilityFailed": reports["reference-compat"].get("failed"),
     "fallbackTotal": reports["fallback"].get("total"),
     "fallbackFailed": reports["fallback"].get("failed"),
+    "backgroundResetCurrentTotal": reports["background-current"].get("total"),
+    "backgroundResetCurrentFailed": reports["background-current"].get("failed"),
+    "backgroundResetBaselineRef": "5d16b2411c262313b58585b5920e83599f2a0e99",
+    "backgroundResetBaselineDetectedFailures": reports["background-baseline"].get("failed"),
+    "backgroundResetSetterChecks": {name: {variant: checks.get(name)
+        for variant, checks in reset_checks.items()} for name in reset_names},
     "nativePixelComparisons": pixel_comparisons,
     "hostPixelComparisons": host_pixel_comparisons,
     "systemScreenshotPhases": {name: report.get("systemScreenshotsAcknowledged", [])

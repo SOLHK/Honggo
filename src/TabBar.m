@@ -247,10 +247,10 @@ static void HGObservedAlpha(UIView *view, SEL cmd, CGFloat alpha) {
 }
 static Class HGReportedClass(id object, SEL cmd) { return HGObservedBase(object); }
 
-static void HGObserve(UIView *view, HGTabState *state) {
+static void HGObserveView(UIView *view, HGTabState *state, BOOL knownBackground) {
     if (!view || view == state.bar || [view isKindOfClass:UIVisualEffectView.class] ||
         [view isKindOfClass:UIControl.class] || [view isKindOfClass:UILabel.class] ||
-        [view isKindOfClass:UIImageView.class]) return;
+        ([view isKindOfClass:UIImageView.class] && !knownBackground)) return;
     HGObserverOwner *previous = objc_getAssociatedObject(view, &HGObservedOwnerKey);
     if (previous.state == state) return;
     if (previous.state) return; // Another active tab bar owns it.
@@ -267,6 +267,7 @@ static void HGObserve(UIView *view, HGTabState *state) {
             observed = objc_allocateClassPair(base, subclassName.UTF8String, 0);
             if (!observed) return;
             class_addMethod(observed, @selector(layoutSubviews), (IMP)HGObservedLayout, "v16@0:8");
+            class_addMethod(observed, @selector(didMoveToSuperview), (IMP)HGObservedLayout, "v16@0:8");
             class_addMethod(observed, @selector(didAddSubview:), (IMP)HGObservedAdd, "v24@0:8@16");
             class_addMethod(observed, @selector(setBackgroundColor:), (IMP)HGObservedColor, "v24@0:8@16");
             class_addMethod(observed, @selector(setHidden:), (IMP)HGObservedHidden, "v20@0:8B16");
@@ -283,6 +284,20 @@ static void HGObserve(UIView *view, HGTabState *state) {
     owner.state = state;
     objc_setAssociatedObject(view, &HGObservedOwnerKey, owner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [state.observed addObject:view];
+}
+
+static void HGObserve(UIView *view, HGTabState *state) {
+    HGObserveView(view, state, NO);
+}
+
+static void HGUnobserve(UIView *view, HGTabState *state) {
+    HGObserverOwner *owner = objc_getAssociatedObject(view, &HGObservedOwnerKey);
+    if (owner.state != state) return;
+    Class observed = HGObservedClass(view);
+    if (observed && object_getClass(view) == observed)
+        object_setClass(view, HGObservedBase(view));
+    objc_setAssociatedObject(view, &HGObservedOwnerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [state.observed removeObject:view];
 }
 
 static BOOL HGContainsControls(UIView *view, NSUInteger depth) {
@@ -378,6 +393,7 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
         HGObserve(view, self);
     } else if (!control && !label && broad && !HGContainsControls(view, 0)) {
         [[self surface:view] hideBackground];
+        HGObserve(view, self);
         HGObserve(view.superview, self);
         return;
     }
@@ -582,13 +598,7 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
     [self.viewports removeAllObjects];
     for (HGSurfaceRecord *record in self.surfaces.objectEnumerator.allObjects) [record restore];
     [self.surfaces removeAllObjects];
-    for (UIView *view in self.observed.allObjects) {
-        HGObserverOwner *owner = objc_getAssociatedObject(view, &HGObservedOwnerKey);
-        if (owner.state != self) continue;
-        Class observed = HGObservedClass(view);
-        if (object_getClass(view) == observed) object_setClass(view, HGObservedBase(view));
-        objc_setAssociatedObject(view, &HGObservedOwnerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
+    for (UIView *view in self.observed.allObjects) HGUnobserve(view, self);
     [self.observed removeAllObjects];
     self.glass.effect = nil;
     self.glass.hidden = YES;
@@ -633,6 +643,7 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
             if (view != bar && ![view isDescendantOfView:bar]) {
                 [[self.surfaces objectForKey:view] restore];
                 [self.surfaces removeObjectForKey:view];
+                HGUnobserve(view, self);
             }
         }
         [self clearBackgrounds:bar content:content frame:frame depth:0];
@@ -641,8 +652,14 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
             UIView *background = HGView(bar, names[index]);
             if (!background || background == bar || background == content ||
                 ![background isDescendantOfView:bar] || [content isDescendantOfView:background]) continue;
-            if (!HGContainsControls(background, 0)) [[self surface:background] hideBackground];
-            else [[self surface:background] clearFill];
+            if (!HGContainsControls(background, 0)) {
+                [[self surface:background] hideBackground];
+                // A host can show its old backdrop without laying out the bar.
+                // Observe only these confirmed background instances so the
+                // setter is corrected before the next screen transaction.
+                // System effects and their private subviews remain excluded.
+                HGObserveView(background, self, YES);
+            } else [[self surface:background] clearFill];
             HGObserve(background.superview, self);
         }
         // Parent masks invalidate UIVisualEffectView rendering. Only replace the

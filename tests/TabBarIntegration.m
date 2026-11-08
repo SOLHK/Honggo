@@ -529,6 +529,8 @@ static UIImage *HGWhiteImage(void) {
 @property(nonatomic) BOOL nativeGlassAvailable;
 @property(nonatomic) BOOL nativeReferenceOnly;
 @property(nonatomic) BOOL compatibilityFallbackOnly;
+@property(nonatomic) BOOL backgroundResetOnly;
+@property(nonatomic) IMP imageHiddenBeforeInstall;
 @end
 
 @implementation HGTabBarTests
@@ -635,6 +637,7 @@ static UIImage *HGWhiteImage(void) {
     self.legacyControl = [NSProcessInfo.processInfo.arguments containsObject:@"--legacy-control"];
     self.nativeReferenceOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--native-reference"];
     self.compatibilityFallbackOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--compat-fallback"];
+    self.backgroundResetOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--background-reset-only"];
     Class glass = NSClassFromString(@"UIGlassEffect");
     self.nativeGlassAvailable = [glass respondsToSelector:sel_registerName("effectWithStyle:")];
     [NSUserDefaults.standardUserDefaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
@@ -655,6 +658,7 @@ static UIImage *HGWhiteImage(void) {
     IMP viewLayout = class_getMethodImplementation(UIView.class, @selector(layoutSubviews));
     IMP scrollLayout = class_getMethodImplementation(UIScrollView.class, @selector(layoutSubviews));
     IMP scrollWindow = class_getMethodImplementation(UIScrollView.class, @selector(didMoveToWindow));
+    self.imageHiddenBeforeInstall = class_getMethodImplementation(UIImageView.class, @selector(setHidden:));
     [self check:HGInstallTabBar() name:@"supported host tab bar hooks install"];
     [self check:viewLayout == class_getMethodImplementation(UIView.class, @selector(layoutSubviews)) &&
         scrollLayout == class_getMethodImplementation(UIScrollView.class, @selector(layoutSubviews)) &&
@@ -669,7 +673,9 @@ static UIImage *HGWhiteImage(void) {
     [self.window makeKeyAndVisible];
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
-            if (self.glassDisabled) {
+            if (self.backgroundResetOnly) {
+                [self runBackgroundResetChecks];
+            } else if (self.glassDisabled) {
                 [self runDisabledChecks];
             } else if (self.compatibilityFallbackOnly) {
                 [self runFallbackChecks];
@@ -679,8 +685,119 @@ static UIImage *HGWhiteImage(void) {
         } @catch (NSException *exception) {
             [self check:NO name:[@"UIKit exception: " stringByAppendingString:exception.description]];
         }
-        [self runSystemCaptureAtIndex:0];
+        // This focused regression checks state synchronously at each setter's
+        // return. A capture would force layout and could repair the old defect
+        // before it is observed, so this mode does not enter the capture path.
+        if (self.backgroundResetOnly) [self finish];
+        else [self runSystemCaptureAtIndex:0];
     });
+}
+- (void)runBackgroundResetChecks {
+    [self layoutHost];
+    SSTabBar *bar = self.host.customTabBar;
+    UIImageView *originalImage = bar.backgroundImageView;
+    UIView *originalLight = bar.lightView;
+    [self check:bar.window == self.window && !HGEffectivelyHidden(bar.items.firstObject) &&
+        HGEffects(bar).firstObject.effect != nil && originalImage.hidden && originalLight.hidden &&
+        originalImage.window == self.window && originalLight.window == self.window
+        name:@"background reset fixture starts with live glass and attached suppressed backgrounds"];
+
+    NSUInteger barLayouts = bar.originalLayouts;
+    NSUInteger hostLayouts = self.host.originalLayouts;
+    NSUInteger appearances = self.host.originalAppearances;
+    // No layout, appearance callback, runloop turn, or screenshot is permitted
+    // between these host setters and their immediate assertions.
+    originalImage.hidden = NO;
+    BOOL imageStayedHidden = HGEffectivelyHidden(originalImage);
+    [self check:imageStayedHidden && bar.originalLayouts == barLayouts &&
+        self.host.originalLayouts == hostLayouts && self.host.originalAppearances == appearances
+        name:@"background image hidden reset is suppressed before its setter returns"];
+    originalLight.hidden = NO;
+    BOOL lightStayedHidden = HGEffectivelyHidden(originalLight);
+    [self check:lightStayedHidden && bar.originalLayouts == barLayouts &&
+        self.host.originalLayouts == hostLayouts && self.host.originalAppearances == appearances
+        name:@"light background hidden reset is suppressed before its setter returns"];
+    [self.snapshots addObject:@{
+        @"phase": @"background-reset-setter-returns",
+        @"imageEffectivelyHidden": @(imageStayedHidden),
+        @"lightEffectivelyHidden": @(lightStayedHidden),
+        @"barLayoutDelta": @(bar.originalLayouts - barLayouts),
+        @"hostLayoutDelta": @(self.host.originalLayouts - hostLayouts),
+        @"appearanceDelta": @(self.host.originalAppearances - appearances)
+    }];
+
+    UIImageView *icon = [[UIImageView alloc] initWithImage:HGWhiteImage()];
+    icon.frame = CGRectMake(4, 4, 18, 18);
+    [bar.items.firstObject addSubview:icon];
+    icon.hidden = YES;
+    BOOL iconCanHide = icon.hidden;
+    icon.hidden = NO;
+    icon.alpha = 0.6;
+    [self check:iconCanHide && !icon.hidden && !HGEffectivelyHidden(icon) &&
+        fabs(icon.alpha - 0.6) < 0.001 && object_getClass(icon) == UIImageView.class &&
+        self.imageHiddenBeforeInstall == class_getMethodImplementation(UIImageView.class, @selector(setHidden:))
+        name:@"unrelated host image visibility alpha and runtime class remain untouched"];
+
+    [originalImage removeFromSuperview];
+    [self check:originalImage.superview == nil && !originalImage.hidden &&
+        object_getClass(originalImage) == UIImageView.class
+        name:@"detaching a suppressed image restores its visibility and releases observation immediately"];
+    [originalLight removeFromSuperview];
+    [self check:originalLight.superview == nil && !originalLight.hidden &&
+        object_getClass(originalLight) == UIView.class
+        name:@"detaching a suppressed light view restores its visibility and releases observation immediately"];
+
+    UIImageView *replacementImage = [[UIImageView alloc] initWithImage:HGWhiteImage()];
+    replacementImage.frame = bar.contentView.frame;
+    UIView *replacementLight = [[UIView alloc] initWithFrame:bar.contentView.frame];
+    replacementLight.backgroundColor = UIColor.whiteColor;
+    bar.backgroundImageView = replacementImage;
+    [bar.shell addSubview:replacementImage];
+    bar.lightView = replacementLight;
+    [bar.shell addSubview:replacementLight];
+    [self check:replacementImage.window == self.window && replacementLight.window == self.window &&
+        replacementImage.hidden && replacementLight.hidden && bar.originalLayouts == barLayouts &&
+        self.host.originalLayouts == hostLayouts && self.host.originalAppearances == appearances
+        name:@"rebuilt backgrounds are suppressed during insertion without another host layout"];
+
+    replacementImage.hidden = NO;
+    [self check:HGEffectivelyHidden(replacementImage) && bar.originalLayouts == barLayouts &&
+        self.host.originalLayouts == hostLayouts && self.host.originalAppearances == appearances
+        name:@"rebuilt image hidden reset is suppressed before its setter returns"];
+    replacementLight.hidden = NO;
+    [self check:HGEffectivelyHidden(replacementLight) && bar.originalLayouts == barLayouts &&
+        self.host.originalLayouts == hostLayouts && self.host.originalAppearances == appearances
+        name:@"rebuilt light hidden reset is suppressed before its setter returns"];
+
+    // Reuse the removed objects outside the bar while its new backgrounds are
+    // still active. Later owner refreshes must not restore or hide these views.
+    originalImage.frame = CGRectMake(20, 80, 24, 24);
+    originalLight.frame = CGRectMake(52, 80, 24, 24);
+    [self.host.view addSubview:originalImage];
+    [self.host.view addSubview:originalLight];
+    originalImage.hidden = YES;
+    originalImage.hidden = NO;
+    originalLight.hidden = YES;
+    originalLight.hidden = NO;
+    originalLight.backgroundColor = UIColor.systemPurpleColor;
+    originalLight.opaque = YES;
+    replacementImage.hidden = NO;
+    [self check:!HGEffectivelyHidden(originalImage) && !HGEffectivelyHidden(originalLight) &&
+        [originalLight.backgroundColor isEqual:UIColor.systemPurpleColor] && originalLight.opaque &&
+        object_getClass(originalImage) == UIImageView.class && object_getClass(originalLight) == UIView.class
+        name:@"reused former backgrounds retain host state after their old owner refreshes"];
+
+    bar.hidden = YES;
+    [self check:!replacementImage.hidden && !replacementLight.hidden &&
+        object_getClass(replacementImage) == UIImageView.class && object_getClass(replacementLight) == UIView.class
+        name:@"hiding the tab bar restores replacement backgrounds and their original classes"];
+    replacementImage.hidden = YES;
+    replacementImage.hidden = NO;
+    replacementLight.hidden = YES;
+    replacementLight.hidden = NO;
+    [self check:!replacementImage.hidden && !replacementLight.hidden &&
+        !HGEffectivelyHidden(originalImage) && !HGEffectivelyHidden(originalLight)
+        name:@"released background setters preserve host visibility without stale owner intervention"];
 }
 - (void)runDisabledChecks {
     [self layoutHost];
@@ -1484,6 +1601,7 @@ static UIImage *HGWhiteImage(void) {
         @"legacyNegativeControl": @(self.legacyControl),
         @"nativeReferenceOnly": @(self.nativeReferenceOnly),
         @"compatibilityFallbackOnly": @(self.compatibilityFallbackOnly),
+        @"backgroundResetOnly": @(self.backgroundResetOnly),
         @"UIDesignRequiresCompatibility": @([[NSBundle.mainBundle
             objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] boolValue]),
         @"systemScreenshotsAcknowledged": self.captureAcknowledgements,
@@ -1495,9 +1613,10 @@ static UIImage *HGWhiteImage(void) {
         @"snapshots": self.snapshots
     };
     NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil];
-    NSString *name = self.nativeReferenceOnly ? @"tabbar-reference-results.json" :
+    NSString *name = self.backgroundResetOnly ? @"tabbar-background-reset-results.json" :
+        (self.nativeReferenceOnly ? @"tabbar-reference-results.json" :
         (self.compatibilityFallbackOnly ? @"tabbar-fallback-results.json" :
-        (self.glassDisabled ? @"tabbar-disabled-results.json" : @"tabbar-results.json"));
+        (self.glassDisabled ? @"tabbar-disabled-results.json" : @"tabbar-results.json")));
     [data writeToURL:[self outputURL:name] options:NSDataWritingAtomic error:nil];
 }
 @end
