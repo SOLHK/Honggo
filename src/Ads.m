@@ -1,4 +1,4 @@
-#import "HongguoGlass.h"
+#import "Honggo.h"
 
 typedef struct {
     HGFeature feature;
@@ -82,9 +82,9 @@ void HGInstallAds(void) {
         if (HGReplaceMethod(target, sel_registerName(gate->selector), gate->encoding, gate->replacement)) {
             installed++;
         } else {
-            NSLog(@"[HongguoGlass] 跳过不匹配的入口 %s %s", gate->className, gate->selector);
+            NSLog(@"[Honggo] 跳过不匹配的入口 %s %s", gate->className, gate->selector);
         }
     }
 
-    NSLog(@"[HongguoGlass] 广告与营销入口 %lu/%lu", (unsigned long)installed, (unsigned long)selected);
+    NSLog(@"[Honggo] 广告与营销入口 %lu/%lu", (unsigned long)installed, (unsigned long)selected);
 }

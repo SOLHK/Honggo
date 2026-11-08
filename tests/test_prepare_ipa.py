@@ -24,7 +24,7 @@ def macho(file_type, commands, platform=2):
     return header + table
 
 
-def host_binary(cryptid=0, section_offset=512, padding=0, duplicate_load=False):
+def host_binary(cryptid=0, section_offset=512, padding=0, duplicate_load=False, duplicate_name=b"Honggo.dylib"):
     text = b"__TEXT"
     body = b"test code payload"
     segment = struct.pack("<II16sQQQQIIII", prep.LC_SEGMENT_64, 152, text,
@@ -34,7 +34,7 @@ def host_binary(cryptid=0, section_offset=512, padding=0, duplicate_load=False):
     encryption = struct.pack("<6I", prep.LC_ENCRYPTION_INFO_64, 24, section_offset, len(body), cryptid, 0)
     commands = [segment + section, encryption]
     if duplicate_load:
-        commands.append(dylib_command(prep.LC_LOAD_DYLIB, b"@rpath/HongguoGlass.dylib"))
+        commands.append(dylib_command(prep.LC_LOAD_DYLIB, b"@rpath/" + duplicate_name))
     prefix = macho(prep.MH_EXECUTE, commands)
     return prefix.ljust(section_offset, bytes([padding])) + body
 
@@ -47,7 +47,7 @@ class PrepareIPATest(unittest.TestCase):
         self.input = root / "original.ipa"
         self.plugin = root / prep.PLUGIN_NAME
         self.output = root / "unsigned.ipa"
-        self.identity = dylib_command(prep.LC_ID_DYLIB, b"@rpath/HongguoGlass.dylib")
+        self.identity = dylib_command(prep.LC_ID_DYLIB, b"@rpath/Honggo.dylib")
         self.plugin.write_bytes(macho(prep.MH_DYLIB, [self.identity]))
 
     def write_ipa(self, binary, version="7.4.3.33", embedded_plugin=False):
@@ -116,6 +116,33 @@ class PrepareIPATest(unittest.TestCase):
             with self.subTest(error=error):
                 self.write_ipa(binary, embedded_plugin=embedded)
                 with self.assertRaisesRegex(ValueError, error):
+                    prep.prepare(self.input, self.plugin, self.output)
+                self.assertFalse(self.output.exists())
+
+    def test_versioned_input_is_embedded_with_stable_honggo_install_name(self):
+        versioned = self.plugin.with_name("Honggo-1.0.1.dylib")
+        self.plugin.rename(versioned)
+        self.write_ipa(host_binary())
+        prep.prepare(self.input, versioned, self.output)
+        with zipfile.ZipFile(self.output) as output:
+            self.assertIn("Payload/Eggplant.app/Frameworks/Honggo.dylib", output.namelist())
+            self.assertEqual(output.read(prep.PLUGIN_ENTRY), versioned.read_bytes())
+
+    def test_rejects_legacy_and_versioned_duplicate_loads(self):
+        for name in (b"HongguoGlass.dylib", b"Honggo-1.0.0.dylib", b"HONGGO.DYLIB"):
+            with self.subTest(name=name):
+                self.write_ipa(host_binary(duplicate_load=True, duplicate_name=name))
+                with self.assertRaisesRegex(ValueError, "already has a load command"):
+                    prep.prepare(self.input, self.plugin, self.output)
+                self.assertFalse(self.output.exists())
+
+    def test_rejects_legacy_and_versioned_embedded_plugins(self):
+        for name in ("HongguoGlass.dylib", "Honggo-1.0.0.dylib", "HONGGO.DYLIB"):
+            with self.subTest(name=name):
+                self.write_ipa(host_binary())
+                with zipfile.ZipFile(self.input, "a") as archive:
+                    archive.writestr(f"{prep.APP}/Frameworks/{name}", self.plugin.read_bytes())
+                with self.assertRaisesRegex(ValueError, "already contains"):
                     prep.prepare(self.input, self.plugin, self.output)
                 self.assertFalse(self.output.exists())
 

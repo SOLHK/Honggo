@@ -1,4 +1,4 @@
-#import "HongguoGlass.h"
+#import "Honggo.h"
 #import <dispatch/dispatch.h>
 #include <string.h>
 
@@ -44,15 +44,16 @@ __attribute__((constructor)) static void HGStart(void) {
         if (!HGInstall()) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (!HGInstall()) {
-                    NSLog(@"[Honggo] 设置菜单入口：%@；底栏入口：%@。已安装部分继续生效。",
+                    NSLog(@"[Honggo] 版本 %@，设置菜单入口：%@；底栏入口：%@。已安装部分继续生效。",
+                        HG_PLUGIN_VERSION,
                         HGSettingsInstalled ? @"已安装" : @"未就绪",
                         HGTabBarInstalled ? @"已安装" : @"未就绪");
                 } else {
-                    NSLog(@"[Honggo] 已载入，请在 我的 → 设置 → Honggo 插件设置 管理开关");
+                    NSLog(@"[Honggo] 版本 %@ 已载入，请在 我的 → 设置 → Honggo 管理开关", HG_PLUGIN_VERSION);
                 }
             });
         } else {
-            NSLog(@"[Honggo] 已载入，请在 我的 → 设置 → Honggo 插件设置 管理开关");
+            NSLog(@"[Honggo] 版本 %@ 已载入，请在 我的 → 设置 → Honggo 管理开关", HG_PLUGIN_VERSION);
         }
     }
 }

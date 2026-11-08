@@ -4,6 +4,7 @@
 import argparse
 import copy
 import plistlib
+import re
 import shutil
 import struct
 import zipfile
@@ -12,7 +13,7 @@ from pathlib import Path
 
 APP = "Payload/Eggplant.app"
 EXECUTABLE = f"{APP}/Eggplant"
-PLUGIN_NAME = "HongguoGlass.dylib"
+PLUGIN_NAME = "Honggo.dylib"
 PLUGIN_ENTRY = f"{APP}/Frameworks/{PLUGIN_NAME}"
 LOAD_PATH = f"@executable_path/Frameworks/{PLUGIN_NAME}".encode("ascii")
 
@@ -81,6 +82,12 @@ def dylib_basename(command):
     return name[0].rsplit(b"/", 1)[-1].lower()
 
 
+def is_honggo_library(name):
+    """Recognize current/versioned names and the old shipped name to prevent double hooks."""
+    lower = name.lower()
+    return lower == b"hongguoglass.dylib" or re.fullmatch(rb"honggo(?:-\d+\.\d+\.\d+)?\.dylib", lower) is not None
+
+
 def first_text_section(commands, file_size):
     for kind, command in commands:
         if kind != LC_SEGMENT_64 or command[8:24].rstrip(b"\0") != b"__TEXT":
@@ -113,8 +120,8 @@ def patched_header(source, file_size):
         raise ValueError("Host IPA is encrypted (cryptid is nonzero).")
 
     for kind, command in commands:
-        if kind in LOAD_DYLIB_COMMANDS and dylib_basename(command) == PLUGIN_NAME.lower().encode("ascii"):
-            raise ValueError("The host already has a load command for HongguoGlass.dylib.")
+        if kind in LOAD_DYLIB_COMMANDS and is_honggo_library(dylib_basename(command)):
+            raise ValueError("The host already has a load command for Honggo or its legacy name; use the original IPA.")
 
     name = LOAD_PATH + b"\0"
     command_size = (24 + len(name) + 7) & ~7
@@ -139,15 +146,16 @@ def prepare(original, plugin, destination):
         _, _, commands = read_macho(library, plugin.stat().st_size, MH_DYLIB)
         identities = [dylib_basename(command) for kind, command in commands if kind == LC_ID_DYLIB]
         if identities != [PLUGIN_NAME.lower().encode("ascii")]:
-            raise ValueError("Expected the HongguoGlass.dylib install name.")
+            raise ValueError("Expected the Honggo.dylib install name from this project's versioned plugin.")
         library.seek(0)
 
         entries = archive.infolist()
         names = {entry.filename.casefold() for entry in entries}
         if len(names) != len(entries):
             raise ValueError("IPA contains duplicate or case-colliding ZIP entry names.")
-        if PLUGIN_ENTRY.casefold() in names:
-            raise ValueError("IPA already contains HongguoGlass.dylib.")
+        for name in names:
+            if name.startswith(f"{APP}/".casefold()) and is_honggo_library(name.rsplit("/", 1)[-1].encode("utf-8")):
+                raise ValueError("IPA already contains Honggo or its legacy name; use the original IPA.")
         info = plistlib.loads(archive.read(f"{APP}/Info.plist"))
         expected = {
             "CFBundleIdentifier": "com.phoenix.video",
@@ -187,7 +195,7 @@ def prepare(original, plugin, destination):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("original", type=Path, help="Original local Hongguo IPA")
-    parser.add_argument("plugin", type=Path, help="HongguoGlass.dylib built from this project")
+    parser.add_argument("plugin", type=Path, help="Honggo-VERSION.dylib built from this project")
     parser.add_argument("destination", type=Path, help="New IPA path, to be re-signed")
     args = parser.parse_args()
     try:

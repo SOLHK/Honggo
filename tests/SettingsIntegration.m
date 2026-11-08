@@ -1,5 +1,5 @@
 // Real UIKit integration checks with a controlled host, not the Hongguo IPA.
-#import "HongguoGlass.h"
+#import "Honggo.h"
 #import <dispatch/dispatch.h>
 #import <math.h>
 
@@ -123,6 +123,9 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self check:menu.window != nil && !menu.hidden && menu.alpha > 0 && !HGIsEnabled(HGGlass) &&
         CGRectIntersectsRect([menu convertRect:menu.bounds toView:self.window], self.window.bounds)
         name:@"menu is visible with all feature switches off"];
+    [self check:[menu.accessibilityLabel isEqualToString:@"Honggo"] &&
+        [menu.accessibilityValue containsString:HG_PLUGIN_VERSION]
+        name:@"menu uses Honggo and shows the current plugin version"];
     [self check:table.dataSource == self.host && [table numberOfRowsInSection:0] == 3
         name:@"host data source and original rows are preserved"];
     [self check:menu.bounds.size.height >= 44 && menu.bounds.size.width > 44 &&
@@ -203,6 +206,9 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         return;
     }
     [settings loadViewIfNeeded];
+    [self check:[settings.title isEqualToString:@"Honggo"] &&
+        [[settings tableView:settings.tableView titleForHeaderInSection:0] containsString:HG_PLUGIN_VERSION]
+        name:@"settings title is Honggo with a separate plugin version"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
     [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount && HGFeatureCount == 15
@@ -246,7 +252,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     for (NSDictionary *check in self.checks) {
         failed += ![check[@"passed"] boolValue];
     }
-    NSDictionary *report = @{@"scope": @"real UIKit with a simulated host; not a Hongguo device test",
+    NSDictionary *report = @{@"plugin": HG_PLUGIN_NAME, @"version": HG_PLUGIN_VERSION, @"scope": @"real UIKit with a simulated host; not a Hongguo device test",
         @"status": failed == 0 ? @"passed" : @"failed", @"failed": @(failed),
         @"total": @(self.checks.count), @"checks": self.checks};
     NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil];

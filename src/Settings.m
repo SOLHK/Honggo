@@ -1,4 +1,4 @@
-#import "HongguoGlass.h"
+#import "Honggo.h"
 #import <QuartzCore/QuartzCore.h>
 #include <math.h>
 #include <string.h>
@@ -26,13 +26,14 @@ static const HGOption HGOptions[HGFeatureCount] = {
     [HGSurvey] = {@"survey", @"隐藏短剧满意度问卷"},
 };
 
-static NSString *const HGSettingsTitle = @"Honggo 插件设置";
-static NSString *const HGSettingsSubtitle = @"液态玻璃 · 广告与弹窗开关";
+static NSString *const HGSettingsTitle = HG_PLUGIN_NAME;
+static NSString *const HGSettingsSubtitle = @"版本 " HG_PLUGIN_VERSION @" · 液态玻璃与广告开关";
 static void (*HGOriginalSettingsWillAppear)(UIViewController *, SEL, BOOL);
 static void (*HGOriginalSettingsDidLayout)(UIViewController *, SEL);
 static void (*HGOriginalSettingsDidAppear)(UIViewController *, SEL, BOOL);
 
 static NSString *HGPreferenceKey(HGFeature feature) {
+    // Keep the shipped key namespace so upgrading does not reset existing switches.
     return [@"HongguoGlass." stringByAppendingString:HGOptions[feature].key];
 }
 
@@ -61,15 +62,19 @@ BOOL HGIsEnabled(HGFeature feature) {
     return HGFeatureCount;
 }
 
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    return @"版本 " HG_PLUGIN_VERSION;
+}
+
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     return @"更改后请完全退出红果短剧，再重新打开。关闭开关并重启即可恢复原行为。iOS 26 及以上使用系统液态玻璃，旧版系统使用模糊材质。";
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"HongguoGlassOption"];
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"HonggoOption"];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
-            reuseIdentifier:@"HongguoGlassOption"];
+            reuseIdentifier:@"HonggoOption"];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         cell.textLabel.adjustsFontForContentSizeCategory = YES;
         cell.textLabel.numberOfLines = 0;

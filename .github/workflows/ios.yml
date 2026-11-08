@@ -10,27 +10,41 @@ permissions:
 jobs:
   iphoneos:
     runs-on: macos-26
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check IPA preparation tool
+          fetch-depth: 0
+      - name: Verify plugin version
+        id: version
+        env:
+          VERSION_BASE: ${{ github.event.before }}
+        run: |
+          version=$(python3 tools/version.py --check --base "$VERSION_BASE")
+          printf 'value=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Check IPA preparation and version rules
         run: python3 -B -m unittest discover -s tests -v
       - name: Build and inspect device dylib
+        env:
+          PLUGIN_VERSION: ${{ steps.version.outputs.value }}
         run: |
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
-          bash tools/build-ios.sh build/HongguoGlass.dylib
+          bash tools/build-ios.sh
           git rev-parse HEAD > build/source-commit.txt
-          (cd build && shasum -a 256 HongguoGlass.dylib > SHA256SUMS.txt)
+          printf '%s\n' "$PLUGIN_VERSION" > build/VERSION
+          (cd build && shasum -a 256 "Honggo-$PLUGIN_VERSION.dylib" > SHA256SUMS.txt)
       - name: Check settings in UIKit with a simulated host
         run: bash tools/test-settings-ios.sh
+      - name: Check glass tab bar in UIKit with a simulated host
+        run: bash tools/test-tabbar-ios.sh
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: HongguoGlass-iPhoneOS
+          name: Honggo-${{ steps.version.outputs.value }}
           path: |
-            build/HongguoGlass.dylib
+            build/Honggo-${{ steps.version.outputs.value }}.dylib
+            build/VERSION
             build/source-commit.txt
             build/SHA256SUMS.txt
           if-no-files-found: error
@@ -42,4 +56,13 @@ jobs:
             build/settings-tests/settings-results.json
             build/settings-tests/simulator.log
             build/settings-tests/*-simulator.png
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: always()
+        with:
+          name: Honggo-tabbar-simulator-evidence
+          path: |
+            build/tabbar-tests/**/*-results.json
+            build/tabbar-tests/**/*-simulator.png
+            build/tabbar-tests/**/simulator.log
           if-no-files-found: warn

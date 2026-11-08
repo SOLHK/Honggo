@@ -15,7 +15,7 @@ xcrun --sdk iphonesimulator clang \
     -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
     -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
     -framework Foundation -framework UIKit -framework QuartzCore -framework CoreGraphics -lobjc \
-    "$source_root/src/Ads.m" "$source_root/src/HongguoGlass.m" \
+    "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
     "$source_root/src/Settings.m" "$source_root/src/TabBar.m" \
     "$source_root/tests/SettingsIntegration.m" -o "$app/HGSettingsTests"
 
@@ -103,6 +103,6 @@ import sys
 
 report = json.load(open(sys.argv[1]))
 print(json.dumps(report, indent=2, ensure_ascii=False))
-if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < 19:
+if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < 21:
     raise SystemExit("Settings UIKit integration checks failed")
 PY
