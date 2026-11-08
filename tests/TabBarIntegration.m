@@ -74,6 +74,20 @@ static BOOL HGColorIsClear(UIColor *color, UITraitCollection *traits) {
     return !color || CGColorGetAlpha([color resolvedColorWithTraitCollection:traits].CGColor) < 0.01;
 }
 
+static BOOL HGPublicSurfaceIsClear(UIVisualEffectView *view) {
+    return view && !view.opaque &&
+        HGColorIsClear(view.backgroundColor, view.traitCollection) &&
+        HGColorIsClear(view.contentView.backgroundColor, view.contentView.traitCollection);
+}
+
+static UIVisualEffect *HGReferenceEffect(NSInteger style) {
+    Class glassClass = NSClassFromString(@"UIGlassEffect");
+    SEL factory = sel_registerName("effectWithStyle:");
+    return [glassClass respondsToSelector:factory] ?
+        ((id (*)(id, SEL, NSInteger))objc_msgSend)(glassClass, factory, style) :
+        [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+}
+
 static NSDictionary *HGMaterialFacts(UIVisualEffectView *view) {
     UIVisualEffect *first = view.effect;
     UIVisualEffect *second = view.effect;
@@ -96,6 +110,8 @@ static NSDictionary *HGMaterialFacts(UIVisualEffectView *view) {
         @"contentOpaque": @(view.contentView.opaque),
         @"alpha": @(view.alpha),
         @"frame": NSStringFromCGRect(view.frame),
+        @"framePoints": @[@(view.frame.origin.x), @(view.frame.origin.y),
+            @(view.frame.size.width), @(view.frame.size.height)],
         @"style": @(view.traitCollection.userInterfaceStyle),
         @"overrideStyle": @(view.overrideUserInterfaceStyle),
         @"windowAddress": [NSString stringWithFormat:@"%p", (__bridge void *)view.window],
@@ -466,6 +482,9 @@ static UIImage *HGWhiteImage(void) {
 @property(nonatomic, strong) UIWindow *referenceWindow;
 @property(nonatomic, strong) UIVisualEffectView *referenceRegular;
 @property(nonatomic, strong) UIVisualEffectView *referenceClear;
+@property(nonatomic, strong) UIVisualEffectView *referenceRegularClearAfter;
+@property(nonatomic, strong) UIVisualEffectView *referenceNilClear;
+@property(nonatomic, strong) NSDictionary *referenceClearAfterAssignment;
 @property(nonatomic) BOOL glassDisabled;
 @property(nonatomic) BOOL legacyControl;
 @property(nonatomic) BOOL nativeGlassAvailable;
@@ -702,6 +721,8 @@ static UIImage *HGWhiteImage(void) {
         self.host.traitCollection.userInterfaceStyle == UIUserInterfaceStyleLight &&
         [bar.items[3].currentTitleColor isEqual:UIColor.whiteColor]
         name:@"white video page labels select a dark material without changing the host theme"];
+    [self check:HGPublicSurfaceIsClear(glass)
+        name:@"switching to a dark page cannot restore a solid material background"];
     [self capture:@"tabbar-dark-simulator.png"];
     self.host.mediaAppearance = NO;
     [self layoutHost];
@@ -710,6 +731,8 @@ static UIImage *HGWhiteImage(void) {
     [self check:glass.traitCollection.userInterfaceStyle == UIUserInterfaceStyleLight &&
         [bar.items[3].currentTitleColor isEqual:UIColor.blackColor]
         name:@"returning to a light page restores matching glass contrast"];
+    [self check:HGPublicSurfaceIsClear(glass)
+        name:@"switching back to a light page keeps both public material backgrounds clear"];
 
     UIVisualEffectView *stableSurface = glass;
     NSUInteger setterCallsBefore = HGEffectSetterCount(stableSurface, NO);
@@ -744,6 +767,26 @@ static UIImage *HGWhiteImage(void) {
         UIEdgeInsetsEqualToEdgeInsets(self.host.carousel.contentInset, carouselInsets) &&
         [self.host.pattern.backgroundColor isEqual:artworkColor]
         name:@"horizontal carousels and artwork keep their original geometry and colors"];
+
+    // A real subsequent nonnil UIKit setter may restore its compatibility fill.
+    // Do not clear it from the harness: the plugin's next layout must maintain
+    // the public surface while retaining the assigned native effect.
+    NSUInteger reassignmentCount = HGEffectSetterCount(glass, YES);
+    glass.effect = HGReferenceEffect(0);
+    NSDictionary *immediatelyAfterReassignment = HGMaterialFacts(glass);
+    [glass setNeedsLayout];
+    [glass layoutIfNeeded];
+    [self.snapshots addObject:@{
+        @"phase": @"material-explicit-reassignment",
+        @"beforeNonNilSetterCalls": @(reassignmentCount),
+        @"immediatelyAfterSetter": immediatelyAfterReassignment,
+        @"afterLayout": HGMaterialFacts(glass)
+    }];
+    [self check:HGEffects(bar).firstObject == glass && glass.effect != nil &&
+        HGEffectSetterCount(glass, YES) == reassignmentCount + 1 &&
+        (!self.nativeGlassAvailable || [glass.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")]) &&
+        HGPublicSurfaceIsClear(glass)
+        name:@"a later nonnil material assignment is clear after its next layout"];
 
     NSUInteger originalLayouts = bar.originalLayouts;
     [bar layoutSubviews];
@@ -976,6 +1019,8 @@ static UIImage *HGWhiteImage(void) {
         fabs(self.host.primaryFeed.contentInset.top - 17) < 0.01 &&
         fabs(self.host.primaryFeed.contentInset.left - 5) < 0.01
         name:@"a direct cross-window move restores the old page and installs material in the new window"];
+    [self check:HGPublicSurfaceIsClear(movedSurface)
+        name:@"a direct cross-window move does not restore a solid material background"];
     [self.host.view addSubview:bar];
     [self.host viewDidLayoutSubviews];
 
@@ -1001,6 +1046,8 @@ static UIImage *HGWhiteImage(void) {
         HGEffects(bar).firstObject.window == other && HGBackgroundPathIsClear(bar.contentView, bar) &&
         bar.originalWindowMoves >= windowMoves + 2
         name:@"the original bar remounts with a valid material in a different window"];
+    [self check:HGPublicSurfaceIsClear(HGEffects(bar).firstObject)
+        name:@"remounting after a detach keeps both public material backgrounds clear"];
     [bar removeFromSuperview];
     [self.host.view addSubview:bar];
     other.hidden = YES;
@@ -1010,6 +1057,8 @@ static UIImage *HGWhiteImage(void) {
         HGEffects(bar).firstObject.window == self.window &&
         !HGEffectivelyHidden(bar.badge) && bar.contentView.superview == bar.shell
         name:@"returning to the original window preserves one surface and all host content"];
+    [self check:HGPublicSurfaceIsClear(HGEffects(bar).firstObject)
+        name:@"returning to the original window keeps both public material backgrounds clear"];
     [self capture:@"tabbar-remount-simulator.png"];
 }
 - (NSArray<NSString *> *)systemCapturePhases {
@@ -1018,12 +1067,9 @@ static UIImage *HGWhiteImage(void) {
     return @[@"tabbar-light", @"tabbar-dark", @"tabbar-scroll",
         @"native-reference-light", @"native-reference-dark"];
 }
-- (UIVisualEffectView *)makeNativeReferenceStyle:(NSInteger)style frame:(CGRect)frame title:(NSString *)title {
-    Class glassClass = NSClassFromString(@"UIGlassEffect");
-    SEL factory = sel_registerName("effectWithStyle:");
-    UIVisualEffect *effect = [glassClass respondsToSelector:factory] ?
-        ((id (*)(id, SEL, NSInteger))objc_msgSend)(glassClass, factory, style) :
-        [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+- (UIVisualEffectView *)makeNativeReferenceStyle:(NSInteger)style frame:(CGRect)frame
+        title:(NSString *)title materialEnabled:(BOOL)materialEnabled {
+    UIVisualEffect *effect = materialEnabled ? HGReferenceEffect(style) : nil;
     // Apple's minimal public construction, without Honggo's subclass, lifecycle,
     // observers, background rewrites or content hierarchy adaptation.
     UIVisualEffectView *surface = [[UIVisualEffectView alloc] initWithEffect:effect];
@@ -1063,7 +1109,7 @@ static UIImage *HGWhiteImage(void) {
         ];
         CGFloat width = root.view.bounds.size.width;
         CGFloat height = root.view.bounds.size.height;
-        // Identical vertical color strips sit behind both material variants.
+        // Identical vertical color strips sit behind all four material variants.
         // A few narrow white strips give refraction/blur a visible edge.
         for (NSUInteger index = 0; index < 8; index++) {
             UIView *stripe = [[UIView alloc] initWithFrame:CGRectMake(index * width / 8, 0, width / 8, height)];
@@ -1075,17 +1121,46 @@ static UIImage *HGWhiteImage(void) {
         }
         CGRect regularFrame = CGRectMake(16, height - 82, width - 32, 52);
         CGRect clearFrame = CGRectOffset(regularFrame, 0, -68);
-        self.referenceRegular = [self makeNativeReferenceStyle:0 frame:regularFrame title:@"Apple UIGlassEffect · Regular"];
-        self.referenceClear = [self makeNativeReferenceStyle:1 frame:clearFrame title:@"Apple UIGlassEffect · Clear"];
+        CGRect clearAfterFrame = CGRectOffset(regularFrame, 0, -136);
+        CGRect nilFrame = CGRectOffset(regularFrame, 0, -204);
+        self.referenceRegular = [self makeNativeReferenceStyle:0 frame:regularFrame
+            title:@"Regular · UIKit default" materialEnabled:YES];
+        self.referenceClear = [self makeNativeReferenceStyle:1 frame:clearFrame
+            title:@"Clear · UIKit default" materialEnabled:YES];
+        self.referenceRegularClearAfter = [self makeNativeReferenceStyle:0 frame:clearAfterFrame
+            title:@"Regular · clear after effect" materialEnabled:YES];
+        // This must remain an ordinary UIVisualEffectView with nil effect.
+        // HGGlassBackdrop would reinstall an effect in its own layout method.
+        self.referenceNilClear = [self makeNativeReferenceStyle:0 frame:nilFrame
+            title:@"nil effect · transparent" materialEnabled:NO];
         [root.view addSubview:self.referenceRegular];
         [root.view addSubview:self.referenceClear];
+        [root.view addSubview:self.referenceRegularClearAfter];
+        [root.view addSubview:self.referenceNilClear];
     }
     UIUserInterfaceStyle style = dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
     self.referenceWindow.rootViewController.overrideUserInterfaceStyle = style;
     self.referenceRegular.overrideUserInterfaceStyle = style;
     self.referenceClear.overrideUserInterfaceStyle = style;
+    self.referenceRegularClearAfter.overrideUserInterfaceStyle = style;
+    self.referenceNilClear.overrideUserInterfaceStyle = style;
     [self.referenceWindow makeKeyAndVisible];
     [self.referenceWindow layoutIfNeeded];
+    // Isolate the public, local change under investigation. Assign a live
+    // material first, then clear only public fills; do this for each theme.
+    // The original Regular/Clear views above remain untouched controls.
+    self.referenceRegularClearAfter.effect = HGReferenceEffect(0);
+    NSDictionary *afterSetter = HGSurfaceColorFacts(self.referenceRegularClearAfter);
+    for (UIVisualEffectView *surface in @[self.referenceRegularClearAfter, self.referenceNilClear]) {
+        surface.backgroundColor = UIColor.clearColor;
+        surface.opaque = NO;
+        surface.contentView.backgroundColor = UIColor.clearColor;
+        surface.contentView.opaque = NO;
+    }
+    self.referenceClearAfterAssignment = @{
+        @"afterEffectAssignment": afterSetter,
+        @"afterPublicBackgroundClear": HGSurfaceColorFacts(self.referenceRegularClearAfter)
+    };
 }
 - (void)runSystemCaptureAtIndex:(NSUInteger)index {
     NSArray<NSString *> *phases = self.systemCapturePhases;
@@ -1127,20 +1202,37 @@ static UIImage *HGWhiteImage(void) {
                         objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] boolValue]),
                     @"regularStyle": @0,
                     @"clearStyle": @1,
+                    @"regularClearAfterStyle": @0,
                     @"regular": HGMaterialFacts(self.referenceRegular),
-                    @"clear": HGMaterialFacts(self.referenceClear)
+                    @"clear": HGMaterialFacts(self.referenceClear),
+                    @"regularClearAfter": HGMaterialFacts(self.referenceRegularClearAfter),
+                    @"nilClear": HGMaterialFacts(self.referenceNilClear),
+                    @"clearAfterAssignment": self.referenceClearAfterAssignment,
+                    @"windowSizePoints": @[@(self.referenceWindow.bounds.size.width),
+                        @(self.referenceWindow.bounds.size.height)],
+                    @"pixelComparisonSampleBandsPoints": @[@[@8, @12], @[@40, @44]]
                 }];
                 if (self.nativeReferenceOnly) {
                     BOOL valid = self.referenceRegular.window == self.referenceWindow &&
                         self.referenceClear.window == self.referenceWindow &&
+                        self.referenceRegularClearAfter.window == self.referenceWindow &&
+                        self.referenceNilClear.window == self.referenceWindow &&
                         self.referenceRegular.effect != nil && self.referenceClear.effect != nil &&
+                        self.referenceRegularClearAfter.effect != nil && self.referenceNilClear.effect == nil &&
+                        HGPublicSurfaceIsClear(self.referenceRegularClearAfter) &&
+                        HGPublicSurfaceIsClear(self.referenceNilClear) &&
                         (!self.nativeGlassAvailable ||
                             ([self.referenceRegular.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")] &&
-                             [self.referenceClear.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")]));
-                    [self check:valid name:[phase stringByAppendingString:@" uses two public native material views"]];
+                             [self.referenceClear.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")] &&
+                             [self.referenceRegularClearAfter.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")]));
+                    [self check:valid name:[phase stringByAppendingString:@" isolates three public materials and a nil-effect control"]];
                 }
             } else {
                 [self snapshot:[phase stringByAppendingString:@"-runloop-settled"]];
+                if (!self.glassDisabled) {
+                    [self check:HGPublicSurfaceIsClear(HGEffects(self.host.customTabBar).firstObject)
+                        name:[phase stringByAppendingString:@" keeps public material backgrounds clear after a runloop commit"]];
+                }
             }
             [self captureWindow:reference ? self.referenceWindow : self.window
                 name:[phase stringByAppendingString:@"-stable-simulator.png"]];

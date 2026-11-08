@@ -38,31 +38,56 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
 
 @interface HGGlassBackdrop : UIVisualEffectView
 @property(nonatomic) BOOL nativeGlass;
+@property(nonatomic) BOOL changingWindow;
 @end
 @implementation HGGlassBackdrop
+- (void)clearCompatibilityFill {
+    // With UIDesignRequiresCompatibility enabled, assigning UIGlassEffect on
+    // iOS 26.5 installs an opaque systemBackgroundColor on this public view.
+    // Clear it AFTER UIKit configures the effect; clearing before is overwritten.
+    // Do not touch the material's private descendants or remove its effect.
+    if (UIAccessibilityIsReduceTransparencyEnabled() || UIAccessibilityDarkerSystemColorsEnabled()) return;
+    if (!HGClear(self.backgroundColor)) self.backgroundColor = UIColor.clearColor;
+    if (self.opaque) self.opaque = NO;
+}
+- (void)setEffect:(UIVisualEffect *)effect {
+    [super setEffect:effect];
+    // A nil assignment may occur during superclass initialization or teardown.
+    // Never create content or reinstall a material on that path.
+    if (effect) [self clearCompatibilityFill];
+}
 - (void)layoutSubviews {
     [super layoutSubviews];
-    if (self.effect || !self.window || self.hidden || CGRectGetWidth(self.bounds) < 64 ||
-            CGRectGetHeight(self.bounds) < 32) return;
-    Class glassClass = NSClassFromString(@"UIGlassEffect");
-    SEL factory = sel_registerName("effectWithStyle:");
-    self.nativeGlass = [glassClass respondsToSelector:factory];
-    UIVisualEffect *effect = self.nativeGlass ?
-        ((id (*)(id, SEL, NSInteger))objc_msgSend)(glassClass, factory, 0) : nil;
-    if (!effect) {
-        self.nativeGlass = NO;
-        effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+    BOOL visible = self.window != nil && !self.changingWindow;
+    for (UIView *view = self; view && visible; view = view.superview)
+        visible = !view.hidden && view.alpha >= 0.999;
+    if (!self.effect && visible && CGRectGetWidth(self.bounds) >= 64 && CGRectGetHeight(self.bounds) >= 32) {
+        Class glassClass = NSClassFromString(@"UIGlassEffect");
+        SEL factory = sel_registerName("effectWithStyle:");
+        self.nativeGlass = [glassClass respondsToSelector:factory];
+        UIVisualEffect *effect = self.nativeGlass ?
+            ((id (*)(id, SEL, NSInteger))objc_msgSend)(glassClass, factory, 0) : nil;
+        if (!effect) {
+            self.nativeGlass = NO;
+            effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+        }
+        // UIGlassEffect is created in a real, attached layout pass. Creating it in
+        // didMoveToWindow can leave it unrendered when a host view is recycled.
+        self.effect = effect;
     }
-    // UIGlassEffect is created in a real, attached layout pass. Creating it in
-    // didMoveToWindow can leave it unrendered when a host view is recycled.
-    self.effect = effect;
+    // UIKit can reconfigure colors during an existing material's layout too.
+    [self clearCompatibilityFill];
 }
 - (void)willMoveToWindow:(UIWindow *)newWindow {
-    if (!newWindow || self.window != newWindow) self.effect = nil;
+    if (!newWindow || self.window != newWindow) {
+        self.changingWindow = YES;
+        self.effect = nil;
+    }
     [super willMoveToWindow:newWindow];
 }
 - (void)didMoveToWindow {
     [super didMoveToWindow];
+    self.changingWindow = NO;
     if (self.window) [self setNeedsLayout];
 }
 @end
@@ -397,7 +422,8 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
     BOOL resized = !HGRectNear(glass.frame, frame);
     if (resized) glass.frame = frame;
     UIUserInterfaceStyle style = HGForegroundStyle(content, self.bar.traitCollection);
-    if (glass.overrideUserInterfaceStyle != style) glass.overrideUserInterfaceStyle = style;
+    BOOL styleChanged = glass.overrideUserInterfaceStyle != style;
+    if (styleChanged) glass.overrideUserInterfaceStyle = style;
     Class corners = NSClassFromString(@"UICornerConfiguration");
     SEL capsule = sel_registerName("capsuleConfiguration");
     SEL setCorners = sel_registerName("setCornerConfiguration:");
@@ -412,7 +438,7 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
     if (glass.superview != self.bar) [self.bar insertSubview:glass atIndex:0];
     else if (self.bar.subviews.firstObject != glass) [self.bar sendSubviewToBack:glass];
     glass.hidden = NO;
-    if (!glass.effect || resized) {
+    if (!glass.effect || resized || styleChanged) {
         [glass setNeedsLayout];
         [glass layoutIfNeeded];
     }

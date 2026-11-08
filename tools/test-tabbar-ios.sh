@@ -164,7 +164,10 @@ run_variant reference-modern tabbar-reference-results.json --native-reference
 
 python3 - "$work" <<'PY'
 import json
+import statistics
+import struct
 import sys
+import zlib
 from pathlib import Path
 
 root = Path(sys.argv[1])
@@ -181,7 +184,7 @@ for name, path in {
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
 failed = []
-for name, minimum in (("current", 48), ("disabled", 7), ("reference-modern", 2)):
+for name, minimum in (("current", 57), ("disabled", 7), ("reference-modern", 2)):
     report = reports[name]
     if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < minimum:
         failed.append(f"{name} UIKit integration checks failed")
@@ -200,9 +203,150 @@ for name, expected in {
         failed.append(f"{name} did not provide all runloop-settled simctl screenshots")
 
 if reports["current"].get("UIDesignRequiresCompatibility") is not True or \
+        reports["disabled"].get("UIDesignRequiresCompatibility") is not True or \
         reports["reference-modern"].get("UIDesignRequiresCompatibility") is not False or \
         reports["reference-modern"].get("nativeReferenceOnly") is not True:
     failed.append("native compatibility comparison does not have the intended isolated test configuration")
+
+# Decode simctl's 8-bit RGB/RGBA PNGs using only the standard library. Compare
+# pixels from the system compositor, not drawViewHierarchy or object properties.
+def read_system_png(path):
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("not a PNG image")
+    offset, compressed, header = 8, [], None
+    while offset < len(data):
+        size = struct.unpack_from(">I", data, offset)[0]
+        kind = data[offset + 4:offset + 8]
+        payload = data[offset + 8:offset + 8 + size]
+        offset += size + 12
+        if kind == b"IHDR":
+            header = struct.unpack(">IIBBBBB", payload)
+        elif kind == b"IDAT":
+            compressed.append(payload)
+        elif kind == b"IEND":
+            break
+    if not header:
+        raise ValueError("missing PNG header")
+    width, height, depth, color, compression, filtering, interlace = header
+    if depth != 8 or color not in (2, 6) or (compression, filtering, interlace) != (0, 0, 0):
+        raise ValueError(f"unsupported system PNG encoding: {header}")
+    channels = 4 if color == 6 else 3
+    stride = width * channels
+    raw = zlib.decompress(b"".join(compressed))
+    if len(raw) != height * (stride + 1):
+        raise ValueError("unexpected decoded PNG size")
+    rows, previous = [], bytes(stride)
+    for y in range(height):
+        start = y * (stride + 1)
+        method = raw[start]
+        row = bytearray(raw[start + 1:start + 1 + stride])
+        if method == 1:
+            for x in range(channels, stride):
+                row[x] = (row[x] + row[x - channels]) & 255
+        elif method == 2:
+            row = bytearray((value + previous[x]) & 255 for x, value in enumerate(row))
+        elif method in (3, 4):
+            for x in range(stride):
+                left = row[x - channels] if x >= channels else 0
+                above = previous[x]
+                upper_left = previous[x - channels] if x >= channels else 0
+                if method == 3:
+                    prediction = (left + above) // 2
+                else:
+                    p = left + above - upper_left
+                    a, b, c = abs(p - left), abs(p - above), abs(p - upper_left)
+                    prediction = left if a <= b and a <= c else above if b <= c else upper_left
+                row[x] = (row[x] + prediction) & 255
+        elif method != 0:
+            raise ValueError(f"unknown PNG row filter {method}")
+        previous = bytes(row)
+        rows.append(previous)
+    return width, height, channels, rows
+
+
+def compare_reference_pixels(directory, snapshot):
+    phase = snapshot["phase"]
+    width, height, channels, rows = read_system_png(directory / f"{phase}-system-simulator.png")
+    window_width, window_height = snapshot["windowSizePoints"]
+    scale_x, scale_y = width / window_width, height / window_height
+    keys = ("regular", "clear", "regularClearAfter", "nilClear")
+    frames = {key: snapshot[key]["framePoints"] for key in keys}
+    baseline = frames["nilClear"]
+    if any(frame[0] != baseline[0] or frame[2:] != baseline[2:] for frame in frames.values()):
+        raise ValueError("reference capsules do not have identical horizontal geometry")
+    samples = {key: [] for key in keys}
+    # Avoid labels (centered vertically) and rounded corners. All four views
+    # share the same full-height vertical stripe background at each x position.
+    bands = snapshot["pixelComparisonSampleBandsPoints"]
+    for start_y, end_y in bands:
+        for local_y in range(start_y, end_y):
+            for local_x in range(32, int(baseline[2]) - 32):
+                for key, (frame_x, frame_y, _, _) in frames.items():
+                    pixel_x = int((frame_x + local_x + 0.5) * scale_x)
+                    pixel_y = int((frame_y + local_y + 0.5) * scale_y)
+                    if not (0 <= pixel_x < width and 0 <= pixel_y < height):
+                        raise ValueError("reference sample falls outside the system screenshot")
+                    pixel = rows[pixel_y][pixel_x * channels:pixel_x * channels + 3]
+                    samples[key].append(tuple(pixel))
+    if not samples["nilClear"]:
+        raise ValueError("reference sample region is empty")
+    metrics = {}
+    for key, pixels in samples.items():
+        differences = [tuple(abs(a - b) for a, b in zip(pixel, original))
+                       for pixel, original in zip(pixels, samples["nilClear"])]
+        metrics[key] = {
+            "meanAbsoluteRGBDifferenceFromNil": sum(map(sum, differences)) / (3 * len(differences)),
+            "fractionWithChannelDifferenceAtLeast8": sum(max(item) >= 8 for item in differences) / len(differences),
+            "maxChannelStandardDeviation": max(statistics.pstdev(pixel[channel] for pixel in pixels)
+                                               for channel in range(3)),
+            "sampleCount": len(pixels),
+        }
+    material = metrics["regularClearAfter"]
+    # Deliberately conservative evidence gates: a transparent empty shell has
+    # no interior difference; a solid fill erases the stripe color variation.
+    # These checks do not claim subjective visual quality or physical-device QA.
+    visible_material = (material["meanAbsoluteRGBDifferenceFromNil"] > 1.5 and
+                        material["fractionWithChannelDifferenceAtLeast8"] > 0.05 and
+                        material["maxChannelStandardDeviation"] > 8)
+    valid_controls = (snapshot["nilClear"]["effectClass"] == "none" and
+                      snapshot["nilClear"]["backgroundClear"] and
+                      snapshot["nilClear"]["contentBackgroundClear"] and
+                      snapshot["regularClearAfter"]["effectClass"] != "none" and
+                      snapshot["regularClearAfter"]["backgroundClear"] and
+                      snapshot["regularClearAfter"]["contentBackgroundClear"])
+    return {
+        "phase": phase,
+        "UIDesignRequiresCompatibility": snapshot["UIDesignRequiresCompatibility"],
+        "systemScreenshot": f"{phase}-system-simulator.png",
+        "sampleBandsPoints": bands,
+        "horizontalMarginPoints": 32,
+        "metrics": metrics,
+        "validMaterialAndNilControls": valid_controls,
+        "clearAfterHasVisibleMaterialOverTransparentControl": visible_material,
+        "passed": valid_controls and visible_material,
+    }
+
+
+pixel_comparisons = {}
+for name in ("current", "reference-modern"):
+    comparisons = []
+    for phase in ("native-reference-light", "native-reference-dark"):
+        try:
+            snapshot = next(item for item in reports[name]["snapshots"] if item["phase"] == phase)
+            comparison = compare_reference_pixels(root / name, snapshot)
+        except (OSError, ValueError, KeyError, TypeError, StopIteration, struct.error, zlib.error) as error:
+            comparison = {"phase": phase, "passed": False, "error": str(error)}
+        comparisons.append(comparison)
+        if not comparison["passed"]:
+            failed.append(f"{name} {phase}: clear-after is not a verified visible material over the nil-effect control")
+    pixel_comparisons[name] = comparisons
+    result = {"status": "passed" if all(item["passed"] for item in comparisons) else "failed",
+              "scope": "simctl screenshot interior pixels against the same-background nil-effect control",
+              "comparisons": comparisons}
+    (root / name / "native-pixels-results.json").write_text(json.dumps(result, indent=2) + "\n")
+    print(name + " native compositor pixels")
+    print(json.dumps(result, indent=2))
 
 # The old code has an effect view too. Requiring these behavior failures proves
 # the regression suite is sensitive to the actual occlusion and viewport bugs.
@@ -226,6 +370,7 @@ summary = {
     "nativeGlassAvailable": reports["current"].get("nativeGlassAvailable"),
     "referenceModernTotal": reports["reference-modern"].get("total"),
     "referenceModernFailed": reports["reference-modern"].get("failed"),
+    "nativePixelComparisons": pixel_comparisons,
     "systemScreenshotPhases": {name: report.get("systemScreenshotsAcknowledged", [])
                                for name, report in reports.items()},
     "errors": failed,

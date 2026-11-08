@@ -1,17 +1,17 @@
 # Honggo
 
-**插件版本：1.0.2。** 支持 **红果短剧 7.4.3（7.4.3.33）**，主程序 `Eggplant`，原包标识 `com.phoenix.video`，设备架构 `arm64`，部署目标 iOS 15.0.1。当前为 `test` 分支的诊断更新，尚未完成全部回归和真机验收。`Honggo-1.0.2.dylib` 可以单独注入。仓库包含插件源码、构建脚本和本地 IPA 注入工具。
+**插件版本：1.0.3。** 支持 **红果短剧 7.4.3（7.4.3.33）**，主程序 `Eggplant`，原包标识 `com.phoenix.video`，设备架构 `arm64`，部署目标 iOS 15.0.1。当前为 `test` 分支的真机验收候选。`Honggo-1.0.3.dylib` 可以单独注入。仓库包含插件源码、构建脚本和本地 IPA 注入工具。
 
-**当前验证状态：** 1.0.1（`bce3aae`）的底栏 UIKit 回归通过 41/43 项，两项失败仍在定位；1.0.2 继续补充分项诊断与完整模拟器屏幕截图，不将上一版标记为全部通过。进展和证据边界见 [1.0.2 验证记录](docs/REPAIR_1.0.2.md)。
+**修复与验收：** 1.0.2（`ea50d73`）的底栏 UIKit 回归通过 47/48 项；受控测试确认，兼容模式下设置原生效果会给效果视图写回实心背景。1.0.3 在插件自己的效果赋值后清除该背景，并加入原生材质与无效果透明视图的系统截图对照。交付必须同时通过行为回归和图像检查；实际结果见对应提交的 [GitHub Actions](https://github.com/SOLHK/Honggo/actions) 与 [1.0.3 验证记录](docs/REPAIR_1.0.3.md)。模拟器使用受控宿主，不替代真实红果的设备验收。
 
 ## 安装与使用
 
 1. 使用这次核对过的红果短剧 7.4.3 IPA。待签名的宿主主程序需要为 iOS arm64 且 `cryptid=0`。
-2. **支持 dylib 注入的签名器**可以把 `Honggo-1.0.2.dylib` 添加到原 IPA 后签名。Feather 和 Sideloadly 都有添加 dylib 的入口。先用单个插件做基线，便于定位签名或注入问题。[Feather](https://feather.claration.dev/) · [Sideloadly](https://github.com/SideloadlyiOS/Sideloadly-Download)
+2. **支持 dylib 注入的签名器**可以把 `Honggo-1.0.3.dylib` 添加到原 IPA 后签名。Feather 和 Sideloadly 都有添加 dylib 的入口。先用单个插件做基线，便于定位签名或注入问题。[Feather](https://feather.claration.dev/) · [Sideloadly](https://github.com/SideloadlyiOS/Sideloadly-Download)
 3. **只接收 IPA 的签名器**先在电脑上运行以下命令，再导入生成的待签名 IPA。签名器需能为内嵌 dylib 和应用一并重签。源 IPA 不会被覆盖。工具遇到加密包、其他构建号、重复注入或没有足够的 Mach-O 头部空间时会退出。
 
    ```text
-   python tools/prepare_ipa.py "红果短剧_7.4.3.ipa" Honggo-1.0.2.dylib Honggo-1.0.2-unsigned.ipa
+   python tools/prepare_ipa.py "红果短剧_7.4.3.ipa" Honggo-1.0.3.dylib Honggo-1.0.3-unsigned.ipa
    ```
 
 4. 安装后打开 **「我的 → 设置 → Honggo」**（菜单与设置页都会显示插件版本），点击设置列表顶部的菜单，即可看到液态玻璃、广告与弹窗的 15 个开关。导航栏的「Honggo」按钮和双指长按底栏约一秒仍可打开同一个设置页。开关默认关闭，每次改动后从应用切换器彻底退出并重开红果。关闭对应开关并重启可恢复。若启动即退出，使用原 IPA 重新签名安装可撤除插件。
@@ -40,11 +40,11 @@
 | 福利标签引导气泡 | `SSWelfareTabGuideTipManager` |
 | 短剧满意度问卷 | `SSShortVideoSatisfactionSurveyManager` |
 
-底栏使用单一系统玻璃背景，清理嵌套内容容器与已确认的原背景，保留标签按钮、切换、红点和触摸区域。iOS 26+ 使用 `UIGlassEffect` Regular 胶囊材质，旧系统用 UIKit 模糊材质。主列表延伸到底栏背后并补足底部留白；视频页按宿主白字选择深色材质。首帧、布局重置、背景重建和移窗有同步处理，离开时恢复插件拥有的状态。初次改动的根因与范围见 [1.0.1 修复记录](docs/REPAIR_1.0.1.md)，后续失败项及当前验证状态见 [1.0.2 验证记录](docs/REPAIR_1.0.2.md)。宿主启用了 `UIDesignRequiresCompatibility`，本插件保留这个全局选项，需在真机核对系统玻璃的实际渲染及明暗对比。广告和营销开关处理上表列出的本地展示分支。服务端实验、同一广告位的其他入口和未识别的推广仍需逐项补证。付费、激励解锁、系统通知权限与防沉迷流程不属于上表。
+底栏使用单一系统玻璃背景，清理嵌套内容容器与已确认的原背景，保留标签按钮、切换、红点和触摸区域。iOS 26+ 使用 `UIGlassEffect` Regular 胶囊材质，旧系统用 UIKit 模糊材质。主列表延伸到底栏背后并补足底部留白；视频页按宿主白字选择深色材质。首帧、布局重置、背景重建和移窗有同步处理，离开时恢复插件拥有的状态。初次改动的根因与范围见 [1.0.1 修复记录](docs/REPAIR_1.0.1.md)，1.0.2 的实际失败与取证结果见 [历史记录](docs/REPAIR_1.0.2.md)，本轮候选方案和验证边界见 [1.0.3 验证记录](docs/REPAIR_1.0.3.md)。宿主启用了 `UIDesignRequiresCompatibility`，本插件保留这个全局选项，需在真机核对系统玻璃的实际渲染及明暗对比。广告和营销开关处理上表列出的本地展示分支。服务端实验、同一广告位的其他入口和未识别的推广仍需逐项补证。付费、激励解锁、系统通知权限与防沉迷流程不属于上表。
 
 ## 版本约定
 
-产品名称固定为 **Honggo**，设置标题不附加其他名称。分发文件使用 `Honggo-<版本>.dylib`，例如 `Honggo-1.0.2.dylib`。宿主版本 **7.4.3 / 7.4.3.33** 与插件版本分别管理。
+产品名称固定为 **Honggo**，设置标题不附加其他名称。分发文件使用 `Honggo-<版本>.dylib`，例如 `Honggo-1.0.3.dylib`。宿主版本 **7.4.3 / 7.4.3.33** 与插件版本分别管理。
 
 `src/HonggoVersion.h` 是插件版本的唯一来源。设置页面、启动日志、构建产物名和 Mach-O 版本均从它读取。每次修改插件源码、设备构建参数或 IPA 注入逻辑，都必须递增 `MAJOR.MINOR.PATCH`；CI 与更新前提交比较，未递增或版本回退会直接失败。仅补充文档、测试或 CI 验证的提交可沿用正在验证的插件版本。版本格式同时满足 Mach-O 的数值限制。
 
@@ -61,7 +61,7 @@ bash tools/test-tabbar-ios.sh
 - `tools/test-settings-ios.sh` 需要 macOS、Xcode 和已安装的 iOS Simulator runtime。它使用真实 UIKit 与模拟的宿主设置控制器验证菜单注入、重复进入、原有页头保留、菜单点击和开关存储；结果不等于红果短剧真机验收。GitHub Actions 会执行版本递增校验、设备 dylib 编译、UIKit 设置入口与底栏回归，以及 IPA 工具测试。模拟器报告、截图与日志作为独立验证附件上传。
 - `src/TabBar.m` 管底栏和材质。`src/Settings.m` 管设置入口和开关。`src/Ads.m` 集中保存广告营销类、选择器、ABI 与返回值。更新宿主时先从目标主程序重新核对 Objective-C 方法与调用点，再更新构建号和测试矩阵。
 - 插件用 Objective-C runtime 安装 hook，检查方法编码。重签工具更改 bundle identifier 时，插件仍通过主程序名、构建号和底栏类确认宿主。插件链接 Apple 系统库，安装名 `@rpath/Honggo.dylib`，Mach-O `current_version` 使用插件版本。
-- 已检查的原始 IPA SHA-256 为 `37118984f159cc2ac8e30654d35196ea31dbf0e829b2bf081df9fd00ee74b036`。在 GitHub Actions 下载 `Honggo-1.0.2` 时，以附带的 `VERSION`、`source-commit.txt` 和 `SHA256SUMS.txt` 确认版本及来源。GitHub 构建只接触本仓库源码。
+- 已检查的原始 IPA SHA-256 为 `37118984f159cc2ac8e30654d35196ea31dbf0e829b2bf081df9fd00ee74b036`。在 GitHub Actions 下载 `Honggo-1.0.3` 时，以附带的 `VERSION`、`source-commit.txt` 和 `SHA256SUMS.txt` 确认版本及来源。GitHub 构建只接触本仓库源码。
 - 真机回归先保持所有开关关闭，验证冷启动、进入设置、首页、搜索、登录、连续播放和切集。然后逐个开关检查广告触发和恢复。iOS 26 分别检查首页、播放器返回、横竖屏、浅色和深色；在 iOS 15–18 复查模糊材质。分别记录直接注入与预注入 IPA 两条签名路径。设备日志统一用 `[Honggo]` 筛选，初始化日志包含插件版本。
 
 实现方法参考 FanqieX 对单一玻璃背景层和首次布局的处理、Apple UIKit 的公开玻璃 API，以及 FanqieHook 的广告位分类。宿主适配点来自这份 7.4.3 IPA 的方法元数据和调用点检查。[FanqieX 1.6.2 交接](https://github.com/SOLHK/FanqieX/blob/f23fbc7af2ac58123569a9be23ef27f0b5d7fdf2/docs/REPAIR_1.6.2.md) · [Apple UIKit](https://developer.apple.com/videos/play/wwdc2025/284/) · [FanqieHook](https://github.com/afwfv/FanqieHook)
