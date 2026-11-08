@@ -25,7 +25,7 @@ BOOL HGIsEnabled(HGFeature feature);
 IMP HGReplaceMethod(Class target, SEL selector, const char *encoding, IMP replacement);
 void HGInstallAds(void);
 BOOL HGInstallTabBar(void);
-void HGInstallSettings(void);
+BOOL HGInstallSettings(void);
 void HGAttachSettings(UIView *tabBar);
 
 @interface HGSettingsController : UITableViewController

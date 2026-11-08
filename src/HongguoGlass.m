@@ -13,14 +13,23 @@ IMP HGReplaceMethod(Class target, SEL selector, const char *encoding, IMP replac
     return original;
 }
 
+static BOOL HGSettingsInstalled;
+static BOOL HGTabBarInstalled;
+static BOOL HGAdsInstalled;
+
 static BOOL HGInstall(void) {
-    if (!HGInstallTabBar()) {
-        return NO;
+    // Settings must remain discoverable even when the optional tab-bar hook is unavailable.
+    if (!HGSettingsInstalled) {
+        HGSettingsInstalled = HGInstallSettings();
     }
-    HGInstallSettings();
-    HGInstallAds();
-    NSLog(@"[HongguoGlass] 已载入，双指长按底栏打开设置");
-    return YES;
+    if (!HGTabBarInstalled) {
+        HGTabBarInstalled = HGInstallTabBar();
+    }
+    if (HGTabBarInstalled && !HGAdsInstalled) {
+        HGInstallAds();
+        HGAdsInstalled = YES;
+    }
+    return HGSettingsInstalled && HGTabBarInstalled;
 }
 
 __attribute__((constructor)) static void HGStart(void) {
@@ -35,9 +44,15 @@ __attribute__((constructor)) static void HGStart(void) {
         if (!HGInstall()) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (!HGInstall()) {
-                    NSLog(@"[HongguoGlass] 未找到匹配的底栏入口，跳过插件加载");
+                    NSLog(@"[Honggo] 设置菜单入口：%@；底栏入口：%@。已安装部分继续生效。",
+                        HGSettingsInstalled ? @"已安装" : @"未就绪",
+                        HGTabBarInstalled ? @"已安装" : @"未就绪");
+                } else {
+                    NSLog(@"[Honggo] 已载入，请在 我的 → 设置 → Honggo 插件设置 管理开关");
                 }
             });
+        } else {
+            NSLog(@"[Honggo] 已载入，请在 我的 → 设置 → Honggo 插件设置 管理开关");
         }
     }
 }

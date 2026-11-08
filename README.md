@@ -12,7 +12,7 @@
    python tools/prepare_ipa.py "红果短剧_7.4.3.ipa" HongguoGlass.dylib Honggo-unsigned.ipa
    ```
 
-4. 安装后打开「我的 → 设置」，点击导航栏上的「红果插件」。也可用双指长按底栏约一秒。开关默认关闭，每次改动后从应用切换器彻底退出并重开红果。关闭对应开关并重启可恢复。若启动即退出，使用原 IPA 重新签名安装可撤除插件。
+4. 安装后打开 **「我的 → 设置 → Honggo 插件设置」**，点击设置列表顶部的菜单，即可看到液态玻璃、广告与弹窗的 15 个开关。导航栏的「Honggo」按钮和双指长按底栏约一秒仍可打开同一个设置页。开关默认关闭，每次改动后从应用切换器彻底退出并重开红果。关闭对应开关并重启可恢复。若启动即退出，使用原 IPA 重新签名安装可撤除插件。
 
 签名方式的兼容性还受证书、描述文件、应用扩展、签名器版本和安装环境影响。AltStore Classic 和 SideStore 可导入预先处理的 IPA，仍需真机验证对应版本是否正确重签内嵌 dylib。LiveContainer 需要单独验证其加载器和虚拟宿主识别。[AltStore Classic](https://faq.altstore.io/altstore-classic/your-altstore) · [SideStore](https://docs.sidestore.io/docs/faq) · [Apple 签名说明](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles)
 
@@ -43,11 +43,13 @@
 ```sh
 bash tools/build-ios.sh build/HongguoGlass.dylib
 python3 -B -m unittest discover -s tests -v
+bash tools/test-settings-ios.sh
 ```
 
+- `tools/test-settings-ios.sh` 需要 macOS、Xcode 和已安装的 iOS Simulator runtime。它使用真实 UIKit 与模拟的宿主设置控制器验证菜单注入、重复进入、原有页头保留、菜单点击和开关存储；结果不等于红果短剧真机验收。GitHub Actions 会同时执行设备 dylib 编译、模拟器设置入口验证和 IPA 工具测试。
 - `src/TabBar.m` 管底栏和材质。`src/Settings.m` 管设置入口和开关。`src/Ads.m` 集中保存广告营销类、选择器、ABI 与返回值。更新宿主时先从目标主程序重新核对 Objective-C 方法与调用点，再更新构建号和测试矩阵。
 - 插件用 Objective-C runtime 安装 hook，检查方法编码。重签工具更改 bundle identifier 时，插件仍通过主程序名、构建号和底栏类确认宿主。插件链接 Apple 系统库，安装名 `@rpath/HongguoGlass.dylib`。
 - 已检查的原始 IPA SHA-256 为 `37118984f159cc2ac8e30654d35196ea31dbf0e829b2bf081df9fd00ee74b036`。在 GitHub Actions 下载 `HongguoGlass-iPhoneOS` 时，以附带的 `source-commit.txt` 和 `SHA256SUMS.txt` 确认来源。GitHub 构建只接触本仓库源码。
-- 真机回归先保持所有开关关闭，验证冷启动、进入设置、首页、搜索、登录、连续播放和切集。然后逐个开关检查广告触发和恢复。iOS 26 分别检查首页、播放器返回、横竖屏、浅色和深色；在 iOS 15–18 复查模糊材质。分别记录直接注入与预注入 IPA 两条签名路径。设备日志用 `[HongguoGlass]` 筛选，会报告已安装的广告入口数量与签名不匹配的选择器。
+- 真机回归先保持所有开关关闭，验证冷启动、进入设置、首页、搜索、登录、连续播放和切集。然后逐个开关检查广告触发和恢复。iOS 26 分别检查首页、播放器返回、横竖屏、浅色和深色；在 iOS 15–18 复查模糊材质。分别记录直接注入与预注入 IPA 两条签名路径。设备日志用 `[HongguoGlass]` 筛选广告入口数量与签名不匹配的选择器，用 `[Honggo]` 筛选设置菜单与初始化状态。
 
 实现方法参考 FanqieX 对单一玻璃背景层和首次布局的处理、Apple UIKit 的公开玻璃 API，以及 FanqieHook 的广告位分类。宿主适配点来自这份 7.4.3 IPA 的方法元数据和调用点检查。[FanqieX 1.6.2 交接](https://github.com/SOLHK/FanqieX/blob/f23fbc7af2ac58123569a9be23ef27f0b5d7fdf2/docs/REPAIR_1.6.2.md) · [Apple UIKit](https://developer.apple.com/videos/play/wwdc2025/284/) · [FanqieHook](https://github.com/afwfv/FanqieHook)

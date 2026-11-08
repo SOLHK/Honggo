@@ -24,8 +24,22 @@ jobs:
           bash tools/build-ios.sh build/HongguoGlass.dylib
           git rev-parse HEAD > build/source-commit.txt
           (cd build && shasum -a 256 HongguoGlass.dylib > SHA256SUMS.txt)
+      - name: Check settings in UIKit with a simulated host
+        run: bash tools/test-settings-ios.sh
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: HongguoGlass-iPhoneOS
-          path: build/
+          path: |
+            build/HongguoGlass.dylib
+            build/source-commit.txt
+            build/SHA256SUMS.txt
           if-no-files-found: error
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: always()
+        with:
+          name: Honggo-settings-simulator-evidence
+          path: |
+            build/settings-tests/settings-results.json
+            build/settings-tests/simulator.log
+            build/settings-tests/*-simulator.png
+          if-no-files-found: warn
