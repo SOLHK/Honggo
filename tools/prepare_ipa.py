@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a local copy of the supported IPA for an IPA-only signer."""
+"""Prepare a separate unsigned Honggo IPA with the host's native design enabled."""
 
 import argparse
 import copy
@@ -12,7 +12,9 @@ from pathlib import Path
 
 
 APP = "Payload/Eggplant.app"
+INFO_PLIST = f"{APP}/Info.plist"
 EXECUTABLE = f"{APP}/Eggplant"
+NATIVE_DESIGN_KEY = "UIDesignRequiresCompatibility"
 PLUGIN_NAME = "Honggo.dylib"
 PLUGIN_ENTRY = f"{APP}/Frameworks/{PLUGIN_NAME}"
 LOAD_PATH = f"@executable_path/Frameworks/{PLUGIN_NAME}".encode("ascii")
@@ -32,6 +34,18 @@ ZERO_FILL_SECTION_TYPES = {1, 0xC, 0x12}
 MACH_HEADER = struct.Struct("<8I")
 MAX_LOAD_COMMAND_BYTES = 1024 * 1024
 COPY_CHUNK = 1024 * 1024
+
+
+def configure_native_glass(info: dict) -> dict:
+    """Copy metadata and opt the main app into the operating system's design.
+
+    Host identity validation belongs to prepare(); keeping this transformation
+    separate lets the UIKit fixtures exercise the same packaging configuration.
+    This is an app-wide launch setting, independent of the plugin's switches.
+    """
+    configured = info.copy()
+    configured[NATIVE_DESIGN_KEY] = False
+    return configured
 
 
 def read_macho(source, file_size, file_type):
@@ -156,7 +170,8 @@ def prepare(original, plugin, destination):
         for name in names:
             if name.startswith(f"{APP}/".casefold()) and is_honggo_library(name.rsplit("/", 1)[-1].encode("utf-8")):
                 raise ValueError("IPA already contains Honggo or its legacy name; use the original IPA.")
-        info = plistlib.loads(archive.read(f"{APP}/Info.plist"))
+        info_bytes = archive.read(INFO_PLIST)
+        info = plistlib.loads(info_bytes)
         expected = {
             "CFBundleIdentifier": "com.phoenix.video",
             "CFBundleShortVersionString": "7.4.3",
@@ -165,6 +180,14 @@ def prepare(original, plugin, destination):
         }
         if not isinstance(info, dict) or any(info.get(key) != value for key, value in expected.items()):
             raise ValueError("Expected Hongguo 7.4.3 (7.4.3.33), bundle com.phoenix.video.")
+        configured = configure_native_glass(info)
+        # Preserve the original encoding and all other metadata values. If the
+        # app already opts in explicitly, its plist need not be serialized again.
+        configured_bytes = info_bytes if info.get(NATIVE_DESIGN_KEY) is False else plistlib.dumps(
+            configured,
+            fmt=plistlib.FMT_BINARY if info_bytes.startswith(b"bplist00") else plistlib.FMT_XML,
+            sort_keys=False,
+        )
         with archive.open(EXECUTABLE) as source:
             patch = patched_header(source, archive.getinfo(EXECUTABLE).file_size)
 
@@ -175,6 +198,9 @@ def prepare(original, plugin, destination):
                 result.comment = archive.comment
                 for entry in entries:
                     with archive.open(entry) as source, result.open(copy.copy(entry), "w") as target:
+                        if entry.filename == INFO_PLIST:
+                            target.write(configured_bytes)
+                            continue
                         if entry.filename == EXECUTABLE:
                             source.read(len(patch))
                             target.write(patch)
@@ -196,13 +222,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("original", type=Path, help="Original local Hongguo IPA")
     parser.add_argument("plugin", type=Path, help="Honggo-VERSION.dylib built from this project")
-    parser.add_argument("destination", type=Path, help="New IPA path, to be re-signed")
+    parser.add_argument("destination", type=Path, help="New IPA path with native app design enabled, to be re-signed")
     args = parser.parse_args()
     try:
         prepare(args.original, args.plugin, args.destination)
     except (OSError, ValueError, KeyError, RuntimeError, zipfile.BadZipFile) as error:
         parser.exit(1, f"Prepare failed: {error}\n")
     print(f"Prepared {args.destination}. Re-sign the application and its embedded code before installation.")
+    print("The source IPA is unchanged. UIDesignRequiresCompatibility is false in the new main app's Info.plist.")
+    print("This app-wide design setting remains enabled when Honggo's bottom-bar switch is off.")
 
 
 if __name__ == "__main__":

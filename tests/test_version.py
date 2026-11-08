@@ -58,6 +58,16 @@ class PluginVersionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "increase HG_PLUGIN_VERSION"):
             versions.check_increment(self.root, baseline)
 
+    def test_requires_a_bump_when_ipa_preparation_changes(self):
+        (self.root / "tools").mkdir()
+        (self.root / "tools/prepare_ipa.py").write_text("# original packaging\n")
+        baseline = self.commit_baseline("1.0.3")
+        (self.root / "tools/prepare_ipa.py").write_text("# changed host design metadata\n")
+        with self.assertRaisesRegex(ValueError, "increase HG_PLUGIN_VERSION"):
+            versions.check_increment(self.root, baseline)
+        self.set_version("1.0.4")
+        self.assertEqual(versions.check_increment(self.root, baseline)[0], "1.0.4")
+
     def test_allows_verification_only_commits_to_reuse_the_release(self):
         baseline = self.commit_baseline("1.0.1")
         (self.root / "README.md").write_text("New verification evidence\n")

@@ -32,3 +32,11 @@
 - 记录当前插件底栏在浅色、视频深色、列表底部及重新挂窗后的表现，核对文字、按钮、红点和滚动末项。
 
 底栏和设置检查在两个独立模拟器任务中并行运行，设备构建与产物上传依赖两者成功。系统截图、像素比较结果和完整回归 JSON 随 CI 保留。UIKit 模拟器使用受控宿主模型，仍不替代红果 IPA 的真机验收。
+
+## 后续验收结果
+
+`80321f1` 的实际 CI 未通过：底栏行为检查为 **56/57**，移窗后的材质公开状态检查失败（检查同时包含 `opaque` 与背景透明度，旧记录无法细分失败字段）；关闭开关为 **7/7**，设置入口为 **21/21**。旧源码负对照检出 36 项失败。
+
+更关键的失败来自系统截图：在 `UIDesignRequiresCompatibility=true` 的浅色和深色参照中，效果赋值后清背景的 Regular 视图，与同位置背景的 `effect=nil` 视图采样 RGB 差值均为 **0**。这表明该局部方案产生了透明空壳，没有恢复原生材质。相同原生参照设置 `UIDesignRequiresCompatibility=false` 后，浅色和深色均通过材质与透明对照的像素检查。
+
+证据位于该次 Actions 的 `tabbar-suite-results.json`、`current/native-pixels-results.json`、`reference-modern/native-pixels-results.json` 及对应 `*-system-simulator.png`。因此 1.0.3 不能作为液态玻璃修复成功的版本；后续 [1.0.4](REPAIR_1.0.4.md) 改用明确的宿主打包配置与兼容模式模糊回退。

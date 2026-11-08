@@ -26,12 +26,15 @@ build_variant() {
         "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
         "$source_root/src/Settings.m" "$tabbar_source" \
         "$source_root/tests/TabBarIntegration.m" -o "$app/HGTabBarTests"
-    python3 - "$app/Info.plist" "$bundle_id" <<'PY'
+    python3 - "$app/Info.plist" "$bundle_id" "$source_root" <<'PY'
 import plistlib
 import sys
 from pathlib import Path
 
-Path(sys.argv[1]).write_bytes(plistlib.dumps({
+sys.path.insert(0, sys.argv[3])
+from tools.prepare_ipa import configure_native_glass
+
+original_info = {
     "CFBundleIdentifier": sys.argv[2],
     "CFBundleName": "Honggo",
     "CFBundleExecutable": "HGTabBarTests",
@@ -43,34 +46,52 @@ Path(sys.argv[1]).write_bytes(plistlib.dumps({
     "MinimumOSVersion": "15.0",
     "UIDeviceFamily": [1, 2],
     "UILaunchScreen": {},
-    # The supported IPA opts into compatibility globally. Explicit glass must
-    # still be validated under that condition; do not alter the host-wide flag.
+    # Start from the original host's old design, then consume the exact shared
+    # metadata transformation used by the real pre-signing IPA preparation.
     "UIDesignRequiresCompatibility": True,
     "UIApplicationSceneManifest": {"UIApplicationSupportsMultipleScenes": False},
     "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"],
-}))
+}
+prepared_info = configure_native_glass(original_info)
+assert original_info["UIDesignRequiresCompatibility"] is True
+assert prepared_info["UIDesignRequiresCompatibility"] is False
+Path(sys.argv[1]).write_bytes(plistlib.dumps(prepared_info))
 PY
     codesign --force --sign - "$app"
 }
 
 build_variant current "$source_root/src/TabBar.m"
 build_variant legacy "$work/legacy/TabBar.m"
-# A separate test application changes only the global compatibility flag and
-# bundle identity. Its --native-reference mode does not install Honggo hooks.
-mkdir -p "$work/reference-modern/HGTabBarTests.app"
-cp -R "$work/current/HGTabBarTests.app/." "$work/reference-modern/HGTabBarTests.app/"
-python3 - "$work/reference-modern/HGTabBarTests.app/Info.plist" <<'PY'
+# Reuse the compiled test executable. Reference modes install no Honggo hooks;
+# the unprepared fallback runs only its compact behavior and compositor checks.
+clone_variant() {
+    local variant=$1
+    local preparation=$2
+    local app="$work/$variant/HGTabBarTests.app"
+    mkdir -p "$app"
+    cp -R "$work/current/HGTabBarTests.app/." "$app/"
+    python3 - "$app/Info.plist" "$variant" "$preparation" "$source_root" <<'PY'
 import plistlib
 import sys
 from pathlib import Path
 
+sys.path.insert(0, sys.argv[4])
+from tools.prepare_ipa import configure_native_glass
+
 path = Path(sys.argv[1])
 info = plistlib.loads(path.read_bytes())
-info["CFBundleIdentifier"] = "org.honggo.tabbar.tests.reference-modern"
-info["UIDesignRequiresCompatibility"] = False
+info["CFBundleIdentifier"] = f"org.honggo.tabbar.tests.{sys.argv[2]}"
+if sys.argv[3] == "prepared":
+    info = configure_native_glass(info)
+else:
+    info["UIDesignRequiresCompatibility"] = True
 path.write_bytes(plistlib.dumps(info))
 PY
-codesign --force --sign - "$work/reference-modern/HGTabBarTests.app"
+    codesign --force --sign - "$app"
+}
+clone_variant reference-modern prepared
+clone_variant reference-compat unprepared
+clone_variant fallback unprepared
 xcrun simctl list --json > "$work/simulators.json"
 selection=$(python3 - "$work/simulators.json" <<'PY'
 import json
@@ -127,7 +148,7 @@ run_variant() {
             local phase
             phase=$(tr -d '\r\n' < "$data_directory/Documents/tabbar-capture-phase.txt")
             case "$phase" in
-                tabbar-light|tabbar-dark|tabbar-scroll|tabbar-disabled|native-reference-light|native-reference-dark)
+                tabbar-light|tabbar-dark|tabbar-scroll|tabbar-disabled|tabbar-material-light|tabbar-material-dark|native-reference-light|native-reference-dark)
                     if [ "$phase" != "$captured_phase" ]; then
                         xcrun simctl io "$device_id" screenshot "$work/$variant/$phase-system-simulator.png"
                         printf '%s\n' "$phase" > "$data_directory/Documents/tabbar-capture-ack.txt"
@@ -161,6 +182,8 @@ run_variant current tabbar-results.json
 run_variant current tabbar-disabled-results.json --glass-off
 run_variant legacy tabbar-results.json --legacy-control
 run_variant reference-modern tabbar-reference-results.json --native-reference
+run_variant reference-compat tabbar-reference-results.json --native-reference
+run_variant fallback tabbar-fallback-results.json --compat-fallback
 
 python3 - "$work" <<'PY'
 import json
@@ -177,6 +200,8 @@ for name, path in {
     "disabled": root / "current/tabbar-disabled-results.json",
     "legacy": root / "legacy/tabbar-results.json",
     "reference-modern": root / "reference-modern/tabbar-reference-results.json",
+    "reference-compat": root / "reference-compat/tabbar-reference-results.json",
+    "fallback": root / "fallback/tabbar-fallback-results.json",
 }.items():
     report = json.loads(path.read_text())
     reports[name] = report
@@ -184,16 +209,20 @@ for name, path in {
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
 failed = []
-for name, minimum in (("current", 57), ("disabled", 7), ("reference-modern", 2)):
+for name, minimum in (("current", 59), ("disabled", 7), ("reference-modern", 2),
+                      ("reference-compat", 2), ("fallback", 10)):
     report = reports[name]
     if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < minimum:
         failed.append(f"{name} UIKit integration checks failed")
 
 for name, expected in {
-    "current": ("tabbar-light", "tabbar-dark", "tabbar-scroll", "native-reference-light", "native-reference-dark"),
+    "current": ("tabbar-light", "tabbar-dark", "tabbar-scroll", "tabbar-material-light", "tabbar-material-dark",
+                "native-reference-light", "native-reference-dark"),
     "disabled": ("tabbar-disabled",),
     "legacy": ("tabbar-light", "tabbar-dark", "tabbar-scroll", "native-reference-light", "native-reference-dark"),
     "reference-modern": ("native-reference-light", "native-reference-dark"),
+    "reference-compat": ("native-reference-light", "native-reference-dark"),
+    "fallback": ("tabbar-material-light", "tabbar-material-dark"),
 }.items():
     directory = root / ("current" if name == "disabled" else name)
     acknowledged = reports[name].get("systemScreenshotsAcknowledged", [])
@@ -202,11 +231,16 @@ for name, expected in {
     ):
         failed.append(f"{name} did not provide all runloop-settled simctl screenshots")
 
-if reports["current"].get("UIDesignRequiresCompatibility") is not True or \
-        reports["disabled"].get("UIDesignRequiresCompatibility") is not True or \
+if reports["current"].get("UIDesignRequiresCompatibility") is not False or \
+        reports["disabled"].get("UIDesignRequiresCompatibility") is not False or \
+        reports["legacy"].get("UIDesignRequiresCompatibility") is not False or \
         reports["reference-modern"].get("UIDesignRequiresCompatibility") is not False or \
-        reports["reference-modern"].get("nativeReferenceOnly") is not True:
-    failed.append("native compatibility comparison does not have the intended isolated test configuration")
+        reports["reference-modern"].get("nativeReferenceOnly") is not True or \
+        reports["reference-compat"].get("UIDesignRequiresCompatibility") is not True or \
+        reports["reference-compat"].get("nativeReferenceOnly") is not True or \
+        reports["fallback"].get("UIDesignRequiresCompatibility") is not True or \
+        reports["fallback"].get("compatibilityFallbackOnly") is not True:
+    failed.append("prepared, compatibility-negative, and fallback modes do not have their intended isolated metadata")
 
 # Decode simctl's 8-bit RGB/RGBA PNGs using only the standard library. Compare
 # pixels from the system compositor, not drawViewHierarchy or object properties.
@@ -265,12 +299,13 @@ def read_system_png(path):
     return width, height, channels, rows
 
 
-def compare_reference_pixels(directory, snapshot):
+def compare_material_pixels(directory, snapshot, *, host_material=False, expect_unsupported=False):
     phase = snapshot["phase"]
     width, height, channels, rows = read_system_png(directory / f"{phase}-system-simulator.png")
     window_width, window_height = snapshot["windowSizePoints"]
     scale_x, scale_y = width / window_width, height / window_height
-    keys = ("regular", "clear", "regularClearAfter", "nilClear")
+    keys = ("plugin", "nilClear") if host_material else ("regular", "clear", "regularClearAfter", "nilClear")
+    material_key = "plugin" if host_material else "regularClearAfter"
     frames = {key: snapshot[key]["framePoints"] for key in keys}
     baseline = frames["nilClear"]
     if any(frame[0] != baseline[0] or frame[2:] != baseline[2:] for frame in frames.values()):
@@ -302,7 +337,7 @@ def compare_reference_pixels(directory, snapshot):
                                                for channel in range(3)),
             "sampleCount": len(pixels),
         }
-    material = metrics["regularClearAfter"]
+    material = metrics[material_key]
     # Deliberately conservative evidence gates: a transparent empty shell has
     # no interior difference; a solid fill erases the stripe color variation.
     # These checks do not claim subjective visual quality or physical-device QA.
@@ -312,9 +347,34 @@ def compare_reference_pixels(directory, snapshot):
     valid_controls = (snapshot["nilClear"]["effectClass"] == "none" and
                       snapshot["nilClear"]["backgroundClear"] and
                       snapshot["nilClear"]["contentBackgroundClear"] and
-                      snapshot["regularClearAfter"]["effectClass"] != "none" and
-                      snapshot["regularClearAfter"]["backgroundClear"] and
-                      snapshot["regularClearAfter"]["contentBackgroundClear"])
+                      snapshot["nilClear"]["viewClass"] == "UIVisualEffectView" and
+                      snapshot[material_key]["effectClass"] != "none" and
+                      snapshot[material_key]["backgroundClear"] and
+                      snapshot[material_key]["contentBackgroundClear"])
+    unsupported_evidence = None
+    if host_material:
+        valid_controls = valid_controls and all(snapshot.get(key) is True for key in (
+            "effectMatchesExpectedClass", "hostInstalledSurface", "materialBelowHostContent",
+            "originalContentParent", "originalButtonParent", "originalControlsVisible"))
+        valid_controls = valid_controls and snapshot["foregroundStyle"] == (2 if phase.endswith("-dark") else 1)
+        expected = "visible-host-blur" if snapshot["UIDesignRequiresCompatibility"] else "visible-host-native-glass"
+        passes = valid_controls and visible_material
+    elif expect_unsupported:
+        # Retain the failed 1.0.3 experiment as a strict prerequisite negative
+        # control. In compatibility mode, clearing the fallback fill must be
+        # observed to produce an empty shell, not counted as usable glass.
+        defaults_are_solid = all(metrics[key]["maxChannelStandardDeviation"] < 1 and
+                                 snapshot[key]["surfaceColors"]["background"]["resolvedAlpha"] > 0.99
+                                 for key in ("regular", "clear"))
+        cleared_is_empty = (material["meanAbsoluteRGBDifferenceFromNil"] <= 0.5 and
+                            material["fractionWithChannelDifferenceAtLeast8"] <= 0.001)
+        unsupported_evidence = {"originalRegularAndClearAreSolid": defaults_are_solid,
+                                "clearAfterMatchesNilControl": cleared_is_empty}
+        expected = "unsupported-native-clears-to-empty-shell"
+        passes = valid_controls and defaults_are_solid and cleared_is_empty and not visible_material
+    else:
+        expected = "visible-public-native-glass"
+        passes = valid_controls and visible_material
     return {
         "phase": phase,
         "UIDesignRequiresCompatibility": snapshot["UIDesignRequiresCompatibility"],
@@ -322,30 +382,52 @@ def compare_reference_pixels(directory, snapshot):
         "sampleBandsPoints": bands,
         "horizontalMarginPoints": 32,
         "metrics": metrics,
+        "expectedOutcome": expected,
+        "unsupportedNativeEvidence": unsupported_evidence,
         "validMaterialAndNilControls": valid_controls,
-        "clearAfterHasVisibleMaterialOverTransparentControl": visible_material,
-        "passed": valid_controls and visible_material,
+        "hasVisibleMaterialOverTransparentControl": visible_material,
+        "passed": passes,
     }
 
 
 pixel_comparisons = {}
-for name in ("current", "reference-modern"):
+for name in ("current", "reference-modern", "reference-compat"):
     comparisons = []
     for phase in ("native-reference-light", "native-reference-dark"):
         try:
             snapshot = next(item for item in reports[name]["snapshots"] if item["phase"] == phase)
-            comparison = compare_reference_pixels(root / name, snapshot)
+            comparison = compare_material_pixels(root / name, snapshot, expect_unsupported=name == "reference-compat")
         except (OSError, ValueError, KeyError, TypeError, StopIteration, struct.error, zlib.error) as error:
             comparison = {"phase": phase, "passed": False, "error": str(error)}
         comparisons.append(comparison)
         if not comparison["passed"]:
-            failed.append(f"{name} {phase}: clear-after is not a verified visible material over the nil-effect control")
+            failed.append(f"{name} {phase}: native material does not satisfy its positive/negative compositor expectation")
     pixel_comparisons[name] = comparisons
     result = {"status": "passed" if all(item["passed"] for item in comparisons) else "failed",
               "scope": "simctl screenshot interior pixels against the same-background nil-effect control",
               "comparisons": comparisons}
     (root / name / "native-pixels-results.json").write_text(json.dumps(result, indent=2) + "\n")
     print(name + " native compositor pixels")
+    print(json.dumps(result, indent=2))
+
+host_pixel_comparisons = {}
+for name in ("current", "fallback"):
+    comparisons = []
+    for phase in ("tabbar-material-light", "tabbar-material-dark"):
+        try:
+            snapshot = next(item for item in reports[name]["snapshots"] if item["phase"] == phase)
+            comparison = compare_material_pixels(root / name, snapshot, host_material=True)
+        except (OSError, ValueError, KeyError, TypeError, StopIteration, struct.error, zlib.error) as error:
+            comparison = {"phase": phase, "passed": False, "error": str(error)}
+        comparisons.append(comparison)
+        if not comparison["passed"]:
+            failed.append(f"{name} {phase}: actual host material is not visibly distinct from a transparent or solid surface")
+    host_pixel_comparisons[name] = comparisons
+    result = {"status": "passed" if all(item["passed"] for item in comparisons) else "failed",
+              "scope": "actual Honggo backdrop installed through SSTabBar hooks, beside a nil-effect control",
+              "comparisons": comparisons}
+    (root / name / "host-material-pixels-results.json").write_text(json.dumps(result, indent=2) + "\n")
+    print(name + " actual host compositor pixels")
     print(json.dumps(result, indent=2))
 
 # The old code has an effect view too. Requiring these behavior failures proves
@@ -370,7 +452,12 @@ summary = {
     "nativeGlassAvailable": reports["current"].get("nativeGlassAvailable"),
     "referenceModernTotal": reports["reference-modern"].get("total"),
     "referenceModernFailed": reports["reference-modern"].get("failed"),
+    "referenceCompatibilityTotal": reports["reference-compat"].get("total"),
+    "referenceCompatibilityFailed": reports["reference-compat"].get("failed"),
+    "fallbackTotal": reports["fallback"].get("total"),
+    "fallbackFailed": reports["fallback"].get("failed"),
     "nativePixelComparisons": pixel_comparisons,
+    "hostPixelComparisons": host_pixel_comparisons,
     "systemScreenshotPhases": {name: report.get("systemScreenshotsAcknowledged", [])
                                for name, report in reports.items()},
     "errors": failed,

@@ -123,6 +123,15 @@ static NSDictionary *HGMaterialFacts(UIVisualEffectView *view) {
     };
 }
 
+static NSDictionary *HGMaterialFactsInWindow(UIVisualEffectView *view, UIWindow *window) {
+    NSMutableDictionary *facts = [HGMaterialFacts(view) mutableCopy];
+    CGRect frame = [view convertRect:view.bounds toView:window];
+    facts[@"framePoints"] = @[@(frame.origin.x), @(frame.origin.y),
+        @(frame.size.width), @(frame.size.height)];
+    facts[@"samplingCoordinateSpace"] = @"window";
+    return facts;
+}
+
 static BOOL HGBackgroundPathIsClear(UIView *view, UIView *last) {
     for (UIView *current = view; current; current = current.superview) {
         if (!HGColorIsClear(current.backgroundColor, current.traitCollection) || current.opaque) {
@@ -208,6 +217,7 @@ static UIImage *HGWhiteImage(void) {
 }
 
 @interface HGPatternView : UIView
+@property(nonatomic) BOOL verticalReferencePattern;
 @end
 
 @implementation HGPatternView
@@ -218,6 +228,16 @@ static UIImage *HGWhiteImage(void) {
         [UIColor colorWithRed:0.18 green:0.63 blue:0.47 alpha:1],
         [UIColor colorWithRed:0.75 green:0.31 blue:0.42 alpha:1]
     ];
+    if (self.verticalReferencePattern) {
+        CGFloat width = self.bounds.size.width;
+        for (NSUInteger index = 0; index < 8; index++) {
+            [colors[index % colors.count] setFill];
+            UIRectFill(CGRectMake(index * width / 8, 0, width / 8, self.bounds.size.height));
+            [UIColor.whiteColor setFill];
+            UIRectFill(CGRectMake(index * width / 8, 0, 3, self.bounds.size.height));
+        }
+        return;
+    }
     CGFloat rowHeight = 96;
     for (NSInteger row = 0; row * rowHeight < self.bounds.size.height; row++) {
         [colors[(NSUInteger)row % colors.count] setFill];
@@ -459,9 +479,9 @@ static UIImage *HGWhiteImage(void) {
     self.view.backgroundColor = self.mediaAppearance ? UIColor.blackColor : UIColor.whiteColor;
     self.viewport.backgroundColor = self.view.backgroundColor;
     self.primaryFeed.backgroundColor = self.view.backgroundColor;
-    self.pattern.hidden = self.mediaAppearance;
-    self.carousel.hidden = self.mediaAppearance;
-    self.mediaTitle.hidden = !self.mediaAppearance;
+    self.pattern.hidden = self.mediaAppearance && !self.pattern.verticalReferencePattern;
+    self.carousel.hidden = self.mediaAppearance || self.pattern.verticalReferencePattern;
+    self.mediaTitle.hidden = !self.mediaAppearance || self.pattern.verticalReferencePattern;
     [self.customTabBar setNeedsLayout];
     [self.customTabBar layoutIfNeeded];
 }
@@ -485,10 +505,12 @@ static UIImage *HGWhiteImage(void) {
 @property(nonatomic, strong) UIVisualEffectView *referenceRegularClearAfter;
 @property(nonatomic, strong) UIVisualEffectView *referenceNilClear;
 @property(nonatomic, strong) NSDictionary *referenceClearAfterAssignment;
+@property(nonatomic, strong) UIVisualEffectView *hostNilControl;
 @property(nonatomic) BOOL glassDisabled;
 @property(nonatomic) BOOL legacyControl;
 @property(nonatomic) BOOL nativeGlassAvailable;
 @property(nonatomic) BOOL nativeReferenceOnly;
+@property(nonatomic) BOOL compatibilityFallbackOnly;
 @end
 
 @implementation HGTabBarTests
@@ -531,6 +553,20 @@ static UIImage *HGWhiteImage(void) {
         @"originalContentParent": @(bar.contentView.superview == bar.shell),
         @"originalButtonParent": @(bar.items.firstObject.superview == bar.contentView),
         @"titles": titles
+    }];
+}
+- (void)snapshotSurface:(UIVisualEffectView *)surface phase:(NSString *)phase expectedWindow:(UIWindow *)window {
+    [self.snapshots addObject:@{
+        @"phase": phase,
+        @"surfacePresent": @(surface != nil),
+        @"opaque": @(surface.opaque),
+        @"ownBackgroundClear": @(HGColorIsClear(surface.backgroundColor, surface.traitCollection)),
+        @"contentBackgroundClear": @(HGColorIsClear(surface.contentView.backgroundColor,
+            surface.contentView.traitCollection)),
+        @"publicSurfaceClear": @(HGPublicSurfaceIsClear(surface)),
+        @"effectPresent": @(surface.effect != nil),
+        @"inExpectedWindow": @(surface.window == window),
+        @"materialFacts": HGMaterialFacts(surface)
     }];
 }
 - (NSURL *)outputURL:(NSString *)name {
@@ -579,6 +615,7 @@ static UIImage *HGWhiteImage(void) {
     self.glassDisabled = [NSProcessInfo.processInfo.arguments containsObject:@"--glass-off"];
     self.legacyControl = [NSProcessInfo.processInfo.arguments containsObject:@"--legacy-control"];
     self.nativeReferenceOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--native-reference"];
+    self.compatibilityFallbackOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--compat-fallback"];
     Class glass = NSClassFromString(@"UIGlassEffect");
     self.nativeGlassAvailable = [glass respondsToSelector:sel_registerName("effectWithStyle:")];
     [NSUserDefaults.standardUserDefaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
@@ -615,6 +652,8 @@ static UIImage *HGWhiteImage(void) {
         @try {
             if (self.glassDisabled) {
                 [self runDisabledChecks];
+            } else if (self.compatibilityFallbackOnly) {
+                [self runFallbackChecks];
             } else {
                 [self runGlassChecks];
             }
@@ -645,6 +684,37 @@ static UIImage *HGWhiteImage(void) {
     }
     [self check:settingsGesture name:@"settings fallback stays discoverable with glass disabled"];
     [self capture:@"tabbar-disabled-simulator.png"];
+}
+- (void)runFallbackChecks {
+    [self layoutHost];
+    SSTabBar *bar = self.host.customTabBar;
+    UIVisualEffectView *surface = HGEffects(bar).firstObject;
+    [self snapshot:@"compatibility-fallback-initial"];
+    [self check:[[NSBundle.mainBundle objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] boolValue]
+        name:@"the unprepared fallback host retains its compatibility metadata"];
+    [self check:HGEffects(bar).count == 1 && [surface.effect isKindOfClass:UIBlurEffect.class] &&
+        ![surface.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")] &&
+        HGEffectSpyInstalled && HGEffectSetterCount(surface, YES) > 0
+        name:@"an unprepared host installs a real UIBlurEffect instead of claiming native glass"];
+    [self check:HGBackgroundPathIsClear(bar.contentView, bar) &&
+        HGEffectivelyHidden(bar.backgroundImageView) && HGIsBelowContent(surface, bar.contentView)
+        name:@"fallback material stays behind clear host wrappers and visible controls"];
+    [self check:bar.contentView.superview == bar.shell && bar.items.firstObject.superview == bar.contentView &&
+        !HGEffectivelyHidden(bar.items.firstObject) && !HGEffectivelyHidden(bar.gestureTitle) &&
+        !HGEffectivelyHidden(bar.badge) && !HGEffectivelyHidden(bar.gestureBadge) &&
+        [bar.gestureBadge.backgroundColor isEqual:UIColor.systemOrangeColor]
+        name:@"fallback preserves original control parents labels and colored badges"];
+    CGFloat extension = self.host.primaryFeed.bounds.size.height - CGRectGetMinY(bar.frame);
+    [self check:[self mainFeedReachesBottom] && extension > 40 &&
+        fabs(self.host.primaryFeed.contentInset.bottom - (12 + extension)) < 0.75 &&
+        fabs(self.host.primaryFeed.verticalScrollIndicatorInsets.bottom - (9 + extension)) < 0.75
+        name:@"fallback exposes background content behind the capsule without accumulating insets"];
+    NSUInteger taps = bar.taps;
+    [bar.items[3] sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [self.host setCustomTabBarAppearance];
+    [self check:bar.taps == taps + 1 && bar.selectedIndex == 3 && bar.items[3].selected &&
+        bar.items[3].enabled && bar.items[3].userInteractionEnabled
+        name:@"fallback keeps the original tab selection action usable"];
 }
 - (void)runGlassChecks {
     [self layoutHost];
@@ -1012,6 +1082,7 @@ static UIImage *HGWhiteImage(void) {
     // explicit removal step in which the plugin can assume it saw window=nil.
     [otherRoot.view addSubview:bar];
     UIVisualEffectView *movedSurface = HGEffects(bar).firstObject;
+    [self snapshotSurface:movedSurface phase:@"direct-cross-window-immediate" expectedWindow:other];
     [self check:[self originalFlexibleGeometryRestored] && HGEffects(bar).count == 1 &&
         movedSurface.window == other && movedSurface.effect != nil &&
         (!self.nativeGlassAvailable ||
@@ -1042,6 +1113,7 @@ static UIImage *HGWhiteImage(void) {
         fabs(feed.verticalScrollIndicatorInsets.right - 11) < 0.01
         name:@"detaching restores only owned bottom insets and preserves the latest host edges"];
     [otherRoot.view addSubview:bar];
+    [self snapshotSurface:HGEffects(bar).firstObject phase:@"detached-remount-immediate" expectedWindow:other];
     [self check:HGEffects(bar).count == 1 && HGEffects(bar).firstObject.effect != nil &&
         HGEffects(bar).firstObject.window == other && HGBackgroundPathIsClear(bar.contentView, bar) &&
         bar.originalWindowMoves >= windowMoves + 2
@@ -1050,9 +1122,11 @@ static UIImage *HGWhiteImage(void) {
         name:@"remounting after a detach keeps both public material backgrounds clear"];
     [bar removeFromSuperview];
     [self.host.view addSubview:bar];
+    [self snapshotSurface:HGEffects(bar).firstObject phase:@"return-to-original-immediate" expectedWindow:self.window];
     other.hidden = YES;
     [self.window makeKeyAndVisible];
     [self layoutHost];
+    [self snapshotSurface:HGEffects(bar).firstObject phase:@"return-to-original-after-host-layout" expectedWindow:self.window];
     [self check:HGEffects(bar).count == 1 && HGEffects(bar).firstObject.effect != nil &&
         HGEffects(bar).firstObject.window == self.window &&
         !HGEffectivelyHidden(bar.badge) && bar.contentView.superview == bar.shell
@@ -1064,7 +1138,11 @@ static UIImage *HGWhiteImage(void) {
 - (NSArray<NSString *> *)systemCapturePhases {
     if (self.nativeReferenceOnly) return @[@"native-reference-light", @"native-reference-dark"];
     if (self.glassDisabled) return @[@"tabbar-disabled"];
+    if (self.compatibilityFallbackOnly) return @[@"tabbar-material-light", @"tabbar-material-dark"];
+    if (self.legacyControl) return @[@"tabbar-light", @"tabbar-dark", @"tabbar-scroll",
+        @"native-reference-light", @"native-reference-dark"];
     return @[@"tabbar-light", @"tabbar-dark", @"tabbar-scroll",
+        @"tabbar-material-light", @"tabbar-material-dark",
         @"native-reference-light", @"native-reference-dark"];
 }
 - (UIVisualEffectView *)makeNativeReferenceStyle:(NSInteger)style frame:(CGRect)frame
@@ -1162,6 +1240,54 @@ static UIImage *HGWhiteImage(void) {
         @"afterPublicBackgroundClear": HGSurfaceColorFacts(self.referenceRegularClearAfter)
     };
 }
+- (void)prepareHostMaterialControl {
+    UIVisualEffectView *surface = HGEffects(self.host.customTabBar).firstObject;
+    CGRect frame = [surface convertRect:surface.bounds toView:self.host.view];
+    CGRect nilFrame = CGRectOffset(frame, 0, -68);
+    if (!self.hostNilControl) {
+        self.hostNilControl = [self makeNativeReferenceStyle:0 frame:nilFrame
+            title:@"nil effect · transparent control" materialEnabled:NO];
+        self.hostNilControl.userInteractionEnabled = NO;
+        self.hostNilControl.backgroundColor = UIColor.clearColor;
+        self.hostNilControl.opaque = NO;
+        self.hostNilControl.contentView.backgroundColor = UIColor.clearColor;
+        self.hostNilControl.contentView.opaque = NO;
+        [self.host.view addSubview:self.hostNilControl];
+    }
+    self.hostNilControl.frame = nilFrame;
+    self.hostNilControl.hidden = NO;
+    self.hostNilControl.overrideUserInterfaceStyle = surface.traitCollection.userInterfaceStyle;
+}
+- (void)snapshotHostMaterialProbe:(NSString *)phase {
+    SSTabBar *bar = self.host.customTabBar;
+    UIVisualEffectView *surface = HGEffects(bar).firstObject;
+    Class expectedEffectClass = self.compatibilityFallbackOnly ? UIBlurEffect.class : NSClassFromString(@"UIGlassEffect");
+    BOOL originalControlsVisible = !HGEffectivelyHidden(bar.items[0]) &&
+        !HGEffectivelyHidden(bar.items[1]) && !HGEffectivelyHidden(bar.items[3]) &&
+        !HGEffectivelyHidden(bar.gestureTitle) && !HGEffectivelyHidden(bar.badge) &&
+        !HGEffectivelyHidden(bar.gestureBadge);
+    [self.snapshots addObject:@{
+        @"phase": phase,
+        @"pixelComparisonKind": @"actual-host-tabbar",
+        @"expectedEffectClass": self.compatibilityFallbackOnly ? @"UIBlurEffect" : @"UIGlassEffect",
+        @"effectMatchesExpectedClass": @([surface.effect isKindOfClass:expectedEffectClass]),
+        @"UIDesignRequiresCompatibility": @([[NSBundle.mainBundle
+            objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] boolValue]),
+        @"plugin": HGMaterialFactsInWindow(surface, self.window),
+        @"nilClear": HGMaterialFactsInWindow(self.hostNilControl, self.window),
+        @"hostInstalledSurface": @(HGEffects(bar).count == 1 &&
+            [surface.accessibilityIdentifier isEqualToString:@"honggo.tabbar.glass"] &&
+            [surface isDescendantOfView:bar]),
+        @"materialBelowHostContent": @(HGIsBelowContent(surface, bar.contentView)),
+        @"originalContentParent": @(bar.contentView.superview == bar.shell),
+        @"originalButtonParent": @(bar.items.firstObject.superview == bar.contentView),
+        @"originalControlsVisible": @(originalControlsVisible),
+        @"foregroundStyle": @(surface.traitCollection.userInterfaceStyle),
+        @"windowSizePoints": @[@(self.window.bounds.size.width), @(self.window.bounds.size.height)],
+        // Avoid the host badges at y=11..18 as well as the centered tab titles.
+        @"pixelComparisonSampleBandsPoints": @[@[@5, @9], @[@40, @44]]
+    }];
+}
 - (void)runSystemCaptureAtIndex:(NSUInteger)index {
     NSArray<NSString *> *phases = self.systemCapturePhases;
     if (index >= phases.count) {
@@ -1172,11 +1298,15 @@ static UIImage *HGWhiteImage(void) {
     }
     NSString *phase = phases[index];
     BOOL reference = [phase hasPrefix:@"native-reference-"];
+    BOOL hostMaterialProbe = [phase hasPrefix:@"tabbar-material-"];
     @try {
         if (reference) {
             [self prepareNativeReferenceDark:[phase hasSuffix:@"-dark"]];
         } else if (!self.glassDisabled) {
-            self.host.mediaAppearance = [phase isEqualToString:@"tabbar-dark"];
+            self.host.pattern.verticalReferencePattern = hostMaterialProbe;
+            [self.host.pattern setNeedsDisplay];
+            self.hostNilControl.hidden = !hostMaterialProbe;
+            self.host.mediaAppearance = [phase hasSuffix:@"-dark"];
             [self layoutHost];
             [self.host setCustomTabBarAppearance];
             CGFloat offset = [phase isEqualToString:@"tabbar-scroll"] ? MAX(0,
@@ -1184,6 +1314,7 @@ static UIImage *HGWhiteImage(void) {
                 self.host.primaryFeed.contentInset.bottom) : 0;
             self.host.primaryFeed.contentOffset = CGPointMake(0, offset);
             [self.window makeKeyAndVisible];
+            if (hostMaterialProbe) [self prepareHostMaterialControl];
         }
     } @catch (NSException *exception) {
         [self check:NO name:[NSString stringWithFormat:@"system capture setup %@: %@", phase, exception.description]];
@@ -1229,6 +1360,7 @@ static UIImage *HGWhiteImage(void) {
                 }
             } else {
                 [self snapshot:[phase stringByAppendingString:@"-runloop-settled"]];
+                if (hostMaterialProbe) [self snapshotHostMaterialProbe:phase];
                 if (!self.glassDisabled) {
                     [self check:HGPublicSurfaceIsClear(HGEffects(self.host.customTabBar).firstObject)
                         name:[phase stringByAppendingString:@" keeps public material backgrounds clear after a runloop commit"]];
@@ -1284,6 +1416,7 @@ static UIImage *HGWhiteImage(void) {
         @"glassEnabled": @(!self.glassDisabled && !self.nativeReferenceOnly),
         @"legacyNegativeControl": @(self.legacyControl),
         @"nativeReferenceOnly": @(self.nativeReferenceOnly),
+        @"compatibilityFallbackOnly": @(self.compatibilityFallbackOnly),
         @"UIDesignRequiresCompatibility": @([[NSBundle.mainBundle
             objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] boolValue]),
         @"systemScreenshotsAcknowledged": self.captureAcknowledgements,
@@ -1295,7 +1428,8 @@ static UIImage *HGWhiteImage(void) {
     };
     NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil];
     NSString *name = self.nativeReferenceOnly ? @"tabbar-reference-results.json" :
-        (self.glassDisabled ? @"tabbar-disabled-results.json" : @"tabbar-results.json");
+        (self.compatibilityFallbackOnly ? @"tabbar-fallback-results.json" :
+        (self.glassDisabled ? @"tabbar-disabled-results.json" : @"tabbar-results.json"));
     [data writeToURL:[self outputURL:name] options:NSDataWritingAtomic error:nil];
 }
 @end

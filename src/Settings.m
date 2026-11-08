@@ -67,7 +67,11 @@ BOOL HGIsEnabled(HGFeature feature) {
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    return @"更改后请完全退出红果短剧，再重新打开。关闭开关并重启即可恢复原行为。iOS 26 及以上使用系统液态玻璃，旧版系统使用模糊材质。";
+    NSString *restart = @"更改后请完全退出红果短剧，再重新打开。关闭底栏开关并重启可恢复宿主底栏。";
+    NSString *mode = HGNativeGlassConfigured() ?
+        @"当前安装包已配置原生液态玻璃。新版界面设置对整个应用生效，关闭底栏开关不会回退这项配置。" :
+        @"当前配置下，开启底栏开关使用系统模糊材质。启用原生液态玻璃需要 iOS 26 及以上，并使用配套工具重新打包、签名安装。";
+    return [restart stringByAppendingString:mode];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -84,7 +88,8 @@ BOOL HGIsEnabled(HGFeature feature) {
     }
 
     HGFeature feature = (HGFeature)indexPath.row;
-    NSString *title = HGOptions[feature].title;
+    NSString *title = feature == HGGlass && !HGNativeGlassConfigured() ?
+        @"系统模糊底栏" : HGOptions[feature].title;
     cell.textLabel.text = title;
     UISwitch *toggle = (UISwitch *)cell.accessoryView;
     toggle.tag = (NSInteger)feature;

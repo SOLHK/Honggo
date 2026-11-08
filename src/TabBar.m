@@ -41,21 +41,6 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
 @property(nonatomic) BOOL changingWindow;
 @end
 @implementation HGGlassBackdrop
-- (void)clearCompatibilityFill {
-    // With UIDesignRequiresCompatibility enabled, assigning UIGlassEffect on
-    // iOS 26.5 installs an opaque systemBackgroundColor on this public view.
-    // Clear it AFTER UIKit configures the effect; clearing before is overwritten.
-    // Do not touch the material's private descendants or remove its effect.
-    if (UIAccessibilityIsReduceTransparencyEnabled() || UIAccessibilityDarkerSystemColorsEnabled()) return;
-    if (!HGClear(self.backgroundColor)) self.backgroundColor = UIColor.clearColor;
-    if (self.opaque) self.opaque = NO;
-}
-- (void)setEffect:(UIVisualEffect *)effect {
-    [super setEffect:effect];
-    // A nil assignment may occur during superclass initialization or teardown.
-    // Never create content or reinstall a material on that path.
-    if (effect) [self clearCompatibilityFill];
-}
 - (void)layoutSubviews {
     [super layoutSubviews];
     BOOL visible = self.window != nil && !self.changingWindow;
@@ -64,7 +49,7 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
     if (!self.effect && visible && CGRectGetWidth(self.bounds) >= 64 && CGRectGetHeight(self.bounds) >= 32) {
         Class glassClass = NSClassFromString(@"UIGlassEffect");
         SEL factory = sel_registerName("effectWithStyle:");
-        self.nativeGlass = [glassClass respondsToSelector:factory];
+        self.nativeGlass = HGNativeGlassConfigured();
         UIVisualEffect *effect = self.nativeGlass ?
             ((id (*)(id, SEL, NSInteger))objc_msgSend)(glassClass, factory, 0) : nil;
         if (!effect) {
@@ -75,8 +60,6 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
         // didMoveToWindow can leave it unrendered when a host view is recycled.
         self.effect = effect;
     }
-    // UIKit can reconfigure colors during an existing material's layout too.
-    [self clearCompatibilityFill];
 }
 - (void)willMoveToWindow:(UIWindow *)newWindow {
     if (!newWindow || self.window != newWindow) {
@@ -669,8 +652,9 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
         [self prepareGlass:frame content:content];
         [self refreshViewports];
         if (!self.logged) {
-            NSLog(@"[Honggo] 版本 %@；底栏：%@；减少透明度=%d；增强对比度=%d；背景已按宿主层级处理",
+            NSLog(@"[Honggo] 版本 %@；底栏：%@；主包兼容模式=%@；减少透明度=%d；增强对比度=%d；背景已按宿主层级处理",
                 HG_PLUGIN_VERSION, self.nativeGlass ? @"UIGlassEffect Regular" : @"UIBlurEffect fallback",
+                [NSBundle.mainBundle objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] ?: @"未明确配置",
                 UIAccessibilityIsReduceTransparencyEnabled(), UIAccessibilityDarkerSystemColorsEnabled());
             self.logged = YES;
         }

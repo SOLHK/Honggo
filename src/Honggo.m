@@ -2,6 +2,17 @@
 #import <dispatch/dispatch.h>
 #include <string.h>
 
+BOOL HGNativeGlassConfigured(void) {
+    // Require an explicit pre-launch opt-in for this version-checked host.
+    // Finding UIGlassEffect also succeeds in compatibility mode, where the
+    // system renders an opaque fill (or nothing if that fill is cleared).
+    // Never intercept bundle reads or change the process-wide mode at runtime.
+    id compatibility = [NSBundle.mainBundle objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"];
+    if (![compatibility isKindOfClass:NSNumber.class] || [compatibility boolValue]) return NO;
+    Class glassClass = NSClassFromString(@"UIGlassEffect");
+    return [glassClass respondsToSelector:sel_registerName("effectWithStyle:")];
+}
+
 IMP HGReplaceMethod(Class target, SEL selector, const char *encoding, IMP replacement) {
     Method method = class_getInstanceMethod(target, selector);
     if (method == NULL || strcmp(method_getTypeEncoding(method), encoding) != 0) {

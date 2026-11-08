@@ -9,6 +9,9 @@ from unittest import mock
 from tools import prepare_ipa as prep
 
 
+EXTENSION_INFO = f"{prep.APP}/PlugIns/Widget.appex/Info.plist"
+
+
 def dylib_command(kind, path):
     name = path + b"\0"
     size = (24 + len(name) + 7) & ~7
@@ -50,18 +53,38 @@ class PrepareIPATest(unittest.TestCase):
         self.identity = dylib_command(prep.LC_ID_DYLIB, b"@rpath/Honggo.dylib")
         self.plugin.write_bytes(macho(prep.MH_DYLIB, [self.identity]))
 
-    def write_ipa(self, binary, version="7.4.3.33", embedded_plugin=False):
+    def write_ipa(self, binary, version="7.4.3.33", embedded_plugin=False,
+                  info_extra=None, info_format=plistlib.FMT_XML):
+        info = {
+            "CFBundleIdentifier": "com.phoenix.video",
+            "CFBundleShortVersionString": "7.4.3",
+            "CFBundleVersion": version,
+            "CFBundleExecutable": "Eggplant",
+            "CFBundleDisplayName": "红果短剧",
+            "CFBundleURLTypes": [{"CFBundleURLSchemes": ["phoenix", "phoenix-test"]}],
+            "UIApplicationSceneManifest": {"UIApplicationSupportsMultipleScenes": False},
+            "FixtureData": b"unchanged plist data",
+            "FixtureNumber": 12.5,
+        }
+        if info_extra:
+            info.update(info_extra)
         with zipfile.ZipFile(self.input, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.comment = b"comment"
-            archive.writestr(f"{prep.APP}/Info.plist", plistlib.dumps({
-                "CFBundleIdentifier": "com.phoenix.video",
-                "CFBundleShortVersionString": "7.4.3",
-                "CFBundleVersion": version,
-                "CFBundleExecutable": "Eggplant",
-            }))
+            info_entry = zipfile.ZipInfo(prep.INFO_PLIST, (2025, 6, 9, 12, 34, 56))
+            info_entry.create_system = 3
+            info_entry.external_attr = 0o100644 << 16
+            info_entry.comment = b"main app metadata"
+            info_entry.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info_entry, plistlib.dumps(info, fmt=info_format, sort_keys=False))
             archive.writestr(prep.EXECUTABLE, binary)
             archive.writestr(f"{prep.APP}/Frameworks/", b"")
             archive.writestr(f"{prep.APP}/PlugIns/Widget.appex/Widget", b"extension")
+            archive.writestr(EXTENSION_INFO, plistlib.dumps({
+                "CFBundleIdentifier": "com.phoenix.video.Widget",
+                "CFBundleVersion": version,
+                "UIDesignRequiresCompatibility": True,
+                "NSExtension": {"NSExtensionPointIdentifier": "com.apple.widgetkit-extension"},
+            }, fmt=plistlib.FMT_BINARY))
             if embedded_plugin:
                 archive.writestr(prep.PLUGIN_ENTRY, self.plugin.read_bytes())
 
@@ -77,8 +100,16 @@ class PrepareIPATest(unittest.TestCase):
             self.assertEqual(output.comment, original.comment)
             self.assertIsNone(output.testzip())
             for entry in original.namelist():
-                if entry != prep.EXECUTABLE:
+                if entry not in (prep.EXECUTABLE, prep.INFO_PLIST):
                     self.assertEqual(output.read(entry), original.read(entry))
+                for attribute in ("date_time", "compress_type", "comment", "external_attr", "create_system"):
+                    self.assertEqual(getattr(output.getinfo(entry), attribute),
+                                     getattr(original.getinfo(entry), attribute))
+            original_info = plistlib.loads(original.read(prep.INFO_PLIST))
+            output_info = plistlib.loads(output.read(prep.INFO_PLIST))
+            self.assertIs(output_info.pop("UIDesignRequiresCompatibility"), False)
+            original_info.pop("UIDesignRequiresCompatibility", None)
+            self.assertEqual(output_info, original_info)
             self.assertEqual(output.read(prep.PLUGIN_ENTRY), self.plugin.read_bytes())
             updated = output.read(prep.EXECUTABLE)
             self.assertEqual(len(updated), len(binary))
@@ -90,6 +121,45 @@ class PrepareIPATest(unittest.TestCase):
             self.assertEqual(updated[prep.MACH_HEADER.size:offset], binary[prep.MACH_HEADER.size:offset])
             self.assertEqual(updated[offset:offset + len(expected)], expected)
             self.assertEqual(updated[offset + len(expected):], binary[offset + len(expected):])
+
+    def test_changes_only_main_design_flag_and_preserves_source_and_extensions(self):
+        for format_ in (plistlib.FMT_XML, plistlib.FMT_BINARY):
+            for extra in ({}, {"UIDesignRequiresCompatibility": True}, {"UIDesignRequiresCompatibility": False}):
+                with self.subTest(format=format_, existing_flag=extra):
+                    self.write_ipa(host_binary(), info_extra=extra, info_format=format_)
+                    original_bytes = self.input.read_bytes()
+                    prep.prepare(self.input, self.plugin, self.output)
+                    self.assertEqual(self.input.read_bytes(), original_bytes)
+                    with zipfile.ZipFile(self.input) as original, zipfile.ZipFile(self.output) as output:
+                        before = plistlib.loads(original.read(prep.INFO_PLIST))
+                        after_bytes = output.read(prep.INFO_PLIST)
+                        after = plistlib.loads(after_bytes)
+                        self.assertIs(after.pop("UIDesignRequiresCompatibility"), False)
+                        before.pop("UIDesignRequiresCompatibility", None)
+                        self.assertEqual(after, before)
+                        self.assertEqual(after_bytes.startswith(b"bplist00"), format_ == plistlib.FMT_BINARY)
+                        if extra.get("UIDesignRequiresCompatibility") is False:
+                            self.assertEqual(after_bytes, original.read(prep.INFO_PLIST))
+                        self.assertEqual(output.read(EXTENSION_INFO), original.read(EXTENSION_INFO))
+                        self.assertIs(plistlib.loads(output.read(EXTENSION_INFO))["UIDesignRequiresCompatibility"], True)
+                    self.output.unlink()
+
+    def test_native_design_configuration_returns_copy_without_mutating_metadata(self):
+        for extra in ({}, {"UIDesignRequiresCompatibility": True}, {"UIDesignRequiresCompatibility": False}):
+            with self.subTest(existing_flag=extra):
+                original = {
+                    "CFBundleExecutable": "SimulatorFixture",
+                    "UIApplicationSceneManifest": {"UIApplicationSupportsMultipleScenes": False},
+                    **extra,
+                }
+                before = plistlib.dumps(original)
+                configured = prep.configure_native_glass(original)
+                self.assertIsNot(configured, original)
+                self.assertEqual(plistlib.dumps(original), before)
+                self.assertIs(configured.pop("UIDesignRequiresCompatibility"), False)
+                expected = plistlib.loads(before)
+                expected.pop("UIDesignRequiresCompatibility", None)
+                self.assertEqual(configured, expected)
 
     def test_rejects_encrypted_macho(self):
         self.write_ipa(host_binary(cryptid=1))
@@ -156,6 +226,23 @@ class PrepareIPATest(unittest.TestCase):
             prep.prepare(self.input, self.plugin, self.output)
         self.assertFalse(self.output.exists())
 
+    def test_rejects_unverified_host_before_configuring_native_design(self):
+        for key, value in (
+            ("CFBundleIdentifier", "com.example.different"),
+            ("CFBundleShortVersionString", "7.4.4"),
+            ("CFBundleVersion", "7.4.3.34"),
+            ("CFBundleExecutable", "DifferentHost"),
+        ):
+            with self.subTest(key=key):
+                self.write_ipa(host_binary(), info_extra={key: value})
+                original = self.input.read_bytes()
+                with mock.patch.object(prep, "configure_native_glass") as configure:
+                    with self.assertRaisesRegex(ValueError, "Expected Hongguo"):
+                        prep.prepare(self.input, self.plugin, self.output)
+                    configure.assert_not_called()
+                self.assertEqual(self.input.read_bytes(), original)
+                self.assertFalse(self.output.exists())
+
     def test_never_overwrites_source_or_existing_output(self):
         self.write_ipa(host_binary())
         old = self.input.read_bytes()
@@ -169,10 +256,12 @@ class PrepareIPATest(unittest.TestCase):
 
     def test_removes_partial_output_on_write_failure(self):
         self.write_ipa(host_binary())
+        original = self.input.read_bytes()
         with mock.patch.object(prep.shutil, "copyfileobj", side_effect=OSError("disk full")):
             with self.assertRaisesRegex(OSError, "disk full"):
                 prep.prepare(self.input, self.plugin, self.output)
         self.assertFalse(self.output.exists())
+        self.assertEqual(self.input.read_bytes(), original)
 
 
 if __name__ == "__main__":
