@@ -1,0 +1,31 @@
+name: Build iOS plugin
+
+on:
+  push:
+    branches: [test]
+
+permissions:
+  contents: read
+
+jobs:
+  iphoneos:
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check IPA preparation tool
+        run: python3 -B -m unittest discover -s tests -v
+      - name: Build and inspect device dylib
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          bash tools/build-ios.sh build/HongguoGlass.dylib
+          git rev-parse HEAD > build/source-commit.txt
+          (cd build && shasum -a 256 HongguoGlass.dylib > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: HongguoGlass-iPhoneOS
+          path: build/
+          if-no-files-found: error
