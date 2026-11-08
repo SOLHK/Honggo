@@ -47,3 +47,26 @@ Apple 将该键定义为应用的设计兼容选择，参见 [UIDesignRequiresCo
 UIKit 回归应同时验证经共享预处理配置的原生路径与原配置下的模糊回退，保留独立原生参照、兼容模式负对照、无效果透明参照、旧源码负对照和完整系统截图。行为与像素门禁均通过后，CI 才构建和上传设备动态库；实际结果以本版本对应提交的 [GitHub Actions](https://github.com/SOLHK/Honggo/actions) 报告、截图和产物为准。控制器模型的模拟器检查不能代替真实红果的真机验证。
 
 交付包含版本化 dylib、预处理工具和说明，原始红果 IPA 需另外提供。待签名 IPA 需要取得原始宿主包后生成，再由用户的签名工具为主应用和内嵌代码重签。本记录不代表已经制作或安装真实红果 IPA。
+
+## 实际 CI 结果与后续复核
+
+提交 `5aafeff280f7dab8c17e927f1fbc068863b0852d` 的 [CI 运行 42494439254](https://github.com/SOLHK/Honggo/actions/runs/42494439254) **失败**，设备构建任务被跳过，未上传 1.0.4 设备 dylib。设置检查为 **21/21**，Python 检查为 **20/20**。
+
+当前底栏 JSON 共记录 61 项：59 项预定行为检查全部通过，另外两项失败分别是 `tabbar-dark` 和 `tabbar-scroll` 的系统截图确认超时。关闭开关检查为 **7/7**，兼容配置下的模糊行为检查为 **10/10**。这些结果不能把整次 CI 改写为通过，缺失截图确认和失败的图像门禁仍需处理。
+
+移窗即时快照已分别记录：效果视图 `opaque=false`、自身背景透明、`contentView` 背景透明、效果类为 `UIGlassEffect`，且视图位于预期窗口。该轮通过了对应行为检查。这些独立字段描述的是 1.0.4 的状态；1.0.3 的旧联合断言无法据此反推出具体失败字段。
+
+真实插件底栏与同背景无效果视图的像素比较如下。数值来自 `current/host-material-pixels-results.json`，RGB 通道以 0–255 表示。
+
+| 主题 | 平均绝对 RGB 差值 | 最大通道标准差 | 原报告 `hasVisibleMaterialOverTransparentControl` |
+| --- | ---: | ---: | --- |
+| 浅色 | 74.5102 | 41.2457 | `true` |
+| 深色 | 51.1258 | 44.0721 | `true` |
+
+图像门禁同时将 `validMaterialAndNilControls` 判为 `false`。复核原始快照与 Python 谓词发现，Objective-C 比较表达式装箱后，`hostInstalledSurface`、`originalContentParent` 和 `originalButtonParent` 序列化为 JSON 数字 `1`；消费者却以 Python `is True` 检查身份，因而拒绝了这些字段。该类型契约错误属于测试判读，需要修复并重新执行完整门禁。
+
+模糊回退的浅色最大通道标准差为 **7.3116**，低于当时用于玻璃的 `>8` 判据；深色为 **9.0643**。回退材质与玻璃的平滑程度不同，后续验收需要同主题、同尺寸、同背景的独立系统 `UIBlurEffect` 参照，不能通过简单调低玻璃门槛宣称回退已通过。
+
+进一步查看 `fallback/tabbar-material-light-system-simulator.png`，可见模糊回退的背景仍是矩形，四角未形成胶囊。此前按 `setCornerConfiguration:` 是否存在选择圆角 API，但兼容配置下该接口存在并不代表模糊回退会采用此形状。这个实际视觉缺陷不包含在先前通过的 10 项回退行为检查中，需要单独修复和验证。
+
+上述证据保留在本次 Actions 的底栏附件 `13623037655` 与设置附件 `13622907449`。下一版 [1.0.5](REPAIR_1.0.5.md) 修复兼容模糊的胶囊裁剪，修订截图同步和判读契约，并增加系统模糊参照；新版本的完整结果以其独立 CI 运行确认。

@@ -1,5 +1,6 @@
 // Actual UIKit behavior under a controlled SSTabBar host. This is not the Hongguo IPA.
 #import "Honggo.h"
+#import <CoreFoundation/CoreFoundation.h>
 #import <QuartzCore/QuartzCore.h>
 #import <dispatch/dispatch.h>
 #import <objc/message.h>
@@ -80,6 +81,19 @@ static BOOL HGPublicSurfaceIsClear(UIVisualEffectView *view) {
         HGColorIsClear(view.contentView.backgroundColor, view.contentView.traitCollection);
 }
 
+static NSDictionary *HGSerializedBooleanTypes(NSDictionary *values, NSArray<NSString *> *keys) {
+    NSData *data = [NSJSONSerialization dataWithJSONObject:values options:0 error:nil];
+    NSDictionary *decoded = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    NSMutableDictionary *types = [NSMutableDictionary dictionary];
+    for (NSString *key in keys) {
+        id value = decoded[key];
+        BOOL boolean = [value isKindOfClass:NSNumber.class] &&
+            CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID();
+        types[key] = boolean ? @"boolean" : @"not-boolean";
+    }
+    return types;
+}
+
 static UIVisualEffect *HGReferenceEffect(NSInteger style) {
     Class glassClass = NSClassFromString(@"UIGlassEffect");
     SEL factory = sel_registerName("effectWithStyle:");
@@ -99,7 +113,7 @@ static NSDictionary *HGMaterialFacts(UIVisualEffectView *view) {
         @"effectClass": first ? NSStringFromClass(first.class) : @"none",
         @"firstGetterAddress": [NSString stringWithFormat:@"%p", (__bridge void *)first],
         @"secondGetterAddress": [NSString stringWithFormat:@"%p", (__bridge void *)second],
-        @"consecutiveGetterIdentityEqual": @(first == second),
+        @"consecutiveGetterIdentityEqual": @((BOOL)(first == second)),
         @"effectSetterCalls": @(HGEffectSetterCount(view, NO)),
         @"nonNilEffectSetterCalls": @(HGEffectSetterCount(view, YES)),
         @"backgroundColor": background.description ?: @"nil",
@@ -108,6 +122,8 @@ static NSDictionary *HGMaterialFacts(UIVisualEffectView *view) {
         @"contentBackgroundClear": @(HGColorIsClear(contentBackground, view.traitCollection)),
         @"opaque": @(view.opaque),
         @"contentOpaque": @(view.contentView.opaque),
+        @"clipsToBounds": @(view.clipsToBounds),
+        @"cornerRadius": @(view.layer.cornerRadius),
         @"alpha": @(view.alpha),
         @"frame": NSStringFromCGRect(view.frame),
         @"framePoints": @[@(view.frame.origin.x), @(view.frame.origin.y),
@@ -499,6 +515,7 @@ static UIImage *HGWhiteImage(void) {
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *snapshots;
 @property(nonatomic, strong) NSMutableArray<NSString *> *captureAcknowledgements;
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *drawCaptureResults;
+@property(nonatomic, strong) NSMutableArray<NSDictionary *> *captureEvents;
 @property(nonatomic, strong) UIWindow *referenceWindow;
 @property(nonatomic, strong) UIVisualEffectView *referenceRegular;
 @property(nonatomic, strong) UIVisualEffectView *referenceClear;
@@ -506,6 +523,7 @@ static UIImage *HGWhiteImage(void) {
 @property(nonatomic, strong) UIVisualEffectView *referenceNilClear;
 @property(nonatomic, strong) NSDictionary *referenceClearAfterAssignment;
 @property(nonatomic, strong) UIVisualEffectView *hostNilControl;
+@property(nonatomic, strong) UIVisualEffectView *hostBlurReference;
 @property(nonatomic) BOOL glassDisabled;
 @property(nonatomic) BOOL legacyControl;
 @property(nonatomic) BOOL nativeGlassAvailable;
@@ -550,22 +568,22 @@ static UIImage *HGWhiteImage(void) {
         @"nestedImageHidden": @(bar.backgroundImageView.hidden),
         @"materialFacts": HGMaterialFacts(glass),
         @"materialBelowContent": @(HGIsBelowContent(glass, bar.contentView)),
-        @"originalContentParent": @(bar.contentView.superview == bar.shell),
-        @"originalButtonParent": @(bar.items.firstObject.superview == bar.contentView),
+        @"originalContentParent": @((BOOL)(bar.contentView.superview == bar.shell)),
+        @"originalButtonParent": @((BOOL)(bar.items.firstObject.superview == bar.contentView)),
         @"titles": titles
     }];
 }
 - (void)snapshotSurface:(UIVisualEffectView *)surface phase:(NSString *)phase expectedWindow:(UIWindow *)window {
     [self.snapshots addObject:@{
         @"phase": phase,
-        @"surfacePresent": @(surface != nil),
+        @"surfacePresent": @((BOOL)(surface != nil)),
         @"opaque": @(surface.opaque),
         @"ownBackgroundClear": @(HGColorIsClear(surface.backgroundColor, surface.traitCollection)),
         @"contentBackgroundClear": @(HGColorIsClear(surface.contentView.backgroundColor,
             surface.contentView.traitCollection)),
         @"publicSurfaceClear": @(HGPublicSurfaceIsClear(surface)),
-        @"effectPresent": @(surface.effect != nil),
-        @"inExpectedWindow": @(surface.window == window),
+        @"effectPresent": @((BOOL)(surface.effect != nil)),
+        @"inExpectedWindow": @((BOOL)(surface.window == window)),
         @"materialFacts": HGMaterialFacts(surface)
     }];
 }
@@ -612,6 +630,7 @@ static UIImage *HGWhiteImage(void) {
     self.snapshots = [NSMutableArray array];
     self.captureAcknowledgements = [NSMutableArray array];
     self.drawCaptureResults = [NSMutableArray array];
+    self.captureEvents = [NSMutableArray array];
     self.glassDisabled = [NSProcessInfo.processInfo.arguments containsObject:@"--glass-off"];
     self.legacyControl = [NSProcessInfo.processInfo.arguments containsObject:@"--legacy-control"];
     self.nativeReferenceOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--native-reference"];
@@ -820,7 +839,7 @@ static UIImage *HGWhiteImage(void) {
         @"setterCallsAfter": @(HGEffectSetterCount(stableSurface, NO)),
         @"nonNilSetterCallsBefore": @(nonNilSetterCallsBefore),
         @"nonNilSetterCallsAfter": @(HGEffectSetterCount(stableSurface, YES)),
-        @"sameSurfaceInstance": @(HGEffects(bar).firstObject == stableSurface),
+        @"sameSurfaceInstance": @((BOOL)(HGEffects(bar).firstObject == stableSurface)),
         @"materialFacts": HGMaterialFacts(stableSurface)
     }];
     [self check:HGEffects(bar).count == 1 && HGEffects(bar).firstObject == stableSurface &&
@@ -1243,7 +1262,7 @@ static UIImage *HGWhiteImage(void) {
 - (void)prepareHostMaterialControl {
     UIVisualEffectView *surface = HGEffects(self.host.customTabBar).firstObject;
     CGRect frame = [surface convertRect:surface.bounds toView:self.host.view];
-    CGRect nilFrame = CGRectOffset(frame, 0, -68);
+    CGRect nilFrame = CGRectOffset(frame, 0, self.compatibilityFallbackOnly ? -272 : -68);
     if (!self.hostNilControl) {
         self.hostNilControl = [self makeNativeReferenceStyle:0 frame:nilFrame
             title:@"nil effect · transparent control" materialEnabled:NO];
@@ -1257,6 +1276,32 @@ static UIImage *HGWhiteImage(void) {
     self.hostNilControl.frame = nilFrame;
     self.hostNilControl.hidden = NO;
     self.hostNilControl.overrideUserInterfaceStyle = surface.traitCollection.userInterfaceStyle;
+    if (self.compatibilityFallbackOnly) {
+        CGRect referenceFrame = CGRectOffset(frame, 0, -136);
+        if (!self.hostBlurReference) {
+            // Independent public UIKit positive control. Use the documented
+            // own-layer clipping path, not Honggo's subclass or native glass
+            // corner configuration, which compatibility mode does not render.
+            self.hostBlurReference = [[UIVisualEffectView alloc]
+                initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial]];
+            self.hostBlurReference.backgroundColor = UIColor.clearColor;
+            self.hostBlurReference.opaque = NO;
+            self.hostBlurReference.clipsToBounds = YES;
+            self.hostBlurReference.layer.cornerCurve = kCACornerCurveContinuous;
+            UILabel *label = [UILabel new];
+            label.text = @"UIKit SystemMaterial · reference";
+            label.textColor = UIColor.labelColor;
+            label.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+            label.textAlignment = NSTextAlignmentCenter;
+            label.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [self.hostBlurReference.contentView addSubview:label];
+            [self.host.view addSubview:self.hostBlurReference];
+        }
+        self.hostBlurReference.frame = referenceFrame;
+        self.hostBlurReference.layer.cornerRadius = CGRectGetHeight(referenceFrame) / 2;
+        self.hostBlurReference.contentView.subviews.firstObject.frame = self.hostBlurReference.contentView.bounds;
+        self.hostBlurReference.overrideUserInterfaceStyle = surface.traitCollection.userInterfaceStyle;
+    }
 }
 - (void)snapshotHostMaterialProbe:(NSString *)phase {
     SSTabBar *bar = self.host.customTabBar;
@@ -1266,7 +1311,7 @@ static UIImage *HGWhiteImage(void) {
         !HGEffectivelyHidden(bar.items[1]) && !HGEffectivelyHidden(bar.items[3]) &&
         !HGEffectivelyHidden(bar.gestureTitle) && !HGEffectivelyHidden(bar.badge) &&
         !HGEffectivelyHidden(bar.gestureBadge);
-    [self.snapshots addObject:@{
+    NSMutableDictionary *snapshot = [@{
         @"phase": phase,
         @"pixelComparisonKind": @"actual-host-tabbar",
         @"expectedEffectClass": self.compatibilityFallbackOnly ? @"UIBlurEffect" : @"UIGlassEffect",
@@ -1275,18 +1320,31 @@ static UIImage *HGWhiteImage(void) {
             objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] boolValue]),
         @"plugin": HGMaterialFactsInWindow(surface, self.window),
         @"nilClear": HGMaterialFactsInWindow(self.hostNilControl, self.window),
-        @"hostInstalledSurface": @(HGEffects(bar).count == 1 &&
+        @"hostInstalledSurface": @((BOOL)(HGEffects(bar).count == 1 &&
             [surface.accessibilityIdentifier isEqualToString:@"honggo.tabbar.glass"] &&
-            [surface isDescendantOfView:bar]),
+            [surface isDescendantOfView:bar])),
         @"materialBelowHostContent": @(HGIsBelowContent(surface, bar.contentView)),
-        @"originalContentParent": @(bar.contentView.superview == bar.shell),
-        @"originalButtonParent": @(bar.items.firstObject.superview == bar.contentView),
+        @"originalContentParent": @((BOOL)(bar.contentView.superview == bar.shell)),
+        @"originalButtonParent": @((BOOL)(bar.items.firstObject.superview == bar.contentView)),
         @"originalControlsVisible": @(originalControlsVisible),
         @"foregroundStyle": @(surface.traitCollection.userInterfaceStyle),
         @"windowSizePoints": @[@(self.window.bounds.size.width), @(self.window.bounds.size.height)],
         // Avoid the host badges at y=11..18 as well as the centered tab titles.
         @"pixelComparisonSampleBandsPoints": @[@[@5, @9], @[@40, @44]]
-    }];
+    } mutableCopy];
+    NSMutableArray<NSString *> *booleanKeys = [@[@"effectMatchesExpectedClass", @"hostInstalledSurface",
+        @"materialBelowHostContent", @"originalContentParent", @"originalButtonParent",
+        @"originalControlsVisible"] mutableCopy];
+    if (self.compatibilityFallbackOnly) {
+        snapshot[@"blurReference"] = HGMaterialFactsInWindow(self.hostBlurReference, self.window);
+        snapshot[@"blurReferenceMatchesExpectedClass"] =
+            @([self.hostBlurReference.effect isKindOfClass:UIBlurEffect.class]);
+        snapshot[@"blurReferenceMatchesForeground"] = @((BOOL)(
+            self.hostBlurReference.traitCollection.userInterfaceStyle == surface.traitCollection.userInterfaceStyle));
+        [booleanKeys addObjectsFromArray:@[@"blurReferenceMatchesExpectedClass", @"blurReferenceMatchesForeground"]];
+    }
+    snapshot[@"semanticBooleanJSONTypes"] = HGSerializedBooleanTypes(snapshot, booleanKeys);
+    [self.snapshots addObject:snapshot];
 }
 - (void)runSystemCaptureAtIndex:(NSUInteger)index {
     NSArray<NSString *> *phases = self.systemCapturePhases;
@@ -1380,26 +1438,35 @@ static UIImage *HGWhiteImage(void) {
             [self runSystemCaptureAtIndex:index + 1];
             return;
         }
-        [self waitForSystemCapture:phase index:index remaining:100];
+        CFTimeInterval ready = CACurrentMediaTime();
+        [self.captureEvents addObject:@{@"phase": phase, @"event": @"ready",
+            @"monotonicSeconds": @(ready), @"deadlineSeconds": @60}];
+        [self waitForSystemCapture:phase index:index deadline:ready + 60];
     });
 }
-- (void)waitForSystemCapture:(NSString *)phase index:(NSUInteger)index remaining:(NSUInteger)remaining {
+- (void)waitForSystemCapture:(NSString *)phase index:(NSUInteger)index deadline:(CFTimeInterval)deadline {
     NSString *acknowledged = [NSString stringWithContentsOfURL:[self outputURL:@"tabbar-capture-ack.txt"]
         encoding:NSUTF8StringEncoding error:nil];
     acknowledged = [acknowledged stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if ([acknowledged isEqualToString:phase]) {
+        [self.captureEvents addObject:@{@"phase": phase, @"event": @"ack",
+            @"monotonicSeconds": @(CACurrentMediaTime())}];
         [self.captureAcknowledgements addObject:phase];
         [self runSystemCaptureAtIndex:index + 1];
         return;
     }
-    if (remaining == 0) {
+    if (CACurrentMediaTime() >= deadline) {
         [self check:NO name:[phase stringByAppendingString:@" system screenshot acknowledgement timed out"]];
-        [self runSystemCaptureAtIndex:index + 1];
+        [self.captureEvents addObject:@{@"phase": phase, @"event": @"timeout-stopped",
+            @"monotonicSeconds": @(CACurrentMediaTime())}];
+        // Keep the failed scene on screen. Advancing here could label a late
+        // screenshot with the previous phase while showing the next scene.
+        [self finish];
         return;
     }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
         dispatch_get_main_queue(), ^{
-        [self waitForSystemCapture:phase index:index remaining:remaining - 1];
+        [self waitForSystemCapture:phase index:index deadline:deadline];
     });
 }
 - (void)finish {
@@ -1413,13 +1480,14 @@ static UIImage *HGWhiteImage(void) {
         @"failed": @(failed),
         @"total": @(self.checks.count),
         @"nativeGlassAvailable": @(self.nativeGlassAvailable),
-        @"glassEnabled": @(!self.glassDisabled && !self.nativeReferenceOnly),
+        @"glassEnabled": @((BOOL)(!self.glassDisabled && !self.nativeReferenceOnly)),
         @"legacyNegativeControl": @(self.legacyControl),
         @"nativeReferenceOnly": @(self.nativeReferenceOnly),
         @"compatibilityFallbackOnly": @(self.compatibilityFallbackOnly),
         @"UIDesignRequiresCompatibility": @([[NSBundle.mainBundle
             objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] boolValue]),
         @"systemScreenshotsAcknowledged": self.captureAcknowledgements,
+        @"systemCaptureEvents": self.captureEvents,
         @"drawCaptureResults": self.drawCaptureResults,
         @"effectSpyInstalled": @(HGEffectSpyInstalled),
         @"systemVersion": UIDevice.currentDevice.systemVersion,

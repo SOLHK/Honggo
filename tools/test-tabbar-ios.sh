@@ -22,7 +22,7 @@ build_variant() {
     xcrun --sdk iphonesimulator clang \
         -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
         -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
-        -framework Foundation -framework UIKit -framework QuartzCore -framework CoreGraphics -lobjc \
+        -framework Foundation -framework CoreFoundation -framework UIKit -framework QuartzCore -framework CoreGraphics -lobjc \
         "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
         "$source_root/src/Settings.m" "$tabbar_source" \
         "$source_root/tests/TabBarIntegration.m" -o "$app/HGTabBarTests"
@@ -140,7 +140,17 @@ run_variant() {
         "$data_directory/Documents/tabbar-capture-ack.txt"
     xcrun simctl launch "$device_id" "$bundle_id" "$@"
     local captured_phase=
-    for ((attempt=0; attempt<120; attempt++)); do
+    local phase_count=7
+    case "$result_name:$variant" in
+        tabbar-disabled-results.json:*) phase_count=1 ;;
+        tabbar-reference-results.json:*|tabbar-fallback-results.json:*) phase_count=2 ;;
+        tabbar-results.json:legacy) phase_count=5 ;;
+    esac
+    # Each scene has a bounded 60-second capture budget, plus two minutes for
+    # application startup. The full seven-scene host is bounded at 540 seconds.
+    local run_timeout=$((phase_count * 60 + 120))
+    local run_deadline=$((SECONDS + run_timeout))
+    while ((SECONDS < run_deadline)); do
         if [ -f "$data_directory/Documents/$result_name" ]; then
             break
         fi
@@ -150,9 +160,36 @@ run_variant() {
             case "$phase" in
                 tabbar-light|tabbar-dark|tabbar-scroll|tabbar-disabled|tabbar-material-light|tabbar-material-dark|native-reference-light|native-reference-dark)
                     if [ "$phase" != "$captured_phase" ]; then
-                        xcrun simctl io "$device_id" screenshot "$work/$variant/$phase-system-simulator.png"
-                        printf '%s\n' "$phase" > "$data_directory/Documents/tabbar-capture-ack.txt"
                         captured_phase=$phase
+                        if python3 - "$device_id" "$work/$variant/$phase-system-simulator.png" "$phase" <<'PY'
+import subprocess
+import sys
+import time
+
+started = time.monotonic()
+try:
+    subprocess.run(["xcrun", "simctl", "io", sys.argv[1], "screenshot", sys.argv[2]],
+                   check=True, timeout=55)
+except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+    print(f"Capture failed for {sys.argv[3]}: {error}", file=sys.stderr)
+    raise SystemExit(1)
+print(f"Capture completed for {sys.argv[3]} in {time.monotonic() - started:.3f}s")
+PY
+                        then
+                            local current_phase
+                            current_phase=$(tr -d '\r\n' < "$data_directory/Documents/tabbar-capture-phase.txt")
+                            if [ "$current_phase" != "$phase" ]; then
+                                printf 'Capture phase changed before completion: %s -> %s\n' "$phase" "$current_phase" >&2
+                                return 1
+                            fi
+                            if [ -f "$data_directory/Documents/$result_name" ]; then
+                                printf 'Capture completed after the app stopped waiting: %s\n' "$phase" >&2
+                                break
+                            fi
+                            # Acknowledge only the completed image for the still
+                            # displayed phase. A failed capture receives no ACK.
+                            printf '%s\n' "$phase" > "$data_directory/Documents/tabbar-capture-ack.txt"
+                        fi
                     fi
                     ;;
                 *)
@@ -166,7 +203,7 @@ run_variant() {
     xcrun simctl spawn "$device_id" log show --style compact --last 3m \
         --predicate 'process == "HGTabBarTests"' > "$work/$variant/simulator.log" 2>&1 || true
     if [ ! -f "$data_directory/Documents/$result_name" ]; then
-        printf 'Tab-bar integration app (%s) did not finish within 120 polling iterations.\n' "$variant" >&2
+        printf 'Tab-bar integration app (%s) did not finish within its %s-second capture budget.\n' "$variant" "$run_timeout" >&2
         return 1
     fi
     cp "$data_directory/Documents/$result_name" "$work/$variant/$result_name"
@@ -304,12 +341,27 @@ def compare_material_pixels(directory, snapshot, *, host_material=False, expect_
     width, height, channels, rows = read_system_png(directory / f"{phase}-system-simulator.png")
     window_width, window_height = snapshot["windowSizePoints"]
     scale_x, scale_y = width / window_width, height / window_height
-    keys = ("plugin", "nilClear") if host_material else ("regular", "clear", "regularClearAfter", "nilClear")
+    host_blur = host_material and snapshot["expectedEffectClass"] == "UIBlurEffect"
+    keys = (("plugin", "blurReference", "nilClear") if host_blur else ("plugin", "nilClear")) \
+        if host_material else ("regular", "clear", "regularClearAfter", "nilClear")
     material_key = "plugin" if host_material else "regularClearAfter"
     frames = {key: snapshot[key]["framePoints"] for key in keys}
     baseline = frames["nilClear"]
     if any(frame[0] != baseline[0] or frame[2:] != baseline[2:] for frame in frames.values()):
         raise ValueError("reference capsules do not have identical horizontal geometry")
+
+    def pixel_at(key, local_x, local_y):
+        frame_x, frame_y, _, _ = frames[key]
+        pixel_x = int((frame_x + local_x) * scale_x)
+        pixel_y = int((frame_y + local_y) * scale_y)
+        if not (0 <= pixel_x < width and 0 <= pixel_y < height):
+            raise ValueError("reference sample falls outside the system screenshot")
+        return tuple(rows[pixel_y][pixel_x * channels:pixel_x * channels + 3])
+
+    def rgb_mae(first, second):
+        return sum(abs(a - b) for pixel, original in zip(first, second)
+                   for a, b in zip(pixel, original)) / (3 * len(first))
+
     samples = {key: [] for key in keys}
     # Avoid labels (centered vertically) and rounded corners. All four views
     # share the same full-height vertical stripe background at each x position.
@@ -317,13 +369,8 @@ def compare_material_pixels(directory, snapshot, *, host_material=False, expect_
     for start_y, end_y in bands:
         for local_y in range(start_y, end_y):
             for local_x in range(32, int(baseline[2]) - 32):
-                for key, (frame_x, frame_y, _, _) in frames.items():
-                    pixel_x = int((frame_x + local_x + 0.5) * scale_x)
-                    pixel_y = int((frame_y + local_y + 0.5) * scale_y)
-                    if not (0 <= pixel_x < width and 0 <= pixel_y < height):
-                        raise ValueError("reference sample falls outside the system screenshot")
-                    pixel = rows[pixel_y][pixel_x * channels:pixel_x * channels + 3]
-                    samples[key].append(tuple(pixel))
+                for key in keys:
+                    samples[key].append(pixel_at(key, local_x + 0.5, local_y + 0.5))
     if not samples["nilClear"]:
         raise ValueError("reference sample region is empty")
     metrics = {}
@@ -352,13 +399,54 @@ def compare_material_pixels(directory, snapshot, *, host_material=False, expect_
                       snapshot[material_key]["backgroundClear"] and
                       snapshot[material_key]["contentBackgroundClear"])
     unsupported_evidence = None
+    blur_comparison = None
+    corner_comparison = None
     if host_material:
-        valid_controls = valid_controls and all(snapshot.get(key) is True for key in (
+        boolean_keys = [
             "effectMatchesExpectedClass", "hostInstalledSurface", "materialBelowHostContent",
-            "originalContentParent", "originalButtonParent", "originalControlsVisible"))
+            "originalContentParent", "originalButtonParent", "originalControlsVisible"]
+        if host_blur:
+            boolean_keys.extend(("blurReferenceMatchesExpectedClass", "blurReferenceMatchesForeground"))
+        valid_controls = valid_controls and all(snapshot.get(key) is True and
+            snapshot.get("semanticBooleanJSONTypes", {}).get(key) == "boolean" for key in boolean_keys)
         valid_controls = valid_controls and snapshot["foregroundStyle"] == (2 if phase.endswith("-dark") else 1)
         expected = "visible-host-blur" if snapshot["UIDesignRequiresCompatibility"] else "visible-host-native-glass"
-        passes = valid_controls and visible_material
+        if host_blur:
+            valid_controls = valid_controls and snapshot["blurReference"]["viewClass"] == "UIVisualEffectView" and \
+                snapshot["blurReference"]["backgroundClear"] and snapshot["blurReference"]["contentBackgroundClear"]
+            reference = samples["blurReference"]
+            best_solid = tuple(statistics.median(pixel[channel] for pixel in reference) for channel in range(3))
+            error_to_reference = rgb_mae(samples["plugin"], reference)
+            separation_from_nil = rgb_mae(reference, samples["nilClear"])
+            separation_from_solid = rgb_mae(reference, [best_solid] * len(reference))
+            # The coordinate-wise median is the best possible constant under
+            # L1 error. Neither a nil surface nor ANY solid fill can satisfy
+            # being twice as close to this independent UIKit reference.
+            visible_material = error_to_reference <= 2 and \
+                error_to_reference + 0.5 < 0.5 * min(separation_from_nil, separation_from_solid)
+            blur_comparison = {
+                "actualToSystemMaterialMAE": error_to_reference,
+                "systemMaterialToNilMAE": separation_from_nil,
+                "systemMaterialToBestSolidMAE": separation_from_solid,
+                "bestSolidRGB": best_solid,
+                "maximumReferenceError": 2,
+                "quantizationMargin": 0.5,
+                "requiredRelativeCloseness": 0.5,
+                "matchesIndependentSystemMaterial": visible_material,
+            }
+            corner_comparison = []
+            for name, right, bottom in (("top-left", False, False), ("top-right", True, False),
+                                        ("bottom-left", False, True), ("bottom-right", True, True)):
+                positions = [(baseline[2] - x if right else x, baseline[3] - y if bottom else y)
+                             for y in (0.5, 1.5) for x in (0.5, 1.5)]
+                corners = {key: [pixel_at(key, x, y) for x, y in positions] for key in keys}
+                actual_error = rgb_mae(corners["plugin"], corners["nilClear"])
+                reference_error = rgb_mae(corners["blurReference"], corners["nilClear"])
+                corner_comparison.append({"corner": name, "actualToNilMAE": actual_error,
+                    "referenceToNilMAE": reference_error, "passed": actual_error <= 2 and reference_error <= 2})
+            passes = valid_controls and visible_material and all(corner["passed"] for corner in corner_comparison)
+        else:
+            passes = valid_controls and visible_material
     elif expect_unsupported:
         # Retain the failed 1.0.3 experiment as a strict prerequisite negative
         # control. In compatibility mode, clearing the fallback fill must be
@@ -384,6 +472,8 @@ def compare_material_pixels(directory, snapshot, *, host_material=False, expect_
         "metrics": metrics,
         "expectedOutcome": expected,
         "unsupportedNativeEvidence": unsupported_evidence,
+        "systemBlurComparison": blur_comparison,
+        "cornerPixels": corner_comparison,
         "validMaterialAndNilControls": valid_controls,
         "hasVisibleMaterialOverTransparentControl": visible_material,
         "passed": passes,

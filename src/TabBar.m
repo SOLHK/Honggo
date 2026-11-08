@@ -410,10 +410,14 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
     Class corners = NSClassFromString(@"UICornerConfiguration");
     SEL capsule = sel_registerName("capsuleConfiguration");
     SEL setCorners = sel_registerName("setCornerConfiguration:");
-    if (created && [corners respondsToSelector:capsule] && [glass respondsToSelector:setCorners]) {
+    BOOL nativeCorners = HGNativeGlassConfigured() &&
+        [corners respondsToSelector:capsule] && [glass respondsToSelector:setCorners];
+    if (created && nativeCorners) {
         ((void (*)(id, SEL, id))objc_msgSend)(glass, setCorners,
             ((id (*)(id, SEL))objc_msgSend)(corners, capsule));
-    } else if (![glass respondsToSelector:setCorners] && (created || resized)) {
+    } else if (!nativeCorners && (created || resized)) {
+        // Compatibility mode exposes cornerConfiguration but ignores it for
+        // the blur fallback. Clip this effect's own layer, never its parent.
         glass.clipsToBounds = YES;
         glass.layer.cornerRadius = CGRectGetHeight(frame) / 2;
         glass.layer.cornerCurve = kCACornerCurveContinuous;
