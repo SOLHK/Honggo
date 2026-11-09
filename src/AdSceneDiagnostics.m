@@ -202,13 +202,22 @@ NSDictionary *HGAdSceneSnapshot(NSArray<UIWindow *> *windows) {
                     if (targetCount++ >= 4 || HGAdExpired(start, reasons)) break;
                     BOOL responderChain = target == NSNull.null;
                     HGAdAddClass(responderChain ? Nil : object_getClass(target), classQueue, classSeen, reasons);
-                    NSArray *selectors = [control actionsForTarget:responderChain ? nil : target
-                        forControlEvent:UIControlEventAllEvents];
-                    for (NSString *selector in selectors) {
-                        if (actions.count >= 8) break;
-                        [actions addObject:@{@"targetClass": responderChain ? @"responder-chain" : HGAdClassName(object_getClass(target)),
-                            @"selector": selector.length <= 256 ? selector : [selector substringToIndex:256],
-                            @"events": @(control.allControlEvents)}];
+                    // UIKit queries a specific registered event. The synthetic
+                    // AllEvents mask returned nil for real touch-up registrations
+                    // in the simulator; enumerate actual bits without sending them.
+                    UIControlEvents registered = control.allControlEvents;
+                    for (NSUInteger bit = 0; bit < sizeof(UIControlEvents) * 8; bit++) {
+                        if (actions.count >= 8 || HGAdExpired(start, reasons)) break;
+                        UIControlEvents event = (UIControlEvents)((NSUInteger)1 << bit);
+                        if (!(registered & event)) continue;
+                        NSArray *selectors = [control actionsForTarget:responderChain ? nil : target
+                            forControlEvent:event];
+                        for (NSString *selector in selectors) {
+                            if (actions.count >= 8) break;
+                            [actions addObject:@{@"targetClass": responderChain ? @"responder-chain" : HGAdClassName(object_getClass(target)),
+                                @"selector": selector.length <= 256 ? selector : [selector substringToIndex:256],
+                                @"events": @(event)}];
+                        }
                     }
                     if (actions.count >= 8) break;
                 }
