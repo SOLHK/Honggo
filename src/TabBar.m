@@ -146,6 +146,8 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
 @property(nonatomic) BOOL insetOwned;
 @property(nonatomic, strong) id edge;
 @property(nonatomic) BOOL edgeWasHidden;
+@property(nonatomic, strong) id topEdge;
+@property(nonatomic) BOOL topEdgeWasHidden;
 - (void)restore;
 @end
 @implementation HGViewportRecord
@@ -167,6 +169,8 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
     if (self.edge && [self.edge respondsToSelector:@selector(setHidden:)]) {
         ((void (*)(id, SEL, BOOL))objc_msgSend)(self.edge, @selector(setHidden:), self.edgeWasHidden);
     }
+    if (self.topEdge) ((void (*)(id, SEL, BOOL))objc_msgSend)(self.topEdge,
+        @selector(setHidden:), self.topEdgeWasHidden);
 }
 @end
 
@@ -248,11 +252,6 @@ static void HGObservedAlpha(UIView *view, SEL cmd, CGFloat alpha) {
     ((void (*)(struct objc_super *, SEL, CGFloat))objc_msgSendSuper)(&parent, cmd, alpha);
     HGObservedRefresh(view);
 }
-static void HGObservedOffset(UIScrollView *view, SEL cmd, CGPoint offset) {
-    struct objc_super parent = {view, HGObservedBase(view)};
-    ((void (*)(struct objc_super *, SEL, CGPoint))objc_msgSendSuper)(&parent, cmd, offset);
-    HGObservedRefresh(view);
-}
 static Class HGReportedClass(id object, SEL cmd) { return HGObservedBase(object); }
 
 static void HGObserveView(UIView *view, HGTabState *state, BOOL knownBackground) {
@@ -282,9 +281,6 @@ static void HGObserveView(UIView *view, HGTabState *state, BOOL knownBackground)
             class_addMethod(observed, @selector(setOpaque:), (IMP)HGObservedHidden, "v20@0:8B16");
             class_addMethod(observed, @selector(setAlpha:), (IMP)HGObservedAlpha, "v24@0:8d16");
             class_addMethod(observed, @selector(class), (IMP)HGReportedClass, "#16@0:8");
-            if ([view isKindOfClass:UIScrollView.class])
-                class_addMethod(observed, @selector(setContentOffset:), (IMP)HGObservedOffset,
-                    "v32@0:8{CGPoint=dd}16");
             objc_setAssociatedObject(observed, &HGObservedBaseKey, base, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_registerClassPair(observed);
         }
@@ -483,12 +479,16 @@ static BOOL HGContainerScroll(UIView *view) {
     target.size.height += MAX(0, bottom - end);
     record.appliedFrame = target;
     [records addObject:record];
-    HGObserve(view, self);
+    // Viewport state is reconciled by the tab controller/bar lifecycle, never
+    // by scroll offsets or a scroll view's per-frame layout callbacks.
     if ([view isKindOfClass:UIScrollView.class]) {
         UIScrollView *scroll = (UIScrollView *)view;
+        // The host coordinator owns its collapsing header, pager and lists.
+        // Traversing their moving coordinates causes resize/contentSize/KVO
+        // feedback and prevents the host from scrolling back to its header.
+        if (HGNestedScroll(scroll)) return;
         BOOL horizontalPager = scroll.pagingEnabled &&
-            scroll.contentSize.width > scroll.bounds.size.width + 2 &&
-            scroll.contentSize.height <= scroll.bounds.size.height + 2;
+            scroll.contentSize.width > scroll.bounds.size.width + 2;
         if (!horizontalPager && !HGContainerScroll(scroll)) {
             // Snapshot inset baselines before ANY ancestor is resized: growing
             // a parent can already change the child's automatic safe-area inset.
@@ -548,8 +548,7 @@ static BOOL HGContainerScroll(UIView *view) {
         if ([view isKindOfClass:UIScrollView.class]) {
             UIScrollView *scroll = (UIScrollView *)view;
             BOOL horizontalPager = scroll.pagingEnabled &&
-                scroll.contentSize.width > scroll.bounds.size.width + 2 &&
-                scroll.contentSize.height <= scroll.bounds.size.height + 2;
+                scroll.contentSize.width > scroll.bounds.size.width + 2;
             if (!horizontalPager && !HGContainerScroll(scroll)) {
                 CGFloat automatic = scroll.adjustedContentInset.bottom - scroll.contentInset.bottom;
                 CGFloat extra = MAX(0, delta + record.originalAutomaticBottom - automatic);
@@ -580,10 +579,29 @@ static BOOL HGContainerScroll(UIView *view) {
                         ((BOOL (*)(id, SEL))objc_msgSend)(edge, hidden);
                 }
                 if (record.edge) ((void (*)(id, SEL, BOOL))objc_msgSend)(record.edge, @selector(setHidden:), YES);
+                if (HGContainerScroll(scroll)) {
+                    id top = HGObject(scroll, "topEdgeEffect");
+                    if (top != record.topEdge && [top respondsToSelector:@selector(setHidden:)] &&
+                        [top respondsToSelector:sel_registerName("isHidden")]) {
+                        if (record.topEdge) ((void (*)(id, SEL, BOOL))objc_msgSend)(record.topEdge,
+                            @selector(setHidden:), record.topEdgeWasHidden);
+                        record.topEdge = top;
+                        record.topEdgeWasHidden = ((BOOL (*)(id, SEL))objc_msgSend)(top, sel_registerName("isHidden"));
+                    }
+                    if (record.topEdge) ((void (*)(id, SEL, BOOL))objc_msgSend)(record.topEdge, @selector(setHidden:), YES);
+                }
             }
         }
         record.resized = delta > 0.75;
-        if (!HGRectNear(view.frame, record.appliedFrame)) view.frame = record.appliedFrame;
+        if (!HGRectNear(view.frame, record.appliedFrame)) {
+            view.frame = record.appliedFrame;
+            if (HGNestedScroll(view)) {
+                // Let the host calculate its children from the final outer
+                // viewport once; do not overwrite its result afterwards.
+                [view setNeedsLayout];
+                [view layoutIfNeeded];
+            }
+        }
     }
     // A scroll view's own resize can change automatic safe-area adjustment too.
     // Reconcile after all frames settle, without treating our padding as new input.

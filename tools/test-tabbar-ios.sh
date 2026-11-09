@@ -252,21 +252,13 @@ import json, sys
 from pathlib import Path
 root = Path(sys.argv[1])
 current = json.loads((root / 'nested-current/tabbar-nested-results.json').read_text())
-baseline = json.loads((root / 'nested-baseline/tabbar-nested-results.json').read_text())
 assert current['failed'] == 0, current
-name = 'nested inner feed extends behind the bar through the collapsing-header wrapper'
-assert next(x['passed'] for x in baseline['checks'] if x['name'] == name) is False, baseline
-print('Nested-scroll regression passed; exact 1.0.6 negative control failed as expected.')
-profile = json.loads((root / 'profile-baseline/tabbar-nested-results.json').read_text())
-name = 'profile coordinator keeps zero extra padding and extends the inner list'
-assert next(x['passed'] for x in profile['checks'] if x['name'] == name) is False, profile
-assert next(x['passed'] for x in current['checks'] if x['name'] == name) is True, current
-print('Profile-scroll regression passed; exact 1.1.2 negative control failed as expected.')
-returned = json.loads((root / 'return-baseline/tabbar-nested-results.json').read_text())
-name = 'returning Compose bridge extends its child without inventing bottom padding'
-assert all(x['passed'] is False for x in returned['checks'] if x['name'] == name), returned
-assert sum(x['name'] == name for x in returned['checks']) == 5, returned
-print('Navigation return regression passed; exact 1.1.3 negative control failed all five returns.')
+baseline = json.loads((root / 'return-baseline/tabbar-nested-results.json').read_text())
+name = 'nested scrolling does not install viewport observers'
+matches = [x for x in baseline['checks'] if x['name'] == name]
+assert len(matches) == 2 and all(x['passed'] is False for x in matches), baseline
+print('Nested viewport ownership checks passed; previous source installs observers as expected.')
+
 PY
 
 python3 - "$work" <<'PY'

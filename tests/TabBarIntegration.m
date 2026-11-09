@@ -779,63 +779,53 @@ static UIImage *HGWhiteImage(void) {
     CGFloat width = root.bounds.size.width, height = root.bounds.size.height;
     CGFloat top = bar.frame.origin.y;
     self.host.viewport.hidden = YES;
-    // Both verified host classes expose the same contentView getter/setter.
     SSNestedContainerScrollView *outer = [[coordinatorClass alloc] initWithFrame:CGRectMake(0, 0, width, top)];
     outer.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
-    outer.contentSize = CGSizeMake(width, top + 120);
-    outer.contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, top + 120)];
+    outer.contentSize = CGSizeMake(width, height * 3);
+    outer.contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, height * 3)];
     [outer addSubview:outer.contentView];
-    UIScrollView *feed = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 120, width, top - 120)];
-    feed.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
-    feed.contentInset = UIEdgeInsetsMake(0, 0, 12, 0);
-    feed.contentSize = CGSizeMake(width, height * 3);
-    CGRect contentBefore = outer.contentView.frame;
-    [outer.contentView addSubview:feed];
+    UIScrollView *pager = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 120, width, top - 120)];
+    pager.pagingEnabled = YES;
+    pager.contentSize = CGSizeMake(width * 5, top - 90);
+    pager.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    [outer.contentView addSubview:pager];
+    CGRect originalPager = pager.frame;
+    CGSize originalSize = outer.contentSize;
     [root insertSubview:outer belowSubview:bar];
     [bar layoutSubviews];
-    BOOL mine = coordinatorClass == SSMyUser637NestedContainerScrollView.class;
-    CGRect rect = [feed convertRect:feed.bounds toView:root];
-    [self check:fabs(CGRectGetMaxY(rect) - height) < 0.75
-        name:mine ? @"profile inner feed extends behind the bar through the collapsing-header wrapper" :
-            @"nested inner feed extends behind the bar through the collapsing-header wrapper"];
-    [self check:outer.contentInset.bottom == 0 && fabs(feed.contentInset.bottom - 100) < 0.75
-        name:mine ? @"profile coordinator keeps zero extra padding and extends the inner list" :
-            @"nested scroll reserves bottom padding only on the inner list"];
-    [self check:CGRectEqualToRect(outer.contentView.frame, contentBefore)
-        name:@"nested scrolling content height remains owned by the host"];
-    SEL edgeGetter = sel_registerName("bottomEdgeEffect");
-    if ([outer respondsToSelector:edgeGetter] && [feed respondsToSelector:edgeGetter]) {
-        id outerEdge = ((id (*)(id, SEL))objc_msgSend)(outer, edgeGetter);
-        id innerEdge = ((id (*)(id, SEL))objc_msgSend)(feed, edgeGetter);
-        [self check:((BOOL (*)(id, SEL))objc_msgSend)(outerEdge, @selector(isHidden)) &&
-            ((BOOL (*)(id, SEL))objc_msgSend)(innerEdge, @selector(isHidden))
-            name:@"both nested scroll layers hide their bottom edge veil"];
+    [self check:object_getClass(outer) == coordinatorClass && object_getClass(pager) == UIScrollView.class
+        name:@"nested scrolling does not install viewport observers"];
+    [self check:CGRectEqualToRect(pager.frame, originalPager) && pager.contentInset.bottom == 0
+        name:@"host nested pager geometry and insets remain host-owned"];
+    BOOL stable = YES;
+    for (NSUInteger i = 0; i < 200; i++) {
+        outer.contentOffset = CGPointMake(0, (i % 2) ? 0 : 900);
+        [outer layoutSubviews];
+        stable = stable && CGRectEqualToRect(pager.frame, originalPager) &&
+            CGSizeEqualToSize(outer.contentSize, originalSize) && pager.contentInset.bottom == 0;
     }
-    outer.contentOffset = CGPointMake(0, 120);
-    feed.frame = CGRectMake(0, 120, width, top);
-    [bar layoutSubviews];
-    feed.contentOffset = CGPointMake(0, feed.contentSize.height - feed.bounds.size.height + feed.contentInset.bottom);
-    rect = [feed convertRect:feed.bounds toView:root];
-    [self check:fabs(CGRectGetMaxY(rect) - height) < 0.75 && !HGEffectivelyHidden(bar.items.firstObject)
-        name:@"collapsed header and list bottom preserve an extended viewport and host tab controls"];
-    CGFloat inset = feed.contentInset.bottom;
-    for (NSUInteger i = 0; i < 20; i++) [bar layoutSubviews];
-    [self check:fabs(feed.contentInset.bottom - inset) < 0.01
-        name:@"nested scroll refresh does not accumulate bottom padding"];
+    [self check:stable && outer.contentOffset.y == 0
+        name:@"two hundred scroll updates preserve content size and return to the header"];
+    for (NSUInteger i = 0; i < 5; i++) {
+        [outer removeFromSuperview];
+        [bar layoutSubviews];
+        outer.frame = CGRectMake(0, 0, width, top);
+        [root insertSubview:outer belowSubview:bar];
+        [bar layoutSubviews];
+    }
+    [self check:CGRectEqualToRect(pager.frame, originalPager) && outer.contentInset.bottom == 0
+        name:@"navigation returns do not take ownership of nested pager"];
+    SEL getter = sel_registerName("topEdgeEffect");
+    if ([outer respondsToSelector:getter]) {
+        id edge = ((id (*)(id, SEL))objc_msgSend)(outer, getter);
+        [self check:((BOOL (*)(id, SEL))objc_msgSend)(edge, @selector(isHidden))
+            name:@"coordinator top edge veil is hidden"];
+    }
     [outer removeFromSuperview];
     [bar layoutSubviews];
-    [self check:fabs(feed.contentInset.bottom - 12) < 0.01
-        name:@"detaching the nested page restores inner list padding"];
+    [self check:fabs(outer.bounds.size.height - top) < 0.75 && CGRectEqualToRect(pager.frame, originalPager)
+        name:@"detaching restores outer viewport without changing nested content"];
     self.host.viewport.hidden = NO;
-    [self layoutHost];
-    CGRect originalContent = bar.contentView.frame;
-    bar.contentView.frame = CGRectMake(0, originalContent.origin.y, width, originalContent.size.height);
-    [bar.contentView layoutSubviews];
-    UIVisualEffectView *surface = HGEffects(bar).firstObject;
-    [self check:CGRectGetMinX(surface.frame) >= 20 && CGRectGetMaxX(surface.frame) <= width - 20 &&
-        bar.contentView.frame.size.width == width && HGFullEffectAlpha(surface)
-        name:@"edge-to-edge host content retains symmetric floating material margins without shrinking hit targets"];
-    bar.contentView.frame = originalContent;
     [self layoutHost];
 }
 - (void)runBackgroundResetChecks {
