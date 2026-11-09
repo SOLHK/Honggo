@@ -744,6 +744,15 @@ static UIImage *HGWhiteImage(void) {
         name:@"detaching the nested page restores inner list padding"];
     self.host.viewport.hidden = NO;
     [self layoutHost];
+    CGRect originalContent = bar.contentView.frame;
+    bar.contentView.frame = CGRectMake(0, originalContent.origin.y, width, originalContent.size.height);
+    [bar.contentView layoutSubviews];
+    UIVisualEffectView *surface = HGEffects(bar).firstObject;
+    [self check:CGRectGetMinX(surface.frame) >= 20 && CGRectGetMaxX(surface.frame) <= width - 20 &&
+        bar.contentView.frame.size.width == width && HGFullEffectAlpha(surface)
+        name:@"edge-to-edge host content retains symmetric floating material margins without shrinking hit targets"];
+    bar.contentView.frame = originalContent;
+    [self layoutHost];
 }
 - (void)runBackgroundResetChecks {
     [self layoutHost];

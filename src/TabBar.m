@@ -662,6 +662,19 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
             self.glass.hidden = YES;
             return;
         }
+        // The real host can supply an edge-to-edge content container. Keep the
+        // material floating even when the list's last row exposes its plain
+        // background; original controls and their hit targets stay untouched.
+        CGFloat left = self.bar.safeAreaInsets.left;
+        CGFloat right = CGRectGetWidth(self.bar.bounds) - self.bar.safeAreaInsets.right;
+        if (CGRectGetMinX(frame) < left + 8 || CGRectGetMaxX(frame) > right - 8) {
+            CGFloat insetLeft = MAX(CGRectGetMinX(frame), left + 20);
+            CGFloat insetRight = MIN(CGRectGetMaxX(frame), right - 20);
+            if (insetRight - insetLeft >= 176) {
+                frame.origin.x = insetLeft;
+                frame.size.width = insetRight - insetLeft;
+            }
+        }
         // Drop ownership for detached/replaced content before preparing new views.
         for (UIView *view in self.surfaces.keyEnumerator.allObjects) {
             if (view != bar && ![view isDescendantOfView:bar]) {
