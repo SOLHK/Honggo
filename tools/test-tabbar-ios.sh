@@ -23,10 +23,10 @@ build_variant() {
     mkdir -p "$app"
     # Historical TabBar implementations predate the title ownership accessor.
     # Keep their foreground behavior unchanged when linking current Controls.
-    local title_compat=()
+    local title_compat="$work/$variant/TitleCompat.m"
+    printf '#import "Honggo.h"\n' > "$title_compat"
     if [ "$variant" != current ]; then
-        printf '#import "Honggo.h"\nUIColor *HGOriginalTabTitleColor(UILabel *label) { return label.textColor; }\n' > "$work/$variant/TitleCompat.m"
-        title_compat=("$work/$variant/TitleCompat.m")
+        printf 'UIColor *HGOriginalTabTitleColor(UILabel *label) { return label.textColor; }\n' >> "$title_compat"
     fi
     xcrun --sdk iphonesimulator clang \
         -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
@@ -36,7 +36,7 @@ build_variant() {
         "$source_root/src/Settings.m" "$tabbar_source" \
         "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
         "$source_root/tests/ControlsIntegration.m" \
-        "$source_root/tests/TabBarIntegration.m" "${title_compat[@]}" -o "$app/HGTabBarTests"
+        "$source_root/tests/TabBarIntegration.m" "$title_compat" -o "$app/HGTabBarTests"
     python3 - "$app/Info.plist" "$bundle_id" "$source_root" <<'PY'
 import plistlib
 import sys
