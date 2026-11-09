@@ -84,6 +84,11 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
 
 @class HGTabState;
 #import "TabTitles.inc"
+static char HGTitleRecordKey;
+UIColor *HGOriginalTabTitleColor(UILabel *label) {
+    HGTabTitleRecord *record = objc_getAssociatedObject(label, &HGTitleRecordKey);
+    return record && [label.textColor isEqual:record.appliedColor] ? record.color : label.textColor;
+}
 @interface HGObserverOwner : NSObject
 @property(nonatomic, weak) HGTabState *state;
 @end
@@ -406,8 +411,6 @@ static BOOL HGContainerScroll(UIView *view) {
         [self clearBackgrounds:child content:content frame:frame depth:depth + 1];
 }
 - (void)prepareGlass:(CGRect)frame content:(UIView *)content {
-    // Read the host's actual foreground before choosing the material theme.
-    for (HGTabTitleRecord *record in self.titles.objectEnumerator.allObjects) [record restore];
     BOOL created = !self.glass;
     if (!self.glass) {
         self.glass = [[HGGlassBackdrop alloc] initWithEffect:nil];
@@ -459,15 +462,21 @@ static BOOL HGContainerScroll(UIView *view) {
             UILabel *label = (UILabel *)HGView(item, "tabLabel");
             if (![label isKindOfClass:UILabel.class] || ![label isDescendantOfView:item]) continue;
             HGTabTitleRecord *record = [self.titles objectForKey:label];
-            if (!record) { record = [HGTabTitleRecord new]; record.label = label; [self.titles setObject:record forKey:label]; }
-            record.color = label.textColor; record.font = label.font;
+            if (!record) {
+                record = [HGTabTitleRecord new]; record.label = label;
+                [self.titles setObject:record forKey:label];
+                objc_setAssociatedObject(label, &HGTitleRecordKey, record, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+            if (![label.textColor isEqual:record.appliedColor]) record.color = label.textColor;
+            if (![label.font isEqual:record.appliedFont]) record.font = label.font;
             BOOL selected = [(UIControl *)item isSelected];
             BOOL dark = glass.overrideUserInterfaceStyle == UIUserInterfaceStyleDark;
             record.appliedColor = [UIColor colorWithWhite:dark ? (selected ? 1 : 0.92) : (selected ? 0 : 0.12) alpha:1];
-            UIFontDescriptor *descriptor = [label.font.fontDescriptor fontDescriptorByAddingAttributes:
+            UIFontDescriptor *descriptor = [record.font.fontDescriptor fontDescriptorByAddingAttributes:
                 @{UIFontDescriptorTraitsAttribute: @{UIFontWeightTrait: @(selected ? UIFontWeightBold : UIFontWeightSemibold)}}];
-            record.appliedFont = [UIFont fontWithDescriptor:descriptor size:label.font.pointSize];
-            label.textColor = record.appliedColor; label.font = record.appliedFont;
+            record.appliedFont = [UIFont fontWithDescriptor:descriptor size:record.font.pointSize];
+            if (![label.textColor isEqual:record.appliedColor]) label.textColor = record.appliedColor;
+            if (![label.font isEqual:record.appliedFont]) label.font = record.appliedFont;
             continue; // Never visit its badge/title descendants as other controls.
         }
         if (![item isKindOfClass:UIVisualEffectView.class] && queue.count < 64)
@@ -658,7 +667,9 @@ static BOOL HGContainerScroll(UIView *view) {
 }
 - (void)restore {
     HGRestoreViewports(self.viewports.objectEnumerator.allObjects);
-    for (HGTabTitleRecord *record in self.titles.objectEnumerator.allObjects) [record restore];
+    for (HGTabTitleRecord *record in self.titles.objectEnumerator.allObjects) {
+        [record restore]; objc_setAssociatedObject(record.label, &HGTitleRecordKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
     [self.titles removeAllObjects];
     [self.viewports removeAllObjects];
     for (HGSurfaceRecord *record in self.surfaces.objectEnumerator.allObjects) [record restore];

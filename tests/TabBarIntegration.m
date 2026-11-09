@@ -7,6 +7,12 @@
 #include <math.h>
 
 NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
+@interface HGTitleProbe : UILabel
+@property(nonatomic) NSUInteger fontWrites;
+@end
+@implementation HGTitleProbe
+- (void)setFont:(UIFont *)font { self.fontWrites++; [super setFont:font]; }
+@end
 @interface SSTabBarTextButton : UIControl
 @property(nonatomic, strong) UILabel *tabLabel;
 @end
@@ -758,7 +764,7 @@ static UIImage *HGWhiteImage(void) {
 - (void)runTitleContrastChecks {
     SSTabBar *bar = self.host.customTabBar;
     SSTabBarTextButton *button = [[SSTabBarTextButton alloc] initWithFrame:CGRectMake(30, 0, 80, 44)];
-    UILabel *title = [[UILabel alloc] initWithFrame:button.bounds];
+    HGTitleProbe *title = [[HGTitleProbe alloc] initWithFrame:button.bounds];
     title.text = @"测试"; title.textColor = UIColor.grayColor;
     UIFont *font = [UIFont systemFontOfSize:16]; title.font = font;
     button.tabLabel = title; [button addSubview:title];
@@ -770,6 +776,9 @@ static UIImage *HGWhiteImage(void) {
         name:@"host tab title gains opaque dark contrast without changing its size"];
     [self check:[badge.textColor isEqual:UIColor.redColor] && !badge.hidden && badge.frame.size.width == 8
         name:@"title styling preserves the separate host badge"];
+    NSUInteger writes = title.fontWrites;
+    for (NSUInteger i = 0; i < 20; i++) [bar layoutSubviews];
+    [self check:title.fontWrites == writes name:@"unchanged tab layouts do not rewrite title fonts"];
     bar.hidden = YES;
     [self check:[title.textColor isEqual:UIColor.grayColor] && [title.font isEqual:font]
         name:@"hiding the bar restores original host typography"];

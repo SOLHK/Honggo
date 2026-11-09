@@ -39,6 +39,7 @@ void HGInstallControls(void);
 NSDictionary *HGInterfaceSnapshot(void);
 void HGStyleControl(UIView *control);
 UIUserInterfaceStyle HGGlassForegroundStyle(UIView *content, UITraitCollection *traits);
+UIColor *HGOriginalTabTitleColor(UILabel *label);
 
 @interface HGSettingsController : UITableViewController
 @end

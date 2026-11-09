@@ -78,7 +78,7 @@ UIUserInterfaceStyle HGGlassForegroundStyle(UIView *content, UITraitCollection *
             else if (item.currentImage.renderingMode == UIImageRenderingModeAlwaysTemplate) foreground = item.tintColor;
         } else if ([view isKindOfClass:UILabel.class]) {
             UILabel *label = (UILabel *)view;
-            if (label.text.length || label.attributedText.length) foreground = label.textColor;
+            if (label.text.length || label.attributedText.length) foreground = HGOriginalTabTitleColor(label);
         }
         if (foreground) {
                 UIColor *color = [foreground resolvedColorWithTraitCollection:traits];
