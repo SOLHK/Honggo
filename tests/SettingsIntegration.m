@@ -211,11 +211,20 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         name:@"settings title is Honggo with a separate plugin version"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
-    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount && HGFeatureCount == 15
-        name:@"settings presents all 15 existing feature switches"];
+    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount && HGFeatureCount == 16
+        name:@"settings preserves 15 switches and adds native control glass"];
+    [self check:[settings.tableView numberOfRowsInSection:1] == 3
+        name:@"settings exposes enhanced diagnostics export and clear"];
+    UITableViewCell *diagnostics = [settings tableView:settings.tableView cellForRowAtIndexPath:
+        [NSIndexPath indexPathForRow:0 inSection:1]];
+    UISwitch *enhanced = (UISwitch *)diagnostics.accessoryView;
+    [self check:!enhanced.on name:@"enhanced diagnostics is opt-in"];
+    enhanced.on = YES;
+    [enhanced sendActionsForControlEvents:UIControlEventValueChanged];
+    [self check:HGEnhancedDiagnostics() name:@"enhanced diagnostics switch takes effect without restart"];
     NSArray<NSString *> *keys = @[@"glass", @"splash", @"topview", @"feed", @"comment", @"pause", @"patch",
         @"commerce", @"marketing", @"redPacket", @"bookstoreAd", @"couponPendant", @"miniGamePendant",
-        @"welfareGuide", @"survey"];
+        @"welfareGuide", @"survey", @"glassControls"];
     BOOL saved = YES;
     for (NSUInteger index = 0; index < HGFeatureCount; index++) {
         NSIndexPath *path = [NSIndexPath indexPathForRow:(NSInteger)index inSection:0];

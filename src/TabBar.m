@@ -56,6 +56,8 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
             self.nativeGlass = NO;
             effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
         }
+        if (self.nativeGlass && [effect respondsToSelector:sel_registerName("setInteractive:")])
+            ((void (*)(id, SEL, BOOL))objc_msgSend)(effect, sel_registerName("setInteractive:"), YES);
         // UIGlassEffect is created in a real, attached layout pass. Creating it in
         // didMoveToWindow can leave it unrendered when a host view is recycled.
         self.effect = effect;
@@ -201,6 +203,7 @@ static void HGRestoreViewports(NSArray<HGViewportRecord *> *records) {
 @property(nonatomic) BOOL refreshing;
 @property(nonatomic) BOOL nativeGlass;
 @property(nonatomic) BOOL logged;
+@property(nonatomic) NSTimeInterval lastDiagnostic;
 - (void)refresh;
 - (void)restore;
 @end
@@ -245,6 +248,11 @@ static void HGObservedAlpha(UIView *view, SEL cmd, CGFloat alpha) {
     ((void (*)(struct objc_super *, SEL, CGFloat))objc_msgSendSuper)(&parent, cmd, alpha);
     HGObservedRefresh(view);
 }
+static void HGObservedOffset(UIScrollView *view, SEL cmd, CGPoint offset) {
+    struct objc_super parent = {view, HGObservedBase(view)};
+    ((void (*)(struct objc_super *, SEL, CGPoint))objc_msgSendSuper)(&parent, cmd, offset);
+    HGObservedRefresh(view);
+}
 static Class HGReportedClass(id object, SEL cmd) { return HGObservedBase(object); }
 
 static void HGObserveView(UIView *view, HGTabState *state, BOOL knownBackground) {
@@ -274,6 +282,9 @@ static void HGObserveView(UIView *view, HGTabState *state, BOOL knownBackground)
             class_addMethod(observed, @selector(setOpaque:), (IMP)HGObservedHidden, "v20@0:8B16");
             class_addMethod(observed, @selector(setAlpha:), (IMP)HGObservedAlpha, "v24@0:8d16");
             class_addMethod(observed, @selector(class), (IMP)HGReportedClass, "#16@0:8");
+            if ([view isKindOfClass:UIScrollView.class])
+                class_addMethod(observed, @selector(setContentOffset:), (IMP)HGObservedOffset,
+                    "v32@0:8{CGPoint=dd}16");
             objc_setAssociatedObject(observed, &HGObservedBaseKey, base, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_registerClassPair(observed);
         }
@@ -305,6 +316,11 @@ static BOOL HGContainsControls(UIView *view, NSUInteger depth) {
     if (depth >= 6) return view.subviews.count > 0; // Ambiguous: preserve it.
     for (UIView *child in view.subviews) if (HGContainsControls(child, depth + 1)) return YES;
     return NO;
+}
+
+static BOOL HGNestedScroll(UIView *view) {
+    Class type = NSClassFromString(@"SSNestedContainerScrollView");
+    return type && [view isKindOfClass:type];
 }
 
 static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection *traits) {
@@ -453,6 +469,13 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
         depth > 10 || !CGAffineTransformIsIdentity(view.transform) || view.layer.mask ||
         [view isKindOfClass:UIControl.class] || [view isKindOfClass:UITableViewCell.class] ||
         [view isKindOfClass:UICollectionViewCell.class] || [view isKindOfClass:UIVisualEffectView.class]) return;
+    // This is scrollable content (including a collapsing header), not a viewport.
+    // Its size belongs to the host even when scrolling brings its edge into view.
+    if (HGNestedScroll(view.superview) && HGView(view.superview, "contentView") == view) {
+        for (UIView *child in view.subviews.copy)
+            [self collectViewports:child root:root barTop:barTop bottom:bottom records:records depth:depth + 1];
+        return;
+    }
     CGRect actual = [view convertRect:view.bounds toView:root];
     CGFloat rootWidth = CGRectGetWidth(root.bounds), rootHeight = CGRectGetHeight(root.bounds);
     if (CGRectGetWidth(actual) < rootWidth * 0.80 || CGRectGetMinX(actual) < -2 ||
@@ -484,7 +507,7 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
         BOOL horizontalPager = scroll.pagingEnabled &&
             scroll.contentSize.width > scroll.bounds.size.width + 2 &&
             scroll.contentSize.height <= scroll.bounds.size.height + 2;
-        if (!horizontalPager) {
+        if (!horizontalPager && !HGNestedScroll(scroll)) {
             // Snapshot inset baselines before ANY ancestor is resized: growing
             // a parent can already change the child's automatic safe-area inset.
             if (!record.insetOwned || !HGNear(scroll.contentInset.bottom, record.appliedInset.bottom)) {
@@ -531,6 +554,7 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
         if (![active containsObject:view]) {
             [inactive addObject:[self.viewports objectForKey:view]];
             [self.viewports removeObjectForKey:view];
+            HGUnobserve(view, self);
         }
     }
     HGRestoreViewports(inactive);
@@ -544,7 +568,7 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
             BOOL horizontalPager = scroll.pagingEnabled &&
                 scroll.contentSize.width > scroll.bounds.size.width + 2 &&
                 scroll.contentSize.height <= scroll.bounds.size.height + 2;
-            if (!horizontalPager) {
+            if (!horizontalPager && !HGNestedScroll(scroll)) {
                 CGFloat automatic = scroll.adjustedContentInset.bottom - scroll.contentInset.bottom;
                 CGFloat extra = MAX(0, delta + record.originalAutomaticBottom - automatic);
                 // Own only bottom. A host changing top/left/right while our
@@ -672,6 +696,26 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
         if (bar.clipsToBounds) bar.clipsToBounds = NO;
         [self prepareGlass:frame content:content];
         [self refreshViewports];
+        NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+        if (!self.logged || (HGEnhancedDiagnostics() && now - self.lastDiagnostic >= 1)) {
+            NSMutableArray *viewports = [NSMutableArray array];
+            for (HGViewportRecord *record in self.viewports.objectEnumerator.allObjects) {
+                if (viewports.count >= 24) break;
+                NSMutableDictionary *item = [@{@"class": NSStringFromClass(record.view.class),
+                    @"originalFrame": NSStringFromCGRect(record.originalFrame),
+                    @"appliedFrame": NSStringFromCGRect(record.appliedFrame), @"insetOwned": @(record.insetOwned)} mutableCopy];
+                if ([record.view isKindOfClass:UIScrollView.class]) {
+                    UIScrollView *scroll = (UIScrollView *)record.view;
+                    item[@"offset"] = NSStringFromCGPoint(scroll.contentOffset);
+                    item[@"inset"] = NSStringFromUIEdgeInsets(scroll.contentInset);
+                }
+                [viewports addObject:item];
+            }
+            HGLog(@"tabbar.layout", @{@"material": self.nativeGlass ? @"UIGlassEffect" : @"UIBlurEffect",
+                @"frame": NSStringFromCGRect(self.glass.frame), @"viewports": viewports,
+                @"surfaces": @(self.surfaces.count), @"nativeConfigured": @(HGNativeGlassConfigured())});
+            self.lastDiagnostic = now;
+        }
         if (!self.logged) {
             NSLog(@"[Honggo] 版本 %@；底栏：%@；主包兼容模式=%@；减少透明度=%d；增强对比度=%d；背景已按宿主层级处理",
                 HG_PLUGIN_VERSION, self.nativeGlass ? @"UIGlassEffect Regular" : @"UIBlurEffect fallback",

@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import "Diagnostics.h"
 
 typedef NS_ENUM(NSUInteger, HGFeature) {
     HGGlass,
@@ -21,6 +22,7 @@ typedef NS_ENUM(NSUInteger, HGFeature) {
     HGMiniGamePendant,
     HGWelfareGuide,
     HGSurvey,
+    HGGlassControls,
     HGFeatureCount,
 };
 
@@ -31,6 +33,9 @@ void HGInstallAds(void);
 BOOL HGInstallTabBar(void);
 BOOL HGInstallSettings(void);
 void HGAttachSettings(UIView *tabBar);
+void HGInstallControls(void);
+NSDictionary *HGInterfaceSnapshot(void);
+void HGStyleControl(UIView *control);
 
 @interface HGSettingsController : UITableViewController
 @end

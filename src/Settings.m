@@ -24,6 +24,7 @@ static const HGOption HGOptions[HGFeatureCount] = {
     [HGMiniGamePendant] = {@"miniGamePendant", @"隐藏小游戏悬浮挂件"},
     [HGWelfareGuide] = {@"welfareGuide", @"隐藏福利标签引导气泡"},
     [HGSurvey] = {@"survey", @"隐藏短剧满意度问卷"},
+    [HGGlassControls] = {@"glassControls", @"原生液态玻璃按钮"},
 };
 
 static NSString *const HGSettingsTitle = HG_PLUGIN_NAME;
@@ -46,6 +47,8 @@ BOOL HGIsEnabled(HGFeature feature) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = HGSettingsTitle;
+    HGDiagnosticsStart(nil, @{@"os": NSProcessInfo.processInfo.operatingSystemVersionString});
+    HGLog(@"settings.open", @{@"nativeGlass": @(HGNativeGlassConfigured())});
     self.tableView.accessibilityIdentifier = @"honggo.settings.options";
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 52;
@@ -54,19 +57,22 @@ BOOL HGIsEnabled(HGFeature feature) {
         target:self action:@selector(closeSettings)];
 }
 
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 2; }
+
 - (void)closeSettings {
     [self dismissViewControllerAnimated:YES completion:nil];
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return HGFeatureCount;
+    return section == 0 ? HGFeatureCount : 3;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return @"版本 " HG_PLUGIN_VERSION;
+    return section == 0 ? @"版本 " HG_PLUGIN_VERSION : @"诊断与反馈";
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    if (section == 1) return @"日志保留最近一小时。增强诊断记录底栏布局和已适配按钮触摸；不采集账号、阅读/观看内容、Cookie 或 Token。导出后通过系统分享保存。";
     NSString *restart = @"更改后请完全退出红果短剧，再重新打开。关闭底栏开关并重启可恢复宿主底栏。";
     NSString *mode = HGNativeGlassConfigured() ?
         @"当前安装包已配置原生液态玻璃。新版界面设置对整个应用生效，关闭底栏开关不会回退这项配置。" :
@@ -75,6 +81,18 @@ BOOL HGIsEnabled(HGFeature feature) {
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section == 1) {
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+        cell.textLabel.text = @[@"增强诊断", @"导出最近一小时日志", @"清除诊断日志"][indexPath.row];
+        cell.accessibilityIdentifier = @[@"honggo.diagnostics.enhanced", @"honggo.diagnostics.export", @"honggo.diagnostics.clear"][indexPath.row];
+        if (indexPath.row == 0) {
+            UISwitch *toggle = [UISwitch new];
+            toggle.on = HGEnhancedDiagnostics();
+            [toggle addTarget:self action:@selector(enhancedChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = toggle;
+        } else cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return cell;
+    }
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"HonggoOption"];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
@@ -102,6 +120,38 @@ BOOL HGIsEnabled(HGFeature feature) {
 - (void)toggleChanged:(UISwitch *)toggle {
     HGFeature feature = (HGFeature)toggle.tag;
     [NSUserDefaults.standardUserDefaults setBool:toggle.on forKey:HGPreferenceKey(feature)];
+    HGLog(@"settings.toggle", @{@"feature": HGOptions[feature].key, @"enabled": @(toggle.on)});
+}
+
+- (void)enhancedChanged:(UISwitch *)toggle { HGSetEnhancedDiagnostics(toggle.on); }
+- (void)showDiagnosticError:(NSError *)error {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"日志操作失败"
+        message:[NSString stringWithFormat:@"%@ (%ld)", error.domain, (long)error.code]
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.section != 1 || indexPath.row == 0) return;
+    tableView.userInteractionEnabled = NO;
+    if (indexPath.row == 2) {
+        HGClearDiagnostics(^(NSError *error) {
+            tableView.userInteractionEnabled = YES;
+            if (error) [self showDiagnosticError:error];
+        });
+        return;
+    }
+    NSDictionary *snapshot = HGInterfaceSnapshot();
+    HGExportDiagnostics(snapshot, ^(NSURL *url, NSError *error) {
+        tableView.userInteractionEnabled = YES;
+        if (error) { [self showDiagnosticError:error]; return; }
+        if (!self.view.window || self.presentedViewController) return;
+        UIActivityViewController *share = [[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
+        share.popoverPresentationController.sourceView = tableView;
+        share.popoverPresentationController.sourceRect = [tableView rectForRowAtIndexPath:indexPath];
+        [self presentViewController:share animated:YES completion:nil];
+    });
 }
 
 + (void)openFromController:(UIViewController *)presenter {
@@ -200,6 +250,7 @@ BOOL HGIsEnabled(HGFeature feature) {
     self.subtitleLabel.frame = CGRectMake(textX, top + titleHeight + 4, textWidth, subtitleHeight);
     self.chevron.frame = CGRectMake(rtl ? 16 : width - 28,
         (CGRectGetHeight(self.bounds) - 18) / 2, 12, 18);
+    HGStyleControl(self);
 }
 
 - (void)setHighlighted:(BOOL)highlighted {

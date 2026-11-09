@@ -16,11 +16,15 @@ BOOL HGNativeGlassConfigured(void) {
 IMP HGReplaceMethod(Class target, SEL selector, const char *encoding, IMP replacement) {
     Method method = class_getInstanceMethod(target, selector);
     if (method == NULL || strcmp(method_getTypeEncoding(method), encoding) != 0) {
+        HGLog(@"hook.skipped", @{@"class": NSStringFromClass(target) ?: @"missing",
+            @"selector": NSStringFromSelector(selector), @"expected": @(encoding),
+            @"actual": method ? @(method_getTypeEncoding(method)) : @"missing"});
         return NULL;
     }
 
     IMP original = method_getImplementation(method);
     class_replaceMethod(target, selector, replacement, encoding);
+    HGLog(@"hook.installed", @{@"class": NSStringFromClass(target), @"selector": NSStringFromSelector(selector)});
     return original;
 }
 
@@ -52,6 +56,12 @@ __attribute__((constructor)) static void HGStart(void) {
             return;
         }
 
+        HGDiagnosticsStart(nil, @{@"hostBuild": version, @"os": NSProcessInfo.processInfo.operatingSystemVersionString,
+            @"executable": @"Eggplant"});
+        HGLoadStage(@"entry");
+        HGInstallControls();
+        HGLoadStage(@"controlsInstalled");
+
         if (!HGInstall()) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (!HGInstall()) {
@@ -62,9 +72,11 @@ __attribute__((constructor)) static void HGStart(void) {
                 } else {
                     NSLog(@"[Honggo] 版本 %@ 已载入，请在 我的 → 设置 → Honggo 管理开关", HG_PLUGIN_VERSION);
                 }
+                HGLoadStage(@"installationRetried");
             });
         } else {
             NSLog(@"[Honggo] 版本 %@ 已载入，请在 我的 → 设置 → Honggo 管理开关", HG_PLUGIN_VERSION);
         }
+        HGLoadStage(@"installationReturned");
     }
 }

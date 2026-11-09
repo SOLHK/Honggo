@@ -1,4 +1,5 @@
 #import "Honggo.h"
+#include <stdatomic.h>
 
 typedef struct {
     HGFeature feature;
@@ -9,16 +10,18 @@ typedef struct {
     BOOL classMethod;
 } HGGate;
 
-static BOOL HGNo(id self, SEL cmd) { return NO; }
-static BOOL HGNoObject(id self, SEL cmd, id argument) { return NO; }
-static BOOL HGNoObjects(id self, SEL cmd, id first, id second) { return NO; }
-static BOOL HGNoObjectClass(id self, SEL cmd, id argument, Class viewClass) { return NO; }
-static BOOL HGYesObject(id self, SEL cmd, id argument) { return YES; }
-static void HGSkipSurvey(id self, SEL cmd, NSInteger style, id videoID) {}
-static void HGSkipPendant(id self, SEL cmd, UIView *parent) {}
+static void HGAdDecision(id object, SEL selector, BOOL result);
+static BOOL HGNo(id self, SEL cmd) { HGAdDecision(self, cmd, NO); return NO; }
+static BOOL HGNoObject(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, NO); return NO; }
+static BOOL HGNoObjects(id self, SEL cmd, id first, id second) { HGAdDecision(self, cmd, NO); return NO; }
+static BOOL HGNoObjectClass(id self, SEL cmd, id argument, Class viewClass) { HGAdDecision(self, cmd, NO); return NO; }
+static BOOL HGYesObject(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, YES); return YES; }
+static void HGSkipSurvey(id self, SEL cmd, NSInteger style, id videoID) { HGAdDecision(self, cmd, NO); }
+static void HGSkipPendant(id self, SEL cmd, UIView *parent) { HGAdDecision(self, cmd, NO); }
 
 static void HGSkipPatch(id self, SEL cmd, id context, id seriesID, id videoID,
     double currentTime, void (^ready)(id), void (^remove)(void)) {
+    HGAdDecision(self, cmd, NO);
     // Follow the host's declined-ad path so playback callers get their completion.
     if (ready) {
         ready(nil);
@@ -59,6 +62,22 @@ static const HGGate HGGates[] = {
     {HGSurvey, "SSShortVideoSatisfactionSurveyManager", "tryShowContinueSkipSurveyIfNeededWithVideoId:", "B24@0:8@16", (IMP)HGNoObject},
     {HGSurvey, "SSShortVideoSatisfactionSurveyManager", "tryRestoreReadingItemSurveyIfNeededWithVideoId:", "B24@0:8@16", (IMP)HGNoObject},
 };
+
+static void HGAdDecision(id object, SEL selector, BOOL result) {
+    static atomic_ulong counts[sizeof(HGGates) / sizeof(HGGates[0])];
+    for (NSUInteger i = 0; i < sizeof(HGGates) / sizeof(HGGates[0]); i++) {
+        const HGGate *gate = &HGGates[i];
+        if (selector != sel_registerName(gate->selector)) continue;
+        Class type = objc_lookUpClass(gate->className);
+        if (!(gate->classMethod ? [object isSubclassOfClass:type] : [object isKindOfClass:type])) continue;
+        unsigned long count = atomic_fetch_add_explicit(&counts[i], 1, memory_order_relaxed) + 1;
+        // First hit and powers of two preserve useful counts without logging a hot path per call.
+        if ((count & (count - 1)) == 0 || HGEnhancedDiagnostics())
+            HGLog(@"ad.decision", @{@"rule": @(i), @"class": @(gate->className),
+                @"selector": @(gate->selector), @"count": @(count), @"returnOrSkip": @(result)});
+        return;
+    }
+}
 
 void HGInstallAds(void) {
     BOOL enabled[HGFeatureCount] = {NO};

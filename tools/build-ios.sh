@@ -24,7 +24,8 @@ xcrun --sdk iphoneos clang \
     "-Wl,-current_version,$version" -Wl,-compatibility_version,1.0.0 \
     -framework Foundation -framework UIKit -framework QuartzCore -framework CoreGraphics -lobjc \
     "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
-    "$source_root/src/Settings.m" "$source_root/src/TabBar.m" -o "$output"
+    "$source_root/src/Settings.m" "$source_root/src/TabBar.m" \
+    "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" -o "$output"
 
 xcrun otool -hv "$output"
 xcrun otool -L "$output"

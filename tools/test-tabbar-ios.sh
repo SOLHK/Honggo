@@ -27,6 +27,8 @@ build_variant() {
         -framework Foundation -framework CoreFoundation -framework UIKit -framework QuartzCore -framework CoreGraphics -lobjc \
         "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
         "$source_root/src/Settings.m" "$tabbar_source" \
+        "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
+        "$source_root/tests/ControlsIntegration.m" \
         "$source_root/tests/TabBarIntegration.m" -o "$app/HGTabBarTests"
     python3 - "$app/Info.plist" "$bundle_id" "$source_root" <<'PY'
 import plistlib
@@ -65,6 +67,9 @@ PY
 build_variant current "$source_root/src/TabBar.m"
 build_variant legacy "$work/legacy/TabBar.m"
 build_variant background-baseline "$work/background-baseline/TabBar.m"
+mkdir -p "$work/nested-baseline"
+git -C "$source_root" show 78a17ad2e2f1b8ee458d0885a37fab67b5f2f09f:src/TabBar.m > "$work/nested-baseline/TabBar.m"
+build_variant nested-baseline "$work/nested-baseline/TabBar.m"
 # Reuse the compiled test executable. Reference modes install no Honggo hooks;
 # the unprepared fallback runs only its compact behavior and compositor checks.
 clone_variant() {
@@ -96,6 +101,7 @@ clone_variant reference-modern prepared
 clone_variant reference-compat unprepared
 clone_variant fallback unprepared
 clone_variant background-current prepared
+clone_variant nested-current prepared
 xcrun simctl list --json > "$work/simulators.json"
 selection=$(python3 - "$work/simulators.json" <<'PY'
 import json
@@ -146,7 +152,7 @@ run_variant() {
     local captured_phase=
     local phase_count=7
     case "$result_name:$variant" in
-        tabbar-background-reset-results.json:*) phase_count=0 ;;
+        tabbar-background-reset-results.json:*|tabbar-nested-results.json:*) phase_count=0 ;;
         tabbar-disabled-results.json:*) phase_count=1 ;;
         tabbar-reference-results.json:*|tabbar-fallback-results.json:*) phase_count=2 ;;
         tabbar-results.json:legacy) phase_count=5 ;;
@@ -228,6 +234,20 @@ run_variant reference-compat tabbar-reference-results.json --native-reference
 run_variant fallback tabbar-fallback-results.json --compat-fallback
 run_variant background-current tabbar-background-reset-results.json --background-reset-only
 run_variant background-baseline tabbar-background-reset-results.json --background-reset-only
+run_variant nested-current tabbar-nested-results.json --nested-only
+run_variant nested-baseline tabbar-nested-results.json --nested-only
+
+python3 - "$work" <<'PY'
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+current = json.loads((root / 'nested-current/tabbar-nested-results.json').read_text())
+baseline = json.loads((root / 'nested-baseline/tabbar-nested-results.json').read_text())
+assert current['failed'] == 0, current
+name = 'nested inner feed extends behind the bar through the collapsing-header wrapper'
+assert next(x['passed'] for x in baseline['checks'] if x['name'] == name) is False, baseline
+print('Nested-scroll regression passed; exact 1.0.6 negative control failed as expected.')
+PY
 
 python3 - "$work" <<'PY'
 import json

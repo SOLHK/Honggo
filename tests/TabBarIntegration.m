@@ -6,6 +6,13 @@
 #import <objc/message.h>
 #include <math.h>
 
+NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
+@interface SSNestedContainerScrollView : UIScrollView
+@property(nonatomic, strong) UIView *contentView;
+@end
+@implementation SSNestedContainerScrollView
+@end
+
 // Instrument only our plugin's effect subclass in this test executable. Keep
 // the production setter implementation intact and observe real assignments;
 // UIVisualEffectView.effect is not required to preserve getter object identity.
@@ -530,6 +537,7 @@ static UIImage *HGWhiteImage(void) {
 @property(nonatomic) BOOL nativeReferenceOnly;
 @property(nonatomic) BOOL compatibilityFallbackOnly;
 @property(nonatomic) BOOL backgroundResetOnly;
+@property(nonatomic) BOOL nestedOnly;
 @property(nonatomic) IMP imageHiddenBeforeInstall;
 @end
 
@@ -638,6 +646,7 @@ static UIImage *HGWhiteImage(void) {
     self.nativeReferenceOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--native-reference"];
     self.compatibilityFallbackOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--compat-fallback"];
     self.backgroundResetOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--background-reset-only"];
+    self.nestedOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--nested-only"];
     Class glass = NSClassFromString(@"UIGlassEffect");
     self.nativeGlassAvailable = [glass respondsToSelector:sel_registerName("effectWithStyle:")];
     [NSUserDefaults.standardUserDefaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
@@ -673,7 +682,9 @@ static UIImage *HGWhiteImage(void) {
     [self.window makeKeyAndVisible];
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
-            if (self.backgroundResetOnly) {
+            if (self.nestedOnly) {
+                [self runNestedChecks];
+            } else if (self.backgroundResetOnly) {
                 [self runBackgroundResetChecks];
             } else if (self.glassDisabled) {
                 [self runDisabledChecks];
@@ -688,9 +699,51 @@ static UIImage *HGWhiteImage(void) {
         // This focused regression checks state synchronously at each setter's
         // return. A capture would force layout and could repair the old defect
         // before it is observed, so this mode does not enter the capture path.
-        if (self.backgroundResetOnly) [self finish];
+        if (self.backgroundResetOnly || self.nestedOnly) [self finish];
         else [self runSystemCaptureAtIndex:0];
     });
+}
+- (void)runNestedChecks {
+    [self layoutHost];
+    UIView *root = self.host.view;
+    SSTabBar *bar = self.host.customTabBar;
+    CGFloat width = root.bounds.size.width, height = root.bounds.size.height;
+    CGFloat top = bar.frame.origin.y;
+    self.host.viewport.hidden = YES;
+    SSNestedContainerScrollView *outer = [[SSNestedContainerScrollView alloc] initWithFrame:CGRectMake(0, 0, width, top)];
+    outer.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    outer.contentSize = CGSizeMake(width, top + 120);
+    outer.contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, top + 120)];
+    [outer addSubview:outer.contentView];
+    UIScrollView *feed = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 120, width, top - 120)];
+    feed.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    feed.contentInset = UIEdgeInsetsMake(0, 0, 12, 0);
+    feed.contentSize = CGSizeMake(width, height * 3);
+    [outer.contentView addSubview:feed];
+    [root insertSubview:outer belowSubview:bar];
+    [bar layoutSubviews];
+    CGRect rect = [feed convertRect:feed.bounds toView:root];
+    [self check:fabs(CGRectGetMaxY(rect) - height) < 0.75
+        name:@"nested inner feed extends behind the bar through the collapsing-header wrapper"];
+    [self check:outer.contentInset.bottom == 0 && fabs(feed.contentInset.bottom - 100) < 0.75
+        name:@"nested scroll reserves bottom padding only on the inner list"];
+    outer.contentOffset = CGPointMake(0, 120);
+    feed.frame = CGRectMake(0, 120, width, top);
+    [bar layoutSubviews];
+    feed.contentOffset = CGPointMake(0, feed.contentSize.height - feed.bounds.size.height + feed.contentInset.bottom);
+    rect = [feed convertRect:feed.bounds toView:root];
+    [self check:fabs(CGRectGetMaxY(rect) - height) < 0.75 && !HGEffectivelyHidden(bar.items.firstObject)
+        name:@"collapsed header and list bottom preserve an extended viewport and host tab controls"];
+    CGFloat inset = feed.contentInset.bottom;
+    for (NSUInteger i = 0; i < 20; i++) [bar layoutSubviews];
+    [self check:fabs(feed.contentInset.bottom - inset) < 0.01
+        name:@"nested scroll refresh does not accumulate bottom padding"];
+    [outer removeFromSuperview];
+    [bar layoutSubviews];
+    [self check:fabs(feed.contentInset.bottom - 12) < 0.01
+        name:@"detaching the nested page restores inner list padding"];
+    self.host.viewport.hidden = NO;
+    [self layoutHost];
 }
 - (void)runBackgroundResetChecks {
     [self layoutHost];
@@ -1056,6 +1109,9 @@ static UIImage *HGWhiteImage(void) {
     [self capture:@"tabbar-scroll-simulator.png"];
 
     [self runAutoresizingChecks];
+    [self runNestedChecks];
+    for (NSDictionary *result in HGRunControlTests(self.host.view))
+        [self check:[result[@"passed"] boolValue] name:result[@"name"]];
     [self runNonBottomInsetChecks];
     [self runAutomaticInsetChecks];
     [self runWindowChecks];
@@ -1613,7 +1669,7 @@ static UIImage *HGWhiteImage(void) {
         @"snapshots": self.snapshots
     };
     NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil];
-    NSString *name = self.backgroundResetOnly ? @"tabbar-background-reset-results.json" :
+    NSString *name = self.nestedOnly ? @"tabbar-nested-results.json" : self.backgroundResetOnly ? @"tabbar-background-reset-results.json" :
         (self.nativeReferenceOnly ? @"tabbar-reference-results.json" :
         (self.compatibilityFallbackOnly ? @"tabbar-fallback-results.json" :
         (self.glassDisabled ? @"tabbar-disabled-results.json" : @"tabbar-results.json")));

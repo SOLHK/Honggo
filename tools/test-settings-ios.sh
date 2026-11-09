@@ -17,6 +17,7 @@ xcrun --sdk iphonesimulator clang \
     -framework Foundation -framework UIKit -framework QuartzCore -framework CoreGraphics -lobjc \
     "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
     "$source_root/src/Settings.m" "$source_root/src/TabBar.m" \
+    "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
     "$source_root/tests/SettingsIntegration.m" -o "$app/HGSettingsTests"
 
 python3 - "$app/Info.plist" "$bundle_id" <<'PY'
