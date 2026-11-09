@@ -73,6 +73,9 @@ build_variant nested-baseline "$work/nested-baseline/TabBar.m"
 mkdir -p "$work/profile-baseline"
 git -C "$source_root" show 466599abf81b8c54b1863332593aebf6f2d9127d:src/TabBar.m > "$work/profile-baseline/TabBar.m"
 build_variant profile-baseline "$work/profile-baseline/TabBar.m"
+mkdir -p "$work/return-baseline"
+git -C "$source_root" show aea27775ef9c0ef6ee49ab153d18641459801af9:src/TabBar.m > "$work/return-baseline/TabBar.m"
+build_variant return-baseline "$work/return-baseline/TabBar.m"
 # Reuse the compiled test executable. Reference modes install no Honggo hooks;
 # the unprepared fallback runs only its compact behavior and compositor checks.
 clone_variant() {
@@ -241,6 +244,7 @@ run_variant background-baseline tabbar-background-reset-results.json --backgroun
 run_variant nested-current tabbar-nested-results.json --nested-only
 run_variant nested-baseline tabbar-nested-results.json --nested-only
 run_variant profile-baseline tabbar-nested-results.json --nested-only
+run_variant return-baseline tabbar-nested-results.json --nested-only
 run_variant startup tabbar-results.json --startup-override
 
 python3 - "$work" <<'PY'
@@ -258,6 +262,11 @@ name = 'profile coordinator keeps zero extra padding and extends the inner list'
 assert next(x['passed'] for x in profile['checks'] if x['name'] == name) is False, profile
 assert next(x['passed'] for x in current['checks'] if x['name'] == name) is True, current
 print('Profile-scroll regression passed; exact 1.1.2 negative control failed as expected.')
+returned = json.loads((root / 'return-baseline/tabbar-nested-results.json').read_text())
+name = 'returning Compose bridge extends its child without inventing bottom padding'
+assert all(x['passed'] is False for x in returned['checks'] if x['name'] == name), returned
+assert sum(x['name'] == name for x in returned['checks']) == 5, returned
+print('Navigation return regression passed; exact 1.1.3 negative control failed all five returns.')
 PY
 
 python3 - "$work" <<'PY'

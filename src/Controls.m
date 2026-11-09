@@ -266,6 +266,8 @@ NSDictionary *HGInterfaceSnapshot(void) {
         if (surfaces.count >= 100) break;
         HGControlGlass *glass = objc_getAssociatedObject(view, &HGControlKey);
         [surfaces addObject:@{@"class": NSStringFromClass(view.class), @"attached": @(glass.attached),
+            @"inWindow": @((BOOL)(view.window != nil)), @"opaque": @(view.opaque),
+            @"backgroundAlpha": @(view.backgroundColor ? CGColorGetAlpha(view.backgroundColor.CGColor) : 0),
             @"effect": NSStringFromClass(glass.effect.class) ?: @"none"}];
     }
     return @{@"nativeGlassConfigured": @(HGNativeGlassConfigured()),

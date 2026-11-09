@@ -725,6 +725,52 @@ static UIImage *HGWhiteImage(void) {
 - (void)runNestedChecks {
     [self runNestedChecksForClass:SSNestedContainerScrollView.class];
     [self runNestedChecksForClass:SSMyUser637NestedContainerScrollView.class];
+    [self runReturnChecks];
+}
+- (void)runReturnChecks {
+    [self layoutHost];
+    UIView *root = self.host.view;
+    SSTabBar *bar = self.host.customTabBar;
+    CGFloat width = root.bounds.size.width, height = root.bounds.size.height;
+    CGFloat top = bar.frame.origin.y;
+    self.host.viewport.hidden = YES;
+    const char *name = "RKMPandroidx.compose.ui.scene.UIKitTransparentContainerView10";
+    Class type = objc_lookUpClass(name);
+    if (!type) {
+        type = objc_allocateClassPair(UIScrollView.class, name, 0);
+        objc_registerClassPair(type);
+    }
+    UIView *page = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, top)];
+    UIScrollView *bridge = [[type alloc] initWithFrame:CGRectMake(0, 0, width, height)];
+    bridge.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    bridge.contentSize = CGSizeZero;
+    UIView *render = [[UIView alloc] initWithFrame:bridge.bounds];
+    [bridge addSubview:render];
+    [page addSubview:bridge];
+    [root insertSubview:page belowSubview:bar];
+    [bar layoutSubviews];
+    [self check:bridge.contentInset.bottom == 0 &&
+        fabs(CGRectGetMaxY([render convertRect:render.bounds toView:root]) - height) < 0.75
+        name:@"initial full-size Compose bridge keeps zero bottom padding"];
+    for (NSUInteger cycle = 0; cycle < 5; cycle++) {
+        [page removeFromSuperview];
+        [bar layoutSubviews];
+        page.frame = CGRectMake(0, 0, width, top);
+        bridge.frame = page.bounds;
+        render.frame = bridge.bounds;
+        [root insertSubview:page belowSubview:bar];
+        [bar layoutSubviews];
+        [self check:bridge.contentInset.bottom == 0 && bridge.verticalScrollIndicatorInsets.bottom == 0 &&
+            fabs(CGRectGetMaxY([render convertRect:render.bounds toView:root]) - height) < 0.75
+            name:@"returning Compose bridge extends its child without inventing bottom padding"];
+    }
+    [page removeFromSuperview];
+    [bar layoutSubviews];
+    [self check:bridge.contentInset.bottom == 0 && fabs(bridge.bounds.size.height - top) < 0.75 &&
+        fabs(render.bounds.size.height - top) < 0.75
+        name:@"leaving Compose page restores both bridge and renderer frames"];
+    self.host.viewport.hidden = NO;
+    [self layoutHost];
 }
 - (void)runNestedChecksForClass:(Class)coordinatorClass {
     [self layoutHost];

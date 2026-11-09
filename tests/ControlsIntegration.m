@@ -60,7 +60,34 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root) {
     check(owner.managementButton.configuration != nil &&
         ![owner.managementButton.subviews.firstObject.accessibilityIdentifier isEqual:@"honggo.control.glass"],
         @"UIKit configured button retains its existing appearance contract");
+    UIControl *menu = [[NSClassFromString(@"HGSettingsMenuControl") alloc]
+        initWithFrame:CGRectMake(20, 240, 320, 72)];
+    [root addSubview:menu];
+    [menu layoutSubviews];
+    UIVisualEffectView *menuGlass = (UIVisualEffectView *)menu.subviews.firstObject;
+    check([menuGlass isKindOfClass:UIVisualEffectView.class] && menuGlass.effect != nil,
+        @"settings menu fixture starts with attached native glass");
+    for (NSNumber *highlighted in @[@YES, @NO, @YES, @NO]) {
+        menu.highlighted = highlighted.boolValue;
+        // No layout/capture between the touch state setter and this assertion.
+        check(CGColorGetAlpha(menu.backgroundColor.CGColor) < 0.001 && !menu.opaque &&
+            menu.subviews.firstObject == menuGlass,
+            @"settings menu touch-state writes cannot leave an opaque rectangle behind the capsule");
+    }
+    [menu removeFromSuperview];
+    check([menu.backgroundColor isEqual:UIColor.secondarySystemGroupedBackgroundColor],
+        @"detaching settings menu restores its normal host fill");
+    [root addSubview:menu];
+    check(CGColorGetAlpha(menu.backgroundColor.CGColor) < 0.001,
+        @"returning settings menu clears restored host fill before another layout");
     [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"HongguoGlass.glassControls"];
+    menu.highlighted = YES;
+    check([menu.backgroundColor isEqual:UIColor.tertiarySystemFillColor],
+        @"disabled glass preserves the menu highlight fill");
+    menu.highlighted = NO;
+    check([menu.backgroundColor isEqual:UIColor.secondarySystemGroupedBackgroundColor],
+        @"disabled glass preserves the menu normal fill");
+    [menu removeFromSuperview];
     [owner layoutSubviews];
     check(glass.superview == nil && [button.backgroundColor isEqual:UIColor.redColor], @"disabling custom glass restores host button fill");
     [owner removeFromSuperview];

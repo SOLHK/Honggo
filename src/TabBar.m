@@ -327,6 +327,17 @@ static BOOL HGNestedScroll(UIView *view) {
     return (type && [view isKindOfClass:type]) || (mine && [view isKindOfClass:mine]);
 }
 
+static BOOL HGContainerScroll(UIView *view) {
+    if (HGNestedScroll(view)) return YES;
+    // The device log shows this Compose interop bridge has contentSize={0,0}.
+    // Its UIScrollView superclass does not make it a list: adding the viewport
+    // extension to its contentInset changes the bridge after navigation.
+    // Kotlin appends a generated numeric suffix, so match the verified type
+    // prefix and leave unrelated UIScrollViews on the ordinary list path.
+    return [NSStringFromClass(view.class)
+        hasPrefix:@"RKMPandroidx.compose.ui.scene.UIKitTransparentContainerView"];
+}
+
 @implementation HGTabState
 - (instancetype)init {
     self = [super init];
@@ -478,7 +489,7 @@ static BOOL HGNestedScroll(UIView *view) {
         BOOL horizontalPager = scroll.pagingEnabled &&
             scroll.contentSize.width > scroll.bounds.size.width + 2 &&
             scroll.contentSize.height <= scroll.bounds.size.height + 2;
-        if (!horizontalPager && !HGNestedScroll(scroll)) {
+        if (!horizontalPager && !HGContainerScroll(scroll)) {
             // Snapshot inset baselines before ANY ancestor is resized: growing
             // a parent can already change the child's automatic safe-area inset.
             if (!record.insetOwned || !HGNear(scroll.contentInset.bottom, record.appliedInset.bottom)) {
@@ -539,7 +550,7 @@ static BOOL HGNestedScroll(UIView *view) {
             BOOL horizontalPager = scroll.pagingEnabled &&
                 scroll.contentSize.width > scroll.bounds.size.width + 2 &&
                 scroll.contentSize.height <= scroll.bounds.size.height + 2;
-            if (!horizontalPager && !HGNestedScroll(scroll)) {
+            if (!horizontalPager && !HGContainerScroll(scroll)) {
                 CGFloat automatic = scroll.adjustedContentInset.bottom - scroll.contentInset.bottom;
                 CGFloat extra = MAX(0, delta + record.originalAutomaticBottom - automatic);
                 // Own only bottom. A host changing top/left/right while our
@@ -698,6 +709,7 @@ static BOOL HGNestedScroll(UIView *view) {
                     item[@"inset"] = NSStringFromUIEdgeInsets(scroll.contentInset);
                     item[@"contentSize"] = NSStringFromCGSize(scroll.contentSize);
                     item[@"nestedCoordinator"] = @(HGNestedScroll(scroll));
+                    item[@"containerScroll"] = @(HGContainerScroll(scroll));
                     item[@"bottomEdgeHidden"] = @([record.edge respondsToSelector:sel_registerName("isHidden")] &&
                         ((BOOL (*)(id, SEL))objc_msgSend)(record.edge, sel_registerName("isHidden")));
                 }

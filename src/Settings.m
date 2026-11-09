@@ -256,6 +256,15 @@ BOOL HGIsEnabled(HGFeature feature) {
 - (void)setHighlighted:(BOOL)highlighted {
     [super setHighlighted:highlighted];
     self.backgroundColor = highlighted ? UIColor.tertiarySystemFillColor : UIColor.secondarySystemGroupedBackgroundColor;
+    // Touch tracking writes the normal/highlight fill without requesting a
+    // layout. Reconcile immediately or the square host fill remains visible
+    // outside the glass capsule when the user returns from the settings sheet.
+    HGStyleControl(self);
+}
+
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    HGStyleControl(self);
 }
 
 @end

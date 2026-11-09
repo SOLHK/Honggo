@@ -2,7 +2,8 @@
 
 Foundation/ObjC calls are deterministic fixtures, not Apple frameworks. This
 checks the shipped ARM64 control flow and preference ownership, NOT rendering.
-Usage: python tests/check_arm64_startup.py path/to/Honggo-1.1.3.dylib
+Usage: python tests/check_arm64_startup.py path/to/Honggo-1.1.4.dylib
+Use --baseline with the exact 1.1.3 dylib to prove the two old regressions.
 Requires unicorn. It does not modify or inject any host IPA.
 """
 import hashlib
@@ -17,6 +18,7 @@ from unicorn.arm64_const import UC_ARM64_REG_X3, UC_ARM64_REG_X8, UC_ARM64_REG_L
 from unicorn.arm64_const import UC_ARM64_REG_SP, UC_ARM64_REG_PC
 
 data = Path(sys.argv[1]).read_bytes()
+baseline = '--baseline' in sys.argv[2:]
 u32 = lambda p: struct.unpack_from('<I', data, p)[0]
 u64 = lambda p: struct.unpack_from('<Q', data, p)[0]
 cstr = lambda p: data[p:data.index(b'\0', p)].decode()
@@ -32,7 +34,7 @@ for _ in range(u32(16)):
         dependencies.add(cstr(p + u32(p + 8)))
     elif command == 0xd:
         assert cstr(p + u32(p + 8)) == '@rpath/Honggo.dylib'
-        assert u32(p + 16) == 0x10103
+        assert u32(p + 16) == (0x10103 if baseline else 0x10104)
     p += size
 assert struct.unpack_from('<II', data, commands[0x32] + 8) == (2, 0xf0001)
 assert 0x1d not in commands, 'Test dylib is unsigned and must be re-signed by the injector'
@@ -130,8 +132,9 @@ class Runtime:
         self.uc.reg_write(UC_ARM64_REG_X0, int(value))
         self.uc.reg_write(UC_ARM64_REG_PC, self.uc.reg_read(UC_ARM64_REG_LR))
 
-    def call(self, name, argument=0):
+    def call(self, name, argument=0, boolean=0):
         self.uc.reg_write(UC_ARM64_REG_X0, argument)
+        self.uc.reg_write(UC_ARM64_REG_X2, boolean)
         self.uc.reg_write(UC_ARM64_REG_LR, mock + 0xf000)
         self.uc.reg_write(UC_ARM64_REG_SP, stack + 0xf000)
         self.uc.emu_start(base + symbols[name], mock + 0xf000, count=10000)
@@ -146,6 +149,14 @@ class Runtime:
         if address == base + symbols['_HGIsEnabled']:
             assert a in (0, 15)
             return self.ret(self.glass if a == 0 else self.controls)
+        if address == base + symbols['_HGStyleControl']:
+            # This boundary models styling, not UIKit: verify the menu invokes
+            # it AFTER its own fill writes, without requiring another layout.
+            value = self.objects[a]
+            value['styleCalls'] += 1
+            if self.controls:
+                value['fill'] = None
+            return self.ret()
         if not mock <= address < mock + len(imports) * 16:
             return
         name = imports[(address - mock) // 16]
@@ -159,6 +170,10 @@ class Runtime:
         if name == '_NSClassFromString':
             name = self.string(a)
             return self.ret(0 if name == 'UIGlassEffect' and not self.available else self.cls(name))
+        if name == '_NSStringFromClass':
+            return self.ret(self.obj(self.objects[a][1]))
+        if name == '_objc_msgSendSuper2':
+            return self.ret()
         assert name == '_objc_msgSend', name
         if not a:
             return self.ret()
@@ -195,8 +210,16 @@ class Runtime:
             assert self.string(c) == 'UIDesignRequiresCompatibility'
             return self.ret(self.obj(self.compatibility) if self.compatibility is not None else 0)
         if selector == 'class':
-            assert a == mock + imports.index('_OBJC_CLASS_$_NSNumber') * 16
-            return self.ret(self.cls('NSNumber'))
+            if a == mock + imports.index('_OBJC_CLASS_$_NSNumber') * 16:
+                return self.ret(self.cls('NSNumber'))
+            return self.ret(self.cls(self.objects[a][1]))
+        if selector == 'hasPrefix:':
+            return self.ret(self.string(a).startswith(self.string(c)))
+        if selector in ('secondarySystemGroupedBackgroundColor', 'tertiarySystemFillColor'):
+            return self.ret(self.obj(selector))
+        if selector == 'setBackgroundColor:':
+            self.objects[a]['fill'] = self.objects[c]
+            return self.ret()
         if selector == 'isKindOfClass:':
             value, kind = self.objects[a], self.objects[c][1]
             return self.ret(isinstance(value, bool) if kind == 'NSNumber' else value == ('instance', kind))
@@ -233,9 +256,32 @@ for compatibility, available in [(False, True), (True, True), (None, True), (Fal
 for kind in ('SSNestedContainerScrollView', 'SSMyUser637NestedContainerScrollView', 'UIScrollView'):
     r = Runtime()
     value = r.obj(('instance', kind))
-    assert r.call('_HGNestedScroll', value) == (kind != 'UIScrollView')
+    classifier = '_HGNestedScroll' if '_HGNestedScroll' in symbols else '_HGContainerScroll'
+    assert r.call(classifier, value) == (kind != 'UIScrollView')
     checks.append(f'coordinator-{kind}')
+bridge = 'RKMPandroidx.compose.ui.scene.UIKitTransparentContainerView'
+for kind in (bridge + '10', bridge + '27', 'UIScrollView', 'UICollectionView',
+             'SSMyUser637NestedContainerScrollView'):
+    r = Runtime()
+    value = r.obj(('instance', kind))
+    decision = r.call('_HGNestedScroll' if baseline else '_HGContainerScroll', value)
+    expected = kind == 'SSMyUser637NestedContainerScrollView' or (not baseline and kind.startswith(bridge))
+    assert decision == expected
+    checks.append(('old-bridge-classification-reproduced-' if baseline else 'container-') + kind)
+method = next(k for k in symbols if k.endswith('[HGSettingsMenuControl setHighlighted:]'))
+for enabled in (False, True):
+    r = Runtime(controls=enabled)
+    value = {'fill': None, 'styleCalls': 0}
+    menu = r.obj(value)
+    for pressed in (True, False, True, False):
+        r.call(method, menu, pressed)
+        expected = None if enabled and not baseline else (
+            'tertiarySystemFillColor' if pressed else 'secondarySystemGroupedBackgroundColor')
+        assert value['fill'] == expected
+    assert value['styleCalls'] == (0 if baseline else 4)
+    checks.append(('old-menu-fill-write-reproduced-' if baseline else 'menu-immediate-styling-') + str(enabled))
 report = {'passed': len(checks), 'failed': 0, 'checks': checks,
+          'baselineRegressionControl': baseline,
           'sha256': hashlib.sha256(data).hexdigest(),
           'scope': 'Actual dylib ARM64 control flow with mocked ObjC/Foundation boundaries; no UIKit rendering'}
 print(json.dumps(report, indent=2))
