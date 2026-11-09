@@ -13,6 +13,14 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
 @implementation SSNestedContainerScrollView
 @end
 
+// The profile coordinator is a sibling, NOT an SSNestedContainerScrollView
+// subclass. This is the hierarchy in the 7.4.3.33 host and the device log.
+@interface SSMyUser637NestedContainerScrollView : UIScrollView
+@property(nonatomic, strong) UIView *contentView;
+@end
+@implementation SSMyUser637NestedContainerScrollView
+@end
+
 // Instrument only our plugin's effect subclass in this test executable. Keep
 // the production setter implementation intact and observe real assignments;
 // UIVisualEffectView.effect is not required to preserve getter object identity.
@@ -649,6 +657,17 @@ static UIImage *HGWhiteImage(void) {
     self.nestedOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--nested-only"];
     Class glass = NSClassFromString(@"UIGlassEffect");
     self.nativeGlassAvailable = [glass respondsToSelector:sel_registerName("effectWithStyle:")];
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"--startup-override"]) {
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        NSDictionary *persistent = [defaults persistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
+        [self check:[[NSBundle.mainBundle objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] boolValue] &&
+            HGNativeGlassStartupOverride() && HGNativeGlassConfigured()
+            name:@"startup enables native configuration while preserving compatibility plist"];
+        [self check:![persistent[@"com.apple.SwiftUI.IgnoreSolariumOptOut"] boolValue] &&
+            [defaults boolForKey:@"com.apple.SwiftUI.IgnoreSolariumOptOut"] &&
+            [defaults integerForKey:@"HonggoStartupFixture"] == 73
+            name:@"startup preference is process-local and preserves unrelated arguments"];
+    }
     [NSUserDefaults.standardUserDefaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
     [NSUserDefaults.standardUserDefaults setBool:!self.glassDisabled forKey:@"HongguoGlass.glass"];
     [UIView setAnimationsEnabled:NO];
@@ -704,13 +723,18 @@ static UIImage *HGWhiteImage(void) {
     });
 }
 - (void)runNestedChecks {
+    [self runNestedChecksForClass:SSNestedContainerScrollView.class];
+    [self runNestedChecksForClass:SSMyUser637NestedContainerScrollView.class];
+}
+- (void)runNestedChecksForClass:(Class)coordinatorClass {
     [self layoutHost];
     UIView *root = self.host.view;
     SSTabBar *bar = self.host.customTabBar;
     CGFloat width = root.bounds.size.width, height = root.bounds.size.height;
     CGFloat top = bar.frame.origin.y;
     self.host.viewport.hidden = YES;
-    SSNestedContainerScrollView *outer = [[SSNestedContainerScrollView alloc] initWithFrame:CGRectMake(0, 0, width, top)];
+    // Both verified host classes expose the same contentView getter/setter.
+    SSNestedContainerScrollView *outer = [[coordinatorClass alloc] initWithFrame:CGRectMake(0, 0, width, top)];
     outer.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     outer.contentSize = CGSizeMake(width, top + 120);
     outer.contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, top + 120)];
@@ -719,14 +743,28 @@ static UIImage *HGWhiteImage(void) {
     feed.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     feed.contentInset = UIEdgeInsetsMake(0, 0, 12, 0);
     feed.contentSize = CGSizeMake(width, height * 3);
+    CGRect contentBefore = outer.contentView.frame;
     [outer.contentView addSubview:feed];
     [root insertSubview:outer belowSubview:bar];
     [bar layoutSubviews];
+    BOOL mine = coordinatorClass == SSMyUser637NestedContainerScrollView.class;
     CGRect rect = [feed convertRect:feed.bounds toView:root];
     [self check:fabs(CGRectGetMaxY(rect) - height) < 0.75
-        name:@"nested inner feed extends behind the bar through the collapsing-header wrapper"];
+        name:mine ? @"profile inner feed extends behind the bar through the collapsing-header wrapper" :
+            @"nested inner feed extends behind the bar through the collapsing-header wrapper"];
     [self check:outer.contentInset.bottom == 0 && fabs(feed.contentInset.bottom - 100) < 0.75
-        name:@"nested scroll reserves bottom padding only on the inner list"];
+        name:mine ? @"profile coordinator keeps zero extra padding and extends the inner list" :
+            @"nested scroll reserves bottom padding only on the inner list"];
+    [self check:CGRectEqualToRect(outer.contentView.frame, contentBefore)
+        name:@"nested scrolling content height remains owned by the host"];
+    SEL edgeGetter = sel_registerName("bottomEdgeEffect");
+    if ([outer respondsToSelector:edgeGetter] && [feed respondsToSelector:edgeGetter]) {
+        id outerEdge = ((id (*)(id, SEL))objc_msgSend)(outer, edgeGetter);
+        id innerEdge = ((id (*)(id, SEL))objc_msgSend)(feed, edgeGetter);
+        [self check:((BOOL (*)(id, SEL))objc_msgSend)(outerEdge, @selector(isHidden)) &&
+            ((BOOL (*)(id, SEL))objc_msgSend)(innerEdge, @selector(isHidden))
+            name:@"both nested scroll layers hide their bottom edge veil"];
+    }
     outer.contentOffset = CGPointMake(0, 120);
     feed.frame = CGRectMake(0, 120, width, top);
     [bar layoutSubviews];
@@ -1662,6 +1700,7 @@ static UIImage *HGWhiteImage(void) {
         @"failed": @(failed),
         @"total": @(self.checks.count),
         @"nativeGlassAvailable": @(self.nativeGlassAvailable),
+        @"startupGlassOverride": @(HGNativeGlassStartupOverride()),
         @"glassEnabled": @((BOOL)(!self.glassDisabled && !self.nativeReferenceOnly)),
         @"legacyNegativeControl": @(self.legacyControl),
         @"nativeReferenceOnly": @(self.nativeReferenceOnly),
@@ -1702,6 +1741,16 @@ static UIImage *HGWhiteImage(void) {
 
 int main(int argc, char *argv[]) {
     @autoreleasepool {
+        if ([NSProcessInfo.processInfo.arguments containsObject:@"--startup-override"]) {
+            NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+            [defaults setBool:YES forKey:@"HongguoGlass.glass"];
+            [defaults setBool:NO forKey:@"com.apple.SwiftUI.IgnoreSolariumOptOut"];
+            NSMutableDictionary *arguments = [[defaults volatileDomainForName:NSArgumentDomain] mutableCopy];
+            if (!arguments) arguments = [NSMutableDictionary dictionary];
+            arguments[@"HonggoStartupFixture"] = @73;
+            [defaults setVolatileDomain:arguments forName:NSArgumentDomain];
+            HGPrepareNativeGlass();
+        }
         return UIApplicationMain(argc, argv, nil, NSStringFromClass(HGTabBarTestAppDelegate.class));
     }
 }

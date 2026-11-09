@@ -269,6 +269,7 @@ NSDictionary *HGInterfaceSnapshot(void) {
             @"effect": NSStringFromClass(glass.effect.class) ?: @"none"}];
     }
     return @{@"nativeGlassConfigured": @(HGNativeGlassConfigured()),
+        @"startupGlassOverride": @(HGNativeGlassStartupOverride()),
         @"compatibility": [NSBundle.mainBundle objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] ?: NSNull.null,
         @"reduceTransparency": @(UIAccessibilityIsReduceTransparencyEnabled()),
         @"increaseContrast": @(UIAccessibilityDarkerSystemColorsEnabled()),

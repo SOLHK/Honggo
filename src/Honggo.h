@@ -28,6 +28,8 @@ typedef NS_ENUM(NSUInteger, HGFeature) {
 
 BOOL HGIsEnabled(HGFeature feature);
 BOOL HGNativeGlassConfigured(void);
+void HGPrepareNativeGlass(void);
+BOOL HGNativeGlassStartupOverride(void);
 IMP HGReplaceMethod(Class target, SEL selector, const char *encoding, IMP replacement);
 void HGInstallAds(void);
 BOOL HGInstallTabBar(void);

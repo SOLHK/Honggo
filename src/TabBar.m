@@ -320,7 +320,11 @@ static BOOL HGContainsControls(UIView *view, NSUInteger depth) {
 
 static BOOL HGNestedScroll(UIView *view) {
     Class type = NSClassFromString(@"SSNestedContainerScrollView");
-    return type && [view isKindOfClass:type];
+    Class mine = NSClassFromString(@"SSMyUser637NestedContainerScrollView");
+    // Eggplant 7.4.3.33 declares these as separate UIScrollView subclasses.
+    // Treating Mine as a leaf adds padding to the outer coordinator and skips
+    // the clipped inner list once the profile header has scrolled away.
+    return (type && [view isKindOfClass:type]) || (mine && [view isKindOfClass:mine]);
 }
 
 @implementation HGTabState
@@ -551,6 +555,10 @@ static BOOL HGNestedScroll(UIView *view) {
                 if (!UIEdgeInsetsEqualToEdgeInsets(scroll.contentInset, inset)) scroll.contentInset = inset;
                 if (!UIEdgeInsetsEqualToEdgeInsets(scroll.verticalScrollIndicatorInsets, indicator))
                     scroll.verticalScrollIndicatorInsets = indicator;
+            }
+            // Both the nested coordinator and its inner list can supply a
+            // system bottom-edge veil. Padding still belongs only to the leaf.
+            if (!horizontalPager) {
                 id edge = HGObject(scroll, "bottomEdgeEffect");
                 if (edge != record.edge && [edge respondsToSelector:@selector(setHidden:)]) {
                     if (record.edge) ((void (*)(id, SEL, BOOL))objc_msgSend)(record.edge,
@@ -688,12 +696,19 @@ static BOOL HGNestedScroll(UIView *view) {
                     UIScrollView *scroll = (UIScrollView *)record.view;
                     item[@"offset"] = NSStringFromCGPoint(scroll.contentOffset);
                     item[@"inset"] = NSStringFromUIEdgeInsets(scroll.contentInset);
+                    item[@"contentSize"] = NSStringFromCGSize(scroll.contentSize);
+                    item[@"nestedCoordinator"] = @(HGNestedScroll(scroll));
+                    item[@"bottomEdgeHidden"] = @([record.edge respondsToSelector:sel_registerName("isHidden")] &&
+                        ((BOOL (*)(id, SEL))objc_msgSend)(record.edge, sel_registerName("isHidden")));
                 }
+                item[@"frameInRoot"] = NSStringFromCGRect([record.view convertRect:record.view.bounds
+                    toView:self.controller.viewIfLoaded]);
                 [viewports addObject:item];
             }
             HGLog(@"tabbar.layout", @{@"material": self.nativeGlass ? @"UIGlassEffect" : @"UIBlurEffect",
                 @"frame": NSStringFromCGRect(self.glass.frame), @"viewports": viewports,
-                @"surfaces": @(self.surfaces.count), @"nativeConfigured": @(HGNativeGlassConfigured())});
+                @"surfaces": @(self.surfaces.count), @"nativeConfigured": @(HGNativeGlassConfigured()),
+                @"startupOverride": @(HGNativeGlassStartupOverride())});
             self.lastDiagnostic = now;
         }
         if (!self.logged) {

@@ -75,8 +75,8 @@ BOOL HGIsEnabled(HGFeature feature) {
     if (section == 1) return @"日志保留最近一小时。增强诊断记录底栏布局和已适配按钮触摸；不采集账号、阅读/观看内容、Cookie 或 Token。导出后通过系统分享保存。";
     NSString *restart = @"更改后请完全退出红果短剧，再重新打开。关闭底栏开关并重启可恢复宿主底栏。";
     NSString *mode = HGNativeGlassConfigured() ?
-        @"当前安装包已配置原生液态玻璃。新版界面设置对整个应用生效，关闭底栏开关不会回退这项配置。" :
-        @"当前配置下，开启底栏开关使用系统模糊材质。启用原生液态玻璃需要 iOS 26 及以上，并使用配套工具重新打包、签名安装。";
+        @"本次启动已配置系统玻璃。新版系统样式可能影响其他控件；关闭两个玻璃开关并重启，插件将停止启用该配置。" :
+        @"iOS 26 及以上开启玻璃开关并重启后，插件会在启动时请求系统液态玻璃，无需预先修改安装包配置。旧系统使用模糊材质。";
     return [restart stringByAppendingString:mode];
 }
 
@@ -106,7 +106,7 @@ BOOL HGIsEnabled(HGFeature feature) {
     }
 
     HGFeature feature = (HGFeature)indexPath.row;
-    NSString *title = feature == HGGlass && !HGNativeGlassConfigured() ?
+    NSString *title = feature == HGGlass && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 ?
         @"系统模糊底栏" : HGOptions[feature].title;
     cell.textLabel.text = title;
     UISwitch *toggle = (UISwitch *)cell.accessoryView;

@@ -70,6 +70,9 @@ build_variant background-baseline "$work/background-baseline/TabBar.m"
 mkdir -p "$work/nested-baseline"
 git -C "$source_root" show 78a17ad2e2f1b8ee458d0885a37fab67b5f2f09f:src/TabBar.m > "$work/nested-baseline/TabBar.m"
 build_variant nested-baseline "$work/nested-baseline/TabBar.m"
+mkdir -p "$work/profile-baseline"
+git -C "$source_root" show 466599abf81b8c54b1863332593aebf6f2d9127d:src/TabBar.m > "$work/profile-baseline/TabBar.m"
+build_variant profile-baseline "$work/profile-baseline/TabBar.m"
 # Reuse the compiled test executable. Reference modes install no Honggo hooks;
 # the unprepared fallback runs only its compact behavior and compositor checks.
 clone_variant() {
@@ -100,6 +103,7 @@ PY
 clone_variant reference-modern prepared
 clone_variant reference-compat unprepared
 clone_variant fallback unprepared
+clone_variant startup unprepared
 clone_variant background-current prepared
 clone_variant nested-current prepared
 xcrun simctl list --json > "$work/simulators.json"
@@ -236,6 +240,8 @@ run_variant background-current tabbar-background-reset-results.json --background
 run_variant background-baseline tabbar-background-reset-results.json --background-reset-only
 run_variant nested-current tabbar-nested-results.json --nested-only
 run_variant nested-baseline tabbar-nested-results.json --nested-only
+run_variant profile-baseline tabbar-nested-results.json --nested-only
+run_variant startup tabbar-results.json --startup-override
 
 python3 - "$work" <<'PY'
 import json, sys
@@ -247,6 +253,11 @@ assert current['failed'] == 0, current
 name = 'nested inner feed extends behind the bar through the collapsing-header wrapper'
 assert next(x['passed'] for x in baseline['checks'] if x['name'] == name) is False, baseline
 print('Nested-scroll regression passed; exact 1.0.6 negative control failed as expected.')
+profile = json.loads((root / 'profile-baseline/tabbar-nested-results.json').read_text())
+name = 'profile coordinator keeps zero extra padding and extends the inner list'
+assert next(x['passed'] for x in profile['checks'] if x['name'] == name) is False, profile
+assert next(x['passed'] for x in current['checks'] if x['name'] == name) is True, current
+print('Profile-scroll regression passed; exact 1.1.2 negative control failed as expected.')
 PY
 
 python3 - "$work" <<'PY'
@@ -261,6 +272,7 @@ root = Path(sys.argv[1])
 reports = {}
 for name, path in {
     "current": root / "current/tabbar-results.json",
+    "startup": root / "startup/tabbar-results.json",
     "disabled": root / "current/tabbar-disabled-results.json",
     "legacy": root / "legacy/tabbar-results.json",
     "reference-modern": root / "reference-modern/tabbar-reference-results.json",
@@ -275,7 +287,7 @@ for name, path in {
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
 failed = []
-for name, minimum in (("current", 59), ("disabled", 7), ("reference-modern", 2),
+for name, minimum in (("current", 59), ("startup", 61), ("disabled", 7), ("reference-modern", 2),
                       ("reference-compat", 2), ("fallback", 10), ("background-current", 14)):
     report = reports[name]
     if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < minimum:
@@ -283,6 +295,8 @@ for name, minimum in (("current", 59), ("disabled", 7), ("reference-modern", 2),
 
 for name, expected in {
     "current": ("tabbar-light", "tabbar-dark", "tabbar-scroll", "tabbar-material-light", "tabbar-material-dark",
+                "native-reference-light", "native-reference-dark"),
+    "startup": ("tabbar-light", "tabbar-dark", "tabbar-scroll", "tabbar-material-light", "tabbar-material-dark",
                 "native-reference-light", "native-reference-dark"),
     "disabled": ("tabbar-disabled",),
     "legacy": ("tabbar-light", "tabbar-dark", "tabbar-scroll", "native-reference-light", "native-reference-dark"),
@@ -300,6 +314,8 @@ for name, expected in {
         failed.append(f"{name} did not provide all runloop-settled simctl screenshots")
 
 if reports["current"].get("UIDesignRequiresCompatibility") is not False or \
+        reports["startup"].get("UIDesignRequiresCompatibility") is not True or \
+        reports["startup"].get("startupGlassOverride") is not True or \
         reports["disabled"].get("UIDesignRequiresCompatibility") is not False or \
         reports["legacy"].get("UIDesignRequiresCompatibility") is not False or \
         reports["reference-modern"].get("UIDesignRequiresCompatibility") is not False or \
@@ -472,7 +488,7 @@ def compare_material_pixels(directory, snapshot, *, host_material=False, expect_
         valid_controls = valid_controls and all(snapshot.get(key) is True and
             snapshot.get("semanticBooleanJSONTypes", {}).get(key) == "boolean" for key in boolean_keys)
         valid_controls = valid_controls and snapshot["foregroundStyle"] == (2 if phase.endswith("-dark") else 1)
-        expected = "visible-host-blur" if snapshot["UIDesignRequiresCompatibility"] else "visible-host-native-glass"
+        expected = "visible-host-blur" if host_blur else "visible-host-native-glass"
         if host_blur:
             valid_controls = valid_controls and snapshot["blurReference"]["viewClass"] == "UIVisualEffectView" and \
                 snapshot["blurReference"]["backgroundClear"] and snapshot["blurReference"]["contentBackgroundClear"]
@@ -543,7 +559,7 @@ def compare_material_pixels(directory, snapshot, *, host_material=False, expect_
 
 
 pixel_comparisons = {}
-for name in ("current", "reference-modern", "reference-compat"):
+for name in ("current", "startup", "reference-modern", "reference-compat"):
     comparisons = []
     for phase in ("native-reference-light", "native-reference-dark"):
         try:
@@ -563,7 +579,7 @@ for name in ("current", "reference-modern", "reference-compat"):
     print(json.dumps(result, indent=2))
 
 host_pixel_comparisons = {}
-for name in ("current", "fallback"):
+for name in ("current", "startup", "fallback"):
     comparisons = []
     for phase in ("tabbar-material-light", "tabbar-material-dark"):
         try:
