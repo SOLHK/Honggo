@@ -64,6 +64,40 @@ static NSHashTable<UIView *> *HGStyledControls;
 }
 @end
 
+UIUserInterfaceStyle HGGlassForegroundStyle(UIView *content, UITraitCollection *traits) {
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:content];
+    NSUInteger white = 0, black = 0;
+    for (NSUInteger index = 0; index < queue.count && index < 96; index++) {
+        UIView *view = queue[index];
+        if (view.hidden || view.alpha < 0.05) continue;
+        UIColor *foreground = nil;
+        BOOL button = [view isKindOfClass:UIButton.class];
+        if (button) {
+            UIButton *item = (UIButton *)view;
+            if (item.currentTitle.length || item.currentAttributedTitle.length) foreground = item.currentTitleColor;
+            else if (item.currentImage.renderingMode == UIImageRenderingModeAlwaysTemplate) foreground = item.tintColor;
+        } else if ([view isKindOfClass:UILabel.class]) {
+            UILabel *label = (UILabel *)view;
+            if (label.text.length || label.attributedText.length) foreground = label.textColor;
+        }
+        if (foreground) {
+                UIColor *color = [foreground resolvedColorWithTraitCollection:traits];
+                CGFloat r = 0, g = 0, b = 0, a = 0;
+                if ([color getRed:&r green:&g blue:&b alpha:&a] && a > 0.2) {
+                    CGFloat luminance = r * 0.2126 + g * 0.7152 + b * 0.0722;
+                    if (luminance > 0.82) white++;
+                    if (luminance < 0.25) black++;
+                }
+        }
+        // UIButton's current state updates before its titleLabel is laid out.
+        // Do not count that stale internal label a second time.
+        if (!button) [queue addObjectsFromArray:view.subviews];
+    }
+    if (white > black) return UIUserInterfaceStyleDark;
+    if (black > white) return UIUserInterfaceStyleLight;
+    return traits.userInterfaceStyle;
+}
+
 void HGStyleControl(UIView *control) {
     if (!control) return;
     HGControlGlass *glass = objc_getAssociatedObject(control, &HGControlKey);
@@ -121,6 +155,7 @@ void HGStyleControl(UIView *control) {
         }
         glass.attached = YES;
         glass.frame = control.bounds;
+        glass.overrideUserInterfaceStyle = HGGlassForegroundStyle(control, control.traitCollection);
         glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         if (glass.superview != control) [control insertSubview:glass atIndex:0];
         else [control sendSubviewToBack:glass];

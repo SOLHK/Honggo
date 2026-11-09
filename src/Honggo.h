@@ -36,6 +36,7 @@ void HGAttachSettings(UIView *tabBar);
 void HGInstallControls(void);
 NSDictionary *HGInterfaceSnapshot(void);
 void HGStyleControl(UIView *control);
+UIUserInterfaceStyle HGGlassForegroundStyle(UIView *content, UITraitCollection *traits);
 
 @interface HGSettingsController : UITableViewController
 @end

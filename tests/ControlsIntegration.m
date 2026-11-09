@@ -44,6 +44,12 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root) {
     UIVisualEffectView *glass = (UIVisualEffectView *)button.subviews.firstObject;
     check([glass isKindOfClass:UIVisualEffectView.class] &&
         [NSStringFromClass(glass.effect.class) isEqual:@"UIGlassEffect"], @"known history button receives native UIGlassEffect after attachment");
+    [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [owner layoutSubviews];
+    check(glass.overrideUserInterfaceStyle == UIUserInterfaceStyleDark, @"white host title retains contrast with dark glass");
+    [button setTitleColor:UIColor.blackColor forState:UIControlStateNormal];
+    [owner layoutSubviews];
+    check(glass.overrideUserInterfaceStyle == UIUserInterfaceStyleLight, @"black host title retains contrast with light glass");
     check(!glass.userInteractionEnabled && CGRectEqualToRect(glass.frame, button.bounds) &&
         CGRectEqualToRect(button.frame, CGRectMake(0, 0, 70, 36)), @"glass preserves button geometry and cannot intercept taps");
     [button sendActionsForControlEvents:UIControlEventTouchUpInside];

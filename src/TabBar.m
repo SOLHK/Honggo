@@ -323,39 +323,6 @@ static BOOL HGNestedScroll(UIView *view) {
     return type && [view isKindOfClass:type];
 }
 
-static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection *traits) {
-    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:content];
-    NSUInteger white = 0, black = 0;
-    for (NSUInteger index = 0; index < queue.count && index < 96; index++) {
-        UIView *view = queue[index];
-        if (view.hidden || view.alpha < 0.05) continue;
-        UIColor *foreground = nil;
-        BOOL button = [view isKindOfClass:UIButton.class];
-        if (button) {
-            UIButton *item = (UIButton *)view;
-            if (item.currentTitle.length || item.currentAttributedTitle.length) foreground = item.currentTitleColor;
-        } else if ([view isKindOfClass:UILabel.class]) {
-            UILabel *label = (UILabel *)view;
-            if (label.text.length || label.attributedText.length) foreground = label.textColor;
-        }
-        if (foreground) {
-                UIColor *color = [foreground resolvedColorWithTraitCollection:traits];
-                CGFloat r = 0, g = 0, b = 0, a = 0;
-                if ([color getRed:&r green:&g blue:&b alpha:&a] && a > 0.2) {
-                    CGFloat luminance = r * 0.2126 + g * 0.7152 + b * 0.0722;
-                    if (luminance > 0.82) white++;
-                    if (luminance < 0.25) black++;
-                }
-        }
-        // UIButton's current state updates before its titleLabel is laid out.
-        // Do not count that stale internal label a second time.
-        if (!button) [queue addObjectsFromArray:view.subviews];
-    }
-    if (white > black) return UIUserInterfaceStyleDark;
-    if (black > white) return UIUserInterfaceStyleLight;
-    return traits.userInterfaceStyle;
-}
-
 @implementation HGTabState
 - (instancetype)init {
     self = [super init];
@@ -436,7 +403,7 @@ static UIUserInterfaceStyle HGForegroundStyle(UIView *content, UITraitCollection
     // transaction. A new zero-sized rectangular effect is never displayed.
     BOOL resized = !HGRectNear(glass.frame, frame);
     if (resized) glass.frame = frame;
-    UIUserInterfaceStyle style = HGForegroundStyle(content, self.bar.traitCollection);
+    UIUserInterfaceStyle style = HGGlassForegroundStyle(content, self.bar.traitCollection);
     BOOL styleChanged = glass.overrideUserInterfaceStyle != style;
     if (styleChanged) glass.overrideUserInterfaceStyle = style;
     Class corners = NSClassFromString(@"UICornerConfiguration");
