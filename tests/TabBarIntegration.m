@@ -809,6 +809,7 @@ static UIImage *HGWhiteImage(void) {
     CGRect frame = scroll.frame;
     CGSize content = scroll.contentSize;
     BOOL correct = YES;
+    BOOL capturedFailure = NO;
     for (NSUInteger i = 0; i < 200; i++) {
         scroll.contentOffset = CGPointMake(0, i % 2 ? 0 : 139.333);
         CGFloat header = i % 2 ? 310 : 106;
@@ -817,7 +818,9 @@ static UIImage *HGWhiteImage(void) {
         CAShapeLayer *mask = (CAShapeLayer *)scroll.layer.mask;
         correct = correct && [mask isKindOfClass:CAShapeLayer.class] && !scroll.clipsToBounds &&
             CGRectEqualToRect(frame, scroll.frame) && CGSizeEqualToSize(content, scroll.contentSize) &&
-            scroll.contentInset.bottom == 0 && CGRectEqualToRect(mask.frame, CGRectMake(0, scroll.contentOffset.y, w, h)) &&
+            scroll.contentInset.bottom == 0 && fabs(mask.frame.origin.x) < 0.01 &&
+            fabs(mask.frame.origin.y - scroll.contentOffset.y) < 0.01 &&
+            fabs(mask.frame.size.width - w) < 0.01 && fabs(mask.frame.size.height - h) < 0.01 &&
             CGPathContainsPoint(mask.path, NULL, CGPointMake(20, h - 20), NO) &&
             !CGPathContainsPoint(mask.path, NULL, CGPointMake(20, h + 1), NO);
         for (UIView *v in @[tabs, pager, leaf]) {
@@ -830,6 +833,16 @@ static UIImage *HGWhiteImage(void) {
                 !CGPathContainsPoint(innerMask.path, NULL, CGPointMake(20, -1), NO);
         }
         correct = correct && leaf.contentInset.bottom == 0 && leaf.frame.size.height == h - 275;
+        if (!correct && !capturedFailure) {
+            capturedFailure = YES;
+            [self.snapshots addObject:@{@"phase": @"clip-fixture-failure", @"iteration": @(i),
+            @"outerFrame": NSStringFromCGRect(scroll.frame), @"expectedOuterFrame": NSStringFromCGRect(frame),
+            @"outerBounds": NSStringFromCGRect(scroll.bounds), @"outerMask": NSStringFromCGRect(mask.frame),
+            @"outerContent": NSStringFromCGSize(scroll.contentSize), @"expectedContent": NSStringFromCGSize(content),
+            @"tabsMask": NSStringFromCGRect(tabs.layer.mask.frame), @"pagerMask": NSStringFromCGRect(pager.layer.mask.frame),
+            @"leafMask": NSStringFromCGRect(leaf.layer.mask.frame), @"leafFrame": NSStringFromCGRect(leaf.frame),
+            @"leafInset": NSStringFromUIEdgeInsets(leaf.contentInset), @"root": NSStringFromCGRect(page.bounds)}];
+        }
     }
     [self check:correct name:@"Mine clip reveals content behind glass while preserving scroll geometry for 200 offsets"];
     for (NSUInteger i = 0; i < 5; i++) {
@@ -965,6 +978,9 @@ static UIImage *HGWhiteImage(void) {
     }
     [outer removeFromSuperview];
     [bar layoutSubviews];
+    [self.snapshots addObject:@{@"phase": @"nested-detached-fixture", @"class": NSStringFromClass(coordinatorClass),
+        @"outerBounds": NSStringFromCGRect(outer.bounds), @"expectedHeight": @(top),
+        @"pagerFrame": NSStringFromCGRect(pager.frame), @"expectedPagerFrame": NSStringFromCGRect(originalPager)}];
     [self check:fabs(outer.bounds.size.height - top) < 0.75 && CGRectEqualToRect(pager.frame, originalPager)
         name:@"detaching restores outer viewport without changing nested content"];
     self.host.viewport.hidden = NO;

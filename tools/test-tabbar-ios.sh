@@ -21,6 +21,13 @@ build_variant() {
     local app="$work/$variant/HGTabBarTests.app"
     local bundle_id="org.honggo.tabbar.tests.$variant"
     mkdir -p "$app"
+    # Historical TabBar implementations predate the title ownership accessor.
+    # Keep their foreground behavior unchanged when linking current Controls.
+    local title_compat=()
+    if [ "$variant" != current ]; then
+        printf '#import "Honggo.h"\nUIColor *HGOriginalTabTitleColor(UILabel *label) { return label.textColor; }\n' > "$work/$variant/TitleCompat.m"
+        title_compat=("$work/$variant/TitleCompat.m")
+    fi
     xcrun --sdk iphonesimulator clang \
         -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
         -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
@@ -29,7 +36,7 @@ build_variant() {
         "$source_root/src/Settings.m" "$tabbar_source" \
         "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
         "$source_root/tests/ControlsIntegration.m" \
-        "$source_root/tests/TabBarIntegration.m" -o "$app/HGTabBarTests"
+        "$source_root/tests/TabBarIntegration.m" "${title_compat[@]}" -o "$app/HGTabBarTests"
     python3 - "$app/Info.plist" "$bundle_id" "$source_root" <<'PY'
 import plistlib
 import sys
@@ -233,6 +240,12 @@ PY
     xcrun simctl terminate "$device_id" "$bundle_id" >/dev/null 2>&1 || true
 }
 
+run_variant nested-current tabbar-nested-results.json --nested-only
+python3 - "$work/nested-current/tabbar-nested-results.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1]))
+assert report['failed'] == 0, report
+PY
 run_variant current tabbar-results.json
 run_variant current tabbar-disabled-results.json --glass-off
 run_variant legacy tabbar-results.json --legacy-control
@@ -241,7 +254,6 @@ run_variant reference-compat tabbar-reference-results.json --native-reference
 run_variant fallback tabbar-fallback-results.json --compat-fallback
 run_variant background-current tabbar-background-reset-results.json --background-reset-only
 run_variant background-baseline tabbar-background-reset-results.json --background-reset-only
-run_variant nested-current tabbar-nested-results.json --nested-only
 run_variant nested-baseline tabbar-nested-results.json --nested-only
 run_variant profile-baseline tabbar-nested-results.json --nested-only
 run_variant return-baseline tabbar-nested-results.json --nested-only

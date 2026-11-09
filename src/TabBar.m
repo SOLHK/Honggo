@@ -199,7 +199,7 @@ static void HGRestoreViewports(NSArray<HGViewportRecord *> *records) {
     NSHashTable<UIView *> *owned = [NSHashTable weakObjectsHashTable];
     // Capture ownership before resizing a parent can autoresize its child.
     for (HGViewportRecord *record in ordered) {
-        if (record.resized && record.view.superview == record.parent &&
+        if (record.resized && (!record.view.superview || record.view.superview == record.parent) &&
             HGRectNear(record.view.frame, record.appliedFrame)) [owned addObject:record.view];
     }
     for (HGViewportRecord *record in ordered) {
