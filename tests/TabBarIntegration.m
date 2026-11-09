@@ -21,6 +21,14 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
 @implementation SSMyUser637NestedContainerScrollView
 @end
 
+@interface SSMine737KMPViewController : UIViewController
+@property(nonatomic) NSUInteger appearances;
+@end
+@implementation SSMine737KMPViewController
+- (void)viewDidLayoutSubviews { [super viewDidLayoutSubviews]; }
+- (void)viewDidAppear:(BOOL)animated { [super viewDidAppear:animated]; self.appearances++; }
+@end
+
 // Instrument only our plugin's effect subclass in this test executable. Keep
 // the production setter implementation intact and observe real assignments;
 // UIVisualEffectView.effect is not required to preserve getter object identity.
@@ -723,9 +731,36 @@ static UIImage *HGWhiteImage(void) {
     });
 }
 - (void)runNestedChecks {
+    [self runMineAppearanceChecks];
     [self runNestedChecksForClass:SSNestedContainerScrollView.class];
     [self runNestedChecksForClass:SSMyUser637NestedContainerScrollView.class];
     [self runReturnChecks];
+}
+- (void)runMineAppearanceChecks {
+    [self layoutHost];
+    UIView *root = self.host.view;
+    CGFloat width = root.bounds.size.width, height = root.bounds.size.height;
+    CGFloat top = self.host.customTabBar.frame.origin.y;
+    SSMine737KMPViewController *mine = [SSMine737KMPViewController new];
+    [self.host addChildViewController:mine];
+    mine.view.frame = CGRectMake(0, 0, width, top);
+    mine.view.hidden = YES;
+    [root insertSubview:mine.view belowSubview:self.host.customTabBar];
+    [mine didMoveToParentViewController:self.host];
+    for (NSUInteger i = 0; i < 5; i++) {
+        mine.view.hidden = YES;
+        [self.host.customTabBar layoutSubviews];
+        mine.view.frame = CGRectMake(0, 0, width, top);
+        mine.view.hidden = NO;
+        // No bar layout or scroll events after attaching/showing Mine.
+        [mine viewDidAppear:NO];
+        [self check:fabs(mine.view.bounds.size.height - height) < 0.75 && mine.appearances == i + 1
+            name:@"Mine appearance reconciles a late page without a scroll event and calls host once"];
+    }
+    [mine willMoveToParentViewController:nil];
+    [mine.view removeFromSuperview];
+    [mine removeFromParentViewController];
+    [self.host.customTabBar layoutSubviews];
 }
 - (void)runReturnChecks {
     [self layoutHost];

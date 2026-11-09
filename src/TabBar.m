@@ -18,6 +18,9 @@ static void (*HGOriginalBarAdd)(id, SEL, UIView *);
 static void (*HGOriginalBarHidden)(id, SEL, BOOL);
 static void (*HGOriginalBarAlpha)(id, SEL, CGFloat);
 static void (*HGOriginalBarTraits)(id, SEL, id);
+static void (*HGOriginalMineLayout)(id, SEL);
+static void (*HGOriginalMineAppear)(id, SEL, BOOL);
+static char HGMineRefreshPendingKey;
 
 static id HGObject(id object, const char *name) {
     SEL selector = sel_registerName(name);
@@ -784,6 +787,39 @@ static void HGControllerLayout(id self, SEL cmd) {
     HGOriginalControllerLayout(self, cmd);
     HGRefreshTabBar(self);
 }
+
+static void HGRefreshMine(UIViewController *page) {
+    if (!page.viewIfLoaded.window) return;
+    // Resolve through containment, including the navigation controller that
+    // owns Mine. Do not depend on a scroll callback to discover a new page.
+    for (UIViewController *owner = page; owner; owner = owner.parentViewController) {
+        if ([HGView(owner, "customTabBar") isKindOfClass:HGTabBarClass]) {
+            HGRefreshTabBar(owner);
+            return;
+        }
+    }
+    HGRefreshTabBar(page.tabBarController);
+}
+static void HGMineLayout(UIViewController *page, SEL cmd) {
+    HGOriginalMineLayout(page, cmd);
+    // Compose can attach native views after this callback. Coalesce layouts
+    // and reconcile on the next main-loop turn, after the host has settled.
+    if (!page.viewIfLoaded.window || objc_getAssociatedObject(page, &HGMineRefreshPendingKey)) return;
+    objc_setAssociatedObject(page, &HGMineRefreshPendingKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak UIViewController *weakPage = page;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *current = weakPage;
+        if (!current) return;
+        HGRefreshMine(current);
+        objc_setAssociatedObject(current, &HGMineRefreshPendingKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    });
+}
+static void HGMineAppear(UIViewController *page, SEL cmd, BOOL animated) {
+    HGOriginalMineAppear(page, cmd, animated);
+    HGRefreshMine(page);
+    HGLog(@"mine.appear", @{@"attached": @((BOOL)(page.viewIfLoaded.window != nil)),
+        @"frame": NSStringFromCGRect(page.viewIfLoaded.frame)});
+}
 static void HGSetAppearance(id self, SEL cmd) {
     HGOriginalSetAppearance(self, cmd);
     HGRefreshTabBar(self);
@@ -840,6 +876,11 @@ BOOL HGInstallTabBar(void) {
         HGGlassEnabled = HGIsEnabled(HGGlass);
         HGOriginalControllerLayout = (void (*)(id, SEL))HGReplaceMethod(controller, selectors[0], encodings[0], (IMP)HGControllerLayout);
         if (HGGlassEnabled) {
+            Class mine = objc_lookUpClass("SSMine737KMPViewController");
+            HGOriginalMineLayout = (void (*)(id, SEL))HGReplaceMethod(mine,
+                @selector(viewDidLayoutSubviews), "v16@0:8", (IMP)HGMineLayout);
+            HGOriginalMineAppear = (void (*)(id, SEL, BOOL))HGReplaceMethod(mine,
+                @selector(viewDidAppear:), "v20@0:8B16", (IMP)HGMineAppear);
             HGOriginalBarLayout = (void (*)(id, SEL))HGReplaceMethod(HGTabBarClass, selectors[1], encodings[1], (IMP)HGBarLayout);
             HGOriginalBarMove = (void (*)(id, SEL))HGReplaceMethod(HGTabBarClass, selectors[2], encodings[2], (IMP)HGBarMove);
             HGOriginalBarAdd = (void (*)(id, SEL, UIView *))HGReplaceMethod(HGTabBarClass, selectors[3], encodings[3], (IMP)HGBarAdd);
