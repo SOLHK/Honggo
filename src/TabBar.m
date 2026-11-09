@@ -39,6 +39,8 @@ static BOOL HGRectNear(CGRect a, CGRect b) {
 }
 static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGColor) <= 0.001; }
 
+#import "MineClip.inc"
+
 @interface HGGlassBackdrop : UIVisualEffectView
 @property(nonatomic) BOOL nativeGlass;
 @property(nonatomic) BOOL changingWindow;
@@ -450,6 +452,8 @@ static BOOL HGContainerScroll(UIView *view) {
         depth > 10 || !CGAffineTransformIsIdentity(view.transform) || view.layer.mask ||
         [view isKindOfClass:UIControl.class] || [view isKindOfClass:UITableViewCell.class] ||
         [view isKindOfClass:UICollectionViewCell.class] || [view isKindOfClass:UIVisualEffectView.class]) return;
+    Class mineRoot = objc_lookUpClass("SSMine737KMPRootView");
+    if (mineRoot && [view isKindOfClass:mineRoot]) return; // Dedicated visual clip; host owns all layout.
     // This is scrollable content (including a collapsing header), not a viewport.
     // Its size belongs to the host even when scrolling brings its edge into view.
     if (HGNestedScroll(view.superview) && HGView(view.superview, "contentView") == view) {
@@ -790,6 +794,8 @@ static void HGControllerLayout(id self, SEL cmd) {
 
 static void HGRefreshMine(UIViewController *page) {
     if (!page.viewIfLoaded.window) return;
+    UIScrollView *mineScroll = (UIScrollView *)HGView(page, "scrollView");
+    if ([mineScroll isKindOfClass:UIScrollView.class]) HGApplyMineClip(mineScroll);
     // Resolve through containment, including the navigation controller that
     // owns Mine. Do not depend on a scroll callback to discover a new page.
     for (UIViewController *owner = page; owner; owner = owner.parentViewController) {
@@ -892,6 +898,7 @@ BOOL HGInstallTabBar(void) {
             HGOriginalSetAppearance = (void (*)(id, SEL))HGReplaceMethod(controller, sel_registerName("setCustomTabBarAppearance"), "v16@0:8", (IMP)HGSetAppearance);
             HGOriginalResetRatio = (void (*)(id, SEL, double))HGReplaceMethod(HGTabBarClass, sel_registerName("resetBlurVisualViewWithRatio:"), "v24@0:8d16", (IMP)HGResetRatio);
         }
+        if (HGGlassEnabled) HGInstallMineClip();
         HGInstallMaskScenes();
         installed = YES;
         return YES;

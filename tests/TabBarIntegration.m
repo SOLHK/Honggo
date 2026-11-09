@@ -20,6 +20,10 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
 @end
 @implementation SSMyUser637NestedContainerScrollView
 @end
+@interface SSMine737KMPRootView : UIView
+@end
+@implementation SSMine737KMPRootView
+@end
 
 @interface SSMine737KMPViewController : UIViewController
 @property(nonatomic) NSUInteger appearances;
@@ -731,10 +735,42 @@ static UIImage *HGWhiteImage(void) {
     });
 }
 - (void)runNestedChecks {
+    [self runMineClipChecks];
     [self runMineAppearanceChecks];
     [self runNestedChecksForClass:SSNestedContainerScrollView.class];
     [self runNestedChecksForClass:SSMyUser637NestedContainerScrollView.class];
     [self runReturnChecks];
+}
+- (void)runMineClipChecks {
+    UIView *page = [[SSMine737KMPRootView alloc] initWithFrame:self.host.view.bounds];
+    CGFloat h = page.bounds.size.height, w = page.bounds.size.width;
+    UIScrollView *scroll = [[SSMyUser637NestedContainerScrollView alloc] initWithFrame:CGRectMake(0, 0, w, h - 84)];
+    scroll.clipsToBounds = YES;
+    scroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    scroll.contentSize = CGSizeMake(w, h * 5);
+    [page addSubview:scroll];
+    [self.host.view insertSubview:page belowSubview:self.host.customTabBar];
+    CGRect frame = scroll.frame;
+    CGSize content = scroll.contentSize;
+    BOOL correct = YES;
+    for (NSUInteger i = 0; i < 200; i++) {
+        scroll.contentOffset = CGPointMake(0, i % 2 ? 0 : 139.333);
+        [scroll layoutSubviews];
+        CAShapeLayer *mask = (CAShapeLayer *)scroll.layer.mask;
+        correct = correct && [mask isKindOfClass:CAShapeLayer.class] && !scroll.clipsToBounds &&
+            CGRectEqualToRect(frame, scroll.frame) && CGSizeEqualToSize(content, scroll.contentSize) &&
+            scroll.contentInset.bottom == 0 && CGRectEqualToRect(mask.frame, CGRectMake(0, scroll.contentOffset.y, w, h)) &&
+            CGPathContainsPoint(mask.path, NULL, CGPointMake(20, h - 20), NO) &&
+            !CGPathContainsPoint(mask.path, NULL, CGPointMake(20, h + 1), NO);
+    }
+    [self check:correct name:@"Mine clip reveals content behind glass while preserving scroll geometry for 200 offsets"];
+    for (NSUInteger i = 0; i < 5; i++) {
+        [page removeFromSuperview];
+        [self check:scroll.clipsToBounds && scroll.layer.mask == nil name:@"detaching Mine restores its original clipping"];
+        [self.host.view insertSubview:page belowSubview:self.host.customTabBar];
+        [self check:!scroll.clipsToBounds && scroll.layer.mask != nil name:@"returning Mine restores the extended visual clip"];
+    }
+    [page removeFromSuperview];
 }
 - (void)runMineAppearanceChecks {
     [self layoutHost];
