@@ -89,3 +89,49 @@ jobs:
             build/source-commit.txt
             build/SHA256SUMS.txt
           if-no-files-found: error
+
+  publish_test:
+    name: Publish verified test dylib
+    if: github.ref == 'refs/heads/test'
+    needs: [tabbar, settings, iphoneos]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download dylib built by this successful run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_VERSION: ${{ needs.tabbar.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "Honggo-${PLUGIN_VERSION}" --dir release
+      - name: Verify downloaded artifact identity and checksum
+        env:
+          PLUGIN_VERSION: ${{ needs.tabbar.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(cat release/VERSION)" = "$PLUGIN_VERSION"
+          test "$(cat release/source-commit.txt)" = "$GITHUB_SHA"
+          test -s "release/Honggo-${PLUGIN_VERSION}.dylib"
+          (cd release && sha256sum -c SHA256SUMS.txt)
+      - name: Publish downloadable GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_VERSION: ${{ needs.tabbar.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${PLUGIN_VERSION}-test.${GITHUB_RUN_NUMBER}"
+          printf '%s\n' \
+            "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
+            "Source commit: ${GITHUB_SHA}" \
+            "macOS/iPhoneOS build, settings and tab-bar regression checks passed." \
+            "Not a device-accepted stable release. Inject only one dylib into the supported host app." \
+            "Assets include the dylib, SHA256SUMS.txt, VERSION and source-commit.txt." \
+            > release-notes.md
+          gh release create "$tag" \
+            "release/Honggo-${PLUGIN_VERSION}.dylib" \
+            "release/SHA256SUMS.txt" "release/VERSION" "release/source-commit.txt" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Honggo ${PLUGIN_VERSION} (test #${GITHUB_RUN_NUMBER})" \
+            --prerelease --notes-file release-notes.md
