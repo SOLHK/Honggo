@@ -7,6 +7,11 @@
 #include <math.h>
 
 NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
+@interface SSTabBarTextButton : UIControl
+@property(nonatomic, strong) UILabel *tabLabel;
+@end
+@implementation SSTabBarTextButton
+@end
 @interface SSNestedContainerScrollView : UIScrollView
 @property(nonatomic, strong) UIView *contentView;
 @end
@@ -743,11 +748,32 @@ static UIImage *HGWhiteImage(void) {
     });
 }
 - (void)runNestedChecks {
+    [self runTitleContrastChecks];
     [self runMineClipChecks];
     [self runMineAppearanceChecks];
     [self runNestedChecksForClass:SSNestedContainerScrollView.class];
     [self runNestedChecksForClass:SSMyUser637NestedContainerScrollView.class];
     [self runReturnChecks];
+}
+- (void)runTitleContrastChecks {
+    SSTabBar *bar = self.host.customTabBar;
+    SSTabBarTextButton *button = [[SSTabBarTextButton alloc] initWithFrame:CGRectMake(30, 0, 80, 44)];
+    UILabel *title = [[UILabel alloc] initWithFrame:button.bounds];
+    title.text = @"测试"; title.textColor = UIColor.grayColor;
+    UIFont *font = [UIFont systemFontOfSize:16]; title.font = font;
+    button.tabLabel = title; [button addSubview:title];
+    UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(65, 1, 8, 8)];
+    badge.textColor = UIColor.redColor; [button addSubview:badge];
+    [bar.contentView addSubview:button]; [bar layoutSubviews];
+    CGFloat white = 1, alpha = 0; [title.textColor getWhite:&white alpha:&alpha];
+    [self check:white <= 0.12 && alpha == 1 && title.font.pointSize == 16
+        name:@"host tab title gains opaque dark contrast without changing its size"];
+    [self check:[badge.textColor isEqual:UIColor.redColor] && !badge.hidden && badge.frame.size.width == 8
+        name:@"title styling preserves the separate host badge"];
+    bar.hidden = YES;
+    [self check:[title.textColor isEqual:UIColor.grayColor] && [title.font isEqual:font]
+        name:@"hiding the bar restores original host typography"];
+    [button removeFromSuperview]; bar.hidden = NO; [bar layoutSubviews];
 }
 - (void)runMineClipChecks {
     UIView *page = [[SSMine737KMPRootView alloc] initWithFrame:self.host.view.bounds];

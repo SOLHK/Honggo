@@ -83,6 +83,7 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
 @end
 
 @class HGTabState;
+#import "TabTitles.inc"
 @interface HGObserverOwner : NSObject
 @property(nonatomic, weak) HGTabState *state;
 @end
@@ -209,6 +210,7 @@ static void HGRestoreViewports(NSArray<HGViewportRecord *> *records) {
 @property(nonatomic, strong) NSMapTable<UIView *, HGSurfaceRecord *> *surfaces;
 @property(nonatomic, strong) NSMapTable<UIView *, HGViewportRecord *> *viewports;
 @property(nonatomic, strong) NSHashTable<UIView *> *observed;
+@property(nonatomic, strong) NSMapTable<UILabel *, HGTabTitleRecord *> *titles;
 @property(nonatomic) BOOL refreshing;
 @property(nonatomic) BOOL nativeGlass;
 @property(nonatomic) BOOL logged;
@@ -346,6 +348,7 @@ static BOOL HGContainerScroll(UIView *view) {
         _surfaces = [NSMapTable weakToStrongObjectsMapTable];
         _viewports = [NSMapTable weakToStrongObjectsMapTable];
         _observed = [NSHashTable weakObjectsHashTable];
+        _titles = [NSMapTable weakToStrongObjectsMapTable];
     }
     return self;
 }
@@ -403,6 +406,8 @@ static BOOL HGContainerScroll(UIView *view) {
         [self clearBackgrounds:child content:content frame:frame depth:depth + 1];
 }
 - (void)prepareGlass:(CGRect)frame content:(UIView *)content {
+    // Read the host's actual foreground before choosing the material theme.
+    for (HGTabTitleRecord *record in self.titles.objectEnumerator.allObjects) [record restore];
     BOOL created = !self.glass;
     if (!self.glass) {
         self.glass = [[HGGlassBackdrop alloc] initWithEffect:nil];
@@ -445,6 +450,29 @@ static BOOL HGContainerScroll(UIView *view) {
         [glass layoutIfNeeded];
     }
     self.nativeGlass = glass.nativeGlass;
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:content];
+    for (NSUInteger i = 0; i < queue.count && i < 64; i++) {
+        UIView *item = queue[i];
+        BOOL tab = [item isKindOfClass:objc_lookUpClass("SSTabBarTextButton")] ||
+            [item isKindOfClass:objc_lookUpClass("SSTabBarButton")];
+        if (tab) {
+            UILabel *label = (UILabel *)HGView(item, "tabLabel");
+            if (![label isKindOfClass:UILabel.class] || ![label isDescendantOfView:item]) continue;
+            HGTabTitleRecord *record = [self.titles objectForKey:label];
+            if (!record) { record = [HGTabTitleRecord new]; record.label = label; [self.titles setObject:record forKey:label]; }
+            record.color = label.textColor; record.font = label.font;
+            BOOL selected = [(UIControl *)item isSelected];
+            BOOL dark = glass.overrideUserInterfaceStyle == UIUserInterfaceStyleDark;
+            record.appliedColor = [UIColor colorWithWhite:dark ? (selected ? 1 : 0.92) : (selected ? 0 : 0.12) alpha:1];
+            UIFontDescriptor *descriptor = [label.font.fontDescriptor fontDescriptorByAddingAttributes:
+                @{UIFontDescriptorTraitsAttribute: @{UIFontWeightTrait: @(selected ? UIFontWeightBold : UIFontWeightSemibold)}}];
+            record.appliedFont = [UIFont fontWithDescriptor:descriptor size:label.font.pointSize];
+            label.textColor = record.appliedColor; label.font = record.appliedFont;
+            continue; // Never visit its badge/title descendants as other controls.
+        }
+        if (![item isKindOfClass:UIVisualEffectView.class] && queue.count < 64)
+            for (UIView *child in item.subviews) { if (queue.count >= 64) break; [queue addObject:child]; }
+    }
 }
 - (void)collectViewports:(UIView *)view root:(UIView *)root barTop:(CGFloat)barTop
         bottom:(CGFloat)bottom records:(NSMutableArray<HGViewportRecord *> *)records depth:(NSUInteger)depth {
@@ -630,6 +658,8 @@ static BOOL HGContainerScroll(UIView *view) {
 }
 - (void)restore {
     HGRestoreViewports(self.viewports.objectEnumerator.allObjects);
+    for (HGTabTitleRecord *record in self.titles.objectEnumerator.allObjects) [record restore];
+    [self.titles removeAllObjects];
     [self.viewports removeAllObjects];
     for (HGSurfaceRecord *record in self.surfaces.objectEnumerator.allObjects) [record restore];
     [self.surfaces removeAllObjects];
