@@ -2,7 +2,7 @@
 
 Foundation/ObjC calls are deterministic fixtures, not Apple frameworks. This
 checks the shipped ARM64 control flow and preference ownership, NOT rendering.
-Usage: python tests/check_arm64_startup.py path/to/Honggo-1.1.8.dylib
+Usage: python tests/check_arm64_startup.py path/to/Honggo-1.1.9.dylib
 Use --baseline with the exact 1.1.3 dylib to prove the two old regressions.
 Requires unicorn. It does not modify or inject any host IPA.
 """
@@ -34,7 +34,7 @@ for _ in range(u32(16)):
         dependencies.add(cstr(p + u32(p + 8)))
     elif command == 0xd:
         assert cstr(p + u32(p + 8)) == '@rpath/Honggo.dylib'
-        assert u32(p + 16) == (0x10103 if baseline else 0x10108)
+        assert u32(p + 16) == (0x10103 if baseline else 0x10109)
     p += size
 assert struct.unpack_from('<II', data, commands[0x32] + 8) == (2, 0xf0001)
 assert 0x1d not in commands, 'Test dylib is unsigned and must be re-signed by the injector'

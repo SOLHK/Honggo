@@ -34,6 +34,9 @@ static void HGCaptureMask(UIViewController *page, NSString *reason, BOOL cancell
         for (UIView *a = v; a; a = a.superview) add(a);
     }
     id handle = HGObject(page, "minePageKMPHandle");
+    UIView *currentList = HGView(HGView(page, "bottomView"), "currentVCScrollView");
+    roles[@"currentList"] = HGSceneID(currentList);
+    for (UIView *a = currentList; a; a = a.superview) add(a);
     for (NSString *name in @[@"contentView", @"backgroundView", @"titleBarView"]) {
         UIView *v = HGView(handle, name.UTF8String);
         roles[[@"compose." stringByAppendingString:name]] = HGSceneID(v);

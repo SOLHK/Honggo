@@ -24,13 +24,21 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
 @end
 @implementation SSMine737KMPRootView
 @end
+@interface HGClipTabsFixture : UIView
+@property(nonatomic, strong) UIView *currentVCScrollView;
+@end
+@implementation HGClipTabsFixture
+@end
 
 @interface SSMine737KMPViewController : UIViewController
 @property(nonatomic) NSUInteger appearances;
+@property(nonatomic, strong) HGClipTabsFixture *bottomView;
+@property(nonatomic, strong) UIScrollView *scrollView;
 @end
 @implementation SSMine737KMPViewController
 - (void)viewDidLayoutSubviews { [super viewDidLayoutSubviews]; }
 - (void)viewDidAppear:(BOOL)animated { [super viewDidAppear:animated]; self.appearances++; }
+- (void)scrollViewDidScroll:(UIScrollView *)scroll { }
 @end
 
 // Instrument only our plugin's effect subclass in this test executable. Keep
@@ -743,11 +751,24 @@ static UIImage *HGWhiteImage(void) {
 }
 - (void)runMineClipChecks {
     UIView *page = [[SSMine737KMPRootView alloc] initWithFrame:self.host.view.bounds];
+    SSMine737KMPViewController *owner = [SSMine737KMPViewController new];
+    owner.view = page;
+    [self.host addChildViewController:owner];
     CGFloat h = page.bounds.size.height, w = page.bounds.size.width;
     UIScrollView *scroll = [[SSMyUser637NestedContainerScrollView alloc] initWithFrame:CGRectMake(0, 0, w, h - 84)];
     scroll.clipsToBounds = YES;
     scroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     scroll.contentSize = CGSizeMake(w, h * 5);
+    owner.scrollView = scroll;
+    HGClipTabsFixture *tabs = [[HGClipTabsFixture alloc] initWithFrame:CGRectMake(0, 106, w, h - 175)];
+    tabs.clipsToBounds = YES;
+    UIView *pager = [[UIView alloc] initWithFrame:CGRectMake(0, 50, w, h - 225)];
+    pager.clipsToBounds = YES;
+    UIScrollView *leaf = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 50, w, h - 275)];
+    leaf.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    leaf.clipsToBounds = YES;
+    [pager addSubview:leaf]; [tabs addSubview:pager]; [scroll addSubview:tabs];
+    tabs.currentVCScrollView = leaf; owner.bottomView = tabs;
     [page addSubview:scroll];
     [self.host.view insertSubview:page belowSubview:self.host.customTabBar];
     CGRect frame = scroll.frame;
@@ -755,6 +776,8 @@ static UIImage *HGWhiteImage(void) {
     BOOL correct = YES;
     for (NSUInteger i = 0; i < 200; i++) {
         scroll.contentOffset = CGPointMake(0, i % 2 ? 0 : 139.333);
+        CGFloat header = i % 2 ? 310 : 106;
+        tabs.frame = CGRectMake(0, scroll.contentOffset.y + header, w, h - 175);
         [scroll layoutSubviews];
         CAShapeLayer *mask = (CAShapeLayer *)scroll.layer.mask;
         correct = correct && [mask isKindOfClass:CAShapeLayer.class] && !scroll.clipsToBounds &&
@@ -762,15 +785,28 @@ static UIImage *HGWhiteImage(void) {
             scroll.contentInset.bottom == 0 && CGRectEqualToRect(mask.frame, CGRectMake(0, scroll.contentOffset.y, w, h)) &&
             CGPathContainsPoint(mask.path, NULL, CGPointMake(20, h - 20), NO) &&
             !CGPathContainsPoint(mask.path, NULL, CGPointMake(20, h + 1), NO);
+        for (UIView *v in @[tabs, pager, leaf]) {
+            CAShapeLayer *innerMask = (CAShapeLayer *)v.layer.mask;
+            CGRect rect = [v convertRect:v.bounds toView:page];
+            CGFloat clipHeight = h - rect.origin.y;
+            correct = correct && [innerMask isKindOfClass:CAShapeLayer.class] && !v.clipsToBounds &&
+                fabs(innerMask.frame.size.height - clipHeight) < 0.01 &&
+                CGPathContainsPoint(innerMask.path, NULL, CGPointMake(20, clipHeight - 1), NO) &&
+                !CGPathContainsPoint(innerMask.path, NULL, CGPointMake(20, -1), NO);
+        }
+        correct = correct && leaf.contentInset.bottom == 0 && leaf.frame.size.height == h - 275;
     }
     [self check:correct name:@"Mine clip reveals content behind glass while preserving scroll geometry for 200 offsets"];
     for (NSUInteger i = 0; i < 5; i++) {
         [page removeFromSuperview];
         [self check:scroll.clipsToBounds && scroll.layer.mask == nil name:@"detaching Mine restores its original clipping"];
+        [self check:tabs.clipsToBounds && pager.clipsToBounds && leaf.clipsToBounds && leaf.layer.mask == nil
+            name:@"detaching restores every list ancestor clip"];
         [self.host.view insertSubview:page belowSubview:self.host.customTabBar];
         [self check:!scroll.clipsToBounds && scroll.layer.mask != nil name:@"returning Mine restores the extended visual clip"];
     }
     [page removeFromSuperview];
+    [owner removeFromParentViewController];
 }
 - (void)runMineAppearanceChecks {
     [self layoutHost];
