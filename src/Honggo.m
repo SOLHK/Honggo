@@ -1,4 +1,5 @@
 #import "Honggo.h"
+#import "AdSceneDiagnostics.h"
 #import <dispatch/dispatch.h>
 #include <string.h>
 
@@ -78,6 +79,7 @@ __attribute__((constructor)) static void HGStart(void) {
         HGPrepareNativeGlass();
         HGDiagnosticsStart(nil, @{@"hostBuild": version, @"os": NSProcessInfo.processInfo.operatingSystemVersionString,
             @"executable": @"Eggplant"});
+        HGInstallAdSceneDiagnostics();
         HGLoadStage(@"entry");
         HGLog(@"glass.startup", @{@"processOverride": @(HGNativeGlassStartupOverride()),
             @"compatibility": [bundle objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] ?: NSNull.null});

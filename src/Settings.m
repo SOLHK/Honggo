@@ -28,7 +28,7 @@ static const HGOption HGOptions[HGFeatureCount] = {
 };
 
 static NSString *const HGSettingsTitle = HG_PLUGIN_NAME;
-static NSString *const HGSettingsSubtitle = @"版本 " HG_PLUGIN_VERSION @" · 遮罩现场诊断版";
+static NSString *const HGSettingsSubtitle = @"版本 " HG_PLUGIN_VERSION @" · 广告现场诊断版";
 static void (*HGOriginalSettingsWillAppear)(UIViewController *, SEL, BOOL);
 static void (*HGOriginalSettingsDidLayout)(UIViewController *, SEL);
 static void (*HGOriginalSettingsDidAppear)(UIViewController *, SEL, BOOL);
@@ -72,7 +72,7 @@ BOOL HGIsEnabled(HGFeature feature) {
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (section == 1) return @"诊断版：先开启增强诊断，在我的页复现遮罩并截屏，随后立即回来导出日志。截屏只触发视图结构采集，不读取图片。保留本次启动最近 10 份现场；导出前不要退出应用或清除日志。";
+    if (section == 1) return @"先开启增强诊断，在广告、直播领券弹窗或遮罩出现时截屏，再回到这里导出日志。截屏会保存当前页面与弹窗的控件结构，不读取图片或文字。保留本次启动最近 10 份现场；导出前不要退出应用或清除日志。";
     NSString *restart = @"更改后请完全退出红果短剧，再重新打开。关闭底栏开关并重启可恢复宿主底栏。";
     NSString *mode = HGNativeGlassConfigured() ?
         @"本次启动已配置系统玻璃。新版系统样式可能影响其他控件；关闭两个玻璃开关并重启，插件将停止启用该配置。" :

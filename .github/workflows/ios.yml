@@ -61,9 +61,28 @@ jobs:
             build/diagnostics-tests/*.log
           if-no-files-found: warn
 
+  adscene:
+    name: Check screenshot diagnostics in UIKit
+    runs-on: macos-26
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check player and popup scene capture without UI mutation
+        run: bash tools/test-ad-scene-ios.sh
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: always()
+        with:
+          name: Honggo-adscene-simulator-evidence
+          path: |
+            build/ad-scene-tests/*.json
+            build/ad-scene-tests/*.log
+          if-no-files-found: warn
+
   iphoneos:
-    # Do not build or publish a device candidate unless both UIKit suites pass.
-    needs: [tabbar, settings]
+    # Preserve both existing gates and require the new diagnostic behavior suite.
+    needs: [tabbar, settings, adscene]
     runs-on: macos-26
     timeout-minutes: 5
     steps:
@@ -93,7 +112,7 @@ jobs:
   publish_test:
     name: Publish verified test dylib
     if: github.ref == 'refs/heads/test'
-    needs: [tabbar, settings, iphoneos]
+    needs: [tabbar, settings, adscene, iphoneos]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -125,7 +144,8 @@ jobs:
           printf '%s\n' \
             "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
             "Source commit: ${GITHUB_SHA}" \
-            "macOS/iPhoneOS build, settings and tab-bar regression checks passed." \
+            "macOS/iPhoneOS build, settings, tab-bar and screenshot diagnostic regression checks passed." \
+            "This version adds player/popup scene diagnostics. Live-commerce ad removal is not implemented or device-verified." \
             "Not a device-accepted stable release. Inject only one dylib into the supported host app." \
             "Assets include the dylib, SHA256SUMS.txt, VERSION and source-commit.txt." \
             > release-notes.md
