@@ -66,6 +66,22 @@ int main(int argc, const char *argv[]) {
             HGLog(@"after.export", @{});
             Export(@{}, nil, nil);
             Check([[NSData dataWithContentsOfURL:immutable] isEqual:saved], @"shared export file is immutable");
+            HGStoreMaskScene(@{@"reason": @"user.screenshot", @"nodes": @[@{@"id": @1, @"parent": @0} ]});
+            NSDictionary *sceneReport = Export(@{@"page": @"settings"}, nil, nil);
+            Check([sceneReport[@"maskScenes"][0][@"reason"] isEqual:@"user.screenshot"],
+                @"export in settings retains the earlier failure scene");
+            for (NSUInteger i = 0; i < 12; i++) {
+                HGStoreMaskScene(@{@"sequence": @(i)});
+                sceneReport = Export(@{}, nil, nil);
+            }
+            Check([sceneReport[@"maskScenes"] count] == 10 && [sceneReport[@"maskScenesPruned"] unsignedIntegerValue] == 3,
+                @"scene ring evicts oldest captures independently of event traffic");
+            NSString *large = [@"x" stringByPaddingToLength:200*1024 withString:@"x" startingAtIndex:0];
+            HGStoreMaskScene(@{@"oversized": large});
+            sceneReport = Export(@{}, nil, nil);
+            Check([sceneReport[@"maskScenesRejected"] unsignedIntegerValue] == 1 && [sceneReport[@"maskScenes"] count] == 10,
+                @"oversized scene is counted and does not discard earlier captures");
+            Export(@{}, nil, nil);
             for (NSUInteger i = 0; i < 5; i++) Export(@{}, nil, nil);
             NSUInteger exports = 0;
             for (NSURL *url in [manager contentsOfDirectoryAtURL:directory includingPropertiesForKeys:nil options:0 error:nil])
@@ -77,6 +93,7 @@ int main(int argc, const char *argv[]) {
             while (!cleared && deadline.timeIntervalSinceNow > 0)
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             NSDictionary *empty = Export(@{}, nil, nil);
+            Check([empty[@"maskScenes"] count] == 0, @"clear removes mask scenes too");
             Check(cleared && [empty[@"events"] count] == 0 && ![manager fileExistsAtPath:immutable.path], @"clear removes retained events and previously exported files");
         }
         NSLog(@"Diagnostics: %lu checks, %lu failures", (unsigned long)checks, (unsigned long)failures);

@@ -853,6 +853,8 @@ static void HGBarTraits(id self, SEL cmd, id previous) {
     [HGState(self) refresh];
 }
 
+#import "MaskScene.inc"
+
 BOOL HGInstallTabBar(void) {
     @synchronized (HGTabState.class) {
         static BOOL installed;
@@ -890,6 +892,7 @@ BOOL HGInstallTabBar(void) {
             HGOriginalSetAppearance = (void (*)(id, SEL))HGReplaceMethod(controller, sel_registerName("setCustomTabBarAppearance"), "v16@0:8", (IMP)HGSetAppearance);
             HGOriginalResetRatio = (void (*)(id, SEL, double))HGReplaceMethod(HGTabBarClass, sel_registerName("resetBlurVisualViewWithRatio:"), "v24@0:8d16", (IMP)HGResetRatio);
         }
+        HGInstallMaskScenes();
         installed = YES;
         return YES;
     }

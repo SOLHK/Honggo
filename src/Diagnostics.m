@@ -15,6 +15,42 @@ static NSDictionary *HGPreviousStartup;
 static NSUInteger HGCapacityPruned;
 static NSError *HGStorageError;
 static const NSUInteger HGMaxBytes = 2 * 1024 * 1024;
+static NSMutableArray<NSDictionary *> *HGMaskScenes;
+static NSUInteger HGMaskBytes, HGMaskPruned, HGMaskRejected, HGMaskPending;
+void HGStoreMaskScene(NSDictionary *scene) {
+    if (!HGLogQueue) return;
+    @synchronized (HGLogLock) {
+        if (HGMaskPending >= 4) { HGMaskRejected++; return; }
+        HGMaskPending++;
+    }
+    dispatch_async(HGLogQueue, ^{
+        NSDictionary *stored = scene;
+        NSData *encoded = [NSJSONSerialization dataWithJSONObject:stored options:0 error:nil];
+        if (encoded.length > 192 * 1024 && [scene[@"nodes"] isKindOfClass:NSArray.class]) {
+            NSMutableDictionary *trimmed = scene.mutableCopy;
+            NSMutableArray *nodes = [scene[@"nodes"] mutableCopy];
+            trimmed[@"nodes"] = nodes;
+            trimmed[@"truncated"] = @YES;
+            trimmed[@"byteLimited"] = @YES;
+            while (nodes.count && encoded.length > 192 * 1024) {
+                [nodes removeObjectsInRange:NSMakeRange(nodes.count - MIN(nodes.count, 8), MIN(nodes.count, 8))];
+                encoded = [NSJSONSerialization dataWithJSONObject:trimmed options:0 error:nil];
+            }
+            stored = trimmed;
+        }
+        if (encoded && encoded.length <= 192 * 1024) {
+            if (!HGMaskScenes) HGMaskScenes = [NSMutableArray array];
+            [HGMaskScenes addObject:@{@"scene": stored, @"bytes": @(encoded.length)}];
+            HGMaskBytes += encoded.length;
+            while (HGMaskScenes.count > 10 || HGMaskBytes > 768 * 1024) {
+                HGMaskBytes -= [HGMaskScenes.firstObject[@"bytes"] unsignedIntegerValue];
+                [HGMaskScenes removeObjectAtIndex:0]; HGMaskPruned++;
+            }
+        } else { @synchronized (HGLogLock) { HGMaskRejected++; } }
+        @synchronized (HGLogLock) { HGMaskPending--; }
+    });
+}
+
 
 BOOL HGEnhancedDiagnostics(void) {
     @synchronized (HGLogLock) { return HGEnhanced; }
@@ -174,12 +210,18 @@ void HGExportDiagnostics(NSDictionary *snapshot, void (^completion)(NSURL *, NSE
             @"capacityPrunedRecords": @(HGCapacityPruned), @"previousStartup": HGPreviousStartup ?: (id)NSNull.null,
             @"retentionSeconds": @3600, @"maxEvents": @4096,
             @"privacy": @"No account, content, URL, request body, cookie or token is collected."} mutableCopy];
+        NSMutableArray *scenes = [NSMutableArray array];
+        for (NSDictionary *item in HGMaskScenes) [scenes addObject:item[@"scene"]];
+        report[@"maskScenes"] = scenes;
+        report[@"maskScenesPruned"] = @(HGMaskPruned);
+        @synchronized (HGLogLock) { report[@"maskScenesRejected"] = @(HGMaskRejected); }
+        report[@"maskSceneRetention"] = @"current process, last 10, max 768 KiB; no screenshot pixels";
         if (HGStorageError) report[@"storageError"] = @{@"domain": HGStorageError.domain, @"code": @(HGStorageError.code)};
         NSString *name = [NSString stringWithFormat:@"Honggo-log-%020.3f-%@.json", NSDate.date.timeIntervalSince1970, NSUUID.UUID.UUIDString];
         NSURL *url = HGLogURL(name);
         NSError *error = nil;
         NSData *data = [NSJSONSerialization dataWithJSONObject:report options:0 error:&error];
-        if (data && data.length <= HGMaxBytes) [data writeToURL:url options:NSDataWritingAtomic error:&error];
+        if (data && data.length <= HGMaxBytes + 1024 * 1024) [data writeToURL:url options:NSDataWritingAtomic error:&error];
         else if (!error) error = [NSError errorWithDomain:@"Honggo.Diagnostics" code:1 userInfo:@{NSLocalizedDescriptionKey:@"诊断快照超出导出容量"}];
         HGRememberError(error);
         HGPruneExports();
@@ -191,6 +233,8 @@ void HGClearDiagnostics(void (^completion)(NSError *)) {
     dispatch_async(HGLogQueue, ^{
         [HGEvents removeAllObjects];
         HGStoredBytes = 0;
+        [HGMaskScenes removeAllObjects]; HGMaskBytes = 0; HGMaskPruned = 0;
+        @synchronized (HGLogLock) { HGMaskRejected = 0; }
         HGCapacityPruned = 0;
         HGPreviousStartup = nil;
         @synchronized (HGLogLock) { HGDropped = 0; }

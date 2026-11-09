@@ -9,3 +9,5 @@ BOOL HGEnhancedDiagnostics(void);
 void HGSetEnhancedDiagnostics(BOOL enabled);
 void HGExportDiagnostics(NSDictionary *snapshot, void (^completion)(NSURL *, NSError *));
 void HGClearDiagnostics(void (^completion)(NSError *));
+
+void HGStoreMaskScene(NSDictionary *scene);
