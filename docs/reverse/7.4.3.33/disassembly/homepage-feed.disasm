@@ -1,0 +1,416 @@
+fd51428: stp x29, x30, [sp, #-0x10]! 
+fd5142c: bl #0xa25d274 
+  a25d274: stp d9, d8, [sp, #-0x60]! 
+  a25d278: stp x28, x27, [sp, #0x10] 
+  a25d27c: stp x26, x25, [sp, #0x20] 
+  a25d280: stp x24, x23, [sp, #0x30] 
+  a25d284: stp x22, x21, [sp, #0x40] 
+  a25d288: stp x20, x19, [sp, #0x50] 
+  a25d28c: add x29, sp, #0x60 
+  a25d290: ret  
+fd51430: sub sp, sp, #0x20 
+fd51434: bl #0xa33e610 
+  a33e610: mov x20, x4 
+  a33e614: mov x19, x2 
+  a33e618: mov x21, x0 
+  a33e61c: mov x0, x2 
+  a33e620: b #0x11ee0884 
+fd51438: adrp x8, #0x1cb12000 
+fd5143c: ldr x1, [x8, #0xfd0] commonDisableAdWithReason:contentModel:
+fd51440: bl #0xa293e3c 
+  a293e3c: mov x0, x21 
+  a293e40: mov x2, x20 
+  a293e44: mov x3, x19 
+  a293e48: b #0x11ee07f4 
+fd51444: cbz w0, #0xfd5149c 
+fd51448: bl #0x11ee06b0 
+fd5144c: bl #0xa349f30 
+  a349f30: mov x20, x0 
+  a349f34: adrp x8, #0x19967000 
+  a349f38: add x8, x8, #0x4b8 
+  a349f3c: ldr x2, [x8] 
+  a349f40: adrp x8, #0x1ceb8000 
+  a349f44: ldr x1, [x8, #0x400] stringByAppendingString:
+  a349f48: adrp x0, #0x19de5000 
+  a349f4c: add x0, x0, #0x478 
+  a349f50: ret  
+fd51450: bl #0x11ee07f4 
+fd51454: mov x29, x29 
+fd51458: bl #0x11ee08a8 
+fd5145c: bl #0xa268dd0 
+  a268dd0: mov x21, x0 
+  a268dd4: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+fd51460: bl #0xa268db8 
+  a268db8: mov x22, x0 
+  a268dbc: adrp x8, #0x1cf3b000 
+  a268dc0: ldr x0, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a268dc4: adrp x8, #0x1ceb8000 
+  a268dc8: ldr x1, [x8, #0xab8] stringWithFormat:
+  a268dcc: ret  
+fd51464: adrp x8, #0x1a3f3000 
+fd51468: add x8, x8, #0xeb8 
+fd5146c: bl #0xa256038 
+  a256038: stp x8, xzr, [sp] 
+  a25603c: adrp x2, #0x19c98000 
+  a256040: add x2, x2, #0xc98 
+  a256044: ret  
+fd51470: bl #0x11ee07f4 
+fd51474: mov x29, x29 
+fd51478: bl #0x11ee08a8 
+fd5147c: mov x23, x0 
+fd51480: bl #0xfd517dc 
+  fd517dc: adrp x0, #0x14795000 
+  fd517e0: add x0, x0, #0x7c 
+  fd517e4: adrp x1, #0x14795000 
+  fd517e8: add x1, x1, #0x96 
+  fd517ec: ret  
+fd51484: bl #0x848f7f4 
+  848f7f4: mov x2, x21 
+  848f7f8: mov w3, #2 
+  848f7fc: mov w4, #0x24 
+  848f800: mov x5, x23 
+  848f804: b #0xa3c1e80 
+fd51488: bl #0xa256bbc 
+  a256bbc: mov x0, x23 
+  a256bc0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd5148c: bl #0xa25aa1c 
+  a25aa1c: mov x0, x22 
+  a25aa20: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+fd51490: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd51494: bl #0xa25600c 
+  a25600c: mov x0, x20 
+  a256010: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+fd51498: b #0xfd517b4 
+  fd517b4: mov w20, #1 
+  fd517b8: bl #0xa255ff0 
+    a255ff0: mov x0, x19 
+    a255ff4: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  fd517bc: b #0xf8c7340 
+    f8c7340: b #0x7c2e1b4 
+      7c2e1b4: b #0xe42e2c 
+        e42e2c: mov x0, x20 
+        e42e30: add sp, sp, #0x20 
+        e42e34: b #0x7c09614 
+          7c09614: b #0xa27c93c 
+            a27c93c: ldp x29, x30, [sp, #0x60] 
+            a27c940: ldp x20, x19, [sp, #0x50] 
+            a27c944: ldp x22, x21, [sp, #0x40] 
+            a27c948: ldp x24, x23, [sp, #0x30] 
+            a27c94c: ldp x26, x25, [sp, #0x20] 
+            a27c950: ldp x28, x27, [sp, #0x10] 
+            a27c954: ldp d9, d8, [sp], #0x70 
+            a27c958: ret  
+fd5149c: bl #0xd545d88 
+  d545d88: adrp x8, #0x1cb22000 
+  d545d8c: ldr x1, [x8, #0x780] contextVC
+  d545d90: ret  
+fd514a0: mov x0, x21 
+fd514a4: bl #0x11ee07f4 
+fd514a8: mov x29, x29 
+fd514ac: bl #0x11ee08a8 
+fd514b0: mov x22, x0 
+fd514b4: bl #0xa349f68 
+  a349f68: adrp x8, #0x1cc27000 
+  a349f6c: ldr x1, [x8, #0x568] isOnValidOutterList:
+  a349f70: ret  
+fd514b8: bl #0xa26e8f8 
+  a26e8f8: mov x0, x21 
+  a26e8fc: mov x2, x22 
+  a26e900: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+fd514bc: bl #0xa257cfc 
+  a257cfc: mov x21, x0 
+  a257d00: mov x0, x22 
+  a257d04: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd514c0: adrp x28, #0x19967000 
+fd514c4: add x28, x28, #0x4b8 
+fd514c8: bl #0xda3b4bc 
+  da3b4bc: adrp x27, #0x1ceb8000 
+  da3b4c0: adrp x26, #0x1cf3b000 
+  da3b4c4: ret  
+fd514cc: tbnz w21, #0, #0xfd5153c 
+fd514d0: bl #0x11ee06b0 
+fd514d4: mov x22, x0 
+fd514d8: ldr x2, [x28] 
+fd514dc: bl #0xf8c7e7c 
+  f8c7e7c: b #0x7c521f8 
+    7c521f8: b #0x6deb7c8 
+      6deb7c8: ldr x1, [x27, #0x400] 
+      6deb7cc: adrp x0, #0x19de5000 
+      6deb7d0: add x0, x0, #0x478 
+      6deb7d4: ret  
+fd514e0: bl #0x11ee07f4 
+fd514e4: mov x29, x29 
+fd514e8: bl #0x11ee08a8 
+fd514ec: bl #0xa26e9ec 
+  a26e9ec: mov x23, x0 
+  a26e9f0: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+fd514f0: mov x24, x0 
+fd514f4: bl #0xa2811f4 
+  a2811f4: ldr x0, [x26, #0xbc0] 
+  a2811f8: adrp x8, #0x1ceb8000 
+  a2811fc: ldr x1, [x8, #0xab8] stringWithFormat:
+  a281200: ret  
+fd514f8: adrp x8, #0x1a3f3000 
+fd514fc: add x8, x8, #0xed8 
+fd51500: bl #0xa256038 
+  a256038: stp x8, xzr, [sp] 
+  a25603c: adrp x2, #0x19c98000 
+  a256040: add x2, x2, #0xc98 
+  a256044: ret  
+fd51504: bl #0x11ee07f4 
+fd51508: mov x29, x29 
+fd5150c: bl #0x11ee08a8 
+fd51510: mov x25, x0 
+fd51514: bl #0xfd517dc 
+  fd517dc: adrp x0, #0x14795000 
+  fd517e0: add x0, x0, #0x7c 
+  fd517e4: adrp x1, #0x14795000 
+  fd517e8: add x1, x1, #0x96 
+  fd517ec: ret  
+fd51518: mov x2, x23 
+fd5151c: bl #0x82d69b0 
+  82d69b0: mov w3, #2 
+  82d69b4: mov w4, #0x29 
+  82d69b8: mov x5, x25 
+  82d69bc: b #0xa3c1e80 
+fd51520: bl #0xa257964 
+  a257964: mov x0, x25 
+  a257968: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd51524: bl #0xa26cc4c 
+  a26cc4c: mov x0, x24 
+  a26cc50: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+fd51528: bl #0xa256bbc 
+  a256bbc: mov x0, x23 
+  a256bc0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd5152c: bl #0xa25aa1c 
+  a25aa1c: mov x0, x22 
+  a25aa20: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+fd51530: adrp x8, #0x1a3f3000 
+fd51534: add x8, x8, #0xef8 
+fd51538: str x8, [x20] 
+fd5153c: bl #0xd3953c0 
+  d3953c0: adrp x25, #0x1cf3d000 
+  d3953c4: ldr x0, [x25, #0x928] class=SSBizAdConfigHelper
+  d3953c8: ret  
+fd51540: bl #0xa349fd4 
+  a349fd4: adrp x8, #0x1cb6e000 
+  a349fd8: ldr x1, [x8, #0x310] enableHomePageFeedAd
+  a349fdc: b #0x11ee07f4 
+fd51544: tbnz w0, #0, #0xfd515ac 
+fd51548: bl #0x11ee06b0 
+fd5154c: bl #0xf8c7e80 
+  f8c7e80: b #0x7c7763c 
+    7c7763c: b #0x6c85850 
+      6c85850: mov x21, x0 
+      6c85854: ldr x2, [x28] 
+      6c85858: ret  
+fd51550: bl #0xf8c7e7c 
+  f8c7e7c: b #0x7c521f8 
+    7c521f8: b #0x6deb7c8 
+      6deb7c8: ldr x1, [x27, #0x400] 
+      6deb7cc: adrp x0, #0x19de5000 
+      6deb7d0: add x0, x0, #0x478 
+      6deb7d4: ret  
+fd51554: bl #0x11ee07f4 
+fd51558: mov x29, x29 
+fd5155c: bl #0x11ee08a8 
+fd51560: bl #0xa2698a8 
+  a2698a8: mov x22, x0 
+  a2698ac: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+fd51564: mov x23, x0 
+fd51568: bl #0xa2811f4 
+  a2811f4: ldr x0, [x26, #0xbc0] 
+  a2811f8: adrp x8, #0x1ceb8000 
+  a2811fc: ldr x1, [x8, #0xab8] stringWithFormat:
+  a281200: ret  
+fd5156c: adrp x25, #0x1a2af000 
+fd51570: add x25, x25, #0xd98 
+fd51574: bl #0xd73b2c0 
+  d73b2c0: stp x25, xzr, [sp] 
+  d73b2c4: adrp x2, #0x19c98000 
+  d73b2c8: add x2, x2, #0xc98 
+  d73b2cc: ret  
+fd51578: bl #0x11ee07f4 
+fd5157c: mov x29, x29 
+fd51580: bl #0x11ee08a8 
+fd51584: mov x24, x0 
+fd51588: bl #0xfd517dc 
+  fd517dc: adrp x0, #0x14795000 
+  fd517e0: add x0, x0, #0x7c 
+  fd517e4: adrp x1, #0x14795000 
+  fd517e8: add x1, x1, #0x96 
+  fd517ec: ret  
+fd5158c: mov x2, x22 
+fd51590: bl #0xd6b18bc 
+  d6b18bc: mov w3, #2 
+  d6b18c0: mov w4, #0x2f 
+  d6b18c4: mov x5, x24 
+  d6b18c8: b #0xa3c1e80 
+fd51594: bl #0xa257bfc 
+  a257bfc: mov x0, x24 
+  a257c00: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd51598: bl #0xa269854 
+  a269854: mov x0, x23 
+  a269858: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+fd5159c: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd515a0: bl #0xa256014 
+  a256014: mov x0, x21 
+  a256018: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+fd515a4: str x25, [x20] 
+fd515a8: b #0xfd517b4 
+  fd517b4: mov w20, #1 
+  fd517b8: bl #0xa255ff0 
+    a255ff0: mov x0, x19 
+    a255ff4: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  fd517bc: b #0xf8c7340 
+    f8c7340: b #0x7c2e1b4 
+      7c2e1b4: b #0xe42e2c 
+        e42e2c: mov x0, x20 
+        e42e30: add sp, sp, #0x20 
+        e42e34: b #0x7c09614 
+          7c09614: b #0xa27c93c 
+            a27c93c: ldp x29, x30, [sp, #0x60] 
+            a27c940: ldp x20, x19, [sp, #0x50] 
+            a27c944: ldp x22, x21, [sp, #0x40] 
+            a27c948: ldp x24, x23, [sp, #0x30] 
+            a27c94c: ldp x26, x25, [sp, #0x20] 
+            a27c950: ldp x28, x27, [sp, #0x10] 
+            a27c954: ldp d9, d8, [sp], #0x70 
+            a27c958: ret  
+fd515ac: ldr x0, [x25, #0x928] 
+fd515b0: bl #0xd4c044c 
+  d4c044c: adrp x8, #0x1cd2b000 
+  d4c0450: ldr x1, [x8, #0xae0] revertAllAdEnable
+  d4c0454: b #0x11ee07f4 
+fd515b4: cbz w0, #0xfd5161c 
+fd515b8: bl #0x11ee06b0 
+fd515bc: bl #0xf8c7e80 
+  f8c7e80: b #0x7c7763c 
+    7c7763c: b #0x6c85850 
+      6c85850: mov x21, x0 
+      6c85854: ldr x2, [x28] 
+      6c85858: ret  
+fd515c0: bl #0xf8c7e7c 
+  f8c7e7c: b #0x7c521f8 
+    7c521f8: b #0x6deb7c8 
+      6deb7c8: ldr x1, [x27, #0x400] 
+      6deb7cc: adrp x0, #0x19de5000 
+      6deb7d0: add x0, x0, #0x478 
+      6deb7d4: ret  
+fd515c4: bl #0x11ee07f4 
+fd515c8: mov x29, x29 
+fd515cc: bl #0x11ee08a8 
+fd515d0: bl #0xa2698a8 
+  a2698a8: mov x22, x0 
+  a2698ac: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+fd515d4: mov x23, x0 
+fd515d8: bl #0xa2811f4 
+  a2811f4: ldr x0, [x26, #0xbc0] 
+  a2811f8: adrp x8, #0x1ceb8000 
+  a2811fc: ldr x1, [x8, #0xab8] stringWithFormat:
+  a281200: ret  
+fd515dc: adrp x8, #0x1a2af000 
+fd515e0: add x8, x8, #0xf38 
+fd515e4: bl #0xa256038 
+  a256038: stp x8, xzr, [sp] 
+  a25603c: adrp x2, #0x19c98000 
+  a256040: add x2, x2, #0xc98 
+  a256044: ret  
+fd515e8: bl #0x11ee07f4 
+fd515ec: mov x29, x29 
+fd515f0: bl #0x11ee08a8 
+fd515f4: mov x24, x0 
+fd515f8: bl #0xfd517dc 
+  fd517dc: adrp x0, #0x14795000 
+  fd517e0: add x0, x0, #0x7c 
+  fd517e4: adrp x1, #0x14795000 
+  fd517e8: add x1, x1, #0x96 
+  fd517ec: ret  
+fd515fc: bl #0xf8c7e88 
+  f8c7e88: b #0x7c67c34 
+    7c67c34: b #0x72f0d48 
+      72f0d48: mov x2, x22 
+      72f0d4c: mov w3, #2 
+      72f0d50: mov w4, #0x35 
+      72f0d54: mov x5, x24 
+      72f0d58: b #0xa3c1e80 
+fd51600: bl #0xa257bfc 
+  a257bfc: mov x0, x24 
+  a257c00: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd51604: bl #0xa269854 
+  a269854: mov x0, x23 
+  a269858: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+fd51608: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd5160c: bl #0xa256014 
+  a256014: mov x0, x21 
+  a256018: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+fd51610: adrp x8, #0x1a3f3000 
+fd51614: add x8, x8, #0xf18 
+fd51618: b #0xfd517b0 
+  fd517b0: str x8, [x20] 
+  fd517b4: mov w20, #1 
+  fd517b8: bl #0xa255ff0 
+    a255ff0: mov x0, x19 
+    a255ff4: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  fd517bc: b #0xf8c7340 
+    f8c7340: b #0x7c2e1b4 
+      7c2e1b4: b #0xe42e2c 
+        e42e2c: mov x0, x20 
+        e42e30: add sp, sp, #0x20 
+        e42e34: b #0x7c09614 
+          7c09614: b #0xa27c93c 
+            a27c93c: ldp x29, x30, [sp, #0x60] 
+            a27c940: ldp x20, x19, [sp, #0x50] 
+            a27c944: ldp x22, x21, [sp, #0x40] 
+            a27c948: ldp x24, x23, [sp, #0x30] 
+            a27c94c: ldp x26, x25, [sp, #0x20] 
+            a27c950: ldp x28, x27, [sp, #0x10] 
+            a27c954: ldp d9, d8, [sp], #0x70 
+            a27c958: ret  
+fd5161c: ldr x0, [x25, #0x928] 
+fd51620: adrp x8, #0x1cbe4000 
+fd51624: ldr x22, [x8, #0xb38] homePageFeedAdStartPos
+fd51628: bl #0xa25a59c 
+  a25a59c: mov x1, x22 
+  a25a5a0: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+fd5162c: cmp x0, #1 
+fd51630: b.lt #0xfd516c4 
+fd51634: bl #0xf8c2f10 
+  f8c2f10: b #0x7c25db0 
+    7c25db0: b #0x125420 
+      125420: adrp x8, #0x1cb22000 
+      125424: ldr x1, [x8, #0x328] context
+      125428: mov x0, x19 
+      12542c: ret  

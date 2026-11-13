@@ -1,0 +1,111 @@
+fd2bffc: stp x29, x30, [sp, #-0x10]! 
+fd2c000: bl #0xa25d274 
+  a25d274: stp d9, d8, [sp, #-0x60]! 
+  a25d278: stp x28, x27, [sp, #0x10] 
+  a25d27c: stp x26, x25, [sp, #0x20] 
+  a25d280: stp x24, x23, [sp, #0x30] 
+  a25d284: stp x22, x21, [sp, #0x40] 
+  a25d288: stp x20, x19, [sp, #0x50] 
+  a25d28c: add x29, sp, #0x60 
+  a25d290: ret  
+fd2c004: sub sp, sp, #0x20 
+fd2c008: bl #0xf8c7350 
+  f8c7350: b #0x7c49644 
+    7c49644: b #0x690b1a4 
+      690b1a4: mov x19, x2 
+      690b1a8: fmov d9, d1 
+      690b1ac: ret  
+fd2c00c: bl #0xf8c734c 
+  f8c734c: b #0x7c49640 
+    7c49640: b #0x68f3e88 
+      68f3e88: fmov d8, d0 
+      68f3e8c: mov x20, x0 
+      68f3e90: mov x0, x2 
+      68f3e94: b #0x7c07fcc 
+        7c07fcc: b #0xf89df5c 
+          f89df5c: b #0x11ee0884 
+fd2c010: bl #0xd547e70 
+  d547e70: adrp x8, #0x1ce86000 
+  d547e74: ldr x1, [x8, #0xaa0] shouldBypassLocalAdControl
+  d547e78: ret  
+fd2c014: bl #0xa259f74 
+  a259f74: mov x0, x20 
+  a259f78: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+fd2c018: tbz w0, #0, #0xfd2c024 
+fd2c01c: mov w20, #1 
+fd2c020: b #0xfd2c114 
+  fd2c114: bl #0xa255ff0 
+    a255ff0: mov x0, x19 
+    a255ff4: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  fd2c118: b #0xf8c7340 
+    f8c7340: b #0x7c2e1b4 
+      7c2e1b4: b #0xe42e2c 
+        e42e2c: mov x0, x20 
+        e42e30: add sp, sp, #0x20 
+        e42e34: b #0x7c09614 
+          7c09614: b #0xa27c93c 
+            a27c93c: ldp x29, x30, [sp, #0x60] 
+            a27c940: ldp x20, x19, [sp, #0x50] 
+            a27c944: ldp x22, x21, [sp, #0x40] 
+            a27c948: ldp x24, x23, [sp, #0x30] 
+            a27c94c: ldp x26, x25, [sp, #0x20] 
+            a27c950: ldp x28, x27, [sp, #0x10] 
+            a27c954: ldp d9, d8, [sp], #0x70 
+            a27c958: ret  
+fd2c024: adrp x8, #0x1ce8b000 
+fd2c028: ldr x1, [x8, #0x818] shouldShowAdWithContext:
+fd2c02c: bl #0xa25fbe0 
+  a25fbe0: mov x0, x20 
+  a25fbe4: mov x2, x19 
+  a25fbe8: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+fd2c030: cbz w0, #0xfd2c110 
+fd2c034: bl #0xd374420 
+  d374420: adrp x20, #0x1cf3d000 
+  d374424: ldr x0, [x20, #0x928] class=SSBizAdConfigHelper
+  d374428: ret  
+fd2c038: adrp x8, #0x1ce85000 
+fd2c03c: ldr x1, [x8, #0x2b0] shortVideoBackPatchAdRequestStartCountdown
+fd2c040: bl #0x11ee07f4 
+fd2c044: bl #0xf8bfe6c 
+  f8bfe6c: b #0x7c75484 
+    7c75484: b #0x636efd8 
+      636efd8: scvtf d0, x0 
+      636efdc: fsub d0, d9, d0 
+      636efe0: ret  
+fd2c048: fcmp d0, d8 
+fd2c04c: b.gt #0xfd2c07c 
+fd2c050: ldr x0, [x20, #0x928] 
+fd2c054: adrp x8, #0x1ce85000 
+fd2c058: ldr x1, [x8, #0x2a8] shortVideoBackPatchAdRequestEndCountdown
+fd2c05c: bl #0x11ee07f4 
+fd2c060: bl #0xf8bfe6c 
+  f8bfe6c: b #0x7c75484 
+    7c75484: b #0x636efd8 
+      636efd8: scvtf d0, x0 
+      636efdc: fsub d0, d9, d0 
+      636efe0: ret  
+fd2c064: fcmp d0, d8 
+fd2c068: b.pl #0xfd2c01c 
+fd2c06c: mov w21, #0xa2 
+fd2c070: adrp x23, #0x1a3f1000 
+fd2c074: add x23, x23, #0x438 
+fd2c078: b #0xfd2c088 
+fd2c07c: mov w21, #0x9e 
+fd2c080: adrp x23, #0x1a3f1000 
+fd2c084: add x23, x23, #0x418 
+fd2c088: bl #0x11ee06b0 
+fd2c08c: mov x20, x0 
+fd2c090: bl #0xfd2b740 
+  fd2b740: adrp x8, #0x19967000 
+  fd2b744: add x8, x8, #0x500 
+  fd2b748: ldr x2, [x8] 
+  fd2b74c: adrp x8, #0x1ceb8000 
+  fd2b750: ldr x1, [x8, #0x400] stringByAppendingString:
+  fd2b754: adrp x0, #0x19de5000 
+  fd2b758: add x0, x0, #0x478 
+  fd2b75c: ret  
+fd2c094: bl #0x11ee07f4 
+fd2c098: mov x29, x29 

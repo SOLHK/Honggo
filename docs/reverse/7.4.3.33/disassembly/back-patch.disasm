@@ -1,0 +1,297 @@
+fd2c11c: stp x29, x30, [sp, #-0x10]! 
+fd2c120: bl #0xa257714 
+  a257714: stp x26, x25, [sp, #-0x40]! 
+  a257718: stp x24, x23, [sp, #0x10] 
+  a25771c: stp x22, x21, [sp, #0x20] 
+  a257720: stp x20, x19, [sp, #0x30] 
+  a257724: add x29, sp, #0x40 
+  a257728: ret  
+fd2c124: sub sp, sp, #0x10 
+fd2c128: bl #0xa27ddac 
+  a27ddac: mov x19, x2 
+  a27ddb0: mov x21, x0 
+  a27ddb4: mov x0, x2 
+  a27ddb8: ret  
+fd2c12c: bl #0x11ee0884 
+fd2c130: bl #0xd547e70 
+  d547e70: adrp x8, #0x1ce86000 
+  d547e74: ldr x1, [x8, #0xaa0] shouldBypassLocalAdControl
+  d547e78: ret  
+fd2c134: bl #0xa256f34 
+  a256f34: mov x0, x21 
+  a256f38: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+fd2c138: cbnz w0, #0xfd2c844 
+fd2c13c: cbz x19, #0xfd2c228 
+fd2c140: bl #0xa32d940 
+  a32d940: adrp x8, #0x1cc2f000 
+  a32d944: ldr x1, [x8, #0x2e8] isSingleSeriesList
+  a32d948: mov x0, x19 
+  a32d94c: b #0x11ee07f4 
+fd2c144: tbz w0, #0, #0xfd2c1e0 
+fd2c148: bl #0xa2feda8 
+  a2feda8: adrp x24, #0x1cf3d000 
+  a2fedac: ldr x0, [x24, #0x928] class=SSBizAdConfigHelper
+  a2fedb0: ret  
+fd2c14c: bl #0xfd2cb1c 
+  fd2cb1c: adrp x8, #0x1cb73000 
+  fd2cb20: ldr x1, [x8, #0xf90] enableShortVideoBackPatchAd
+  fd2cb24: b #0x11ee07f4 
+fd2c150: tbz w0, #0, #0xfd2c1a4 
+fd2c154: bl #0xa2b4654 
+  a2b4654: adrp x8, #0x1cc1e000 
+  a2b4658: ldr x1, [x8, #0xb70] isFullScreen
+  a2b465c: mov x0, x19 
+  a2b4660: b #0x11ee07f4 
+fd2c158: cbz w0, #0xfd2c270 
+fd2c15c: bl #0x11ee06b0 
+fd2c160: mov x20, x0 
+fd2c164: bl #0xfd2b740 
+  fd2b740: adrp x8, #0x19967000 
+  fd2b744: add x8, x8, #0x500 
+  fd2b748: ldr x2, [x8] 
+  fd2b74c: adrp x8, #0x1ceb8000 
+  fd2b750: ldr x1, [x8, #0x400] stringByAppendingString:
+  fd2b754: adrp x0, #0x19de5000 
+  fd2b758: add x0, x0, #0x478 
+  fd2b75c: ret  
+fd2c168: bl #0x11ee07f4 
+fd2c16c: mov x29, x29 
+fd2c170: bl #0x11ee08a8 
+fd2c174: bl #0xa268dd0 
+  a268dd0: mov x21, x0 
+  a268dd4: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+fd2c178: bl #0xa2f2630 
+  a2f2630: mov x22, x0 
+  a2f2634: adrp x8, #0x1cf3b000 
+  a2f2638: ldr x0, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a2f263c: adrp x8, #0x1ceb8000 
+  a2f2640: ret  
+fd2c17c: ldr x1, [x8, #0xab8] 
+fd2c180: adrp x8, #0x1a3f1000 
+fd2c184: add x8, x8, #0x498 
+fd2c188: bl #0xa256038 
+  a256038: stp x8, xzr, [sp] 
+  a25603c: adrp x2, #0x19c98000 
+  a256040: add x2, x2, #0xc98 
+  a256044: ret  
+fd2c18c: bl #0x11ee07f4 
+fd2c190: mov x29, x29 
+fd2c194: bl #0x11ee08a8 
+fd2c198: bl #0xfd2c9f0 
+  fd2c9f0: mov x23, x0 
+  fd2c9f4: adrp x0, #0x1478f000 
+  fd2c9f8: add x0, x0, #0x1cb 
+  fd2c9fc: adrp x1, #0x1478f000 
+  fd2ca00: add x1, x1, #0x37b 
+  fd2ca04: mov x2, x21 
+  fd2ca08: mov w3, #2 
+  fd2ca0c: ret  
+fd2c19c: mov w4, #0xbf 
+fd2c1a0: b #0xfd2c2dc 
+  fd2c2dc: bl #0xa26ddac 
+    a26ddac: mov x5, x23 
+    a26ddb0: b #0xa3c1e80 
+  fd2c2e0: mov x0, x23 
+  fd2c2e4: b #0xfd2c414 
+    fd2c414: bl #0x11ee086c 
+    fd2c418: mov x0, x22 
+    fd2c41c: b #0xfd2c5bc 
+      fd2c5bc: bl #0x11ee06a4 
+      fd2c5c0: bl #0xa256d6c 
+        a256d6c: mov x0, x21 
+        a256d70: b #0xf89deec 
+          f89deec: b #0x11ee086c 
+      fd2c5c4: bl #0xa25600c 
+        a25600c: mov x0, x20 
+        a256010: b #0xf89e428 
+          f89e428: b #0x11ee06a4 
+      fd2c5c8: mov w22, #0 
+      fd2c5cc: b #0xfd2c89c 
+        fd2c89c: bl #0xa255ff0 
+          a255ff0: mov x0, x19 
+          a255ff4: b #0xf89deec 
+            f89deec: b #0x11ee086c 
+        fd2c8a0: b #0xa2ac2c4 
+          a2ac2c4: mov x0, x22 
+          a2ac2c8: add sp, sp, #0x10 
+          a2ac2cc: b #0xa25910c 
+            a25910c: ldp x29, x30, [sp, #0x40] 
+            a259110: ldp x20, x19, [sp, #0x30] 
+            a259114: ldp x22, x21, [sp, #0x20] 
+            a259118: ldp x24, x23, [sp, #0x10] 
+            a25911c: ldp x26, x25, [sp], #0x50 
+            a259120: ret  
+fd2c1a4: bl #0x11ee06b0 
+fd2c1a8: mov x20, x0 
+fd2c1ac: bl #0xfd2b740 
+  fd2b740: adrp x8, #0x19967000 
+  fd2b744: add x8, x8, #0x500 
+  fd2b748: ldr x2, [x8] 
+  fd2b74c: adrp x8, #0x1ceb8000 
+  fd2b750: ldr x1, [x8, #0x400] stringByAppendingString:
+  fd2b754: adrp x0, #0x19de5000 
+  fd2b758: add x0, x0, #0x478 
+  fd2b75c: ret  
+fd2c1b0: bl #0x11ee07f4 
+fd2c1b4: mov x29, x29 
+fd2c1b8: bl #0x11ee08a8 
+fd2c1bc: bl #0xa268dd0 
+  a268dd0: mov x21, x0 
+  a268dd4: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+fd2c1c0: bl #0xa2f2630 
+  a2f2630: mov x22, x0 
+  a2f2634: adrp x8, #0x1cf3b000 
+  a2f2638: ldr x0, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a2f263c: adrp x8, #0x1ceb8000 
+  a2f2640: ret  
+fd2c1c4: bl #0xfd2caac 
+  fd2caac: ldr x1, [x8, #0xab8] 
+  fd2cab0: adrp x8, #0x1a2b6000 
+  fd2cab4: add x8, x8, #0xb18 
+  fd2cab8: stp x8, xzr, [sp] 
+  fd2cabc: adrp x2, #0x19c98000 
+  fd2cac0: add x2, x2, #0xc98 
+  fd2cac4: ret  
+fd2c1c8: bl #0x11ee07f4 
+fd2c1cc: mov x29, x29 
+fd2c1d0: bl #0x11ee08a8 
+fd2c1d4: bl #0xfd2c9f0 
+  fd2c9f0: mov x23, x0 
+  fd2c9f4: adrp x0, #0x1478f000 
+  fd2c9f8: add x0, x0, #0x1cb 
+  fd2c9fc: adrp x1, #0x1478f000 
+  fd2ca00: add x1, x1, #0x37b 
+  fd2ca04: mov x2, x21 
+  fd2ca08: mov w3, #2 
+  fd2ca0c: ret  
+fd2c1d8: mov w4, #0xba 
+fd2c1dc: b #0xfd2c2dc 
+  fd2c2dc: bl #0xa26ddac 
+    a26ddac: mov x5, x23 
+    a26ddb0: b #0xa3c1e80 
+  fd2c2e0: mov x0, x23 
+  fd2c2e4: b #0xfd2c414 
+    fd2c414: bl #0x11ee086c 
+    fd2c418: mov x0, x22 
+    fd2c41c: b #0xfd2c5bc 
+      fd2c5bc: bl #0x11ee06a4 
+      fd2c5c0: bl #0xa256d6c 
+        a256d6c: mov x0, x21 
+        a256d70: b #0xf89deec 
+          f89deec: b #0x11ee086c 
+      fd2c5c4: bl #0xa25600c 
+        a25600c: mov x0, x20 
+        a256010: b #0xf89e428 
+          f89e428: b #0x11ee06a4 
+      fd2c5c8: mov w22, #0 
+      fd2c5cc: b #0xfd2c89c 
+        fd2c89c: bl #0xa255ff0 
+          a255ff0: mov x0, x19 
+          a255ff4: b #0xf89deec 
+            f89deec: b #0x11ee086c 
+        fd2c8a0: b #0xa2ac2c4 
+          a2ac2c4: mov x0, x22 
+          a2ac2c8: add sp, sp, #0x10 
+          a2ac2cc: b #0xa25910c 
+            a25910c: ldp x29, x30, [sp, #0x40] 
+            a259110: ldp x20, x19, [sp, #0x30] 
+            a259114: ldp x22, x21, [sp, #0x20] 
+            a259118: ldp x24, x23, [sp, #0x10] 
+            a25911c: ldp x26, x25, [sp], #0x50 
+            a259120: ret  
+fd2c1e0: bl #0x11ee06b0 
+fd2c1e4: mov x20, x0 
+fd2c1e8: bl #0xfd2b740 
+  fd2b740: adrp x8, #0x19967000 
+  fd2b744: add x8, x8, #0x500 
+  fd2b748: ldr x2, [x8] 
+  fd2b74c: adrp x8, #0x1ceb8000 
+  fd2b750: ldr x1, [x8, #0x400] stringByAppendingString:
+  fd2b754: adrp x0, #0x19de5000 
+  fd2b758: add x0, x0, #0x478 
+  fd2b75c: ret  
+fd2c1ec: bl #0x11ee07f4 
+fd2c1f0: mov x29, x29 
+fd2c1f4: bl #0x11ee08a8 
+fd2c1f8: bl #0xa268dd0 
+  a268dd0: mov x21, x0 
+  a268dd4: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+fd2c1fc: bl #0xa2f2630 
+  a2f2630: mov x22, x0 
+  a2f2634: adrp x8, #0x1cf3b000 
+  a2f2638: ldr x0, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a2f263c: adrp x8, #0x1ceb8000 
+  a2f2640: ret  
+fd2c200: ldr x1, [x8, #0xab8] 
+fd2c204: adrp x8, #0x1a3c5000 
+fd2c208: add x8, x8, #0x3f8 
+fd2c20c: bl #0xa256038 
+  a256038: stp x8, xzr, [sp] 
+  a25603c: adrp x2, #0x19c98000 
+  a256040: add x2, x2, #0xc98 
+  a256044: ret  
+fd2c210: bl #0x11ee07f4 
+fd2c214: mov x29, x29 
+fd2c218: bl #0x11ee08a8 
+fd2c21c: bl #0xfd2c9f0 
+  fd2c9f0: mov x23, x0 
+  fd2c9f4: adrp x0, #0x1478f000 
+  fd2c9f8: add x0, x0, #0x1cb 
+  fd2c9fc: adrp x1, #0x1478f000 
+  fd2ca00: add x1, x1, #0x37b 
+  fd2ca04: mov x2, x21 
+  fd2ca08: mov w3, #2 
+  fd2ca0c: ret  
+fd2c220: mov w4, #0xb5 
+fd2c224: b #0xfd2c2dc 
+  fd2c2dc: bl #0xa26ddac 
+    a26ddac: mov x5, x23 
+    a26ddb0: b #0xa3c1e80 
+  fd2c2e0: mov x0, x23 
+  fd2c2e4: b #0xfd2c414 
+    fd2c414: bl #0x11ee086c 
+    fd2c418: mov x0, x22 
+    fd2c41c: b #0xfd2c5bc 
+      fd2c5bc: bl #0x11ee06a4 
+      fd2c5c0: bl #0xa256d6c 
+        a256d6c: mov x0, x21 
+        a256d70: b #0xf89deec 
+          f89deec: b #0x11ee086c 
+      fd2c5c4: bl #0xa25600c 
+        a25600c: mov x0, x20 
+        a256010: b #0xf89e428 
+          f89e428: b #0x11ee06a4 
+      fd2c5c8: mov w22, #0 
+      fd2c5cc: b #0xfd2c89c 
+        fd2c89c: bl #0xa255ff0 
+          a255ff0: mov x0, x19 
+          a255ff4: b #0xf89deec 
+            f89deec: b #0x11ee086c 
+        fd2c8a0: b #0xa2ac2c4 
+          a2ac2c4: mov x0, x22 
+          a2ac2c8: add sp, sp, #0x10 
+          a2ac2cc: b #0xa25910c 
+            a25910c: ldp x29, x30, [sp, #0x40] 
+            a259110: ldp x20, x19, [sp, #0x30] 
+            a259114: ldp x22, x21, [sp, #0x20] 
+            a259118: ldp x24, x23, [sp, #0x10] 
+            a25911c: ldp x26, x25, [sp], #0x50 
+            a259120: ret  
+fd2c228: bl #0x11ee06b0 
+fd2c22c: mov x20, x0 
+fd2c230: bl #0xfd2b740 
+  fd2b740: adrp x8, #0x19967000 
+  fd2b744: add x8, x8, #0x500 
+  fd2b748: ldr x2, [x8] 
+  fd2b74c: adrp x8, #0x1ceb8000 
+  fd2b750: ldr x1, [x8, #0x400] stringByAppendingString:
+  fd2b754: adrp x0, #0x19de5000 
+  fd2b758: add x0, x0, #0x478 
+  fd2b75c: ret  
+fd2c234: bl #0x11ee07f4 
+fd2c238: mov x29, x29 
+fd2c23c: bl #0x11ee08a8 

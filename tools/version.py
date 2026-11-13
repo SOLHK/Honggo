@@ -10,17 +10,33 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_HEADER = "src/HonggoVersion.h"
-VERSION_PATTERN = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
+VERSION_PATTERN = re.compile(
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-R([1-9][0-9]*))?"
+)
 
 
 def version_tuple(value):
+    """Sort numbered test builds before the stable release of the same base."""
     match = VERSION_PATTERN.fullmatch(value)
     if not match:
-        raise ValueError("Plugin version must be MAJOR.MINOR.PATCH without leading zeroes.")
-    parts = tuple(map(int, match.groups()))
+        raise ValueError("Plugin version must be MAJOR.MINOR.PATCH[-Rn], with n >= 1 and no leading zeroes.")
+    parts = tuple(map(int, match.groups()[:3]))
     if parts[0] > 65535 or parts[1] > 255 or parts[2] > 255:
         raise ValueError("Plugin version exceeds Mach-O current_version limits (65535.255.255).")
-    return parts
+    revision = match.group(4)
+    return (*parts, revision is None, int(revision) if revision else 0)
+
+
+def macho_version(value):
+    return ".".join(map(str, version_tuple(value)[:3]))
+
+
+def check_release_channel(value, channel):
+    stable = version_tuple(value)[3]
+    if channel == "test" and stable:
+        raise ValueError("The test release channel requires an -R1, -R2, ... suffix; stable releases belong on main.")
+    if channel == "main" and not stable:
+        raise ValueError("The main release channel requires the stable version without an R suffix.")
 
 
 def version_from_header(text):
@@ -85,7 +101,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Require a version increase for plugin changes")
     parser.add_argument("--base", default="HEAD^", help="Commit before the update (default: HEAD^)")
-    parser.add_argument("--artifact", action="store_true", help="Print the versioned dylib filename")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--artifact", action="store_true", help="Print the versioned dylib filename")
+    output.add_argument("--macho", action="store_true", help="Print the numeric Mach-O version without a test suffix")
+    parser.add_argument("--channel", choices=("test", "main"), help="Validate the intended release channel")
     args = parser.parse_args()
     try:
         if args.check:
@@ -93,9 +112,11 @@ def main():
             print(explanation, file=sys.stderr)
         else:
             version = read_version()
+        if args.channel:
+            check_release_channel(version, args.channel)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Version check failed: {error}\n")
-    print(f"Honggo-{version}.dylib" if args.artifact else version)
+    print(f"Honggo-{version}.dylib" if args.artifact else macho_version(version) if args.macho else version)
 
 
 if __name__ == "__main__":

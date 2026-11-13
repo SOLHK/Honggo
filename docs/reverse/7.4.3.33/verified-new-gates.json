@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "identity": {
+    "ipa_sha256": "37118984f159cc2ac8e30654d35196ea31dbf0e829b2bf081df9fd00ee74b036",
+    "payload_path": "Payload/Eggplant.app/Eggplant",
+    "payload_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+    "old_payload_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+    "same_binary": true,
+    "version": "7.4.3",
+    "build": "7.4.3.33"
+  },
+  "gates": [
+    {
+      "class": "SSBizVideoAdABTestHelper",
+      "kind": "+",
+      "selector": "enableEcomForceCard",
+      "encoding": "B16@0:8",
+      "file_offset": "0xfd280d8",
+      "vm_address": "0x10fd280d8",
+      "replacement_result": "false",
+      "category": "forced commerce insertion",
+      "evidence": [
+        "force-request.disasm"
+      ],
+      "reason": "fd31b90 calls gate; cbz fd31b94 -> fd31cf0 before request/insertion state",
+      "confidence": "static caller/ABI verified; device unverified"
+    },
+    {
+      "class": "SSShortVideoLiveService",
+      "kind": "-",
+      "selector": "createFeedLiveInsertModelWithRoomModel:",
+      "encoding": "@24@0:8@16",
+      "file_offset": "0xff1950c",
+      "vm_address": "0x10ff1950c",
+      "replacement_result": "nil",
+      "category": "native live insertion",
+      "evidence": [
+        "live-insert-caller.disasm",
+        "live-forward.disasm"
+      ],
+      "reason": "f599a94 factory -> f580864 conformsToProtocol; nil takes cbz f580868, never enqueued",
+      "confidence": "static caller/ABI verified; device unverified"
+    },
+    {
+      "class": "SSShortVideoRecommendOutterListDataSource",
+      "kind": "-",
+      "selector": "liveFeedDataModelWithCellViewData:",
+      "encoding": "@24@0:8@16",
+      "file_offset": "0xf5a18e0",
+      "vm_address": "0x10f5a18e0",
+      "replacement_result": "nil",
+      "category": "mixed live feed card",
+      "evidence": [
+        "live-insert-caller.disasm"
+      ],
+      "reason": "showType 0x25d (605); f5999f0 call -> cbz f599a00 skips addObject safely",
+      "confidence": "static caller/ABI verified; device unverified"
+    },
+    {
+      "class": "IESLiveUGBenefitCouponFragment",
+      "kind": "-",
+      "selector": "shouldShowBalanceCouponPopup",
+      "encoding": "B16@0:8",
+      "file_offset": "0xbbb1f80",
+      "vm_address": "0x10bbb1f80",
+      "replacement_result": "false",
+      "category": "automatic live benefit coupon",
+      "evidence": [
+        "coupon-balance.disasm"
+      ],
+      "reason": "handleBalanceCoupon calls at bbb0368; cbz bbb0374 skips API request",
+      "confidence": "static caller/ABI verified; device unverified"
+    },
+    {
+      "class": "IESLiveUGBenefitCouponFragment",
+      "kind": "-",
+      "selector": "shouldShowExpansionCouponPopup",
+      "encoding": "B16@0:8",
+      "file_offset": "0xbbb1ecc",
+      "vm_address": "0x10bbb1ecc",
+      "replacement_result": "false",
+      "category": "automatic live expansion coupon",
+      "evidence": [
+        "coupon-expansion.disasm"
+      ],
+      "reason": "handleExpansionCoupon calls bbb05d0; cbz bbb05dc skips API request",
+      "confidence": "static caller/ABI verified; device unverified"
+    },
+    {
+      "class": "SSCouponPopupFrequencyHelper",
+      "kind": "+",
+      "selector": "canShowPopup:",
+      "encoding": "B24@0:8@16",
+      "file_offset": "0xec57d90",
+      "vm_address": "0x10ec57d90",
+      "replacement_result": "false",
+      "category": "startup commerce coupons",
+      "evidence": [
+        "coupon-startup.disasm",
+        "coupon-startup-branch.disasm"
+      ],
+      "reason": "ec5e730 invokes gate; cbz ec5e734 removes queue first entry at ec5e614 and continues normal empty-list path",
+      "confidence": "static caller/ABI verified; device unverified"
+    },
+    {
+      "class": "BDADBackPatchAdService",
+      "kind": "-",
+      "selector": "shouldShowAdWithContext:",
+      "encoding": "B24@0:8@16",
+      "file_offset": "0xfd2c11c",
+      "vm_address": "0x10fd2c11c",
+      "replacement_result": "false",
+      "category": "back-side playback ad",
+      "evidence": [
+        "back-show-caller.disasm"
+      ],
+      "reason": "view canShow returns gate result at fd2d204; ordinary request path cbz fd2c030 declines",
+      "confidence": "static caller/ABI verified; device unverified"
+    },
+    {
+      "class": "BDADBackPatchAdService",
+      "kind": "-",
+      "selector": "shouldRequestAdWithPlaybackTime:duration:context:",
+      "encoding": "B40@0:8d16d24@32",
+      "file_offset": "0xfd2bffc",
+      "vm_address": "0x10fd2bffc",
+      "replacement_result": "false",
+      "category": "back-side playback ad requests",
+      "evidence": [
+        "back-request-caller.disasm"
+      ],
+      "reason": "outer BOOL request predicate; needed to avoid shouldBypassLocalAdControl path fd2c018 returning YES before inner gate",
+      "confidence": "static caller/ABI verified; device unverified"
+    },
+    {
+      "class": "BDADPlotTouchAdService",
+      "kind": "-",
+      "selector": "canRequestAdWithPlaybackTime:context:",
+      "encoding": "B32@0:8d16@24",
+      "file_offset": "0xfd7afc4",
+      "vm_address": "0x10fd7afc4",
+      "replacement_result": "false",
+      "category": "plot-touch ad request",
+      "evidence": [
+        "plot-request-entry.disasm",
+        "plot-request-decline.disasm"
+      ],
+      "reason": "fd7aa84 invokes predicate; cbz fd7aa88 -> fd7aca0 host normal early return. Host does not invoke complement on this decline path",
+      "confidence": "static caller/ABI verified; device unverified"
+    },
+    {
+      "class": "BDADPlotTouchAdService",
+      "kind": "-",
+      "selector": "canShowPlotAdWithContext:",
+      "encoding": "B24@0:8@16",
+      "file_offset": "0xfd7b158",
+      "vm_address": "0x10fd7b158",
+      "replacement_result": "false",
+      "category": "plot-touch ad display",
+      "evidence": [
+        "plot-show-caller.disasm"
+      ],
+      "reason": "outer BOOL display predicate bypasses no result cleanup; prefer outer predicate because shouldBypassLocalAdControl can bypass inner canUsePlotAd gate",
+      "confidence": "static caller/ABI verified; device unverified"
+    },
+    {
+      "class": "BDADShortVideoSideBarPatchSwitchComponent",
+      "kind": "-",
+      "selector": "isAvailableWithCtx:",
+      "encoding": "B24@0:8@16",
+      "file_offset": "0xd547778",
+      "vm_address": "0x10d547778",
+      "replacement_result": "false",
+      "category": "sidebar playback ad",
+      "evidence": [
+        "sidebar-show.disasm",
+        "sidebar-caller.disasm"
+      ],
+      "reason": "shouldShowWithCtx calls predicate d5476e0; false follows normal decline and returns NO d54776c",
+      "confidence": "static caller/ABI verified; device unverified"
+    }
+  ]
+}

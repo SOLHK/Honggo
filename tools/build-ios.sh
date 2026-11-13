@@ -8,6 +8,7 @@ fi
 
 source_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 version=$(python3 "$source_root/tools/version.py")
+macho_version=$(python3 "$source_root/tools/version.py" --macho)
 filename="Honggo-$version.dylib"
 output=${1:-"$source_root/build/$filename"}
 if [ "$(basename -- "$output")" != "$filename" ]; then
@@ -21,7 +22,7 @@ xcrun --sdk iphoneos clang \
     -target arm64-apple-ios15.0.1 -isysroot "$sdk" \
     -O2 -fobjc-arc -fblocks -fvisibility=hidden -Wall -Werror \
     -dynamiclib -Wl,-install_name,@rpath/Honggo.dylib -Wl,-no_adhoc_codesign \
-    "-Wl,-current_version,$version" -Wl,-compatibility_version,1.0.0 \
+    "-Wl,-current_version,$macho_version" -Wl,-compatibility_version,1.0.0 \
     -framework Foundation -framework UIKit -framework QuartzCore -framework CoreGraphics -lobjc \
     "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
     "$source_root/src/Settings.m" "$source_root/src/TabBar.m" \

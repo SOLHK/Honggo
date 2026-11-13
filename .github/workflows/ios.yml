@@ -23,7 +23,7 @@ jobs:
         env:
           VERSION_BASE: ${{ github.event.before }}
         run: |
-          version=$(python3 tools/version.py --check --base "$VERSION_BASE")
+          version=$(python3 tools/version.py --check --base "$VERSION_BASE" --channel test)
           printf 'value=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Check IPA preparation and version rules
         run: python3 -B -m unittest discover -s tests -v
@@ -71,6 +71,8 @@ jobs:
           persist-credentials: false
       - name: Check player and popup scene capture without UI mutation
         run: bash tools/test-ad-scene-ios.sh
+      - name: Check ad filtering and disabled behavior
+        run: bash tools/test-ads-ios.sh
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
@@ -78,10 +80,12 @@ jobs:
           path: |
             build/ad-scene-tests/*.json
             build/ad-scene-tests/*.log
+            build/ads-tests/*.json
+            build/ads-tests/*.log
           if-no-files-found: warn
 
   iphoneos:
-    # Preserve both existing gates and require the new diagnostic behavior suite.
+    # Require UI, diagnostics, and ad-filter behavior checks before packaging.
     needs: [tabbar, settings, adscene]
     runs-on: macos-26
     timeout-minutes: 5
@@ -140,12 +144,29 @@ jobs:
           PLUGIN_VERSION: ${{ needs.tabbar.outputs.version }}
         run: |
           set -euo pipefail
-          tag="v${PLUGIN_VERSION}-test.${GITHUB_RUN_NUMBER}"
+          [[ "$PLUGIN_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-R[1-9][0-9]*$ ]]
+          tag="v${PLUGIN_VERSION}"
+          released_commit=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${tag}" \
+            --jq ".[] | select(.ref == \"refs/tags/${tag}\") | .object.sha")
+          if [ -n "$released_commit" ] && [ "$released_commit" != "$GITHUB_SHA" ]; then
+            printf 'Tag %s already belongs to a different commit; increase the R number.\n' "$tag" >&2
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            test "$released_commit" = "$GITHUB_SHA"
+            printf 'Release %s already exists for this commit; preserving its assets.\n' "$tag"
+            exit 0
+          fi
+          if [ -z "$released_commit" ]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/${tag}" -f "sha=${GITHUB_SHA}" > /dev/null
+          fi
           printf '%s\n' \
             "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
             "Source commit: ${GITHUB_SHA}" \
-            "macOS/iPhoneOS build, settings, tab-bar and screenshot diagnostic regression checks passed." \
-            "This version adds player/popup scene diagnostics. Live-commerce ad removal is not implemented or device-verified." \
+            "macOS/iPhoneOS build, settings, tab-bar, screenshot diagnostics and ad-filter regression checks passed." \
+            "Live-commerce and other verified ad-entry filtering is implemented. Actual iPhone ad disappearance and playback remain unverified." \
+            "R-numbered builds are tests; the suffix is removed only for a stable release on main." \
             "Not a device-accepted stable release. Inject only one dylib into the supported host app." \
             "Assets include the dylib, SHA256SUMS.txt, VERSION and source-commit.txt." \
             > release-notes.md
@@ -153,5 +174,6 @@ jobs:
             "release/Honggo-${PLUGIN_VERSION}.dylib" \
             "release/SHA256SUMS.txt" "release/VERSION" "release/source-commit.txt" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Honggo ${PLUGIN_VERSION} (test #${GITHUB_RUN_NUMBER})" \
+            --verify-tag \
+            --title "Honggo ${PLUGIN_VERSION} (test)" \
             --prerelease --notes-file release-notes.md

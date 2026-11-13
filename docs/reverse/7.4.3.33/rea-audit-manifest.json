@@ -1,0 +1,128 @@
+{
+  "schema": 1,
+  "kind": "sanitized-analysis-manifest-not-canonical-rea-evidence",
+  "date": "2026-11-13",
+  "rea": {
+    "version": "6.9.0",
+    "source": "https://github.com/morluto/rea",
+    "npm_integrity": "sha512-KqDn1UR5BMqHoQ3MGAnPuWiSKwgdFaz1L/uUNgrKt+1W8kPtgYP8AWEOXIF1lDIOBVyPuYIIst2iamo1Wf3r8g==",
+    "node_version": "24.22.1",
+    "local_only": true
+  },
+  "rizin": {
+    "version": "0.9.1",
+    "commit": "c3a90e9226d977f58f4e9c75f78fa6b07afe13c7",
+    "source": "https://github.com/rizinorg/rizin/releases/tag/v0.9.1"
+  },
+  "host": {
+    "app": "Eggplant",
+    "version": "7.4.3",
+    "build": "7.4.3.33",
+    "arch": "arm64",
+    "ipa_sha256": "37118984f159cc2ac8e30654d35196ea31dbf0e829b2bf081df9fd00ee74b036",
+    "binary_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab"
+  },
+  "inventory": {
+    "coverage": {
+      "scope": "container-entries",
+      "status": "complete"
+    },
+    "counts": {
+      "nodes": 3994,
+      "occurrences": 4278,
+      "edges": 4277,
+      "integrity_contradictions": 0
+    },
+    "entry_kinds": {
+      "file": 3843,
+      "directory": 435,
+      "symlink": 0,
+      "slice": 0
+    },
+    "integrity_contradictions": 0,
+    "apple_bundles": 182,
+    "apple_graph_coverage": {
+      "status": "complete-within-inventory",
+      "inventory_complete": true
+    }
+  },
+  "disassembly": {
+    "source_evidence_id": "ev_c3c5fcfc065edfd4f3d92a325ab5db5304f3ae64841e35941383934f6ccff621",
+    "source_record_sha256": "ace98055ff9d9c0decf30ea9cf6a8e987242f431b1f559a2775bcfcb2872d7d5",
+    "operation": "execute_rizin_command",
+    "raw_file_offsets": true,
+    "asm_arch": "arm",
+    "asm_bits": 64,
+    "base_address": "0x0",
+    "command": "e asm.arch; e asm.bits; oml; pd 8 @ 0xfd31b88; pd 22 @ 0xf5999c4; pd 8 @ 0xf599a90; pd 19 @ 0xf580854; pd 7 @ 0xbbb0360; pd 7 @ 0xbbb05c8; pd 6 @ 0xec5e728; pd 17 @ 0xfd2d1fc; pd 100 @ 0xfd7a9e8; pd 44 @ 0xd5476c8",
+    "exit_code": 0,
+    "completion_status": "complete",
+    "output_truncated": false,
+    "artifact_changed": false,
+    "instruction_output": "rea-ad-gates-rizin.txt"
+  },
+  "section_headers": {
+    "provider": "LLVM objdump 22.1.8",
+    "exit_code": 0,
+    "source_evidence_id": "ev_ddf837eabd9e8dbd6d20f1f1f963d15fb4b695d656a16646ddc675172e044653"
+  },
+  "failures": [
+    "inspect-native-dispatch-metadata: initial max-records value exceeded 20000; corrected call has no configured Mach-O-capable deep provider on Windows",
+    "inspect-plist: REA native macOS adapter unavailable on Windows; independent plist decode used",
+    "objdump file_headers: LLVM -f provider exit 1; section_headers succeeds",
+    "Rizin full Mach-O metadata loader: 120000 ms timeout; bounded raw ARM64 disassembly succeeds"
+  ],
+  "limitations": [
+    "Static archive inventory proves packaged entries, not complete runtime ad coverage.",
+    "Objective-C class names and method encodings were independently decoded, not recovered by the unavailable REA deep provider.",
+    "Rizin raw map uses verified file offsets; it does not automatically prove selector identities or runtime calls.",
+    "The screenshot coupon title is dynamic and was not uniquely tied to one native class.",
+    "iPhone injection, screenshot-ad disappearance, playback continuity and server-driven variants require device acceptance."
+  ],
+  "original_evidence_files": {
+    "rea-ad-gates-rizin.json": {
+      "sha256": "ace98055ff9d9c0decf30ea9cf6a8e987242f431b1f559a2775bcfcb2872d7d5",
+      "bytes": 28399
+    },
+    "rea-apple-graph.json": {
+      "sha256": "7d26fd8e92bef21d17aca9f8e10f39f3fc1239c9d75a397115c9cc3b57a3a160",
+      "bytes": 204195
+    },
+    "rea-coupon-config-rizin.json": {
+      "sha256": "edec45daa089cc3c2cb868441d6eb289e6f89e48b55c4704c88cf88a7efd330d",
+      "bytes": 5503
+    },
+    "rea-headers.json": {
+      "sha256": "8a1dc2b1cb8d7d55e519b5038cdb0a7bb242052ee65b7aedea40fa491b2d76a0",
+      "bytes": 2650
+    },
+    "rea-ipa-evidence.json": {
+      "sha256": "22c8df7e8f3726ea94fd3f07f48a6ec6ccee88eb2aa12771e77362501034ef3c",
+      "bytes": 10458300
+    },
+    "rea-ipa-summary.json": {
+      "sha256": "fa1acdfd13f613bbae0c77716f138a1a43c85756b7e5e2028f35b6ebb658c724",
+      "bytes": 4002
+    },
+    "rea-objc-dispatch-valid.json": {
+      "sha256": "8061acc8e7ce9ac06f04ac5c3f4cce50f6a178127431c6e94b8fa306664b2124",
+      "bytes": 3710
+    },
+    "rea-objc-dispatch.json": {
+      "sha256": "192f746f559a99b109ed29f0245406f5a8432ef40c6751f57186c59d8609a84d",
+      "bytes": 296
+    },
+    "rea-plist.json": {
+      "sha256": "5dffeb6ef78814c9ac8a7e66c3e582a212f43593f6f51812283a064a40fb85e0",
+      "bytes": 445
+    },
+    "rea-rizin-info.json": {
+      "sha256": "9ea0b3f73d3781a239297d652f2dcca20b6a9ddf752ae598dc4379137d4ee340",
+      "bytes": 3490
+    },
+    "rea-sections.json": {
+      "sha256": "fd256cb5cb91142d0af233f9fefd8830c9869fa2a63005116a9aa16e392b5e24",
+      "bytes": 14879
+    }
+  }
+}

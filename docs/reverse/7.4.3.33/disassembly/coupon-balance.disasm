@@ -1,0 +1,178 @@
+bbb0350: stp x29, x30, [sp, #-0x10]! 
+bbb0354: bl #0xa25607c 
+  a25607c: stp x22, x21, [sp, #-0x20]! 
+  a256080: stp x20, x19, [sp, #0x10] 
+  a256084: add x29, sp, #0x20 
+  a256088: ret  
+bbb0358: sub sp, sp, #0x30 
+bbb035c: mov x20, x0 
+bbb0360: adrp x8, #0x1ce8b000 
+bbb0364: ldr x1, [x8, #0xae0] shouldShowBalanceCouponPopup
+bbb0368: bl #0x11ee07f4 
+bbb036c: mov x19, x0 
+bbb0370: bl #0xa28f1f0 
+  a28f1f0: add x0, sp, #0x28 
+  a28f1f4: mov x1, x20 
+  a28f1f8: b #0xf89e7fc 
+    f89e7fc: b #0x11ee07b8 
+bbb0374: cbz w19, #0xbbb03f0 
+bbb0378: adrp x8, #0x1cad3000 
+bbb037c: ldr x21, [x8, #0x480] benefitCouponAPI
+bbb0380: bl #0xa25dcf0 
+  a25dcf0: mov x0, x20 
+  a25dcf4: mov x1, x21 
+  a25dcf8: ret  
+bbb0384: bl #0x11ee07f4 
+bbb0388: mov x29, x29 
+bbb038c: bl #0x11ee08a8 
+bbb0390: mov x22, x0 
+bbb0394: adrp x8, #0x1cdd0000 
+bbb0398: ldr x1, [x8, #0x560] setIsCalledByJSB:
+bbb039c: bl #0xa26a418 
+  a26a418: mov w2, #0 
+  a26a41c: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+bbb03a0: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+bbb03a4: bl #0xa25dcf0 
+  a25dcf0: mov x0, x20 
+  a25dcf4: mov x1, x21 
+  a25dcf8: ret  
+bbb03a8: bl #0x11ee07f4 
+bbb03ac: mov x29, x29 
+bbb03b0: bl #0x11ee08a8 
+bbb03b4: mov x20, x0 
+bbb03b8: bl #0xa26dc00 
+  a26dc00: adrp x8, #0x178fd000 
+  a26dc04: ldr x8, [x8, #0xf98] __NSConcreteStackBlock
+  a26dc08: str x8, [sp] 
+  a26dc0c: ret  
+bbb03bc: adrp x8, #0x1315b000 
+bbb03c0: ldr d0, [x8, #0x9e8]  double=1.6080749353e-314
+bbb03c4: adrp x8, #0xbbb0000 
+bbb03c8: add x8, x8, #0x40c 
+bbb03cc: str d0, [sp, #8] 
+bbb03d0: adrp x9, #0x19a95000 
+bbb03d4: add x9, x9, #0xd38 
+bbb03d8: bl #0xa28f1dc 
+  a28f1dc: stp x8, x9, [sp, #0x10] 
+  a28f1e0: mov x21, sp 
+  a28f1e4: add x0, x21, #0x20 
+  a28f1e8: add x1, sp, #0x28 
+  a28f1ec: b #0xf89e7f0 
+    f89e7f0: b #0x11ee0728 
+bbb03dc: adrp x8, #0x1cce7000 
+bbb03e0: ldr x1, [x8, #0x290] queryUserBenefitPopupWithCompletion:
+bbb03e4: bl #0xa27a6f8 
+  a27a6f8: mov x2, sp 
+  a27a6fc: mov x0, x20 
+  a27a700: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+bbb03e8: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+bbb03ec: bl #0xa26d5c4 
+  a26d5c4: add x0, x21, #0x20 
+  a26d5c8: b #0xf89e7e8 
+    f89e7e8: b #0x11ee0734 
+bbb03f0: bl #0xa2787d0 
+  a2787d0: add x0, sp, #0x28 
+  a2787d4: b #0xf89e7e8 
+    f89e7e8: b #0x11ee0734 
+bbb03f4: b #0xa273764 
+  a273764: mov x0, x19 
+  a273768: add sp, sp, #0x30 
+  a27376c: b #0xa2578e4 
+    a2578e4: ldp x29, x30, [sp, #0x20] 
+    a2578e8: ldp x20, x19, [sp, #0x10] 
+    a2578ec: ldp x22, x21, [sp], #0x30 
+    a2578f0: ret  
+bbb03f8: bl #0xa27f0f0 
+  a27f0f0: mov x19, x0 
+  a27f0f4: add x0, x21, #0x20 
+  a27f0f8: b #0xf89e7e8 
+    f89e7e8: b #0x11ee0734 
+bbb03fc: b #0xbbb0404 
+bbb0400: mov x19, x0 
+bbb0404: bl #0xa2787d0 
+  a2787d0: add x0, sp, #0x28 
+  a2787d4: b #0xf89e7e8 
+    f89e7e8: b #0x11ee0734 
+bbb0408: bl #0xa2561dc 
+  a2561dc: mov x0, x19 
+  a2561e0: b #0xf89df08 
+    f89df08: b #0x11edc5e8 
+      11edc5e8: adrp x16, #0x178fd000 
+      11edc5ec: ldr x16, [x16, #0xff0] __Unwind_Resume
+      11edc5f0: br x16 
+bbb040c: stp x29, x30, [sp, #-0x10]! 
+bbb0410: bl #0xa25607c 
+  a25607c: stp x22, x21, [sp, #-0x20]! 
+  a256080: stp x20, x19, [sp, #0x10] 
+  a256084: add x29, sp, #0x20 
+  a256088: ret  
+bbb0414: bl #0xa2a21ac 
+  a2a21ac: mov x20, x1 
+  a2a21b0: mov x19, x0 
+  a2a21b4: mov x0, x1 
+  a2a21b8: b #0x11ee0884 
+bbb0418: bl #0xa2a21a4 
+  a2a21a4: add x0, x19, #0x20 
+  a2a21a8: b #0x11ee07d0 
+bbb041c: bl #0xbbb3360 
+  bbb3360: mov x19, x0 
+  bbb3364: adrp x8, #0x1cd31000 
+  bbb3368: ldr x1, [x8, #0x40] ruleDescriptionURL
+  bbb336c: mov x0, x20 
+  bbb3370: ret  
+bbb0420: bl #0x11ee07f4 
+bbb0424: mov x29, x29 
+bbb0428: bl #0x11ee08a8 
+bbb042c: mov x21, x0 
+bbb0430: adrp x8, #0x1cda3000 
+bbb0434: ldr x1, [x8, #0xeb0] setExchangeRuleSchema:
+bbb0438: bl #0xa269444 
+  a269444: mov x0, x19 
+  a269448: mov x2, x21 
+  a26944c: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+bbb043c: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+bbb0440: bl #0xbbb3268 
+  bbb3268: adrp x8, #0x1caed000 
+  bbb326c: ldr x1, [x8, #0x9c0] canShow
+  bbb3270: mov x0, x20 
+  bbb3274: b #0x11ee07f4 
+bbb0444: bl #0xa256e40 
+  a256e40: mov x21, x0 
+  a256e44: mov x0, x20 
+  a256e48: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+bbb0448: cbz w21, #0xbbb0468 
+bbb044c: adrp x8, #0x1ce8b000 
+bbb0450: ldr x1, [x8, #0xae0] shouldShowBalanceCouponPopup
+bbb0454: bl #0xa25b1f0 
+  a25b1f0: mov x0, x19 
+  a25b1f4: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+bbb0458: cbz w0, #0xbbb0468 
+bbb045c: adrp x8, #0x1ce9d000 
+bbb0460: ldr x1, [x8, #0x378] showUGBenefitCouponView
+bbb0464: bl #0xa25b1f0 
+  a25b1f0: mov x0, x19 
+  a25b1f4: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+bbb0468: bl #0xa256668 
+  a256668: mov x0, x19 
+  a25666c: b #0xa259de0 
+    a259de0: mov x16, x30 
+    a259de4: ldp x29, x30, [sp, #0x20] 
+    a259de8: ldp x20, x19, [sp, #0x10] 
+    a259dec: ldp x22, x21, [sp], #0x30 
+    a259df0: ret x16 
+bbb046c: b #0x11ee086c 

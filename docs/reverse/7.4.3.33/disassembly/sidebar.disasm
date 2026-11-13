@@ -1,0 +1,449 @@
+d5478c8: stp x29, x30, [sp, #-0x10]! 
+d5478cc: bl #0xa256494 
+  a256494: stp x24, x23, [sp, #-0x30]! 
+  a256498: stp x22, x21, [sp, #0x10] 
+  a25649c: stp x20, x19, [sp, #0x20] 
+  a2564a0: add x29, sp, #0x30 
+  a2564a4: ret  
+d5478d0: sub sp, sp, #0x10 
+d5478d4: adrp x22, #0x1cf83000 
+d5478d8: ldr x0, [x22, #0xca8] class=SSAdCommonSwitchHelper
+d5478dc: bl #0xa2f1a74 
+  a2f1a74: adrp x8, #0x1caca000 
+  a2f1a78: ldr x1, [x8, #0x140] baseCommonAdSwitch
+  a2f1a7c: b #0x11ee07f4 
+d5478e0: tbnz w0, #0, #0xd54794c 
+d5478e4: bl #0x11ee06b0 
+d5478e8: bl #0xa269834 
+  a269834: mov x19, x0 
+  a269838: adrp x8, #0x1ceb8000 
+  a26983c: ldr x1, [x8, #0x400] stringByAppendingString:
+  a269840: adrp x0, #0x19de5000 
+  a269844: add x0, x0, #0x478 
+  a269848: ret  
+d5478ec: bl #0xd5475d0 
+  d5475d0: adrp x2, #0x1a2b7000 
+  d5475d4: add x2, x2, #0x78 
+  d5475d8: ret  
+d5478f0: bl #0x11ee07f4 
+d5478f4: mov x29, x29 
+d5478f8: bl #0x11ee08a8 
+d5478fc: bl #0xa256060 
+  a256060: mov x20, x0 
+  a256064: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+d547900: bl #0xa296cf4 
+  a296cf4: mov x21, x0 
+  a296cf8: adrp x8, #0x1cf3b000 
+  a296cfc: ldr x23, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a296d00: ret  
+d547904: ldr x0, [x22, #0xca8] class=SSAdCommonSwitchHelper
+d547908: bl #0xa2f1a28 
+  a2f1a28: adrp x8, #0x1caca000 
+  a2f1a2c: ldr x1, [x8, #0x148] baseCommonAdSwitchReason
+  a2f1a30: ret  
+d54790c: bl #0x11ee07f4 
+d547910: mov x29, x29 
+d547914: bl #0x11ee08a8 
+d547918: bl #0xa275670 
+  a275670: mov x22, x0 
+  a275674: adrp x8, #0x1ceb8000 
+  a275678: ldr x1, [x8, #0xab8] stringWithFormat:
+  a27567c: stp x0, xzr, [sp] 
+  a275680: ret  
+d54791c: bl #0xa2f1a00 
+  a2f1a00: adrp x2, #0x1a2ae000 
+  a2f1a04: add x2, x2, #0x9b8 
+  a2f1a08: ret  
+d547920: mov x0, x23 
+d547924: bl #0x11ee07f4 
+d547928: mov x29, x29 
+d54792c: bl #0x11ee08a8 
+d547930: bl #0xd547e44 
+  d547e44: mov x23, x0 
+  d547e48: adrp x0, #0x145d1000 
+  d547e4c: add x0, x0, #0x99 
+  d547e50: ret  
+d547934: adrp x1, #0x145d1000 
+d547938: add x1, x1, #0x282 
+d54793c: mov x2, x20 
+d547940: bl #0xa28cc3c 
+  a28cc3c: mov w3, #2 
+  a28cc40: mov w4, #0x48 
+  a28cc44: mov x5, x23 
+  a28cc48: b #0xa3c1e80 
+d547944: bl #0xa256bbc 
+  a256bbc: mov x0, x23 
+  a256bc0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+d547948: b #0xd547aac 
+  d547aac: bl #0xa255ff8 
+    a255ff8: mov x0, x22 
+    a255ffc: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  d547ab0: bl #0xa256014 
+    a256014: mov x0, x21 
+    a256018: b #0xf89e428 
+      f89e428: b #0x11ee06a4 
+  d547ab4: bl #0xa256094 
+    a256094: mov x0, x20 
+    a256098: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  d547ab8: bl #0xa25a984 
+    a25a984: mov x0, x19 
+    a25a988: b #0xf89e428 
+      f89e428: b #0x11ee06a4 
+  d547abc: mov w0, #0 
+  d547ac0: b #0xa262350 
+    a262350: add sp, sp, #0x10 
+    a262354: b #0xa256b6c 
+      a256b6c: ldp x29, x30, [sp, #0x30] 
+      a256b70: ldp x20, x19, [sp, #0x20] 
+      a256b74: ldp x22, x21, [sp, #0x10] 
+      a256b78: ldp x24, x23, [sp], #0x40 
+      a256b7c: ret  
+d54794c: bl #0xa2dbc6c 
+  a2dbc6c: adrp x19, #0x1cf3d000 
+  a2dbc70: ldr x0, [x19, #0x928] class=SSBizAdConfigHelper
+  a2dbc74: ret  
+d547950: bl #0xd395380 
+  d395380: adrp x8, #0x1cae5000 
+  d395384: ldr x1, [x8, #0x148] buzz_other_ad_exclude_coin_available
+  d395388: b #0x11ee07f4 
+d547954: tbnz w0, #0, #0xd5479a0 
+d547958: bl #0x11ee06b0 
+d54795c: bl #0xa269834 
+  a269834: mov x19, x0 
+  a269838: adrp x8, #0x1ceb8000 
+  a26983c: ldr x1, [x8, #0x400] stringByAppendingString:
+  a269840: adrp x0, #0x19de5000 
+  a269844: add x0, x0, #0x478 
+  a269848: ret  
+d547960: bl #0xd5475d0 
+  d5475d0: adrp x2, #0x1a2b7000 
+  d5475d4: add x2, x2, #0x78 
+  d5475d8: ret  
+d547964: bl #0x11ee07f4 
+d547968: mov x29, x29 
+d54796c: bl #0x11ee08a8 
+d547970: bl #0xa256060 
+  a256060: mov x20, x0 
+  a256064: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+d547974: bl #0xa256048 
+  a256048: mov x21, x0 
+  a25604c: adrp x8, #0x1cf3b000 
+  a256050: ldr x0, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a256054: adrp x8, #0x1ceb8000 
+  a256058: ldr x1, [x8, #0xab8] stringWithFormat:
+  a25605c: ret  
+d547978: adrp x8, #0x1a2b6000 
+d54797c: add x8, x8, #0xad8 
+d547980: bl #0xa256038 
+  a256038: stp x8, xzr, [sp] 
+  a25603c: adrp x2, #0x19c98000 
+  a256040: add x2, x2, #0xc98 
+  a256044: ret  
+d547984: bl #0x11ee07f4 
+d547988: mov x29, x29 
+d54798c: bl #0x11ee08a8 
+d547990: mov x22, x0 
+d547994: bl #0xd547de8 
+  d547de8: adrp x0, #0x145d1000 
+  d547dec: add x0, x0, #0x99 
+  d547df0: adrp x1, #0x145d1000 
+  d547df4: add x1, x1, #0x282 
+  d547df8: mov x2, x20 
+  d547dfc: mov w3, #2 
+  d547e00: ret  
+d547998: mov w4, #0x4d 
+d54799c: b #0xd547aa8 
+  d547aa8: bl #0xa26969c 
+    a26969c: mov x5, x22 
+    a2696a0: b #0xa3c1e80 
+  d547aac: bl #0xa255ff8 
+    a255ff8: mov x0, x22 
+    a255ffc: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  d547ab0: bl #0xa256014 
+    a256014: mov x0, x21 
+    a256018: b #0xf89e428 
+      f89e428: b #0x11ee06a4 
+  d547ab4: bl #0xa256094 
+    a256094: mov x0, x20 
+    a256098: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  d547ab8: bl #0xa25a984 
+    a25a984: mov x0, x19 
+    a25a988: b #0xf89e428 
+      f89e428: b #0x11ee06a4 
+  d547abc: mov w0, #0 
+  d547ac0: b #0xa262350 
+    a262350: add sp, sp, #0x10 
+    a262354: b #0xa256b6c 
+      a256b6c: ldp x29, x30, [sp, #0x30] 
+      a256b70: ldp x20, x19, [sp, #0x20] 
+      a256b74: ldp x22, x21, [sp, #0x10] 
+      a256b78: ldp x24, x23, [sp], #0x40 
+      a256b7c: ret  
+d5479a0: ldr x0, [x19, #0x928] 
+d5479a4: bl #0xd4c044c 
+  d4c044c: adrp x8, #0x1cd2b000 
+  d4c0450: ldr x1, [x8, #0xae0] revertAllAdEnable
+  d4c0454: b #0x11ee07f4 
+d5479a8: cbz w0, #0xd5479f4 
+d5479ac: bl #0x11ee06b0 
+d5479b0: bl #0xa269834 
+  a269834: mov x19, x0 
+  a269838: adrp x8, #0x1ceb8000 
+  a26983c: ldr x1, [x8, #0x400] stringByAppendingString:
+  a269840: adrp x0, #0x19de5000 
+  a269844: add x0, x0, #0x478 
+  a269848: ret  
+d5479b4: bl #0xd5475d0 
+  d5475d0: adrp x2, #0x1a2b7000 
+  d5475d4: add x2, x2, #0x78 
+  d5475d8: ret  
+d5479b8: bl #0x11ee07f4 
+d5479bc: mov x29, x29 
+d5479c0: bl #0x11ee08a8 
+d5479c4: bl #0xa256060 
+  a256060: mov x20, x0 
+  a256064: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+d5479c8: bl #0xa256048 
+  a256048: mov x21, x0 
+  a25604c: adrp x8, #0x1cf3b000 
+  a256050: ldr x0, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a256054: adrp x8, #0x1ceb8000 
+  a256058: ldr x1, [x8, #0xab8] stringWithFormat:
+  a25605c: ret  
+d5479cc: adrp x8, #0x1a2b6000 
+d5479d0: add x8, x8, #0xaf8 
+d5479d4: bl #0xa256038 
+  a256038: stp x8, xzr, [sp] 
+  a25603c: adrp x2, #0x19c98000 
+  a256040: add x2, x2, #0xc98 
+  a256044: ret  
+d5479d8: bl #0x11ee07f4 
+d5479dc: mov x29, x29 
+d5479e0: bl #0x11ee08a8 
+d5479e4: mov x22, x0 
+d5479e8: bl #0xd547de8 
+  d547de8: adrp x0, #0x145d1000 
+  d547dec: add x0, x0, #0x99 
+  d547df0: adrp x1, #0x145d1000 
+  d547df4: add x1, x1, #0x282 
+  d547df8: mov x2, x20 
+  d547dfc: mov w3, #2 
+  d547e00: ret  
+d5479ec: mov w4, #0x52 
+d5479f0: b #0xd547aa8 
+  d547aa8: bl #0xa26969c 
+    a26969c: mov x5, x22 
+    a2696a0: b #0xa3c1e80 
+  d547aac: bl #0xa255ff8 
+    a255ff8: mov x0, x22 
+    a255ffc: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  d547ab0: bl #0xa256014 
+    a256014: mov x0, x21 
+    a256018: b #0xf89e428 
+      f89e428: b #0x11ee06a4 
+  d547ab4: bl #0xa256094 
+    a256094: mov x0, x20 
+    a256098: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  d547ab8: bl #0xa25a984 
+    a25a984: mov x0, x19 
+    a25a988: b #0xf89e428 
+      f89e428: b #0x11ee06a4 
+  d547abc: mov w0, #0 
+  d547ac0: b #0xa262350 
+    a262350: add sp, sp, #0x10 
+    a262354: b #0xa256b6c 
+      a256b6c: ldp x29, x30, [sp, #0x30] 
+      a256b70: ldp x20, x19, [sp, #0x20] 
+      a256b74: ldp x22, x21, [sp, #0x10] 
+      a256b78: ldp x24, x23, [sp], #0x40 
+      a256b7c: ret  
+d5479f4: ldr x0, [x19, #0x928] 
+d5479f8: adrp x8, #0x1cb74000 
+d5479fc: ldr x1, [x8, #0x6e0] enableSideBarPatchAd
+d547a00: bl #0x11ee07f4 
+d547a04: tbnz w0, #0, #0xd547a50 
+d547a08: bl #0x11ee06b0 
+d547a0c: bl #0xa269834 
+  a269834: mov x19, x0 
+  a269838: adrp x8, #0x1ceb8000 
+  a26983c: ldr x1, [x8, #0x400] stringByAppendingString:
+  a269840: adrp x0, #0x19de5000 
+  a269844: add x0, x0, #0x478 
+  a269848: ret  
+d547a10: bl #0xd5475d0 
+  d5475d0: adrp x2, #0x1a2b7000 
+  d5475d4: add x2, x2, #0x78 
+  d5475d8: ret  
+d547a14: bl #0x11ee07f4 
+d547a18: mov x29, x29 
+d547a1c: bl #0x11ee08a8 
+d547a20: bl #0xa256060 
+  a256060: mov x20, x0 
+  a256064: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+d547a24: bl #0xa256048 
+  a256048: mov x21, x0 
+  a25604c: adrp x8, #0x1cf3b000 
+  a256050: ldr x0, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a256054: adrp x8, #0x1ceb8000 
+  a256058: ldr x1, [x8, #0xab8] stringWithFormat:
+  a25605c: ret  
+d547a28: adrp x8, #0x1a2b6000 
+d547a2c: add x8, x8, #0xb18 
+d547a30: bl #0xa256038 
+  a256038: stp x8, xzr, [sp] 
+  a25603c: adrp x2, #0x19c98000 
+  a256040: add x2, x2, #0xc98 
+  a256044: ret  
+d547a34: bl #0x11ee07f4 
+d547a38: mov x29, x29 
+d547a3c: bl #0x11ee08a8 
+d547a40: mov x22, x0 
+d547a44: bl #0xd547de8 
+  d547de8: adrp x0, #0x145d1000 
+  d547dec: add x0, x0, #0x99 
+  d547df0: adrp x1, #0x145d1000 
+  d547df4: add x1, x1, #0x282 
+  d547df8: mov x2, x20 
+  d547dfc: mov w3, #2 
+  d547e00: ret  
+d547a48: mov w4, #0x57 
+d547a4c: b #0xd547aa8 
+  d547aa8: bl #0xa26969c 
+    a26969c: mov x5, x22 
+    a2696a0: b #0xa3c1e80 
+  d547aac: bl #0xa255ff8 
+    a255ff8: mov x0, x22 
+    a255ffc: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  d547ab0: bl #0xa256014 
+    a256014: mov x0, x21 
+    a256018: b #0xf89e428 
+      f89e428: b #0x11ee06a4 
+  d547ab4: bl #0xa256094 
+    a256094: mov x0, x20 
+    a256098: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  d547ab8: bl #0xa25a984 
+    a25a984: mov x0, x19 
+    a25a988: b #0xf89e428 
+      f89e428: b #0x11ee06a4 
+  d547abc: mov w0, #0 
+  d547ac0: b #0xa262350 
+    a262350: add sp, sp, #0x10 
+    a262354: b #0xa256b6c 
+      a256b6c: ldp x29, x30, [sp, #0x30] 
+      a256b70: ldp x20, x19, [sp, #0x20] 
+      a256b74: ldp x22, x21, [sp, #0x10] 
+      a256b78: ldp x24, x23, [sp], #0x40 
+      a256b7c: ret  
+d547a50: ldr x0, [x22, #0xca8] class=SSAdCommonSwitchHelper
+d547a54: bl #0xd541d64 
+  d541d64: adrp x8, #0x1ce85000 
+  d541d68: ldr x1, [x8, #0x410] shortVideoContainerFreeAdProfitAvailable
+  d541d6c: b #0x11ee07f4 
+d547a58: cbnz w0, #0xd547a64 
+d547a5c: mov w0, #1 
+d547a60: b #0xd547ac0 
+  d547ac0: b #0xa262350 
+    a262350: add sp, sp, #0x10 
+    a262354: b #0xa256b6c 
+      a256b6c: ldp x29, x30, [sp, #0x30] 
+      a256b70: ldp x20, x19, [sp, #0x20] 
+      a256b74: ldp x22, x21, [sp, #0x10] 
+      a256b78: ldp x24, x23, [sp], #0x40 
+      a256b7c: ret  
+d547a64: bl #0x11ee06b0 
+d547a68: bl #0xa269834 
+  a269834: mov x19, x0 
+  a269838: adrp x8, #0x1ceb8000 
+  a26983c: ldr x1, [x8, #0x400] stringByAppendingString:
+  a269840: adrp x0, #0x19de5000 
+  a269844: add x0, x0, #0x478 
+  a269848: ret  
+d547a6c: bl #0xd5475d0 
+  d5475d0: adrp x2, #0x1a2b7000 
+  d5475d4: add x2, x2, #0x78 
+  d5475d8: ret  
+d547a70: bl #0x11ee07f4 
+d547a74: mov x29, x29 
+d547a78: bl #0x11ee08a8 
+d547a7c: bl #0xa256060 
+  a256060: mov x20, x0 
+  a256064: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+d547a80: bl #0xa256048 
+  a256048: mov x21, x0 
+  a25604c: adrp x8, #0x1cf3b000 
+  a256050: ldr x0, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a256054: adrp x8, #0x1ceb8000 
+  a256058: ldr x1, [x8, #0xab8] stringWithFormat:
+  a25605c: ret  
+d547a84: adrp x8, #0x1a2af000 
+d547a88: add x8, x8, #0xdd8 
+d547a8c: bl #0xa256038 
+  a256038: stp x8, xzr, [sp] 
+  a25603c: adrp x2, #0x19c98000 
+  a256040: add x2, x2, #0xc98 
+  a256044: ret  
+d547a90: bl #0x11ee07f4 
+d547a94: mov x29, x29 
+d547a98: bl #0x11ee08a8 
+d547a9c: mov x22, x0 
+d547aa0: bl #0xd547de8 
+  d547de8: adrp x0, #0x145d1000 
+  d547dec: add x0, x0, #0x99 
+  d547df0: adrp x1, #0x145d1000 
+  d547df4: add x1, x1, #0x282 
+  d547df8: mov x2, x20 
+  d547dfc: mov w3, #2 
+  d547e00: ret  
+d547aa4: mov w4, #0x5c 
+d547aa8: bl #0xa26969c 
+  a26969c: mov x5, x22 
+  a2696a0: b #0xa3c1e80 
+d547aac: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+d547ab0: bl #0xa256014 
+  a256014: mov x0, x21 
+  a256018: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+d547ab4: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+d547ab8: bl #0xa25a984 
+  a25a984: mov x0, x19 
+  a25a988: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+d547abc: mov w0, #0 
+d547ac0: b #0xa262350 
+  a262350: add sp, sp, #0x10 
+  a262354: b #0xa256b6c 
+    a256b6c: ldp x29, x30, [sp, #0x30] 
+    a256b70: ldp x20, x19, [sp, #0x20] 
+    a256b74: ldp x22, x21, [sp, #0x10] 
+    a256b78: ldp x24, x23, [sp], #0x40 
+    a256b7c: ret  
+d547ac4: stp x29, x30, [sp, #-0x10]! 
+d547ac8: bl #0xa256fd8 
+  a256fd8: stp x28, x27, [sp, #-0x50]! 
+  a256fdc: stp x26, x25, [sp, #0x10] 
+  a256fe0: stp x24, x23, [sp, #0x20] 
+  a256fe4: stp x22, x21, [sp, #0x30] 
+  a256fe8: stp x20, x19, [sp, #0x40] 
+  a256fec: add x29, sp, #0x50 
+  a256ff0: ret  
+d547acc: sub sp, sp, #0x20 

@@ -1,0 +1,102 @@
+fd7aca0: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd7aca4: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd7aca8: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd7acac: bl #0xa255ff0 
+  a255ff0: mov x0, x19 
+  a255ff4: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd7acb0: b #0xa297478 
+  a297478: add sp, sp, #0xc0 
+  a29747c: b #0xa27c93c 
+    a27c93c: ldp x29, x30, [sp, #0x60] 
+    a27c940: ldp x20, x19, [sp, #0x50] 
+    a27c944: ldp x22, x21, [sp, #0x40] 
+    a27c948: ldp x24, x23, [sp, #0x30] 
+    a27c94c: ldp x26, x25, [sp, #0x20] 
+    a27c950: ldp x28, x27, [sp, #0x10] 
+    a27c954: ldp d9, d8, [sp], #0x70 
+    a27c958: ret  
+fd7acb4: stp x29, x30, [sp, #-0x10]! 
+fd7acb8: bl #0xa256fd8 
+  a256fd8: stp x28, x27, [sp, #-0x50]! 
+  a256fdc: stp x26, x25, [sp, #0x10] 
+  a256fe0: stp x24, x23, [sp, #0x20] 
+  a256fe4: stp x22, x21, [sp, #0x30] 
+  a256fe8: stp x20, x19, [sp, #0x40] 
+  a256fec: add x29, sp, #0x50 
+  a256ff0: ret  
+fd7acbc: sub sp, sp, #0x30 
+fd7acc0: bl #0xa26a818 
+  a26a818: mov x19, x1 
+  a26a81c: mov x20, x0 
+  a26a820: mov x0, x1 
+  a26a824: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+fd7acc4: cbnz x19, #0xfd7ad90 
+fd7acc8: bl #0x11ee06b0 
+fd7accc: mov x21, x0 
+fd7acd0: bl #0xfd7a67c 
+  fd7a67c: adrp x8, #0x19967000 
+  fd7a680: add x8, x8, #0x4f8 
+  fd7a684: ldr x2, [x8] 
+  fd7a688: adrp x8, #0x1ceb8000 
+  fd7a68c: ldr x1, [x8, #0x400] stringByAppendingString:
+  fd7a690: adrp x0, #0x19de5000 
+  fd7a694: add x0, x0, #0x478 
+  fd7a698: ret  
+fd7acd4: bl #0x11ee07f4 
+fd7acd8: mov x29, x29 
+fd7acdc: bl #0x11ee08a8 
+fd7ace0: bl #0xa2698a8 
+  a2698a8: mov x22, x0 
+  a2698ac: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+fd7ace4: bl #0xa319224 
+  a319224: mov x23, x0 
+  a319228: adrp x8, #0x1cf3b000 
+  a31922c: ldr x26, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a319230: ret  
+fd7ace8: ldr x0, [x20, #0x20] 
+fd7acec: bl #0xa328d9c 
+  a328d9c: adrp x8, #0x1ceef000 
+  a328da0: ldr x1, [x8, #0xf20] uniqueId
+  a328da4: ret  
+fd7acf0: bl #0x11ee07f4 
+fd7acf4: mov x29, x29 
+fd7acf8: bl #0x11ee08a8 
+fd7acfc: mov x24, x0 
+fd7ad00: bl #0xda57be8 
+  da57be8: ldr x0, [x20, #0x28] 
+  da57bec: adrp x8, #0x1cd49000 
+  da57bf0: ldr x1, [x8, #0x2d0] seriesId
+  da57bf4: ret  
+fd7ad04: bl #0x11ee07f4 
+fd7ad08: mov x29, x29 
+fd7ad0c: bl #0x11ee08a8 
+fd7ad10: bl #0xa3597bc 
+  a3597bc: mov x25, x0 
+  a3597c0: ldr x0, [x20, #0x28] 
+  a3597c4: ret  
+fd7ad14: bl #0xf8abe44 
+  f8abe44: b #0x7c4a6d8 
+    7c4a6d8: b #0x6a7b194 
+      6a7b194: adrp x8, #0x1cf17000 
+      6a7b198: ldr x1, [x8, #0x990] vid
+      6a7b19c: ret  
+fd7ad18: bl #0x11ee07f4 
+fd7ad1c: mov x29, x29 
+fd7ad20: bl #0x11ee08a8 
+fd7ad24: bl #0xf8c8b58 
+  f8c8b58: b #0x7eb79c0 
+    7eb79c0: mov x27, x0 
+    7eb79c4: ldr x0, [x20, #0x28] 
+    7eb79c8: ret  

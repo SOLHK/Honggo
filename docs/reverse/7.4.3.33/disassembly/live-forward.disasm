@@ -1,0 +1,239 @@
+f58084c: stp x29, x30, [sp, #-0x10]! 
+f580850: bl #0xa25607c 
+  a25607c: stp x22, x21, [sp, #-0x20]! 
+  a256080: stp x20, x19, [sp, #0x10] 
+  a256084: add x29, sp, #0x20 
+  a256088: ret  
+f580854: mov x20, x3 
+f580858: bl #0xa273878 
+  a273878: mov x19, x2 
+  a27387c: mov x21, x0 
+  a273880: mov x0, x2 
+  a273884: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+f58085c: bl #0xa258290 
+  a258290: mov x0, x20 
+  a258294: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+f580860: bl #0xf581358 
+  f581358: adrp x8, #0x1cf3a000 
+  f58135c: ldr x2, [x8, #0x480] 
+  f581360: adrp x8, #0x1cb1c000 
+  f581364: ret  
+f580864: bl #0xa27ce30 
+  a27ce30: ldr x1, [x8, #0xe50] 
+  a27ce34: mov x0, x19 
+  a27ce38: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+f580868: cbz w0, #0xf580894 
+f58086c: bl #0xa32c1f0 
+  a32c1f0: adrp x8, #0x1cc4e000 
+  a32c1f4: ldr x1, [x8, #0x810] liveInsertManager
+  a32c1f8: ret  
+f580870: mov x0, x21 
+f580874: bl #0x11ee07f4 
+f580878: mov x29, x29 
+f58087c: bl #0x11ee08a8 
+f580880: mov x21, x0 
+f580884: adrp x8, #0x1caa3000 
+f580888: ldr x1, [x8, #0xe68] addInsertModel:afterVideoDataModel:
+f58088c: bl #0xa277404 
+  a277404: mov x2, x19 
+  a277408: mov x3, x20 
+  a27740c: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+f580890: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+f580894: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+f580898: bl #0xa256668 
+  a256668: mov x0, x19 
+  a25666c: b #0xa259de0 
+    a259de0: mov x16, x30 
+    a259de4: ldp x29, x30, [sp, #0x20] 
+    a259de8: ldp x20, x19, [sp, #0x10] 
+    a259dec: ldp x22, x21, [sp], #0x30 
+    a259df0: ret x16 
+f58089c: b #0x11ee086c 
+f5808a0: stp x29, x30, [sp, #-0x10]! 
+f5808a4: bl #0xa255fdc 
+  a255fdc: stp x20, x19, [sp, #-0x10]! 
+  a255fe0: add x29, sp, #0x10 
+  a255fe4: ret  
+f5808a8: bl #0xa32c1f0 
+  a32c1f0: adrp x8, #0x1cc4e000 
+  a32c1f4: ldr x1, [x8, #0x810] liveInsertManager
+  a32c1f8: ret  
+f5808ac: bl #0x11ee07f4 
+f5808b0: mov x29, x29 
+f5808b4: bl #0x11ee08a8 
+f5808b8: mov x19, x0 
+f5808bc: bl #0xf581374 
+  f581374: adrp x8, #0x1cb05000 
+  f581378: ldr x1, [x8, #0x298] clearInsertModels
+  f58137c: b #0x11ee07f4 
+f5808c0: bl #0xa258e5c 
+  a258e5c: mov x0, x19 
+  a258e60: b #0xa255fcc 
+    a255fcc: mov x16, x30 
+    a255fd0: ldp x29, x30, [sp, #0x10] 
+    a255fd4: ldp x20, x19, [sp], #0x20 
+    a255fd8: ret x16 
+f5808c4: b #0x11ee086c 
+f5808c8: stp x29, x30, [sp, #-0x10]! 
+f5808cc: bl #0xa256494 
+  a256494: stp x24, x23, [sp, #-0x30]! 
+  a256498: stp x22, x21, [sp, #0x10] 
+  a25649c: stp x20, x19, [sp, #0x20] 
+  a2564a0: add x29, sp, #0x30 
+  a2564a4: ret  
+f5808d0: bl #0xa26e0c0 
+  a26e0c0: mov x19, x3 
+  a26e0c4: mov x20, x2 
+  a26e0c8: mov x21, x0 
+  a26e0cc: ret  
+f5808d4: adrp x8, #0x1cf3a000 
+f5808d8: ldr x22, [x8, #0x480] 
+f5808dc: bl #0xa2ce3c0 
+  a2ce3c0: adrp x8, #0x1cb1c000 
+  a2ce3c4: ldr x23, [x8, #0xe50] conformsToProtocol:
+  a2ce3c8: ret  
+f5808e0: bl #0xa2620e8 
+  a2620e8: mov x0, x3 
+  a2620ec: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+f5808e4: bl #0xa258290 
+  a258290: mov x0, x20 
+  a258294: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+f5808e8: bl #0xa2e4f14 
+  a2e4f14: mov x0, x19 
+  a2e4f18: mov x1, x23 
+  a2e4f1c: mov x2, x22 
+  a2e4f20: b #0x11ee07f4 
+f5808ec: bl #0xee9cda0 
+  ee9cda0: cmp w0, #0 
+  ee9cda4: csel x22, x19, xzr, ne 
+  ee9cda8: ret  
+f5808f0: adrp x8, #0x1cc4e000 
+f5808f4: ldr x23, [x8, #0x810] liveInsertManager
+f5808f8: bl #0xa25ac2c 
+  a25ac2c: mov x0, x22 
+  a25ac30: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+f5808fc: bl #0xa25f770 
+  a25f770: mov x0, x21 
+  a25f774: mov x1, x23 
+  a25f778: ret  
+f580900: bl #0x11ee07f4 
+f580904: mov x29, x29 
+f580908: bl #0x11ee08a8 
+f58090c: bl #0xf581380 
+  f581380: mov x21, x0 
+  f581384: adrp x8, #0x1cd06000 
+  f581388: ldr x1, [x8, #0x6b8] removeDeadLiveInsertCardWithRoomId:insertModel:
+  f58138c: ret  
+f580910: bl #0xa2ba5e4 
+  a2ba5e4: mov x2, x20 
+  a2ba5e8: mov x3, x22 
+  a2ba5ec: b #0x11ee07f4 
+f580914: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+f580918: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+f58091c: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+f580920: bl #0xa259e6c 
+  a259e6c: mov x0, x19 
+  a259e70: b #0xa25e628 
+    a25e628: mov x16, x30 
+    a25e62c: ldp x29, x30, [sp, #0x30] 
+    a25e630: ldp x20, x19, [sp, #0x20] 
+    a25e634: ldp x22, x21, [sp, #0x10] 
+    a25e638: ldp x24, x23, [sp], #0x40 
+    a25e63c: ret x16 
+f580924: b #0x11ee086c 
+f580928: stp x29, x30, [sp, #-0x10]! 
+f58092c: bl #0xa25607c 
+  a25607c: stp x22, x21, [sp, #-0x20]! 
+  a256080: stp x20, x19, [sp, #0x10] 
+  a256084: add x29, sp, #0x20 
+  a256088: ret  
+f580930: bl #0xa26e0c0 
+  a26e0c0: mov x19, x3 
+  a26e0c4: mov x20, x2 
+  a26e0c8: mov x21, x0 
+  a26e0cc: ret  
+f580934: adrp x8, #0x1cce7000 
+f580938: ldr x22, [x8, #0x720] questionnaireViewProvider
+f58093c: bl #0xa2620e8 
+  a2620e8: mov x0, x3 
+  a2620ec: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+f580940: bl #0xa258290 
+  a258290: mov x0, x20 
+  a258294: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+f580944: bl #0xa259140 
+  a259140: mov x0, x21 
+  a259144: mov x1, x22 
+  a259148: ret  
+f580948: bl #0x11ee07f4 
+f58094c: mov x29, x29 
+f580950: bl #0x11ee08a8 
+f580954: mov x21, x0 
+f580958: adrp x8, #0x1caa6000 
+f58095c: ldr x1, [x8, #0x4d0] addQuestionnaireData:toModel:
+f580960: bl #0xa26eb90 
+  a26eb90: mov x2, x20 
+  a26eb94: mov x3, x19 
+  a26eb98: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+f580964: bl #0xa255ff0 
+  a255ff0: mov x0, x19 
+  a255ff4: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+f580968: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+f58096c: bl #0xa25b89c 
+  a25b89c: mov x0, x21 
+  a25b8a0: b #0xa259de0 
+    a259de0: mov x16, x30 
+    a259de4: ldp x29, x30, [sp, #0x20] 
+    a259de8: ldp x20, x19, [sp, #0x10] 
+    a259dec: ldp x22, x21, [sp], #0x30 
+    a259df0: ret x16 
+f580970: b #0x11ee086c 
+f580974: stp x29, x30, [sp, #-0x10]! 
+f580978: bl #0xa25607c 
+  a25607c: stp x22, x21, [sp, #-0x20]! 
+  a256080: stp x20, x19, [sp, #0x10] 
+  a256084: add x29, sp, #0x20 
+  a256088: ret  
+f58097c: bl #0xa26e0c0 
+  a26e0c0: mov x19, x3 
+  a26e0c4: mov x20, x2 
+  a26e0c8: mov x21, x0 
+  a26e0cc: ret  
+f580980: adrp x8, #0x1ccd3000 
+f580984: ldr x22, [x8, #0x978] preferenceCardProvider
+f580988: bl #0xa2620e8 
+  a2620e8: mov x0, x3 
+  a2620ec: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+f58098c: bl #0xa258290 
+  a258290: mov x0, x20 
+  a258294: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 

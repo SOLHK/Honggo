@@ -1,0 +1,242 @@
+arm
+64
+ 1 fd: 3 +0x00000000 0x00000000 * 0x1eecabff r-x 
+            0x0fd31b88      adrp  x21, 0x1cf39000
+            0x0fd31b8c      bl    0xfd35588
+            0x0fd31b90      bl    0xfd312a0
+        ,=< 0x0fd31b94      cbz   w0, 0xfd31cf0
+        |   0x0fd31b98      bl    0xe9d12bc
+        |   0x0fd31b9c      bl    0x11ee07f4
+        |   0x0fd31ba0      mov   fp, fp
+        |   0x0fd31ba4      bl    0x11ee08a8
+            0x0f5999c4      mov   x25, x19
+            0x0f5999c8      ldr   w8, [sp, 0x6c]                       ; [0x6c:4]=0x958 ; "X\t"
+        ,=< 0x0f5999cc      cbz   w8, 0xf599a1c
+        |   0x0f5999d0      ldr   x0, [sp, 0x5c8]                      ; [0x5c8:4]=0
+        |   0x0f5999d4      ldr   x1, [sp, 0xd8]                       ; [0xd8:4]=0x11ecb300
+       ,==< 0x0f5999d8      b     0xf5999ec
+       ||   0x0f5999dc      ldr   w8, [sp, 0x6c]                       ; [0x6c:4]=0x958 ; "X\t"
+      ,===< 0x0f5999e0      cbz   w8, 0xf599a14
+      |||   0x0f5999e4      ldr   x0, [sp, 0x5c8]                      ; [0x5c8:4]=0
+      |||   0x0f5999e8      ldr   x1, [sp, 0x50]                       ; [0x50:4]=0
+      |`--> 0x0f5999ec      mov   x2, x28
+      | |   0x0f5999f0      bl    0x11ee07f4
+      | |   0x0f5999f4      mov   fp, fp
+      | |   0x0f5999f8      bl    0x11ee08a8
+      | |   0x0f5999fc      mov   x19, x0
+      |,==< 0x0f599a00      cbz   x0, 0xf599a10
+      |||   0x0f599a04      mov   x0, x25
+      |||   0x0f599a08      ldr   x1, [sp, 0x5a0]                      ; [0x5a0:4]=0
+      |||   0x0f599a0c      bl    0xa25a4a0
+      |`--> 0x0f599a10      bl    0xa255ff0
+      `---> 0x0f599a14      mov   x19, x25
+       ,==< 0x0f599a18      b     0xf59adb4
+            0x0f599a90      bl    0x9ba9ab4
+            0x0f599a94      bl    0x11ee07f4
+            0x0f599a98      mov   fp, fp
+            0x0f599a9c      bl    0x11ee08a8
+            0x0f599aa0      bl    0xa256d80
+            0x0f599aa4      ldr   x22, [sp, 0x38]                      ; [0x38:4]=0
+        ,=< 0x0f599aa8      cbnz  x22, 0xf599adc
+        |   0x0f599aac      ldr   x0, [sp, 0x5c8]                      ; [0x5c8:4]=0
+            0x0f580854      mov   x20, x3
+            0x0f580858      bl    0xa273878
+            0x0f58085c      bl    0xa258290
+            0x0f580860      bl    0xf581358
+            0x0f580864      bl    0xa27ce30
+        ,=< 0x0f580868      cbz   w0, 0xf580894
+        |   0x0f58086c      bl    0xa32c1f0
+        |   0x0f580870      mov   x0, x21
+        |   0x0f580874      bl    0x11ee07f4
+        |   0x0f580878      mov   fp, fp
+        |   0x0f58087c      bl    0x11ee08a8
+        |   0x0f580880      mov   x21, x0
+        |   0x0f580884      adrp  x8, 0x1caa3000
+        |   0x0f580888      ldr   x1, [x8, 0xe68]                      ; [0xe68:4]=0x626f5f5f ; "__objc_floatobj"
+        |   0x0f58088c      bl    0xa277404
+        |   0x0f580890      bl    0xa256d6c
+        `-> 0x0f580894      bl    0xa256094
+            0x0f580898      bl    0xa256668
+        ,=< 0x0f58089c      b     0x11ee086c
+            0x0bbb0360      adrp  x8, 0x1ce8b000
+            0x0bbb0364      ldr   x1, [x8, 0xae0]                      ; [0xae0:4]=0
+            0x0bbb0368      bl    0x11ee07f4
+            0x0bbb036c      mov   x19, x0
+            0x0bbb0370      bl    0xa28f1f0
+        ,=< 0x0bbb0374      cbz   w19, 0xbbb03f0
+        |   0x0bbb0378      adrp  x8, 0x1cad3000
+            0x0bbb05c8      adrp  x8, 0x1ce8c000
+            0x0bbb05cc      ldr   x1, [x8, 0x2d0]                      ; [0x2d0:4]=0
+            0x0bbb05d0      bl    0x11ee07f4
+            0x0bbb05d4      mov   x19, x0
+            0x0bbb05d8      bl    0xa2e4d8c
+        ,=< 0x0bbb05dc      cbz   w19, 0xbbb064c
+        |   0x0bbb05e0      bl    0xbbb333c
+        :   0x0ec5e728      adrp  x8, 0x1cf8f000
+        :   0x0ec5e72c      ldr   x0, [x8, 0xbf8]                      ; [0xbf8:4]=0x41445f5f ; "__DATA_CONST"
+        :   0x0ec5e730      bl    0xa2aa1c0
+        `=< 0x0ec5e734      cbz   w0, 0xec5e608
+            0x0ec5e738      bl    0xa25a440
+            0x0ec5e73c      adrp  x8, 0x1cb25000
+        :   0x0fd2d1fc      adrp  x8, 0x1ce8b000
+        :   0x0fd2d200      ldr   x1, [x8, 0x818]                      ; [0x818:4]=0
+        :   0x0fd2d204      bl    0xa25e3f0
+        :   0x0fd2d208      mov   x21, x0
+        :   0x0fd2d20c      bl    0xa257bfc
+        :   0x0fd2d210      bl    0xa256bbc
+       ,==< 0x0fd2d214      b     0xfd2d21c
+       |:   0x0fd2d218      mov   w21, 0
+       `--> 0x0fd2d21c      bl    0xa255ff8
+       ,==< 0x0fd2d220      b     0xfd2d228
+       |:   0x0fd2d224      mov   w21, 0
+       `--> 0x0fd2d228      bl    0xa256094
+       ,==< 0x0fd2d22c      b     0xfd2d234
+       |:   0x0fd2d230      mov   w21, 0
+       `--> 0x0fd2d234      bl    0xa255ff0
+        `=< 0x0fd2d238      b     0xa268ae8
+            0x0fd2d23c      stp   fp, lr, [sp, -0x10]!
+            0x0fd7a9e8      stp   fp, lr, [sp, -0x10]!
+            0x0fd7a9ec      bl    0xa25d274
+            0x0fd7a9f0      sub   sp, sp, 0xc0
+            0x0fd7a9f4      bl    0xa25dfe8
+            0x0fd7a9f8      fmov  d9, d1
+            0x0fd7a9fc      bl    0xfd7bc74
+            0x0fd7aa00      bl    0xa258290
+            0x0fd7aa04      bl    0xf8c8414
+            0x0fd7aa08      bl    0xa25cad4
+            0x0fd7aa0c      bl    0x11ee07f4
+            0x0fd7aa10      mov   fp, fp
+            0x0fd7aa14      bl    0x11ee08a8
+            0x0fd7aa18      mov   x22, x0
+            0x0fd7aa1c      adrp  x8, 0x1cbb5000
+            0x0fd7aa20      ldr   x1, [x8, 0x78]                       ; [0x78:4]=0
+            0x0fd7aa24      bl    0xa26fb34
+            0x0fd7aa28      bl    0x11ee07f4
+            0x0fd7aa2c      mov   fp, fp
+            0x0fd7aa30      bl    0x11ee08a8
+            0x0fd7aa34      bl    0xa257cfc
+            0x0fd7aa38      adrp  x8, 0x1cba7000
+            0x0fd7aa3c      ldr   x1, [x8, 0xc90]                      ; [0xc90:4]=0x6567616d ; "mageinfo__DATA_CONST"
+            0x0fd7aa40      bl    0xa25fd5c
+            0x0fd7aa44      bl    0x11ee07f4
+            0x0fd7aa48      mov   fp, fp
+            0x0fd7aa4c      bl    0x11ee08a8
+            0x0fd7aa50      mov   x22, x0
+            0x0fd7aa54      bl    0x8b74fd4
+            0x0fd7aa58      bl    0xf8c8b4c
+            0x0fd7aa5c      bl    0xa31e0d0
+            0x0fd7aa60      adrp  x8, 0x1cb32000
+            0x0fd7aa64      ldr   x1, [x8, 0x648]                      ; [0x648:4]=0
+            0x0fd7aa68      bl    0xa25a4a0
+            0x0fd7aa6c      mov   x2, x0
+            0x0fd7aa70      bl    0xe7acf24
+            0x0fd7aa74      bl    0xa256f34
+            0x0fd7aa78      adrp  x8, 0x1caed000
+            0x0fd7aa7c      ldr   x1, [x8, 0x490]                      ; [0x490:4]=0x13b3804c ; "L\x80\xb3\U00000013\U00000001"
+            0x0fd7aa80      mov   x0, x23
+            0x0fd7aa84      bl    0xa300574
+        ,=< 0x0fd7aa88      cbz   w0, 0xfd7aca0
+        |   0x0fd7aa8c      str   x20, [sp, 0x78]
+        |   0x0fd7aa90      bl    0x11ee06b0
+        |   0x0fd7aa94      str   x0, [sp, 0x70]
+        |   0x0fd7aa98      bl    0xfd7a67c
+        |   0x0fd7aa9c      stp   x1, x2, [sp, 0x50]
+        |   0x0fd7aaa0      bl    0x11ee07f4
+        |   0x0fd7aaa4      mov   fp, fp
+        |   0x0fd7aaa8      bl    0x11ee08a8
+        |   0x0fd7aaac      bl    0xa3011e8
+        |   0x0fd7aab0      str   x0, [sp, 0x68]
+        |   0x0fd7aab4      bl    0xa32be28
+        |   0x0fd7aab8      bl    0x11ee07f4
+        |   0x0fd7aabc      mov   fp, fp
+        |   0x0fd7aac0      bl    0x11ee08a8
+        |   0x0fd7aac4      bl    0xa348f24
+        |   0x0fd7aac8      mov   x0, x22
+        |   0x0fd7aacc      bl    0x11ee07f4
+        |   0x0fd7aad0      mov   fp, fp
+        |   0x0fd7aad4      bl    0x11ee08a8
+        |   0x0fd7aad8      bl    0xa32c158
+        |   0x0fd7aadc      mov   x0, x22
+        |   0x0fd7aae0      bl    0x11ee07f4
+        |   0x0fd7aae4      mov   fp, fp
+        |   0x0fd7aae8      bl    0x11ee08a8
+        |   0x0fd7aaec      bl    0xfd7bcb4
+        |   0x0fd7aaf0      bl    0xa25ac5c
+        |   0x0fd7aaf4      mov   x26, x0
+        |   0x0fd7aaf8      bl    0xf8c72b0
+        |   0x0fd7aafc      bl    0xb379b10
+        |   0x0fd7ab00      bl    0xa35bc60
+        |   0x0fd7ab04      bl    0x11ee07f4
+        |   0x0fd7ab08      mov   fp, fp
+        |   0x0fd7ab0c      bl    0x11ee08a8
+        |   0x0fd7ab10      bl    0xa2b153c
+        |   0x0fd7ab14      stp   x0, xzr, [sp, 0x28]
+        |   0x0fd7ab18      stp   x26, x20, [sp, 0x18]
+        |   0x0fd7ab1c      adrp  x2, 0x1a3f6000
+        |   0x0fd7ab20      add   x2, x2, 0x778
+        |   0x0fd7ab24      bl    0x979039c
+        |   0x0fd7ab28      bl    0xf8c8b48
+        |   0x0fd7ab2c      bl    0x11ee07f4
+        |   0x0fd7ab30      mov   fp, fp
+        |   0x0fd7ab34      bl    0x11ee08a8
+        |   0x0fd7ab38      mov   x20, x0
+        |   0x0fd7ab3c      bl    0xfd7bd18
+        |   0x0fd7ab40      adrp  x1, 0x1479b000
+        |   0x0fd7ab44      add   x1, x1, 0x227
+        |   0x0fd7ab48      bl    0xf8c5238
+        |   0x0fd7ab4c      bl    0xf8c8b44
+        |   0x0fd7ab50      bl    0xa256094
+        |   0x0fd7ab54      bl    0xa258040
+        |   0x0fd7ab58      bl    0xa257bfc
+        |   0x0fd7ab5c      bl    0xa257964
+        |   0x0fd7ab60      bl    0xa256bbc
+        |   0x0fd7ab64      bl    0xf8ab264
+        |   0x0fd7ab68      bl    0xa25a440
+        |   0x0fd7ab6c      bl    0xf8ab260
+        |   0x0fd7ab70      adrp  x8, 0x1cbad000
+        |   0x0fd7ab74      ldr   x1, [x8, 0x6f8]                      ; [0x6f8:4]=0x6f72705f ; "_protos"
+        :   0x0d5476c8      stp   fp, lr, [sp, -0x10]!
+        :   0x0d5476cc      bl    0xa256494
+        :   0x0d5476d0      sub   sp, sp, 0x10
+        :   0x0d5476d4      bl    0xa25b0a8
+        :   0x0d5476d8      adrp  x8, 0x1cc14000
+        :   0x0d5476dc      ldr   x1, [x8, 0xf00]                      ; [0xf00:4]=0x626f5f5f ; "__objc_const"
+        :   0x0d5476e0      bl    0xa25fbe0
+       ,==< 0x0d5476e4      cbnz  w0, 0xd5476f8
+       |:   0x0d5476e8      mov   w20, 0x29                            ; ')'
+       |:   0x0d5476ec      adrp  x21, 0x1a2b7000
+       |:   0x0d5476f0      add   x21, x21, 0x1b8
+      ,===< 0x0d5476f4      b     0xd547714
+      |`--> 0x0d5476f8      bl    0xa2b4654
+      |,==< 0x0d5476fc      cbnz  w0, 0xd547708
+      ||:   0x0d547700      mov   w20, 1
+     ,====< 0x0d547704      b     0xd547770
+     ||`--> 0x0d547708      mov   w20, 0x2d                            ; '-'
+     || :   0x0d54770c      adrp  x21, 0x1a2b7000
+     || :   0x0d547710      add   x21, x21, 0x1d8
+     |`---> 0x0d547714      bl    0x11ee06b0
+     |  :   0x0d547718      mov   x22, x0
+     |  :   0x0d54771c      bl    0xd54755c
+     |  :   0x0d547720      bl    0x11ee07f4
+     |  :   0x0d547724      mov   fp, fp
+     |  :   0x0d547728      bl    0x11ee08a8
+     |  :   0x0d54772c      bl    0xa26e9ec
+     |  :   0x0d547730      bl    0xa315d10
+     |  :   0x0d547734      mov   x2, x21
+     |  :   0x0d547738      bl    0x11ee07f4
+     |  :   0x0d54773c      mov   fp, fp
+     |  :   0x0d547740      bl    0x11ee08a8
+     |  :   0x0d547744      mov   x21, x0
+     |  :   0x0d547748      bl    0xd547e54
+     |  :   0x0d54774c      adrp  x1, 0x145d1000
+     |  :   0x0d547750      add   x1, x1, 0x156
+     |  :   0x0d547754      mov   x2, x23
+     |  :   0x0d547758      bl    0xa36b900
+     |  :   0x0d54775c      bl    0xa256d6c
+     |  :   0x0d547760      bl    0xa26cc4c
+     |  :   0x0d547764      bl    0xa256bbc
+     |  :   0x0d547768      bl    0xa25aa1c
+     |  :   0x0d54776c      mov   w20, 0
+     `----> 0x0d547770      bl    0xa255ff0
+        `=< 0x0d547774      b     0xa27cea8
+

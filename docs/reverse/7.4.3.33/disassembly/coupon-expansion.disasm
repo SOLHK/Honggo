@@ -1,0 +1,199 @@
+bbb05b8: stp x29, x30, [sp, #-0x10]! 
+bbb05bc: bl #0xa25607c 
+  a25607c: stp x22, x21, [sp, #-0x20]! 
+  a256080: stp x20, x19, [sp, #0x10] 
+  a256084: add x29, sp, #0x20 
+  a256088: ret  
+bbb05c0: sub sp, sp, #0x30 
+bbb05c4: mov x21, x0 
+bbb05c8: adrp x8, #0x1ce8c000 
+bbb05cc: ldr x1, [x8, #0x2d0] shouldShowExpansionCouponPopup
+bbb05d0: bl #0x11ee07f4 
+bbb05d4: mov x19, x0 
+bbb05d8: bl #0xa2e4d8c 
+  a2e4d8c: add x0, sp, #0x28 
+  a2e4d90: mov x1, x21 
+  a2e4d94: b #0x11ee07b8 
+bbb05dc: cbz w19, #0xbbb064c 
+bbb05e0: bl #0xbbb333c 
+  bbb333c: adrp x8, #0x1cad3000 
+  bbb3340: ldr x1, [x8, #0x480] benefitCouponAPI
+  bbb3344: ret  
+bbb05e4: mov x0, x21 
+bbb05e8: bl #0x11ee07f4 
+bbb05ec: mov x29, x29 
+bbb05f0: bl #0x11ee08a8 
+bbb05f4: mov x20, x0 
+bbb05f8: adrp x8, #0x1cb82000 
+bbb05fc: ldr x1, [x8, #0xf80] expansionCouponEnterParams
+bbb0600: mov x0, x21 
+bbb0604: bl #0x11ee07f4 
+bbb0608: mov x29, x29 
+bbb060c: bl #0x11ee08a8 
+bbb0610: bl #0xa26ad70 
+  a26ad70: mov x21, x0 
+  a26ad74: adrp x8, #0x178fd000 
+  a26ad78: ldr x8, [x8, #0xf98] __NSConcreteStackBlock
+  a26ad7c: str x8, [sp] 
+  a26ad80: ret  
+bbb0614: adrp x8, #0x1315b000 
+bbb0618: ldr d0, [x8, #0x9e8]  double=1.6080749353e-314
+bbb061c: adrp x8, #0xbbb0000 
+bbb0620: add x8, x8, #0x668 
+bbb0624: str d0, [sp, #8] 
+bbb0628: adrp x9, #0x19a95000 
+bbb062c: add x9, x9, #0xd38 
+bbb0630: bl #0xa2cb7fc 
+  a2cb7fc: stp x8, x9, [sp, #0x10] 
+  a2cb800: mov x22, sp 
+  a2cb804: add x0, x22, #0x20 
+  a2cb808: add x1, sp, #0x28 
+  a2cb80c: b #0x11ee0728 
+bbb0634: adrp x8, #0x1cce6000 
+bbb0638: ldr x1, [x8, #0xf80] queryQcpxUserBenefitPopupWithParams:completion:
+bbb063c: bl #0xa29fa4c 
+  a29fa4c: mov x3, sp 
+  a29fa50: mov x0, x20 
+  a29fa54: mov x2, x21 
+  a29fa58: b #0x11ee07f4 
+bbb0640: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+bbb0644: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+bbb0648: bl #0xa26d5e0 
+  a26d5e0: add x0, x22, #0x20 
+  a26d5e4: b #0xf89e7e8 
+    f89e7e8: b #0x11ee0734 
+bbb064c: bl #0xa2787d0 
+  a2787d0: add x0, sp, #0x28 
+  a2787d4: b #0xf89e7e8 
+    f89e7e8: b #0x11ee0734 
+bbb0650: b #0xa273764 
+  a273764: mov x0, x19 
+  a273768: add sp, sp, #0x30 
+  a27376c: b #0xa2578e4 
+    a2578e4: ldp x29, x30, [sp, #0x20] 
+    a2578e8: ldp x20, x19, [sp, #0x10] 
+    a2578ec: ldp x22, x21, [sp], #0x30 
+    a2578f0: ret  
+bbb0654: bl #0xa26d5cc 
+  a26d5cc: mov x19, x0 
+  a26d5d0: add x0, x22, #0x20 
+  a26d5d4: b #0xf89e7e8 
+    f89e7e8: b #0x11ee0734 
+bbb0658: b #0xbbb0660 
+bbb065c: mov x19, x0 
+bbb0660: bl #0xa2787d0 
+  a2787d0: add x0, sp, #0x28 
+  a2787d4: b #0xf89e7e8 
+    f89e7e8: b #0x11ee0734 
+bbb0664: bl #0xa2561dc 
+  a2561dc: mov x0, x19 
+  a2561e0: b #0xf89df08 
+    f89df08: b #0x11edc5e8 
+      11edc5e8: adrp x16, #0x178fd000 
+      11edc5ec: ldr x16, [x16, #0xff0] __Unwind_Resume
+      11edc5f0: br x16 
+bbb0668: stp x29, x30, [sp, #-0x10]! 
+bbb066c: bl #0xa25607c 
+  a25607c: stp x22, x21, [sp, #-0x20]! 
+  a256080: stp x20, x19, [sp, #0x10] 
+  a256084: add x29, sp, #0x20 
+  a256088: ret  
+bbb0670: bl #0xa2a21ac 
+  a2a21ac: mov x20, x1 
+  a2a21b0: mov x19, x0 
+  a2a21b4: mov x0, x1 
+  a2a21b8: b #0x11ee0884 
+bbb0674: bl #0xa2a21a4 
+  a2a21a4: add x0, x19, #0x20 
+  a2a21a8: b #0x11ee07d0 
+bbb0678: mov x19, x0 
+bbb067c: bl #0xbbb3348 
+  bbb3348: adrp x8, #0x1cb82000 
+  bbb334c: ldr x1, [x8, #0xfe0] expansionViewModel
+  bbb3350: ret  
+bbb0680: bl #0x11ee07f4 
+bbb0684: mov x29, x29 
+bbb0688: bl #0x11ee08a8 
+bbb068c: mov x21, x0 
+bbb0690: bl #0xbb4590c 
+  bb4590c: adrp x8, #0x1cce6000 
+  bb45910: ldr x1, [x8] qcpxCoupon
+  bb45914: ret  
+bbb0694: mov x0, x20 
+bbb0698: bl #0x11ee07f4 
+bbb069c: mov x29, x29 
+bbb06a0: bl #0x11ee08a8 
+bbb06a4: mov x22, x0 
+bbb06a8: adrp x8, #0x1ccbc000 
+bbb06ac: ldr x1, [x8, #0x818] parseCouponData:
+bbb06b0: mov x0, x21 
+bbb06b4: bl #0xa25ac64 
+  a25ac64: mov x2, x22 
+  a25ac68: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+bbb06b8: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+bbb06bc: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+bbb06c0: bl #0xbbb3268 
+  bbb3268: adrp x8, #0x1caed000 
+  bbb326c: ldr x1, [x8, #0x9c0] canShow
+  bbb3270: mov x0, x20 
+  bbb3274: b #0x11ee07f4 
+bbb06c4: bl #0xa256e40 
+  a256e40: mov x21, x0 
+  a256e44: mov x0, x20 
+  a256e48: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+bbb06c8: cbz w21, #0xbbb06fc 
+bbb06cc: bl #0x809c6b8 
+  809c6b8: adrp x8, #0x1cf30000 
+  809c6bc: ldr x0, [x8, #0x670] 
+  809c6c0: adrp x1, #0x19f07000 
+  809c6c4: add x1, x1, #0x378 
+  809c6c8: mov x2, x19 
+  809c6cc: ret  
+bbb06d0: bl #0xa7aff7c 
+bbb06d4: mov x29, x29 
+bbb06d8: bl #0x11ee08a8 
+bbb06dc: mov x20, x0 
+bbb06e0: bl #0xb519d18 
+  b519d18: adrp x8, #0x1cc24000 
+  b519d1c: ldr x1, [x8, #0x650] isLoginWithLiveAuth
+  b519d20: b #0x11ee07f4 
+bbb06e4: bl #0xa256e40 
+  a256e40: mov x21, x0 
+  a256e44: mov x0, x20 
+  a256e48: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+bbb06e8: adrp x8, #0x1ce94000 
+bbb06ec: add x8, x8, #0x2f8 
+bbb06f0: adrp x9, #0x1ce90000 
+bbb06f4: add x9, x9, #0xc68 
+bbb06f8: bl #0x6875668 
+  6875668: cmp w21, #0 
+  687566c: csel x8, x8, x9, ne 
+  6875670: ldr x1, [x8] 
+  6875674: mov x0, x19 
+  6875678: b #0x7c07f0c 
+    7c07f0c: b #0xf89def0 
+      f89def0: b #0x11ee07f4 
+bbb06fc: bl #0xa256668 
+  a256668: mov x0, x19 
+  a25666c: b #0xa259de0 
+    a259de0: mov x16, x30 
+    a259de4: ldp x29, x30, [sp, #0x20] 
+    a259de8: ldp x20, x19, [sp, #0x10] 
+    a259dec: ldp x22, x21, [sp], #0x30 
+    a259df0: ret x16 
+bbb0700: b #0x11ee086c 

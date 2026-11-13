@@ -1,0 +1,235 @@
+fd2d16c: stp x29, x30, [sp, #-0x10]! 
+fd2d170: bl #0xa256494 
+  a256494: stp x24, x23, [sp, #-0x30]! 
+  a256498: stp x22, x21, [sp, #0x10] 
+  a25649c: stp x20, x19, [sp, #0x20] 
+  a2564a0: add x29, sp, #0x30 
+  a2564a4: ret  
+fd2d174: mov x21, x0 
+fd2d178: bl #0xf8c739c 
+  f8c739c: b #0x7c65e08 
+    7c65e08: b #0x6a51aac 
+      6a51aac: adrp x8, #0x1cb21000 
+      6a51ab0: ldr x22, [x8, #0x180] contentModel
+      6a51ab4: mov x1, x22 
+      6a51ab8: ret  
+fd2d17c: bl #0x11ee07f4 
+fd2d180: mov x29, x29 
+fd2d184: bl #0x11ee08a8 
+fd2d188: mov x19, x0 
+fd2d18c: bl #0xfd2cb34 
+  fd2cb34: adrp x8, #0x1cd0b000 
+  fd2cb38: ldr x1, [x8, #0x5a8] renderReady
+  fd2cb3c: b #0x11ee07f4 
+fd2d190: cbz w0, #0xfd2d230 
+fd2d194: bl #0xf8c7398 
+  f8c7398: b #0x7c77180 
+    7c77180: b #0x64d96f8 
+      64d96f8: adrp x8, #0x1cc5f000 
+      64d96fc: ldr x1, [x8, #0xdd8] lynxView
+      64d9700: mov x0, x21 
+      64d9704: ret  
+fd2d198: bl #0x11ee07f4 
+fd2d19c: mov x29, x29 
+fd2d1a0: bl #0x11ee08a8 
+fd2d1a4: mov x20, x0 
+fd2d1a8: cbz x0, #0xfd2d224 
+fd2d1ac: bl #0xa259140 
+  a259140: mov x0, x21 
+  a259144: mov x1, x22 
+  a259148: ret  
+fd2d1b0: bl #0x11ee07f4 
+fd2d1b4: mov x29, x29 
+fd2d1b8: bl #0x11ee08a8 
+fd2d1bc: mov x22, x0 
+fd2d1c0: bl #0xfd2b804 
+  fd2b804: adrp x8, #0x1cc1c000 
+  fd2b808: ldr x1, [x8, #0x420] isFaceBack
+  fd2b80c: ret  
+fd2d1c4: bl #0x11ee07f4 
+fd2d1c8: tbnz w0, #0, #0xfd2d218 
+fd2d1cc: adrp x8, #0x1cf98000 
+fd2d1d0: ldr x0, [x8, #0x48] class=BDADBackPatchAdService
+fd2d1d4: bl #0xa280380 
+  a280380: adrp x8, #0x1cb02000 
+  a280384: ldr x1, [x8, #0x430] class
+  a280388: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+fd2d1d8: bl #0xa4c60f8 
+fd2d1dc: mov x29, x29 
+fd2d1e0: bl #0x11ee08a8 
+fd2d1e4: mov x23, x0 
+fd2d1e8: bl #0xf8c6d70 
+  f8c6d70: b #0x7d454b0 
+    7d454b0: adrp x8, #0x1cf16000 
+    7d454b4: ldr x1, [x8, #0x298] vcContext
+    7d454b8: mov x0, x21 
+    7d454bc: ret  
+fd2d1ec: bl #0x11ee07f4 
+fd2d1f0: mov x29, x29 
+fd2d1f4: bl #0x11ee08a8 
+fd2d1f8: mov x24, x0 
+fd2d1fc: adrp x8, #0x1ce8b000 
+fd2d200: ldr x1, [x8, #0x818] shouldShowAdWithContext:
+fd2d204: bl #0xa25e3f0 
+  a25e3f0: mov x0, x23 
+  a25e3f4: mov x2, x24 
+  a25e3f8: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+fd2d208: mov x21, x0 
+fd2d20c: bl #0xa257bfc 
+  a257bfc: mov x0, x24 
+  a257c00: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd2d210: bl #0xa256bbc 
+  a256bbc: mov x0, x23 
+  a256bc0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd2d214: b #0xfd2d21c 
+  fd2d21c: bl #0xa255ff8 
+    a255ff8: mov x0, x22 
+    a255ffc: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  fd2d220: b #0xfd2d228 
+    fd2d228: bl #0xa256094 
+      a256094: mov x0, x20 
+      a256098: b #0xf89deec 
+        f89deec: b #0x11ee086c 
+    fd2d22c: b #0xfd2d234 
+      fd2d234: bl #0xa255ff0 
+        a255ff0: mov x0, x19 
+        a255ff4: b #0xf89deec 
+          f89deec: b #0x11ee086c 
+      fd2d238: b #0xa268ae8 
+        a268ae8: mov x0, x21 
+        a268aec: b #0xa256b6c 
+          a256b6c: ldp x29, x30, [sp, #0x30] 
+          a256b70: ldp x20, x19, [sp, #0x20] 
+          a256b74: ldp x22, x21, [sp, #0x10] 
+          a256b78: ldp x24, x23, [sp], #0x40 
+          a256b7c: ret  
+fd2d218: mov w21, #0 
+fd2d21c: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd2d220: b #0xfd2d228 
+  fd2d228: bl #0xa256094 
+    a256094: mov x0, x20 
+    a256098: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  fd2d22c: b #0xfd2d234 
+    fd2d234: bl #0xa255ff0 
+      a255ff0: mov x0, x19 
+      a255ff4: b #0xf89deec 
+        f89deec: b #0x11ee086c 
+    fd2d238: b #0xa268ae8 
+      a268ae8: mov x0, x21 
+      a268aec: b #0xa256b6c 
+        a256b6c: ldp x29, x30, [sp, #0x30] 
+        a256b70: ldp x20, x19, [sp, #0x20] 
+        a256b74: ldp x22, x21, [sp, #0x10] 
+        a256b78: ldp x24, x23, [sp], #0x40 
+        a256b7c: ret  
+fd2d224: mov w21, #0 
+fd2d228: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd2d22c: b #0xfd2d234 
+  fd2d234: bl #0xa255ff0 
+    a255ff0: mov x0, x19 
+    a255ff4: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  fd2d238: b #0xa268ae8 
+    a268ae8: mov x0, x21 
+    a268aec: b #0xa256b6c 
+      a256b6c: ldp x29, x30, [sp, #0x30] 
+      a256b70: ldp x20, x19, [sp, #0x20] 
+      a256b74: ldp x22, x21, [sp, #0x10] 
+      a256b78: ldp x24, x23, [sp], #0x40 
+      a256b7c: ret  
+fd2d230: mov w21, #0 
+fd2d234: bl #0xa255ff0 
+  a255ff0: mov x0, x19 
+  a255ff4: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd2d238: b #0xa268ae8 
+  a268ae8: mov x0, x21 
+  a268aec: b #0xa256b6c 
+    a256b6c: ldp x29, x30, [sp, #0x30] 
+    a256b70: ldp x20, x19, [sp, #0x20] 
+    a256b74: ldp x22, x21, [sp, #0x10] 
+    a256b78: ldp x24, x23, [sp], #0x40 
+    a256b7c: ret  
+fd2d23c: stp x29, x30, [sp, #-0x10]! 
+fd2d240: bl #0xa256494 
+  a256494: stp x24, x23, [sp, #-0x30]! 
+  a256498: stp x22, x21, [sp, #0x10] 
+  a25649c: stp x20, x19, [sp, #0x20] 
+  a2564a0: add x29, sp, #0x30 
+  a2564a4: ret  
+fd2d244: mov x19, x0 
+fd2d248: bl #0x94ddf80 
+  94ddf80: adrp x8, #0x1cdcf000 
+  94ddf84: ldr x1, [x8, #0x6c0] setIsAppeared:
+  94ddf88: mov w2, #1 
+  94ddf8c: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+fd2d24c: bl #0xf8c73a0 
+  f8c73a0: b #0x7c601f4 
+    7c601f4: b #0x6a23288 
+      6a23288: adrp x8, #0x1cb21000 
+      6a2328c: ldr x20, [x8, #0x180] contentModel
+      6a23290: mov x0, x19 
+      6a23294: mov x1, x20 
+      6a23298: ret  
+fd2d250: bl #0x11ee07f4 
+fd2d254: mov x29, x29 
+fd2d258: bl #0x11ee08a8 
+fd2d25c: mov x21, x0 
+fd2d260: bl #0xe96e6f8 
+  e96e6f8: adrp x8, #0x1cbd2000 
+  e96e6fc: ldr x1, [x8, #0xb40] hasBeenShown
+  e96e700: ret  
+fd2d264: bl #0x11ee07f4 
+fd2d268: bl #0xa257f98 
+  a257f98: mov x22, x0 
+  a257f9c: mov x0, x21 
+  a257fa0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd2d26c: tbnz w22, #0, #0xfd2d308 
+fd2d270: bl #0xa25b054 
+  a25b054: mov x0, x19 
+  a25b058: mov x1, x20 
+  a25b05c: ret  
+fd2d274: bl #0x11ee07f4 
+fd2d278: mov x29, x29 
+fd2d27c: bl #0x11ee08a8 
+fd2d280: mov x21, x0 
+fd2d284: adrp x8, #0x1cdb9000 
+fd2d288: ldr x1, [x8, #0x8c0] setHasBeenShown:
+fd2d28c: bl #0xa2610cc 
+  a2610cc: mov w2, #1 
+  a2610d0: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+fd2d290: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+fd2d294: bl #0xa25b054 
+  a25b054: mov x0, x19 
+  a25b058: mov x1, x20 
+  a25b05c: ret  
+fd2d298: bl #0x11ee07f4 
+fd2d29c: mov x29, x29 
+fd2d2a0: bl #0x11ee08a8 
+fd2d2a4: mov x22, x0 
+fd2d2a8: bl #0x83d09dc 
+  83d09dc: adrp x8, #0x1cb4b000 
+  83d09e0: ldr x21, [x8, #0xab0] didAppearBlock
+  83d09e4: ret  
+fd2d2ac: mov x1, x21 
+fd2d2b0: bl #0x11ee07f4 
+fd2d2b4: mov x29, x29 
+fd2d2b8: bl #0x11ee08a8 

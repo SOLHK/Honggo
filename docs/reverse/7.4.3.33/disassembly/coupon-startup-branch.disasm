@@ -1,0 +1,220 @@
+ec5e6fc: bl #0x11ee07f4 
+ec5e700: mov x29, x29 
+ec5e704: bl #0x11ee08a8 
+ec5e708: bl #0xa270160 
+  a270160: mov x19, x0 
+  a270164: mov x1, x25 
+  a270168: ret  
+ec5e70c: bl #0x11ee07f4 
+ec5e710: mov x29, x29 
+ec5e714: bl #0x11ee08a8 
+ec5e718: mov x27, x0 
+ec5e71c: bl #0xec5ea74 
+  ec5ea74: mov x0, x26 
+  ec5ea78: ldr x1, [sp, #0x38] 
+  ec5ea7c: mov x2, x27 
+  ec5ea80: b #0x11ee07f4 
+ec5e720: bl #0xa257950 
+  a257950: mov x0, x27 
+  a257954: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ec5e724: bl #0xa255ff0 
+  a255ff0: mov x0, x19 
+  a255ff4: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ec5e728: adrp x8, #0x1cf8f000 
+ec5e72c: ldr x0, [x8, #0xbf8] class=SSCouponPopupFrequencyHelper
+ec5e730: bl #0xa2aa1c0 
+  a2aa1c0: mov x1, x24 
+  a2aa1c4: mov x2, x26 
+  a2aa1c8: b #0x11ee07f4 
+ec5e734: cbz w0, #0xec5e608 
+ec5e738: bl #0xa25a440 
+  a25a440: mov x0, x26 
+  a25a444: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ec5e73c: adrp x8, #0x1cb25000 
+ec5e740: bl #0xa2f9c70 
+  a2f9c70: ldr x1, [x8, #0xa38] 
+  a2f9c74: mov x0, x23 
+  a2f9c78: b #0x11ee07f4 
+ec5e744: mov x19, x0 
+ec5e748: adrp x8, #0x1cd7f000 
+ec5e74c: ldr x1, [x8, #0x40] setCouponPopupList:
+ec5e750: ldr x26, [sp, #0x48] 
+ec5e754: bl #0xa26c678 
+  a26c678: mov x0, x26 
+  a26c67c: mov x2, x19 
+  a26c680: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+ec5e758: bl #0xa255ff0 
+  a255ff0: mov x0, x19 
+  a255ff4: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ec5e75c: bl #0xa2978e0 
+  a2978e0: mov x0, x26 
+  a2978e4: ldr x1, [sp, #0x18] 
+  a2978e8: ret  
+ec5e760: bl #0x11ee07f4 
+ec5e764: mov x29, x29 
+ec5e768: bl #0x11ee08a8 
+ec5e76c: bl #0xa2bce78 
+  a2bce78: mov x21, x0 
+  a2bce7c: mov x1, x25 
+  a2bce80: ret  
+ec5e770: bl #0x11ee07f4 
+ec5e774: mov x29, x29 
+ec5e778: bl #0x11ee08a8 
+ec5e77c: bl #0xa25a088 
+  a25a088: mov x19, x0 
+  a25a08c: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ec5e780: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ec5e784: cbz x20, #0xec5e78c 
+ec5e788: cbz x19, #0xec5e7a0 
+ec5e78c: adrp x8, #0x1cee7000 
+ec5e790: ldr x1, [x8, #0xb60] tryCreateCouponPopupWithData:
+ec5e794: ldr x24, [sp, #0x28] 
+ec5e798: bl #0xa2cae9c 
+  a2cae9c: mov x0, x24 
+  a2caea0: mov x2, x26 
+  a2caea4: b #0x11ee07f4 
+ec5e79c: b #0xec5e7cc 
+  ec5e7cc: ldr x25, [sp, #0x20] 
+  ec5e7d0: bl #0xa256094 
+    a256094: mov x0, x20 
+    a256098: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  ec5e7d4: bl #0xa256bbc 
+    a256bbc: mov x0, x23 
+    a256bc0: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  ec5e7d8: ldr x23, [sp, #0x30] 
+  ec5e7dc: b #0xec5e584 
+    ec5e584: bl #0xa25a440 
+      a25a440: mov x0, x26 
+      a25a444: b #0xf89deec 
+        f89deec: b #0x11ee086c 
+    ec5e588: b #0xec5e4cc 
+      ec5e4cc: bl #0xa257964 
+        a257964: mov x0, x25 
+        a257968: b #0xf89deec 
+          f89deec: b #0x11ee086c 
+      ec5e4d0: bl #0xa257bfc 
+        a257bfc: mov x0, x24 
+        a257c00: b #0xf89deec 
+          f89deec: b #0x11ee086c 
+      ec5e4d4: bl #0xa382320 
+        a382320: mov x0, x23 
+        a382324: add sp, sp, #0x60 
+        a382328: b #0xa29203c 
+          a29203c: mov x16, x30 
+          a292040: ldp x29, x30, [sp, #0x50] 
+          a292044: ldp x20, x19, [sp, #0x40] 
+          a292048: ldp x22, x21, [sp, #0x30] 
+          a29204c: ldp x24, x23, [sp, #0x20] 
+          a292050: ldp x26, x25, [sp, #0x10] 
+          a292054: ldp x28, x27, [sp], #0x60 
+          a292058: ret x16 
+      ec5e4d8: b #0x11ee086c 
+ec5e7a0: adrp x8, #0x1cf01000 
+ec5e7a4: ldr x1, [x8, #0x998] updatePopupDataForReport:
+ec5e7a8: ldr x24, [sp, #0x28] 
+ec5e7ac: bl #0xa295864 
+  a295864: mov x0, x24 
+  a295868: mov x2, x20 
+  a29586c: b #0x11ee07f4 
+ec5e7b0: bl #0xec5dee4 
+  ec5dee4: adrp x8, #0x1cd45000 
+  ec5dee8: ldr x1, [x8, #0x910] sendFailNotifyWithReason:
+  ec5deec: ret  
+ec5e7b4: adrp x2, #0x19d0e000 
+ec5e7b8: add x2, x2, #0xa58 
+ec5e7bc: bl #0xa26bad4 
+  a26bad4: mov x0, x24 
+  a26bad8: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+ec5e7c0: bl #0xec5df68 
+  ec5df68: adrp x8, #0x1cd1c000 
+  ec5df6c: ldr x1, [x8, #0xcf0] requestCompletion:errorCode:
+  ec5df70: ret  
+ec5e7c4: mov x0, x24 
+ec5e7c8: bl #0x736a04c 
+  736a04c: mov w2, #0 
+  736a050: mov w3, #2 
+  736a054: b #0x7c07f0c 
+    7c07f0c: b #0xf89def0 
+      f89def0: b #0x11ee07f4 
+ec5e7cc: ldr x25, [sp, #0x20] 
+ec5e7d0: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ec5e7d4: bl #0xa256bbc 
+  a256bbc: mov x0, x23 
+  a256bc0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ec5e7d8: ldr x23, [sp, #0x30] 
+ec5e7dc: b #0xec5e584 
+  ec5e584: bl #0xa25a440 
+    a25a440: mov x0, x26 
+    a25a444: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  ec5e588: b #0xec5e4cc 
+    ec5e4cc: bl #0xa257964 
+      a257964: mov x0, x25 
+      a257968: b #0xf89deec 
+        f89deec: b #0x11ee086c 
+    ec5e4d0: bl #0xa257bfc 
+      a257bfc: mov x0, x24 
+      a257c00: b #0xf89deec 
+        f89deec: b #0x11ee086c 
+    ec5e4d4: bl #0xa382320 
+      a382320: mov x0, x23 
+      a382324: add sp, sp, #0x60 
+      a382328: b #0xa29203c 
+        a29203c: mov x16, x30 
+        a292040: ldp x29, x30, [sp, #0x50] 
+        a292044: ldp x20, x19, [sp, #0x40] 
+        a292048: ldp x22, x21, [sp, #0x30] 
+        a29204c: ldp x24, x23, [sp, #0x20] 
+        a292050: ldp x26, x25, [sp, #0x10] 
+        a292054: ldp x28, x27, [sp], #0x60 
+        a292058: ret x16 
+    ec5e4d8: b #0x11ee086c 
+ec5e7e0: stp x29, x30, [sp, #-0x10]! 
+ec5e7e4: bl #0xa257714 
+  a257714: stp x26, x25, [sp, #-0x40]! 
+  a257718: stp x24, x23, [sp, #0x10] 
+  a25771c: stp x22, x21, [sp, #0x20] 
+  a257720: stp x20, x19, [sp, #0x30] 
+  a257724: add x29, sp, #0x40 
+  a257728: ret  
+ec5e7e8: sub sp, sp, #0x20 
+ec5e7ec: bl #0xa25f8c0 
+  a25f8c0: mov x20, x3 
+  a25f8c4: mov x19, x2 
+  a25f8c8: mov x21, x0 
+  a25f8cc: mov x0, x2 
+  a25f8d0: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+ec5e7f0: bl #0xa258290 
+  a258290: mov x0, x20 
+  a258294: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+ec5e7f4: bl #0xec5eb00 
+  ec5eb00: adrp x8, #0x1cbb8000 
+  ec5eb04: ldr x1, [x8, #0xb10] getPopupOperationWithResourceData:
+  ec5eb08: ret  
+ec5e7f8: bl #0xa257de4 
+  a257de4: mov x0, x21 
+  a257de8: mov x2, x20 
+  a257dec: ret  
+ec5e7fc: bl #0x11ee07f4 
+ec5e800: mov x29, x29 
+ec5e804: bl #0x11ee08a8 
+ec5e808: mov x21, x0 
+ec5e80c: cbz x0, #0xec5e954 

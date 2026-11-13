@@ -1,0 +1,9 @@
+{
+  "ipa_sha256": "37118984f159cc2ac8e30654d35196ea31dbf0e829b2bf081df9fd00ee74b036",
+  "payload_path": "Payload/Eggplant.app/Eggplant",
+  "payload_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+  "old_payload_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+  "same_binary": true,
+  "version": "7.4.3",
+  "build": "7.4.3.33"
+}

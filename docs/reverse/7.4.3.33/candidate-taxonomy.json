@@ -1,0 +1,103 @@
+{
+  "note": "Mutually exclusive name-based buckets in priority order, NOT confirmed advertisement counts or runtime reachability.",
+  "groups": {
+    "popup_or_pendant_candidates": {
+      "classes": 720,
+      "methods": 13364,
+      "examples": [
+        "_TtC6AnnieX16AnnieXPopupModel",
+        "_TtC6AnnieX17AnnieXPopupSchema",
+        "_TtC6AnnieX18AnnieXPopupService",
+        "_TtC6AnnieX26AnnieXPopupScrollParamType",
+        "_TtC6AnnieX27AnnieXPopupScrollReturnType",
+        "_TtC6AnnieX20AnnieXPopupViewModel",
+        "_TtC6AnnieX16AnnieXPopupProps",
+        "_TtC6AnnieX21AnnieXPopupSLStrategy"
+      ]
+    },
+    "bundled_sdk_and_other_candidates": {
+      "classes": 755,
+      "methods": 13253,
+      "examples": [
+        "_TtC18BDAResourceKit_iOS17AdPromiseDeferred",
+        "_TtC18BDAResourceKit_iOS9AdPromise",
+        "_TtC18BDAResourceKit_iOS15AdPromiseRunner",
+        "_TtC18BDAResourceKit_iOS21AdWebViewDataProvider",
+        "_TtC18BDAResourceKit_iOS22AdResourceDataProvider",
+        "_TtC18BDAResourceKit_iOS16AdResourceLoader",
+        "_TtC18BDAResourceKit_iOS26AdWebViewPreloadABTestInfo",
+        "_TtC18BDAResourceKit_iOS20AdWebViewPreloadInfo"
+      ]
+    },
+    "reward_payment_or_unlock_review_separately": {
+      "classes": 309,
+      "methods": 6747,
+      "examples": [
+        "_TtC18IESLiveRevenueImpl36IESLiveIncentivePendantContainerView",
+        "IESLiveIncentivePendantSwiftFragment",
+        "_TtC18IESLiveRevenueImpl28IESLiveIncentivePendantStore",
+        "_TtC18IESLiveRevenueImpl32IESLiveIncentivePendantViewModel",
+        "_TtC18IESLiveRevenueImpl35IESLiveRevenueChargeCouponPopupView",
+        "RKMPUgNativePopupReward",
+        "RKMPRewardAdGuidePopupModel",
+        "RKMPRewardAdGuidePopupModelCompanion"
+      ]
+    },
+    "host_or_short_video_ad_candidates": {
+      "classes": 902,
+      "methods": 23184,
+      "examples": [
+        "SSScrollAdItemData",
+        "SSScrollAdItemDataCache",
+        "SSStoryAdManager",
+        "SSAdImageData",
+        "SSAdVideoData",
+        "SSAdLabelData",
+        "SSAdProductInfoData",
+        "SSAdAppInfoData"
+      ]
+    },
+    "live_insertion_or_live_marketing_candidates": {
+      "classes": 43,
+      "methods": 510,
+      "examples": [
+        "SSShortVideoNewLiveActivityModel",
+        "BDXLiveCardPreloadAppAdModel",
+        "BDXLiveCardPreloadAppAdMethod",
+        "IESECLiveSendECAdLogMethod",
+        "IESECLiveSendECAdLogParamModel",
+        "IESECLiveSendECAdLogResultModel",
+        "IESECLiveSendECAdLogMethodImpl",
+        "IESLiveLongPressAdDislikePanelCell"
+      ]
+    },
+    "commerce_or_monetization_candidates": {
+      "classes": 675,
+      "methods": 11066,
+      "examples": [
+        "RKMPEcomProductShareParams",
+        "AWECombineBinding",
+        "AWEECommerceEcomButtonAreaModel",
+        "AWEECommerceEcomButtonModel",
+        "AWEECommerceLabel",
+        "AWEComponentUIInfo",
+        "AWEECommerceInfoModel",
+        "AWECommentPermissionInfo"
+      ]
+    },
+    "coupon_marketing_candidates": {
+      "classes": 310,
+      "methods": 5505,
+      "examples": [
+        "AWEEcomSearchInsertCouponConfigModel",
+        "AWECouponModel",
+        "AWEPOICouponActivityModel",
+        "AWEPOICouponDescModel",
+        "ApplyCouponStructV2",
+        "AWEIMFansGroupCouponMessage",
+        "AWEIMSharePoiCouponMessage",
+        "IESIMCouponUtils"
+      ]
+    }
+  }
+}

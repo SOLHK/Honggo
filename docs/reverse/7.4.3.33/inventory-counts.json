@@ -1,0 +1,8 @@
+{
+  "classes": 78840,
+  "methods": 1349749,
+  "candidate_classes": 3714,
+  "candidate_methods": 73629,
+  "text_base": "0x100000000",
+  "filter": "Ad[A-Z]|Ad$|^BDAD|^BDAOC|Monetiz|E[Cc]om|Coupon|Popup|Promotion|Pendant|ShortVideo.*Live|^IESLiveUGBenefit"
+}

@@ -14,8 +14,11 @@ static void HGAdDecision(id object, SEL selector, BOOL result);
 static BOOL HGNo(id self, SEL cmd) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGNoObject(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGNoObjects(id self, SEL cmd, id first, id second) { HGAdDecision(self, cmd, NO); return NO; }
+static BOOL HGNoTimeObject(id self, SEL cmd, double time, id context) { HGAdDecision(self, cmd, NO); return NO; }
+static BOOL HGNoTimesObject(id self, SEL cmd, double time, double duration, id context) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGNoObjectClass(id self, SEL cmd, id argument, Class viewClass) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGYesObject(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, YES); return YES; }
+static id HGNoModel(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, NO); return nil; }
 static void HGSkipSurvey(id self, SEL cmd, NSInteger style, id videoID) { HGAdDecision(self, cmd, NO); }
 static void HGSkipPendant(id self, SEL cmd, UIView *parent) { HGAdDecision(self, cmd, NO); }
 
@@ -61,6 +64,20 @@ static const HGGate HGGates[] = {
     {HGSurvey, "SSShortVideoSatisfactionSurveyManager", "tryShowPeriodSkipSurveyIfNeededWithVideoId:", "B24@0:8@16", (IMP)HGNoObject},
     {HGSurvey, "SSShortVideoSatisfactionSurveyManager", "tryShowContinueSkipSurveyIfNeededWithVideoId:", "B24@0:8@16", (IMP)HGNoObject},
     {HGSurvey, "SSShortVideoSatisfactionSurveyManager", "tryRestoreReadingItemSurveyIfNeededWithVideoId:", "B24@0:8@16", (IMP)HGNoObject},
+    // 7.4.3.33 has separate commerce/live insertion paths outside the ad client.
+    // Both factory callers explicitly accept nil before adding to the feed.
+    // Keep rules appended so diagnostic IDs of shipped rules remain stable.
+    {HGFeed, "SSBizVideoAdABTestHelper", "enableEcomForceCard", "B16@0:8", (IMP)HGNo, YES},
+    {HGFeed, "SSShortVideoLiveService", "createFeedLiveInsertModelWithRoomModel:", "@24@0:8@16", (IMP)HGNoModel},
+    {HGFeed, "SSShortVideoRecommendOutterListDataSource", "liveFeedDataModelWithCellViewData:", "@24@0:8@16", (IMP)HGNoModel},
+    {HGMarketing, "IESLiveUGBenefitCouponFragment", "shouldShowBalanceCouponPopup", "B16@0:8", (IMP)HGNo},
+    {HGMarketing, "IESLiveUGBenefitCouponFragment", "shouldShowExpansionCouponPopup", "B16@0:8", (IMP)HGNo},
+    {HGEcommerce, "SSCouponPopupFrequencyHelper", "canShowPopup:", "B24@0:8@16", (IMP)HGNoObject, YES},
+    {HGPatch, "BDADBackPatchAdService", "shouldShowAdWithContext:", "B24@0:8@16", (IMP)HGNoObject},
+    {HGPatch, "BDADBackPatchAdService", "shouldRequestAdWithPlaybackTime:duration:context:", "B40@0:8d16d24@32", (IMP)HGNoTimesObject},
+    {HGPatch, "BDADPlotTouchAdService", "canShowPlotAdWithContext:", "B24@0:8@16", (IMP)HGNoObject},
+    {HGPatch, "BDADPlotTouchAdService", "canRequestAdWithPlaybackTime:context:", "B32@0:8d16@24", (IMP)HGNoTimeObject},
+    {HGPatch, "BDADShortVideoSideBarPatchSwitchComponent", "isAvailableWithCtx:", "B24@0:8@16", (IMP)HGNoObject},
 };
 
 static void HGAdDecision(id object, SEL selector, BOOL result) {

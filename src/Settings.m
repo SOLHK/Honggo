@@ -12,12 +12,12 @@ static const HGOption HGOptions[HGFeatureCount] = {
     [HGGlass] = {@"glass", @"液态玻璃底栏"},
     [HGSplash] = {@"splash", @"隐藏开屏广告"},
     [HGTopView] = {@"topview", @"隐藏首页 TopView 广告"},
-    [HGFeed] = {@"feed", @"隐藏短剧信息流广告"},
+    [HGFeed] = {@"feed", @"隐藏短剧广告与直播插播"},
     [HGComment] = {@"comment", @"隐藏短剧评论区广告"},
     [HGPause] = {@"pause", @"隐藏暂停广告"},
     [HGPatch] = {@"patch", @"隐藏播放插播广告"},
     [HGEcommerce] = {@"commerce", @"隐藏启动电商推广"},
-    [HGMarketing] = {@"marketing", @"隐藏商业营销弹窗"},
+    [HGMarketing] = {@"marketing", @"隐藏商业与直播领券弹窗"},
     [HGRedPacket] = {@"redPacket", @"隐藏福利红包弹窗"},
     [HGBookstoreAd] = {@"bookstoreAd", @"隐藏书城底部广告"},
     [HGCouponPendant] = {@"couponPendant", @"隐藏领券悬浮挂件"},
@@ -28,7 +28,7 @@ static const HGOption HGOptions[HGFeatureCount] = {
 };
 
 static NSString *const HGSettingsTitle = HG_PLUGIN_NAME;
-static NSString *const HGSettingsSubtitle = @"版本 " HG_PLUGIN_VERSION @" · 广告现场诊断版";
+static NSString *const HGSettingsSubtitle = @"版本 " HG_PLUGIN_VERSION @" · 广告过滤测试版";
 static void (*HGOriginalSettingsWillAppear)(UIViewController *, SEL, BOOL);
 static void (*HGOriginalSettingsDidLayout)(UIViewController *, SEL);
 static void (*HGOriginalSettingsDidAppear)(UIViewController *, SEL, BOOL);

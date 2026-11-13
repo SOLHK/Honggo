@@ -1,0 +1,375 @@
+ff241dc: stp x29, x30, [sp, #-0x10]! 
+ff241e0: bl #0xa256fd8 
+  a256fd8: stp x28, x27, [sp, #-0x50]! 
+  a256fdc: stp x26, x25, [sp, #0x10] 
+  a256fe0: stp x24, x23, [sp, #0x20] 
+  a256fe4: stp x22, x21, [sp, #0x30] 
+  a256fe8: stp x20, x19, [sp, #0x40] 
+  a256fec: add x29, sp, #0x50 
+  a256ff0: ret  
+ff241e4: sub sp, sp, #0x20 
+ff241e8: bl #0xa25f8c0 
+  a25f8c0: mov x20, x3 
+  a25f8c4: mov x19, x2 
+  a25f8c8: mov x21, x0 
+  a25f8cc: mov x0, x2 
+  a25f8d0: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+ff241ec: bl #0xa258290 
+  a258290: mov x0, x20 
+  a258294: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+ff241f0: adrp x8, #0x1cf3a000 
+ff241f4: ldr x2, [x8, #0x480] 
+ff241f8: bl #0xa2a2d7c 
+  a2a2d7c: adrp x8, #0x1cb1c000 
+  a2a2d80: ldr x1, [x8, #0xe50] conformsToProtocol:
+  a2a2d84: mov x0, x19 
+  a2a2d88: b #0x11ee07f4 
+ff241fc: cbz w0, #0xff24410 
+ff24200: bl #0xa259fec 
+  a259fec: mov x0, x19 
+  a259ff0: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+ff24204: bl #0xf8d0f78 
+  f8d0f78: b #0x7c6c728 
+    7c6c728: b #0x77edbfc 
+      77edbfc: adrp x8, #0x1cf14000 
+      77edc00: ldr x1, [x8, #0x840] uuid
+      77edc04: mov x0, x20 
+      77edc08: ret  
+ff24208: bl #0xa2ccd40 
+  a2ccd40: str x1, [sp, #0x18] 
+  a2ccd44: b #0x11ee07f4 
+ff2420c: mov x25, x0 
+ff24210: bl #0xa37d754 
+  a37d754: adrp x8, #0x1cf3b000 
+  a37d758: ldr x0, [x8, #0xd28] _OBJC_CLASS_$_NSNumber
+  a37d75c: adrp x8, #0x1cc87000 
+  a37d760: ldr x1, [x8, #0x800] numberWithInteger:
+  a37d764: mov x2, x25 
+  a37d768: ret  
+ff24214: bl #0x11ee07f4 
+ff24218: mov x29, x29 
+ff2421c: bl #0x11ee08a8 
+ff24220: bl #0xf8d0f74 
+  f8d0f74: b #0x7c79d60 
+    7c79d60: b #0x6d74110 
+      6d74110: mov x24, x0 
+      6d74114: adrp x8, #0x1ceb8000 
+      6d74118: ldr x26, [x8, #0x8a8] stringValue
+      6d7411c: mov x1, x26 
+      6d74120: ret  
+ff24224: bl #0x11ee07f4 
+ff24228: mov x29, x29 
+ff2422c: bl #0x11ee08a8 
+ff24230: bl #0xa25a448 
+  a25a448: mov x22, x0 
+  a25a44c: mov x0, x24 
+  a25a450: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff24234: adrp x8, #0x1ce71000 
+ff24238: ldr x24, [x8, #0x320] setVideoUUID:
+ff2423c: bl #0xa2d15b0 
+  a2d15b0: mov x0, x19 
+  a2d15b4: mov x1, x24 
+  a2d15b8: mov x2, x25 
+  a2d15bc: b #0x11ee07f4 
+ff24240: bl #0xa27cc88 
+  a27cc88: adrp x8, #0x1cd1b000 
+  a27cc8c: ldr x1, [x8, #0x168] reporter
+  a27cc90: mov x0, x21 
+  a27cc94: ret  
+ff24244: bl #0x11ee07f4 
+ff24248: mov x29, x29 
+ff2424c: bl #0x11ee08a8 
+ff24250: mov x25, x0 
+ff24254: bl #0xa275b88 
+  a275b88: adrp x8, #0x1ce2d000 
+  a275b8c: ldr x1, [x8, #0x48] setReporter:
+  a275b90: ret  
+ff24258: bl #0xa296230 
+  a296230: mov x0, x19 
+  a296234: mov x2, x25 
+  a296238: b #0x11ee07f4 
+ff2425c: bl #0xa257964 
+  a257964: mov x0, x25 
+  a257968: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff24260: bl #0xf8aa654 
+  f8aa654: b #0x7c2a74c 
+    7c2a74c: b #0x6dc1b0 
+      6dc1b0: adrp x8, #0x1cd8b000 
+      6dc1b4: ldr x1, [x8, #0x3c0] setDelegate:
+      6dc1b8: mov x0, x19 
+      6dc1bc: mov x2, x21 
+      6dc1c0: b #0x7c07f0c 
+        7c07f0c: b #0xf89def0 
+          f89def0: b #0x11ee07f4 
+ff24264: bl #0xa32bb3c 
+  a32bb3c: adrp x8, #0x1cf1a000 
+  a32bb40: ldr x1, [x8, #0x5f0] videoMangerContext
+  a32bb44: mov x0, x21 
+  a32bb48: ret  
+ff24268: bl #0x11ee07f4 
+ff2426c: mov x29, x29 
+ff24270: bl #0x11ee08a8 
+ff24274: mov x25, x0 
+ff24278: bl #0xf31d670 
+  f31d670: adrp x8, #0x1ce70000 
+  f31d674: ldr x1, [x8, #0x540] setVideoMangerContext:
+  f31d678: ret  
+ff2427c: bl #0xa296230 
+  a296230: mov x0, x19 
+  a296234: mov x2, x25 
+  a296238: b #0x11ee07f4 
+ff24280: bl #0xa257964 
+  a257964: mov x0, x25 
+  a257968: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff24284: bl #0xf8d0dc0 
+  f8d0dc0: b #0x7c31928 
+    7c31928: b #0x8d8080 
+      8d8080: adrp x8, #0x1cd2e000 
+      8d8084: ldr x1, [x8, #0xdd0] roomModel
+      8d8088: mov x0, x19 
+      8d808c: ret  
+ff24288: bl #0x11ee07f4 
+ff2428c: mov x29, x29 
+ff24290: bl #0x11ee08a8 
+ff24294: mov x27, x0 
+ff24298: bl #0xf8cb034 
+  f8cb034: b #0x7c293bc 
+    7c293bc: b #0x8c1594 
+      8c1594: adrp x8, #0x1cd2e000 
+      8c1598: ldr x1, [x8, #0xbb8] roomId
+      8c159c: ret  
+ff2429c: bl #0x11ee07f4 
+ff242a0: mov x29, x29 
+ff242a4: bl #0x11ee08a8 
+ff242a8: mov x25, x0 
+ff242ac: bl #0xa257950 
+  a257950: mov x0, x27 
+  a257954: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff242b0: cbz x25, #0xff242f0 
+ff242b4: adrp x8, #0x1cc0b000 
+ff242b8: ldr x1, [x8, #0x350] insertModelsMap
+ff242bc: mov x0, x21 
+ff242c0: bl #0x11ee07f4 
+ff242c4: mov x29, x29 
+ff242c8: bl #0x11ee08a8 
+ff242cc: bl #0xf8d0f70 
+  f8d0f70: b #0x7c2d218 
+    7c2d218: b #0x11994d4 
+      11994d4: mov x27, x0 
+      11994d8: mov x0, x25 
+      11994dc: mov x1, x26 
+      11994e0: ret  
+ff242d0: bl #0x11ee07f4 
+ff242d4: mov x29, x29 
+ff242d8: bl #0x11ee08a8 
+ff242dc: bl #0xa2ddb84 
+  a2ddb84: mov x26, x0 
+  a2ddb88: adrp x8, #0x1ce05000 
+  a2ddb8c: ldr x1, [x8, #0x40] setObject:forKey:
+  a2ddb90: ret  
+ff242e0: mov x0, x27 
+ff242e4: bl #0xa2b0248 
+  a2b0248: mov x2, x19 
+  a2b024c: mov x3, x26 
+  a2b0250: b #0x11ee07f4 
+ff242e8: bl #0xa25a440 
+  a25a440: mov x0, x26 
+  a25a444: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff242ec: bl #0xa257950 
+  a257950: mov x0, x27 
+  a257954: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff242f0: bl #0x11ee06b0 
+ff242f4: bl #0xa299fc0 
+  a299fc0: mov x26, x0 
+  a299fc4: adrp x8, #0x1ceb8000 
+  a299fc8: ldr x1, [x8, #0x400] stringByAppendingString:
+  a299fcc: adrp x0, #0x19de5000 
+  a299fd0: add x0, x0, #0x478 
+  a299fd4: ret  
+ff242f8: bl #0xa32c264 
+  a32c264: adrp x2, #0x1a404000 
+  a32c268: add x2, x2, #0xd78 
+  a32c26c: ret  
+ff242fc: bl #0x11ee07f4 
+ff24300: mov x29, x29 
+ff24304: bl #0x11ee08a8 
+ff24308: bl #0xa26d244 
+  a26d244: mov x27, x0 
+  a26d248: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+ff2430c: bl #0xa2c5118 
+  a2c5118: mov x28, x0 
+  a2c511c: adrp x8, #0x1cf3b000 
+  a2c5120: ldr x0, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a2c5124: adrp x8, #0x1ceb8000 
+  a2c5128: ldr x1, [x8, #0xab8] stringWithFormat:
+  a2c512c: ret  
+ff24310: bl #0xff24c5c 
+  ff24c5c: stp x22, xzr, [sp, #8] 
+  ff24c60: str x25, [sp] 
+  ff24c64: ret  
+ff24314: adrp x2, #0x1a404000 
+ff24318: add x2, x2, #0xd98 
+ff2431c: bl #0x11ee07f4 
+ff24320: mov x29, x29 
+ff24324: bl #0x11ee08a8 
+ff24328: mov x23, x0 
+ff2432c: bl #0xa32c374 
+  a32c374: adrp x0, #0x147b4000 
+  a32c378: add x0, x0, #0x496 
+  a32c37c: ret  
+ff24330: adrp x1, #0x147b4000 
+ff24334: add x1, x1, #0x4ba 
+ff24338: mov x2, x27 
+ff2433c: bl #0xf8c0c28 
+  f8c0c28: b #0x7c4f840 
+    7c4f840: b #0x6b3ab4c 
+      6b3ab4c: mov w3, #2 
+      6b3ab50: mov w4, #0x6f 
+      6b3ab54: mov x5, x23 
+      6b3ab58: b #0xa3c1e80 
+ff24340: bl #0xa256bbc 
+  a256bbc: mov x0, x23 
+  a256bc0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff24344: bl #0xa26d22c 
+  a26d22c: mov x0, x28 
+  a26d230: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+ff24348: bl #0xa257950 
+  a257950: mov x0, x27 
+  a257954: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff2434c: bl #0xa25f8e0 
+  a25f8e0: mov x0, x26 
+  a25f8e4: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+ff24350: adrp x8, #0x1cc0b000 
+ff24354: ldr x26, [x8, #0x300] insertModelArrMap
+ff24358: bl #0xa25d44c 
+  a25d44c: mov x0, x21 
+  a25d450: mov x1, x26 
+  a25d454: ret  
+ff2435c: bl #0x11ee07f4 
+ff24360: mov x29, x29 
+ff24364: bl #0x11ee08a8 
+ff24368: bl #0xa32c758 
+  a32c758: mov x23, x0 
+  a32c75c: adrp x8, #0x1cadf000 
+  a32c760: ldr x1, [x8, #0x868] btd_objectForKey:
+  a32c764: ret  
+ff2436c: mov x2, x22 
+ff24370: bl #0x11ee07f4 
+ff24374: mov x29, x29 
+ff24378: bl #0x11ee08a8 
+ff2437c: mov x27, x0 
+ff24380: bl #0xa256bbc 
+  a256bbc: mov x0, x23 
+  a256bc0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff24384: cbnz x27, #0xff243a4 
+ff24388: adrp x8, #0x1cf98000 
+ff2438c: ldr x0, [x8, #0xe08] class=SSShortVideoInsertModelArrayEntry
+ff24390: bl #0x11ee0674 
+ff24394: mov x27, x0 
+ff24398: adrp x8, #0x1ce71000 
+ff2439c: ldr x1, [x8, #0x328] setVideoUUIDString:
+ff243a0: bl #0xa25ac64 
+  a25ac64: mov x2, x22 
+  a25ac68: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+ff243a4: bl #0xa29fd0c 
+  a29fd0c: mov x0, x20 
+  a29fd10: ldr x1, [sp, #0x18] 
+  a29fd14: b #0x11ee07f4 
+ff243a8: mov x2, x0 
+ff243ac: bl #0xa292eb0 
+  a292eb0: mov x0, x27 
+  a292eb4: mov x1, x24 
+  a292eb8: b #0x11ee07f4 
+ff243b0: adrp x8, #0x1cd4f000 
+ff243b4: ldr x1, [x8, #0xe90] setAfterVideoDataModel:
+ff243b8: mov x0, x27 
+ff243bc: bl #0xa25ba8c 
+  a25ba8c: mov x2, x20 
+  a25ba90: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+ff243c0: adrp x8, #0x1cc0b000 
+ff243c4: ldr x1, [x8, #0x2f0] insertModelArr
+ff243c8: mov x0, x27 
+ff243cc: bl #0x11ee07f4 
+ff243d0: mov x29, x29 
+ff243d4: bl #0x11ee08a8 
+ff243d8: mov x23, x0 
+ff243dc: bl #0xa3126a4 
+  a3126a4: adrp x8, #0x1cade000 
+  a3126a8: ldr x1, [x8, #0xfd8] btd_addObject:
+  a3126ac: mov x2, x19 
+  a3126b0: b #0x11ee07f4 
+ff243e0: bl #0xa256bbc 
+  a256bbc: mov x0, x23 
+  a256bc0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff243e4: bl #0xa25d44c 
+  a25d44c: mov x0, x21 
+  a25d450: mov x1, x26 
+  a25d454: ret  
+ff243e8: bl #0x11ee07f4 
+ff243ec: mov x29, x29 
+ff243f0: bl #0x11ee08a8 
+ff243f4: bl #0xa27db8c 
+  a27db8c: mov x21, x0 
+  a27db90: adrp x8, #0x1cadf000 
+  a27db94: ldr x1, [x8, #0xb88] btd_setObject:forKey:
+  a27db98: ret  
+ff243f8: bl #0xa26d030 
+  a26d030: mov x2, x27 
+  a26d034: mov x3, x22 
+  a26d038: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+ff243fc: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff24400: bl #0xa257950 
+  a257950: mov x0, x27 
+  a257954: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff24404: bl #0xa257964 
+  a257964: mov x0, x25 
+  a257968: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff24408: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff2440c: bl #0xa255ff0 
+  a255ff0: mov x0, x19 
+  a255ff4: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff24410: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+ff24414: bl #0xa26cb88 
+  a26cb88: mov x0, x19 
+  a26cb8c: add sp, sp, #0x20 
+  a26cb90: b #0xa29203c 
+    a29203c: mov x16, x30 
+    a292040: ldp x29, x30, [sp, #0x50] 
+    a292044: ldp x20, x19, [sp, #0x40] 
+    a292048: ldp x22, x21, [sp, #0x30] 
+    a29204c: ldp x24, x23, [sp, #0x20] 
+    a292050: ldp x26, x25, [sp, #0x10] 
+    a292054: ldp x28, x27, [sp], #0x60 
+    a292058: ret x16 
+ff24418: b #0x11ee086c 
