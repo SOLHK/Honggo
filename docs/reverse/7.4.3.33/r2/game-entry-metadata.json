@@ -1,0 +1,882 @@
+[
+  {
+    "name": "SSBizVideoABTestHelper",
+    "superclass": "HTSService",
+    "methods": [
+      {
+        "kind": "-",
+        "selector": "useNewMoreAdaptation",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed40e0",
+        "vm_address": "0x10fed40e0"
+      },
+      {
+        "kind": "-",
+        "selector": "enableEpisodePanelMoreAdaptationCacheV733",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed42a8",
+        "vm_address": "0x10fed42a8"
+      },
+      {
+        "kind": "+",
+        "selector": "fetchMineAppointmentDetailUrl",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed22d8",
+        "vm_address": "0x10fed22d8"
+      },
+      {
+        "kind": "+",
+        "selector": "subscribePopupConfigV645",
+        "encoding": "{SSShortVideoSubscribePopupConfig=BBBq}16@0:8",
+        "file_offset": "0xfed234c",
+        "vm_address": "0x10fed234c"
+      },
+      {
+        "kind": "+",
+        "selector": "singleTabSubscribeOptConfig685",
+        "encoding": "Q16@0:8",
+        "file_offset": "0xfed2408",
+        "vm_address": "0x10fed2408"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoFeedSubscribeOptV681",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2460",
+        "vm_address": "0x10fed2460"
+      },
+      {
+        "kind": "+",
+        "selector": "enableShowSubscribeSeriesEntranceV685",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed24bc",
+        "vm_address": "0x10fed24bc"
+      },
+      {
+        "kind": "+",
+        "selector": "episodePanelShowSubscribeSeriesEntranceV685",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2518",
+        "vm_address": "0x10fed2518"
+      },
+      {
+        "kind": "+",
+        "selector": "bottomBarEpisodeCntSubscribeV685",
+        "encoding": "q16@0:8",
+        "file_offset": "0xfed257c",
+        "vm_address": "0x10fed257c"
+      },
+      {
+        "kind": "+",
+        "selector": "bottomBarShowSubscribeSeriesEntranceV685",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed25d8",
+        "vm_address": "0x10fed25d8"
+      },
+      {
+        "kind": "+",
+        "selector": "subscribePanelNewStyle",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2634",
+        "vm_address": "0x10fed2634"
+      },
+      {
+        "kind": "+",
+        "selector": "subscribeDialogStyleOptV697",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2688",
+        "vm_address": "0x10fed2688"
+      },
+      {
+        "kind": "+",
+        "selector": "enablePreviewDetailPageV695",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed26e0",
+        "vm_address": "0x10fed26e0"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSubscribeCardStyleV709",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2738",
+        "vm_address": "0x10fed2738"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSubscribeCardBtnAnimV709",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2794",
+        "vm_address": "0x10fed2794"
+      },
+      {
+        "kind": "+",
+        "selector": "enableRightSubscribeBtnV709",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed27f0",
+        "vm_address": "0x10fed27f0"
+      },
+      {
+        "kind": "+",
+        "selector": "videoFeedRightSubScribeBtnEnableV711",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed284c",
+        "vm_address": "0x10fed284c"
+      },
+      {
+        "kind": "+",
+        "selector": "videoFeedSubScribeCardEnableV711",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed28a8",
+        "vm_address": "0x10fed28a8"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSubscribeDefaultTextOptV727",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2904",
+        "vm_address": "0x10fed2904"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSubscribeTextV735",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2964",
+        "vm_address": "0x10fed2964"
+      },
+      {
+        "kind": "+",
+        "selector": "enableShowSeriesSubscribeBottomBarV735",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed29bc",
+        "vm_address": "0x10fed29bc"
+      },
+      {
+        "kind": "+",
+        "selector": "registerABTest:",
+        "encoding": "v24@0:8@?16",
+        "file_offset": "0xa4c7b6c",
+        "vm_address": "0x10a4c7b6c"
+      },
+      {
+        "kind": "+",
+        "selector": "registerABTestNow:",
+        "encoding": "v24@0:8@?16",
+        "file_offset": "0xfed2ae0",
+        "vm_address": "0x10fed2ae0"
+      },
+      {
+        "kind": "+",
+        "selector": "previewAddCalendarConfigV703",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed2b54",
+        "vm_address": "0x10fed2b54"
+      },
+      {
+        "kind": "+",
+        "selector": "shortVideoLaunchType",
+        "encoding": "q16@0:8",
+        "file_offset": "0xfed2c1c",
+        "vm_address": "0x10fed2c1c"
+      },
+      {
+        "kind": "+",
+        "selector": "exposeShortVideoLaunchType",
+        "encoding": "v16@0:8",
+        "file_offset": "0xfed2c78",
+        "vm_address": "0x10fed2c78"
+      },
+      {
+        "kind": "+",
+        "selector": "revertMotionTabBubbleV743",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2cb4",
+        "vm_address": "0x10fed2cb4"
+      },
+      {
+        "kind": "+",
+        "selector": "revertVideoFeedSlideGuideV743",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2d18",
+        "vm_address": "0x10fed2d18"
+      },
+      {
+        "kind": "+",
+        "selector": "isVideoListenTimerEnableV725",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2d7c",
+        "vm_address": "0x10fed2d7c"
+      },
+      {
+        "kind": "+",
+        "selector": "originalBookWatermarkDuration",
+        "encoding": "d16@0:8",
+        "file_offset": "0xfed2e08",
+        "vm_address": "0x10fed2e08"
+      },
+      {
+        "kind": "+",
+        "selector": "detailPageShowOriginalGroup",
+        "encoding": "q16@0:8",
+        "file_offset": "0xfed2e70",
+        "vm_address": "0x10fed2e70"
+      },
+      {
+        "kind": "+",
+        "selector": "detailPageShowOriginalRequestValue",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed2eec",
+        "vm_address": "0x10fed2eec"
+      },
+      {
+        "kind": "+",
+        "selector": "enableDetailPageRelatedOriginalSection",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2f0c",
+        "vm_address": "0x10fed2f0c"
+      },
+      {
+        "kind": "+",
+        "selector": "collectionEndGuideEnabledV743",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2f20",
+        "vm_address": "0x10fed2f20"
+      },
+      {
+        "kind": "+",
+        "selector": "seriesToBookConfig",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed2f70",
+        "vm_address": "0x10fed2f70"
+      },
+      {
+        "kind": "+",
+        "selector": "seriesToBookWithOriginBookEnabled",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2fb8",
+        "vm_address": "0x10fed2fb8"
+      },
+      {
+        "kind": "+",
+        "selector": "seriesToBookChapterBottomBarEnabled",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed2fe8",
+        "vm_address": "0x10fed2fe8"
+      },
+      {
+        "kind": "+",
+        "selector": "seriesToBookChapterBarTemplate",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed3018",
+        "vm_address": "0x10fed3018"
+      },
+      {
+        "kind": "+",
+        "selector": "seriesToBookOptimizedEndCardEnabled",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3098",
+        "vm_address": "0x10fed3098"
+      },
+      {
+        "kind": "+",
+        "selector": "seriesToBookOriginBookGuideText",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed30c8",
+        "vm_address": "0x10fed30c8"
+      },
+      {
+        "kind": "+",
+        "selector": "seriesToBookEndCardReadButtonText",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed313c",
+        "vm_address": "0x10fed313c"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSeriesEndNextSeasonToastTextOptV731",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed31b0",
+        "vm_address": "0x10fed31b0"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSeriesEndRelatedHotVisibilityOptV731",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3214",
+        "vm_address": "0x10fed3214"
+      },
+      {
+        "kind": "+",
+        "selector": "enablePlayerTransparencyInteractionSeriesEndScrollKeepV721",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3278",
+        "vm_address": "0x10fed3278"
+      },
+      {
+        "kind": "+",
+        "selector": "playerTransparencyMinImmersiveAge",
+        "encoding": "q16@0:8",
+        "file_offset": "0xfed32c0",
+        "vm_address": "0x10fed32c0"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoHistoryLimitExpansionV713",
+        "encoding": "B16@0:8",
+        "file_offset": "0xa81d76c",
+        "vm_address": "0x10a81d76c"
+      },
+      {
+        "kind": "+",
+        "selector": "enableLandscapePlayerUserFollow",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed331c",
+        "vm_address": "0x10fed331c"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoFeedDiskCacheInteractionRefreshV743",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3374",
+        "vm_address": "0x10fed3374"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoHistoryClickLoadMoreV715",
+        "encoding": "B16@0:8",
+        "file_offset": "0xa81d7c8",
+        "vm_address": "0x10a81d7c8"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoHistoryFirstPageLoadV713",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed33cc",
+        "vm_address": "0x10fed33cc"
+      },
+      {
+        "kind": "+",
+        "selector": "playerSpeedRateInheritPersistent",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3428",
+        "vm_address": "0x10fed3428"
+      },
+      {
+        "kind": "+",
+        "selector": "smartSpeedSnackBarColdStartLimit",
+        "encoding": "Q16@0:8",
+        "file_offset": "0xfed3484",
+        "vm_address": "0x10fed3484"
+      },
+      {
+        "kind": "+",
+        "selector": "showSmartSpeedSnackBarTimeGap",
+        "encoding": "Q16@0:8",
+        "file_offset": "0xfed34e0",
+        "vm_address": "0x10fed34e0"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoHistoryColdStartLoadV713",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed353c",
+        "vm_address": "0x10fed353c"
+      },
+      {
+        "kind": "+",
+        "selector": "enableHistoryTabVCLayoutOptV713",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3598",
+        "vm_address": "0x10fed3598"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoCollectPreviewCacheV739",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed35f4",
+        "vm_address": "0x10fed35f4"
+      },
+      {
+        "kind": "+",
+        "selector": "collectEmptyButtonRouterTypeV739",
+        "encoding": "q16@0:8",
+        "file_offset": "0xfed3678",
+        "vm_address": "0x10fed3678"
+      },
+      {
+        "kind": "+",
+        "selector": "videoHistoryExpansionVideoDefaultLimit",
+        "encoding": "q16@0:8",
+        "file_offset": "0xa81d8ec",
+        "vm_address": "0x10a81d8ec"
+      },
+      {
+        "kind": "+",
+        "selector": "videoHistoryExpansionRequestPageSize",
+        "encoding": "q16@0:8",
+        "file_offset": "0xa81d88c",
+        "vm_address": "0x10a81d88c"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoHistoryConsistency",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed36bc",
+        "vm_address": "0x10fed36bc"
+      },
+      {
+        "kind": "+",
+        "selector": "videoHistorySoftDeleteTTL",
+        "encoding": "d16@0:8",
+        "file_offset": "0xfed3714",
+        "vm_address": "0x10fed3714"
+      },
+      {
+        "kind": "+",
+        "selector": "enableLandingLocalMuteV707",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed37a0",
+        "vm_address": "0x10fed37a0"
+      },
+      {
+        "kind": "+",
+        "selector": "enableAlbumUpdateFollowV729",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed37fc",
+        "vm_address": "0x10fed37fc"
+      },
+      {
+        "kind": "+",
+        "selector": "readerSingleCotInnerFeedStyleV729",
+        "encoding": "Q16@0:8",
+        "file_offset": "0xfed387c",
+        "vm_address": "0x10fed387c"
+      },
+      {
+        "kind": "+",
+        "selector": "outterMixedMiniGameEnabledV731",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed38d8",
+        "vm_address": "0x10fed38d8"
+      },
+      {
+        "kind": "+",
+        "selector": "outterNativeDirectGameEnabledV731",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3930",
+        "vm_address": "0x10fed3930"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSeriesEndDirectGame",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3980",
+        "vm_address": "0x10fed3980"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoFeedContentQuestionnaireV733",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed39c4",
+        "vm_address": "0x10fed39c4"
+      },
+      {
+        "kind": "+",
+        "selector": "useSeriesNpsFeedbackStrategy",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3a1c",
+        "vm_address": "0x10fed3a1c"
+      },
+      {
+        "kind": "+",
+        "selector": "singleVideoSatisfactionSurveyConfigV729",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed3a7c",
+        "vm_address": "0x10fed3a7c"
+      },
+      {
+        "kind": "+",
+        "selector": "playControlPanelSortStyleV731",
+        "encoding": "q16@0:8",
+        "file_offset": "0xfed3af8",
+        "vm_address": "0x10fed3af8"
+      },
+      {
+        "kind": "+",
+        "selector": "enableCoverDislikeOtherFeedbackFixV737",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3b48",
+        "vm_address": "0x10fed3b48"
+      },
+      {
+        "kind": "+",
+        "selector": "enableDislikeSeriesEndFixV737",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3bac",
+        "vm_address": "0x10fed3bac"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoFeedDislikePackCacheFallbackV737",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3c10",
+        "vm_address": "0x10fed3c10"
+      },
+      {
+        "kind": "+",
+        "selector": "disableFeedbackPersonalizationV737",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3c60",
+        "vm_address": "0x10fed3c60"
+      },
+      {
+        "kind": "+",
+        "selector": "shouldShowShortVideoWhenV699PlayerOpen",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3cb8",
+        "vm_address": "0x10fed3cb8"
+      },
+      {
+        "kind": "+",
+        "selector": "isReaderV699MotionComicBallEnabledNoExposure",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3d10",
+        "vm_address": "0x10fed3d10"
+      },
+      {
+        "kind": "+",
+        "selector": "moreAdaptationEntrancePositionV709",
+        "encoding": "q16@0:8",
+        "file_offset": "0xfed3d88",
+        "vm_address": "0x10fed3d88"
+      },
+      {
+        "kind": "+",
+        "selector": "showParallelWorldCreateEntry",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3e28",
+        "vm_address": "0x10fed3e28"
+      },
+      {
+        "kind": "+",
+        "selector": "comicTabTopPanelAutoUnfoldV721",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3e8c",
+        "vm_address": "0x10fed3e8c"
+      },
+      {
+        "kind": "+",
+        "selector": "shouldHideReserveCardTrailerToastV733",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3ee8",
+        "vm_address": "0x10fed3ee8"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSubscribePopupOptV741",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3f3c",
+        "vm_address": "0x10fed3f3c"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSubscribePopupOptForSeriesTabV741",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3f90",
+        "vm_address": "0x10fed3f90"
+      },
+      {
+        "kind": "+",
+        "selector": "collectSuccessTipsStyleV737",
+        "encoding": "Q16@0:8",
+        "file_offset": "0xfed3ff4",
+        "vm_address": "0x10fed3ff4"
+      },
+      {
+        "kind": "+",
+        "selector": "exitRetentionCollectButtonTextV737",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed4060",
+        "vm_address": "0x10fed4060"
+      },
+      {
+        "kind": "+",
+        "selector": "enablePUGCSeriesAlbumFollowUpdateInRightInteraction",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed4084",
+        "vm_address": "0x10fed4084"
+      },
+      {
+        "kind": "+",
+        "selector": "comicTabTopPanelAutoUnfoldFrequencyV733",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed4138",
+        "vm_address": "0x10fed4138"
+      },
+      {
+        "kind": "+",
+        "selector": "comicTabTopPanelAutoUnfoldFrequencyAllCountV733",
+        "encoding": "q16@0:8",
+        "file_offset": "0xfed4194",
+        "vm_address": "0x10fed4194"
+      },
+      {
+        "kind": "+",
+        "selector": "comicTabTopPanelAutoUnfoldFrequencyDayCountV733",
+        "encoding": "q16@0:8",
+        "file_offset": "0xfed41f0",
+        "vm_address": "0x10fed41f0"
+      },
+      {
+        "kind": "+",
+        "selector": "comicTabTopPanelRightPositionV733",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed424c",
+        "vm_address": "0x10fed424c"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSuspendBallExitStyleV735",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed4300",
+        "vm_address": "0x10fed4300"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSuspendBallAutoExitAfterFiveSecondsV735",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed433c",
+        "vm_address": "0x10fed433c"
+      },
+      {
+        "kind": "+",
+        "selector": "suspendBallAutoExitTypeV735",
+        "encoding": "q16@0:8",
+        "file_offset": "0xfed4384",
+        "vm_address": "0x10fed4384"
+      },
+      {
+        "kind": "+",
+        "selector": "enableSuspendBallSlideExitV735",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed43cc",
+        "vm_address": "0x10fed43cc"
+      },
+      {
+        "kind": "+",
+        "selector": "videoFeedDislikeShowSnackbarV681",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed4414",
+        "vm_address": "0x10fed4414"
+      },
+      {
+        "kind": "+",
+        "selector": "videoFeedDislikeShowPanelV681",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed445c",
+        "vm_address": "0x10fed445c"
+      },
+      {
+        "kind": "+",
+        "selector": "videoFeedDislikeStyleConfigV681",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed44a4",
+        "vm_address": "0x10fed44a4"
+      },
+      {
+        "kind": "+",
+        "selector": "dislikeNeedAddSelectionV695",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed45d8",
+        "vm_address": "0x10fed45d8"
+      },
+      {
+        "kind": "+",
+        "selector": "moreSceneDislikeEntranceScenesV725",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfed46fc",
+        "vm_address": "0x10fed46fc"
+      },
+      {
+        "kind": "+",
+        "selector": "enableMoreSceneDislikeEntranceV725ForScene:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xfed48e4",
+        "vm_address": "0x10fed48e4"
+      },
+      {
+        "kind": "+",
+        "selector": "enableVideoFeedDislikeCurrentBatchFilterV727",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed492c",
+        "vm_address": "0x10fed492c"
+      },
+      {
+        "kind": "+",
+        "selector": "videoFeedDislikeInteractionOptV729",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed4984",
+        "vm_address": "0x10fed4984"
+      },
+      {
+        "kind": "+",
+        "selector": "enableMoreSceneDislikeToEndRecommendV737",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed49dc",
+        "vm_address": "0x10fed49dc"
+      },
+      {
+        "kind": "+",
+        "selector": "enableShortVideoGameAnchor",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed4a40",
+        "vm_address": "0x10fed4a40"
+      }
+    ]
+  },
+  {
+    "name": "SSVideoMiniGameService",
+    "superclass": "SSService",
+    "methods": [
+      {
+        "kind": "-",
+        "selector": "init",
+        "encoding": "@16@0:8",
+        "file_offset": "0x1000530c",
+        "vm_address": "0x11000530c"
+      },
+      {
+        "kind": "-",
+        "selector": "canHandleCellViewData:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0x100053c0",
+        "vm_address": "0x1100053c0"
+      },
+      {
+        "kind": "-",
+        "selector": "mpGameIdWithDataModel:",
+        "encoding": "@24@0:8@16",
+        "file_offset": "0x100053f8",
+        "vm_address": "0x1100053f8"
+      },
+      {
+        "kind": "-",
+        "selector": "isMiniGameDataModel:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0x100054d8",
+        "vm_address": "0x1100054d8"
+      },
+      {
+        "kind": "-",
+        "selector": "createFeedPageDataModelWithCellViewData:listVCContext:",
+        "encoding": "@32@0:8@16@24",
+        "file_offset": "0x1000553c",
+        "vm_address": "0x11000553c"
+      },
+      {
+        "kind": "-",
+        "selector": "prepareSeriesEndDirectGameWithCellViewData:anchorVideoDataModel:requestSeriesId:listVCContext:",
+        "encoding": "v48@0:8@16@24@32@40",
+        "file_offset": "0x100057a8",
+        "vm_address": "0x1100057a8"
+      },
+      {
+        "kind": "-",
+        "selector": "seriesEndDirectGameInsertCoordinator:didInvalidateListUniqueId:",
+        "encoding": "v32@0:8@16@24",
+        "file_offset": "0x10005b78",
+        "vm_address": "0x110005b78"
+      },
+      {
+        "kind": "-",
+        "selector": "isNativeDirectGameCellViewData:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0x10005be4",
+        "vm_address": "0x110005be4"
+      },
+      {
+        "kind": "-",
+        "selector": "isSeriesEndDirectGameCellViewData:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0x10005c00",
+        "vm_address": "0x110005c00"
+      },
+      {
+        "kind": "-",
+        "selector": "isNativeDirectGameDataModel:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0x10005c1c",
+        "vm_address": "0x110005c1c"
+      },
+      {
+        "kind": "-",
+        "selector": "isValidNativeDirectGameDataModel:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0x10005c64",
+        "vm_address": "0x110005c64"
+      },
+      {
+        "kind": "-",
+        "selector": "startPreloadForNativeDirectGameDataModel:tempCellIndex:",
+        "encoding": "v32@0:8@16Q24",
+        "file_offset": "0x10005cc8",
+        "vm_address": "0x110005cc8"
+      },
+      {
+        "kind": "-",
+        "selector": "invalidateNativeDirectGameDataModel:reason:",
+        "encoding": "v32@0:8@16@24",
+        "file_offset": "0x10005f84",
+        "vm_address": "0x110005f84"
+      },
+      {
+        "kind": "-",
+        "selector": "createNativeDirectGamePageDataModelWithCellViewData:listVCContext:",
+        "encoding": "@32@0:8@16@24",
+        "file_offset": "0x10006140",
+        "vm_address": "0x110006140"
+      },
+      {
+        "kind": "-",
+        "selector": "createDirectGameContentModelWithCellViewData:source:host:",
+        "encoding": "@40@0:8@16q24@32",
+        "file_offset": "0x100063f0",
+        "vm_address": "0x1100063f0"
+      },
+      {
+        "kind": "-",
+        "selector": "nativeDirectGameEnabled",
+        "encoding": "B16@0:8",
+        "file_offset": "0x1000679c",
+        "vm_address": "0x11000679c"
+      },
+      {
+        "kind": "-",
+        "selector": "setNativeDirectGameEnabled:",
+        "encoding": "v20@0:8B16",
+        "file_offset": "0x100067a0",
+        "vm_address": "0x1100067a0"
+      },
+      {
+        "kind": "-",
+        "selector": "seriesEndCoordinators",
+        "encoding": "@16@0:8",
+        "file_offset": "0x100067a4",
+        "vm_address": "0x1100067a4"
+      },
+      {
+        "kind": "-",
+        "selector": "setSeriesEndCoordinators:",
+        "encoding": "v24@0:8@16",
+        "file_offset": "0x100067ac",
+        "vm_address": "0x1100067ac"
+      },
+      {
+        "kind": "-",
+        "selector": ".cxx_destruct",
+        "encoding": "v16@0:8",
+        "file_offset": "0x100067b0",
+        "vm_address": "0x1100067b0"
+      }
+    ]
+  }
+]

@@ -1,0 +1,89 @@
+f598c28: adrp x8, #0x1cf1a000 
+f598c2c: ldr x8, [x8, #0x5f0] videoMangerContext
+f598c30: str x8, [sp, #0x588] 
+f598c34: adrp x8, #0x1ce85000 
+f598c38: ldr x9, [x8, #0x6e0] shortVideoListVC
+f598c3c: adrp x8, #0x1cb2b000 
+f598c40: ldr x8, [x8, #0x8d8] createFeedPageDataModelWithCellViewData:listVCContext:
+f598c44: stp x8, x9, [sp, #0xb8] 
+f598c48: adrp x8, #0x1cc25000 
+f598c4c: ldr x8, [x8, #0xec0] isNativeDirectGameDataModel:
+f598c50: str x8, [sp, #0x90] 
+f598c54: adrp x8, #0x1cc75000 
+f598c58: ldr x8, [x8, #0xbe8] mpGameIdWithDataModel:
+f598c5c: str x8, [sp, #0x58] 
+f599b98: bl #0x7c6c210 
+  7c6c210: b #0x6e530d8 
+    6e530d8: mov x0, x21 
+    6e530dc: ldr x1, [sp, #0xe8] 
+    6e530e0: ret  
+f599b9c: bl #0xa279244 
+  a279244: mov x2, x28 
+  a279248: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+f599ba0: mov x25, x19 
+f599ba4: cbz w0, #0xf5998e8 
+f599ba8: ldr w8, [sp, #0x6c] 
+f599bac: cbz w8, #0xf599b2c 
+f599bb0: bl #0xf59ba88 
+  f59ba88: ldr x0, [sp, #0x5c8] 
+  f59ba8c: ldr x1, [sp, #0x588] 
+  f59ba90: ret  
+f599bb4: bl #0x11ee07f4 
+f599bb8: mov x29, x29 
+f599bbc: bl #0x11ee08a8 
+f599bc0: bl #0x7c4bbfc 
+  7c4bbfc: b #0x6ab1d70 
+    6ab1d70: mov x19, x0 
+    6ab1d74: ldr x1, [sp, #0xc0] 
+    6ab1d78: ret  
+f599bc4: bl #0x11ee07f4 
+f599bc8: mov x29, x29 
+f599bcc: bl #0x11ee08a8 
+f599bd0: mov x21, x0 
+f599bd4: ldr x22, [sp, #0x490] 
+f599bd8: bl #0x7c679fc 
+  7c679fc: b #0x6eba560 
+    6eba560: mov x0, x22 
+    6eba564: ldr x1, [sp, #0xb8] 
+    6eba568: ret  
+f599bdc: bl #0xa2aec9c 
+  a2aec9c: mov x2, x28 
+  a2aeca0: mov x3, x21 
+  a2aeca4: ret  
+f599be0: bl #0x11ee07f4 
+f599be4: mov x29, x29 
+f599be8: bl #0x11ee08a8 
+f599bec: mov x20, x0 
+f599bf0: bl #0xa26d2b0 
+  a26d2b0: mov x0, x21 
+  a26d2b4: mov x21, x22 
+  a26d2b8: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+f599bf4: bl #0xa255ff0 
+  a255ff0: mov x0, x19 
+  a255ff4: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+f599bf8: mov x19, x25 
+f599bfc: cbz x20, #0xf599cd8 
+f599c00: mov x0, x19 
+f599c04: ldr x1, [sp, #0x5a0] 
+f599c08: bl #0xa25ba8c 
+  a25ba8c: mov x2, x20 
+  a25ba90: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+f599c0c: mov x0, x21 
+f599c10: bl #0x7c6c20c 
+  7c6c20c: b #0x74dfa5c 
+    74dfa5c: ldr x1, [sp, #0x90] 
+    74dfa60: mov x2, x20 
+    74dfa64: b #0x7c07f0c 
+      7c07f0c: b #0xf89def0 
+        f89def0: b #0x11ee07f4 
+f599c14: cbz w0, #0xf599cd8 
+f599cd8: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+f599cdc: ldr x22, [sp, #0x598] 
+f599ce0: b #0xf59adb4 

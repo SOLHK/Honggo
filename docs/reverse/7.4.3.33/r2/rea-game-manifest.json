@@ -1,0 +1,18 @@
+{
+  "kind": "sanitized projection; raw REA Evidence retained locally",
+  "reaVersion": "6.9.0",
+  "rizinVersion": "0.9.1",
+  "evidenceId": "ev_e1be962d48c990e46b843e7bc1a2b5a69653eb50ff94ca9c270b560e0d062fb7",
+  "rawEvidenceSHA256": "e8e911cd2fcbc3a8ee549bfdda7a5f8a2ff956c4397d11030359634d9aaa3044",
+  "hostSHA256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+  "operation": "execute_rizin_command",
+  "command": "e asm.arch; e asm.bits; oml; pd 8 @ 0xf598c28; pd 24 @ 0xf599bc0; pd 7 @ 0xf599cd8; pd 19 @ 0x100053c0; pd 22 @ 0x10005550; pd 14 @ 0x10005820; pd 4 @ 0x10005be4; pd 4 @ 0x10005c00",
+  "asmArch": "arm",
+  "asmBits": 64,
+  "baseAddress": "0x0",
+  "exitCode": 0,
+  "completion": "complete",
+  "artifactChanged": false,
+  "truncated": false,
+  "limitation": "raw file-offset decoding of selected windows, not full Mach-O decompilation or device execution"
+}

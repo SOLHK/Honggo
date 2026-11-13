@@ -1,0 +1,510 @@
+1000553c: stp x29, x30, [sp, #-0x10]! 
+10005540: bl #0xa256fd8 
+  a256fd8: stp x28, x27, [sp, #-0x50]! 
+  a256fdc: stp x26, x25, [sp, #0x10] 
+  a256fe0: stp x24, x23, [sp, #0x20] 
+  a256fe4: stp x22, x21, [sp, #0x30] 
+  a256fe8: stp x20, x19, [sp, #0x40] 
+  a256fec: add x29, sp, #0x50 
+  a256ff0: ret  
+10005544: sub sp, sp, #0x20 
+10005548: bl #0xa25f8c0 
+  a25f8c0: mov x20, x3 
+  a25f8c4: mov x19, x2 
+  a25f8c8: mov x21, x0 
+  a25f8cc: mov x0, x2 
+  a25f8d0: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+1000554c: bl #0xa258290 
+  a258290: mov x0, x20 
+  a258294: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+10005550: adrp x8, #0x1caec000 
+10005554: ldr x1, [x8, #0x4c8] canHandleCellViewData:
+10005558: bl #0xa26e610 
+  a26e610: mov x0, x21 
+  a26e614: mov x2, x19 
+  a26e618: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+1000555c: cbz w0, #0x100055ec 
+10005560: bl #0x10006898 
+  10006898: adrp x8, #0x1cc25000 
+  1000689c: ldr x1, [x8, #0xeb8] isNativeDirectGameCellViewData:
+  100068a0: ret  
+10005564: bl #0xa26e610 
+  a26e610: mov x0, x21 
+  a26e614: mov x2, x19 
+  a26e618: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+10005568: cbz w0, #0x10005620 
+1000556c: bl #0xf5973bc 
+  f5973bc: adrp x8, #0x1cc79000 
+  f5973c0: ldr x1, [x8, #0x4c0] nativeDirectGameEnabled
+  f5973c4: ret  
+10005570: bl #0xa256f34 
+  a256f34: mov x0, x21 
+  a256f38: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+10005574: tbnz w0, #0, #0x100055f4 
+10005578: bl #0x11ee06b0 
+1000557c: mov x21, x0 
+10005580: bl #0x100051b4 
+  100051b4: adrp x8, #0x1ceb8000 
+  100051b8: ldr x1, [x8, #0x400] stringByAppendingString:
+  100051bc: adrp x0, #0x19de5000 
+  100051c0: add x0, x0, #0x478 
+  100051c4: adrp x2, #0x1a3ba000 
+  100051c8: add x2, x2, #0xcd8 
+  100051cc: ret  
+10005584: bl #0x11ee07f4 
+10005588: mov x29, x29 
+1000558c: bl #0x11ee08a8 
+10005590: bl #0xa2698a8 
+  a2698a8: mov x22, x0 
+  a2698ac: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+10005594: bl #0xa269898 
+  a269898: mov x23, x0 
+  a26989c: adrp x8, #0x1cf3b000 
+  a2698a0: ldr x24, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a2698a4: ret  
+10005598: bl #0xd611b2c 
+  d611b2c: adrp x8, #0x1caf6000 
+  d611b30: ldr x1, [x8, #0x1e8] cellId
+  d611b34: mov x0, x19 
+  d611b38: b #0x11ee07f4 
+1000559c: mov x25, x0 
+100055a0: bl #0xf8aaaac 
+  f8aaaac: b #0x7c53984 
+    7c53984: b #0x6dd6758 
+      6dd6758: adrp x8, #0x1ce9d000 
+      6dd675c: ldr x1, [x8, #0x340] showType
+      6dd6760: mov x0, x19 
+      6dd6764: b #0x7c07f0c 
+        7c07f0c: b #0xf89def0 
+          f89def0: b #0x11ee07f4 
+100055a4: bl #0xf8adec0 
+  f8adec0: b #0x7ce44e0 
+    7ce44e0: sxtw x8, w0 
+    7ce44e4: adrp x9, #0x1ceb8000 
+    7ce44e8: ldr x1, [x9, #0xab8] stringWithFormat:
+    7ce44ec: stp x8, xzr, [sp, #8] 
+    7ce44f0: ret  
+100055a8: str x25, [sp] 
+100055ac: adrp x2, #0x1a40c000 
+100055b0: add x2, x2, #0x738 
+100055b4: mov x0, x24 
+100055b8: bl #0x11ee07f4 
+100055bc: mov x29, x29 
+100055c0: bl #0x11ee08a8 
+100055c4: mov x24, x0 
+100055c8: bl #0x10006874 
+  10006874: adrp x0, #0x147c3000 
+  10006878: add x0, x0, #0x25f 
+  1000687c: ret  
+100055cc: adrp x1, #0x147c3000 
+100055d0: add x1, x1, #0x2e8 
+100055d4: mov x2, x22 
+100055d8: bl #0xf8d04f8 
+  f8d04f8: b #0x7c56358 
+    7c56358: b #0x6a20ad4 
+      6a20ad4: mov w3, #2 
+      6a20ad8: mov w4, #0x69 
+      6a20adc: mov x5, x24 
+      6a20ae0: b #0xa3c1e80 
+100055dc: bl #0xa257bfc 
+  a257bfc: mov x0, x24 
+  a257c00: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+100055e0: bl #0xa269854 
+  a269854: mov x0, x23 
+  a269858: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+100055e4: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+100055e8: bl #0xa256014 
+  a256014: mov x0, x21 
+  a256018: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+100055ec: mov x22, #0 
+100055f0: b #0x10005610 
+  10005610: bl #0xa256094 
+    a256094: mov x0, x20 
+    a256098: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  10005614: bl #0xa255ff0 
+    a255ff0: mov x0, x19 
+    a255ff4: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  10005618: bl #0xa28cc88 
+    a28cc88: mov x0, x22 
+    a28cc8c: add sp, sp, #0x20 
+    a28cc90: b #0xa29203c 
+      a29203c: mov x16, x30 
+      a292040: ldp x29, x30, [sp, #0x50] 
+      a292044: ldp x20, x19, [sp, #0x40] 
+      a292048: ldp x22, x21, [sp, #0x30] 
+      a29204c: ldp x24, x23, [sp, #0x20] 
+      a292050: ldp x26, x25, [sp, #0x10] 
+      a292054: ldp x28, x27, [sp], #0x60 
+      a292058: ret x16 
+  1000561c: b #0x11ee06bc 
+100055f4: adrp x8, #0x1cb2d000 
+100055f8: ldr x1, [x8, #0x28] createNativeDirectGamePageDataModelWithCellViewData:listVCContext:
+100055fc: bl #0xa25f89c 
+  a25f89c: mov x0, x21 
+  a25f8a0: mov x2, x19 
+  a25f8a4: mov x3, x20 
+  a25f8a8: ret  
+10005600: bl #0x11ee07f4 
+10005604: mov x29, x29 
+10005608: bl #0x11ee08a8 
+1000560c: mov x22, x0 
+10005610: bl #0xa256094 
+  a256094: mov x0, x20 
+  a256098: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+10005614: bl #0xa255ff0 
+  a255ff0: mov x0, x19 
+  a255ff4: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+10005618: bl #0xa28cc88 
+  a28cc88: mov x0, x22 
+  a28cc8c: add sp, sp, #0x20 
+  a28cc90: b #0xa29203c 
+    a29203c: mov x16, x30 
+    a292040: ldp x29, x30, [sp, #0x50] 
+    a292044: ldp x20, x19, [sp, #0x40] 
+    a292048: ldp x22, x21, [sp, #0x30] 
+    a29204c: ldp x24, x23, [sp, #0x20] 
+    a292050: ldp x26, x25, [sp, #0x10] 
+    a292054: ldp x28, x27, [sp], #0x60 
+    a292058: ret x16 
+1000561c: b #0x11ee06bc 
+10005620: bl #0xd5cad48 
+  d5cad48: adrp x8, #0x1caf5000 
+  d5cad4c: ldr x1, [x8, #0xe58] cellExtraData
+  d5cad50: mov x0, x19 
+  d5cad54: ret  
+10005624: bl #0x11ee07f4 
+10005628: mov x29, x29 
+1000562c: bl #0x11ee08a8 
+10005630: bl #0x100031c4 
+  100031c4: mov x22, x0 
+  100031c8: adrp x8, #0x1cc70000 
+  100031cc: ldr x1, [x8, #0x330] miniGameData
+  100031d0: ret  
+10005634: bl #0x11ee07f4 
+10005638: mov x29, x29 
+1000563c: bl #0x11ee08a8 
+10005640: bl #0xa257cfc 
+  a257cfc: mov x21, x0 
+  a257d00: mov x0, x22 
+  a257d04: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+10005644: cbz x21, #0x1000566c 
+10005648: bl #0xf8c83fc 
+  f8c83fc: b #0x7c5cbcc 
+    7c5cbcc: b #0x6effcd8 
+      6effcd8: adrp x8, #0x1cc5f000 
+      6effcdc: ldr x1, [x8, #0xd58] lynxUrl
+      6effce0: ret  
+1000564c: mov x0, x21 
+10005650: bl #0x11ee07f4 
+10005654: mov x29, x29 
+10005658: bl #0x11ee08a8 
+1000565c: mov x22, x0 
+10005660: bl #0xa26ed68 
+  a26ed68: adrp x8, #0x1cc46000 
+  a26ed6c: ldr x1, [x8, #0x8f8] length
+  a26ed70: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+10005664: bl #0xa257ca4 
+  a257ca4: mov x23, x0 
+  a257ca8: mov x0, x22 
+  a257cac: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+10005668: cbnz x23, #0x100056d8 
+1000566c: bl #0x11ee06b0 
+10005670: bl #0xa293d90 
+  a293d90: mov x22, x0 
+  a293d94: adrp x8, #0x1ceb8000 
+  a293d98: ldr x1, [x8, #0x400] stringByAppendingString:
+  a293d9c: adrp x0, #0x19de5000 
+  a293da0: add x0, x0, #0x478 
+  a293da4: ret  
+10005674: bl #0xf59b9ac 
+  f59b9ac: adrp x2, #0x1a3ba000 
+  f59b9b0: add x2, x2, #0xd18 
+  f59b9b4: ret  
+10005678: bl #0x11ee07f4 
+1000567c: mov x29, x29 
+10005680: bl #0x11ee08a8 
+10005684: bl #0xa26e9ec 
+  a26e9ec: mov x23, x0 
+  a26e9f0: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+10005688: bl #0xa26e9dc 
+  a26e9dc: mov x24, x0 
+  a26e9e0: adrp x8, #0x1cf3b000 
+  a26e9e4: ldr x25, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a26e9e8: ret  
+1000568c: bl #0xd611b2c 
+  d611b2c: adrp x8, #0x1caf6000 
+  d611b30: ldr x1, [x8, #0x1e8] cellId
+  d611b34: mov x0, x19 
+  d611b38: b #0x11ee07f4 
+10005690: bl #0xa26e9c0 
+  a26e9c0: adrp x8, #0x1ceb8000 
+  a26e9c4: ldr x1, [x8, #0xab8] stringWithFormat:
+  a26e9c8: stp x0, xzr, [sp] 
+  a26e9cc: ret  
+10005694: adrp x2, #0x1a40c000 
+10005698: add x2, x2, #0x758 
+1000569c: mov x0, x25 
+100056a0: bl #0x11ee07f4 
+100056a4: mov x29, x29 
+100056a8: bl #0x11ee08a8 
+100056ac: mov x25, x0 
+100056b0: bl #0x10006874 
+  10006874: adrp x0, #0x147c3000 
+  10006878: add x0, x0, #0x25f 
+  1000687c: ret  
+100056b4: adrp x1, #0x147c3000 
+100056b8: add x1, x1, #0x2e8 
+100056bc: bl #0xe1af408 
+  e1af408: mov x2, x23 
+  e1af40c: mov w3, #2 
+  e1af410: mov w4, #0x71 
+  e1af414: mov x5, x25 
+  e1af418: b #0xa3c1e80 
+100056c0: bl #0xa257964 
+  a257964: mov x0, x25 
+  a257968: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+100056c4: bl #0xa26cc4c 
+  a26cc4c: mov x0, x24 
+  a26cc50: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+100056c8: bl #0xa256bbc 
+  a256bbc: mov x0, x23 
+  a256bc0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+100056cc: bl #0xa25aa1c 
+  a25aa1c: mov x0, x22 
+  a25aa20: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+100056d0: mov x22, #0 
+100056d4: b #0x100057a0 
+  100057a0: bl #0xa256d6c 
+    a256d6c: mov x0, x21 
+    a256d70: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  100057a4: b #0x10005610 
+    10005610: bl #0xa256094 
+      a256094: mov x0, x20 
+      a256098: b #0xf89deec 
+        f89deec: b #0x11ee086c 
+    10005614: bl #0xa255ff0 
+      a255ff0: mov x0, x19 
+      a255ff4: b #0xf89deec 
+        f89deec: b #0x11ee086c 
+    10005618: bl #0xa28cc88 
+      a28cc88: mov x0, x22 
+      a28cc8c: add sp, sp, #0x20 
+      a28cc90: b #0xa29203c 
+        a29203c: mov x16, x30 
+        a292040: ldp x29, x30, [sp, #0x50] 
+        a292044: ldp x20, x19, [sp, #0x40] 
+        a292048: ldp x22, x21, [sp, #0x30] 
+        a29204c: ldp x24, x23, [sp, #0x20] 
+        a292050: ldp x26, x25, [sp, #0x10] 
+        a292054: ldp x28, x27, [sp], #0x60 
+        a292058: ret x16 
+    1000561c: b #0x11ee06bc 
+100056d8: adrp x8, #0x1cf99000 
+100056dc: ldr x0, [x8, #0x450] class=SSShortVideoFeedMiniGameContentModel
+100056e0: bl #0x11ee065c 
+100056e4: adrp x8, #0x1cbf9000 
+100056e8: ldr x1, [x8, #0x628] initWithCellViewData:miniGameData:
+100056ec: bl #0xa26bf9c 
+  a26bf9c: mov x2, x19 
+  a26bfa0: mov x3, x21 
+  a26bfa4: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+100056f0: mov x23, x0 
+100056f4: bl #0xa2b064c 
+  a2b064c: adrp x8, #0x1cf30000 
+  a2b0650: ldr x0, [x8, #0xcd0] 
+  a2b0654: b #0xa4c3e58 
+100056f8: bl #0xf59ba24 
+  f59ba24: adrp x8, #0x1cb2e000 
+  f59ba28: ldr x1, [x8, #0x710] createShortVideoFeedPageDataModelWithContentModel:
+  f59ba2c: ret  
+100056fc: mov x2, x23 
+10005700: bl #0x11ee07f4 
+10005704: mov x29, x29 
+10005708: bl #0x11ee08a8 
+1000570c: mov x22, x0 
+10005710: cbnz x0, #0x10005784 
+10005714: bl #0x11ee06b0 
+10005718: mov x24, x0 
+1000571c: bl #0x10001eb4 
+  10001eb4: adrp x8, #0x1ceb8000 
+  10001eb8: ldr x1, [x8, #0x400] stringByAppendingString:
+  10001ebc: adrp x0, #0x19de5000 
+  10001ec0: add x0, x0, #0x478 
+  10001ec4: adrp x2, #0x1a3ba000 
+  10001ec8: add x2, x2, #0xd18 
+  10001ecc: ret  
+10005720: bl #0x11ee07f4 
+10005724: mov x29, x29 
+10005728: bl #0x11ee08a8 
+1000572c: bl #0xa26a768 
+  a26a768: mov x25, x0 
+  a26a76c: b #0xf89e430 
+    f89e430: b #0x11ee06b0 
+10005730: bl #0xa25f91c 
+  a25f91c: mov x26, x0 
+  a25f920: adrp x8, #0x1cf3b000 
+  a25f924: ldr x27, [x8, #0xbc0] _OBJC_CLASS_$_NSString
+  a25f928: ret  
+10005734: bl #0xd611b2c 
+  d611b2c: adrp x8, #0x1caf6000 
+  d611b30: ldr x1, [x8, #0x1e8] cellId
+  d611b34: mov x0, x19 
+  d611b38: b #0x11ee07f4 
+10005738: bl #0xa26e9c0 
+  a26e9c0: adrp x8, #0x1ceb8000 
+  a26e9c4: ldr x1, [x8, #0xab8] stringWithFormat:
+  a26e9c8: stp x0, xzr, [sp] 
+  a26e9cc: ret  
+1000573c: adrp x2, #0x1a40c000 
+10005740: add x2, x2, #0x778 
+10005744: mov x0, x27 
+10005748: bl #0x11ee07f4 
+1000574c: mov x29, x29 
+10005750: bl #0x11ee08a8 
+10005754: mov x27, x0 
+10005758: bl #0x10006874 
+  10006874: adrp x0, #0x147c3000 
+  10006878: add x0, x0, #0x25f 
+  1000687c: ret  
+1000575c: adrp x1, #0x147c3000 
+10005760: add x1, x1, #0x2e8 
+10005764: bl #0xa2913a0 
+  a2913a0: mov x2, x25 
+  a2913a4: mov w3, #2 
+  a2913a8: ret  
+10005768: mov w4, #0x7a 
+1000576c: bl #0xa27c968 
+  a27c968: mov x5, x27 
+  a27c96c: b #0xa3c1e80 
+10005770: bl #0xa257950 
+  a257950: mov x0, x27 
+  a257954: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+10005774: bl #0xa25f8e0 
+  a25f8e0: mov x0, x26 
+  a25f8e4: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+10005778: bl #0xa257964 
+  a257964: mov x0, x25 
+  a257968: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+1000577c: bl #0xa26cc4c 
+  a26cc4c: mov x0, x24 
+  a26cc50: b #0xf89e428 
+    f89e428: b #0x11ee06a4 
+10005780: b #0x10005798 
+  10005798: bl #0xa255ff8 
+    a255ff8: mov x0, x22 
+    a255ffc: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  1000579c: bl #0xa256bbc 
+    a256bbc: mov x0, x23 
+    a256bc0: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  100057a0: bl #0xa256d6c 
+    a256d6c: mov x0, x21 
+    a256d70: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  100057a4: b #0x10005610 
+    10005610: bl #0xa256094 
+      a256094: mov x0, x20 
+      a256098: b #0xf89deec 
+        f89deec: b #0x11ee086c 
+    10005614: bl #0xa255ff0 
+      a255ff0: mov x0, x19 
+      a255ff4: b #0xf89deec 
+        f89deec: b #0x11ee086c 
+    10005618: bl #0xa28cc88 
+      a28cc88: mov x0, x22 
+      a28cc8c: add sp, sp, #0x20 
+      a28cc90: b #0xa29203c 
+        a29203c: mov x16, x30 
+        a292040: ldp x29, x30, [sp, #0x50] 
+        a292044: ldp x20, x19, [sp, #0x40] 
+        a292048: ldp x22, x21, [sp, #0x30] 
+        a29204c: ldp x24, x23, [sp, #0x20] 
+        a292050: ldp x26, x25, [sp, #0x10] 
+        a292054: ldp x28, x27, [sp], #0x60 
+        a292058: ret x16 
+    1000561c: b #0x11ee06bc 
+10005784: bl #0xdcf0950 
+  dcf0950: adrp x8, #0x1cd6f000 
+  dcf0954: ldr x1, [x8, #0x38] setCellViewData:
+  dcf0958: ret  
+10005788: bl #0xa295ee4 
+  a295ee4: mov x0, x22 
+  a295ee8: mov x2, x19 
+  a295eec: b #0x11ee07f4 
+1000578c: bl #0xf4daa94 
+  f4daa94: adrp x8, #0x1ce0c000 
+  f4daa98: ldr x1, [x8, #0xe98] setPageDataModel:
+  f4daa9c: ret  
+10005790: bl #0xa26924c 
+  a26924c: mov x0, x23 
+  a269250: mov x2, x22 
+  a269254: b #0xf89def0 
+    f89def0: b #0x11ee07f4 
+10005794: bl #0xa25ac2c 
+  a25ac2c: mov x0, x22 
+  a25ac30: b #0xf89df5c 
+    f89df5c: b #0x11ee0884 
+10005798: bl #0xa255ff8 
+  a255ff8: mov x0, x22 
+  a255ffc: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+1000579c: bl #0xa256bbc 
+  a256bbc: mov x0, x23 
+  a256bc0: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+100057a0: bl #0xa256d6c 
+  a256d6c: mov x0, x21 
+  a256d70: b #0xf89deec 
+    f89deec: b #0x11ee086c 
+100057a4: b #0x10005610 
+  10005610: bl #0xa256094 
+    a256094: mov x0, x20 
+    a256098: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  10005614: bl #0xa255ff0 
+    a255ff0: mov x0, x19 
+    a255ff4: b #0xf89deec 
+      f89deec: b #0x11ee086c 
+  10005618: bl #0xa28cc88 
+    a28cc88: mov x0, x22 
+    a28cc8c: add sp, sp, #0x20 
+    a28cc90: b #0xa29203c 
+      a29203c: mov x16, x30 
+      a292040: ldp x29, x30, [sp, #0x50] 
+      a292044: ldp x20, x19, [sp, #0x40] 
+      a292048: ldp x22, x21, [sp, #0x30] 
+      a29204c: ldp x24, x23, [sp, #0x20] 
+      a292050: ldp x26, x25, [sp, #0x10] 
+      a292054: ldp x28, x27, [sp], #0x60 
+      a292058: ret x16 
+  1000561c: b #0x11ee06bc 

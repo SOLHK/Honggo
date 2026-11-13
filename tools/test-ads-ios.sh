@@ -104,7 +104,7 @@ report = json.load(open(sys.argv[1]))
 print(json.dumps(report, indent=2, ensure_ascii=False))
 checks = report.get("checks", [])
 if report.get("status") != "passed" or report.get("failed") != 0 or \
-        report.get("total", 0) < 28 or len(checks) != report.get("total") or \
+        report.get("total", 0) < 36 or len(checks) != report.get("total") or \
         any(check.get("passed") is not True for check in checks):
     raise SystemExit("Ad filtering UIKit integration checks failed")
 PY

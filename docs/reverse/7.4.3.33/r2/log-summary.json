@@ -1,0 +1,170 @@
+{
+  "logSHA256": "6a6b5176ebc72026d1f40ad26b3b502568f4ee961fe426d525a9fefac6ece46a",
+  "version": "1.1.15-R1",
+  "host": {
+    "os": "Version 27.0.1 (Build 24A446)",
+    "hostBuild": "7.4.3.33",
+    "executable": "Eggplant"
+  },
+  "events": 172,
+  "currentEvents": 127,
+  "sessions": 2,
+  "currentWindowShanghai": [
+    "2026-11-13T21:04:29.144181+08:00",
+    "2026-11-13T21:13:25.301214+08:00"
+  ],
+  "installedAdRules": 43,
+  "expectedAdRules": 43,
+  "missingAdRules": [],
+  "skippedEvents": 0,
+  "maskScenes": 0,
+  "decisions": {
+    "19": {
+      "class": "SSWelfareRedPacketPopupAdapter",
+      "selector": "couldShowRedPacket",
+      "countLowerBound": 4,
+      "result": false
+    },
+    "0": {
+      "class": "SSReadingAdSplashService",
+      "selector": "shouldShowSplashAd",
+      "countLowerBound": 2,
+      "result": false
+    },
+    "4": {
+      "class": "SSBizVideoAdTopviewService",
+      "selector": "canShowTopView",
+      "countLowerBound": 2,
+      "result": false
+    },
+    "16": {
+      "class": "SSBizVideoPatchAdService",
+      "selector": "showPatchAdViewWithContext:seriesId:vId:currentTime:patchAdViewReadyBlock:removeBlock:",
+      "countLowerBound": 256,
+      "result": false
+    },
+    "30": {
+      "class": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowContinueSkipSurveyIfNeededWithVideoId:",
+      "countLowerBound": 128,
+      "result": false
+    },
+    "26": {
+      "class": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowSingleVideoSurveyIfNeededWithVideoId:",
+      "countLowerBound": 128,
+      "result": false
+    },
+    "9": {
+      "class": "SSShortVideoCommentAdService",
+      "selector": "enableCommentAd",
+      "countLowerBound": 1,
+      "result": false
+    },
+    "15": {
+      "class": "SSBizVideoPatchAdService",
+      "selector": "shouldSkipPatchAdWithContext:",
+      "countLowerBound": 4,
+      "result": true
+    },
+    "13": {
+      "class": "SSBizVideoPauseAdManager",
+      "selector": "shouldRequestPauseAdData",
+      "countLowerBound": 4,
+      "result": false
+    },
+    "42": {
+      "class": "BDADShortVideoSideBarPatchSwitchComponent",
+      "selector": "isAvailableWithCtx:",
+      "countLowerBound": 256,
+      "result": false
+    },
+    "32": {
+      "class": "SSBizVideoAdABTestHelper",
+      "selector": "enableEcomForceCard",
+      "countLowerBound": 4,
+      "result": false
+    },
+    "12": {
+      "class": "SSBizVideoPauseAdManager",
+      "selector": "shouldShowPauseAd",
+      "countLowerBound": 1,
+      "result": false
+    }
+  },
+  "toggles": [
+    {
+      "timeShanghai": "2026-11-13T21:04:12.980221+08:00",
+      "feature": "splash",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:13.466620+08:00",
+      "feature": "topview",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:13.933967+08:00",
+      "feature": "feed",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:14.282812+08:00",
+      "feature": "comment",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:14.699994+08:00",
+      "feature": "pause",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:15.084445+08:00",
+      "feature": "patch",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:15.533716+08:00",
+      "feature": "commerce",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:15.900889+08:00",
+      "feature": "marketing",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:16.334134+08:00",
+      "feature": "redPacket",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:16.800930+08:00",
+      "feature": "bookstoreAd",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:17.217805+08:00",
+      "feature": "couponPendant",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:17.567103+08:00",
+      "feature": "miniGamePendant",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:18.589151+08:00",
+      "feature": "welfareGuide",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T21:04:18.922527+08:00",
+      "feature": "survey",
+      "enabled": true
+    }
+  ],
+  "screenshotBundleID": "com.phoenix.video1",
+  "bundleIDSource": "user screenshot, not collected in R1 log",
+  "hostGuard": "executable Eggplant and CFBundleVersion 7.4.3.33; no bundle ID condition"
+}

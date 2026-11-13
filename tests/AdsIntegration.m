@@ -4,6 +4,40 @@
 #import <objc/message.h>
 
 static NSUInteger forceRequests, feedRequests, manualEntries, patchRequests;
+static NSUInteger gameModelCreations;
+
+@interface SSVideoMiniGameService : NSObject
+- (id)createFeedPageDataModelWithCellViewData:(id)cell listVCContext:(id)context;
+- (id)createDirectGameContentModelWithCellViewData:(id)cell source:(NSInteger)source host:(id)host;
+@end
+@implementation SSVideoMiniGameService
+- (id)createFeedPageDataModelWithCellViewData:(id)cell listVCContext:(id)context {
+    gameModelCreations++; return cell;
+}
+- (id)createDirectGameContentModelWithCellViewData:(id)cell source:(NSInteger)source host:(id)host {
+    return cell;
+}
+@end
+
+@interface SSBizVideoABTestHelper : NSObject
++ (BOOL)enableSeriesEndDirectGame;
+@end
+@implementation SSBizVideoABTestHelper
++ (BOOL)enableSeriesEndDirectGame { return YES; }
+@end
+
+// Replay the observed f599be0 -> f599bfc nil guard before append, keeping
+// neighboring drama entries. This is a controlled caller, not the host binary.
+static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
+    NSMutableArray *models = [NSMutableArray array];
+    for (NSString *cell in @[@"drama-1", @"game-legacy", @"game-native", @"drama-2"]) {
+        id model = [cell hasPrefix:@"game-"] ?
+            [service createFeedPageDataModelWithCellViewData:cell listVCContext:@"context"] : cell;
+        if (model) [models addObject:model];
+    }
+    return models;
+}
+
 @interface SSBizVideoAdABTestHelper : NSObject
 + (BOOL)enableEcomForceCard;
 @end
@@ -131,11 +165,26 @@ static NSUInteger forceRequests, feedRequests, manualEntries, patchRequests;
     BDADBackPatchAdService *back = [BDADBackPatchAdService new];
     BDADPlotTouchAdService *plot = [BDADPlotTouchAdService new];
     BDADShortVideoSideBarPatchSwitchComponent *sidebar = [BDADShortVideoSideBarPatchSwitchComponent new];
+    SSVideoMiniGameService *games = [SSVideoMiniGameService new];
+    Method gameFactory = class_getInstanceMethod(SSVideoMiniGameService.class,
+        @selector(createFeedPageDataModelWithCellViewData:listVCContext:));
+    IMP originalGameFactory = method_getImplementation(gameFactory);
+    Method seriesGame = class_getClassMethod(SSBizVideoABTestHelper.class, @selector(enableSeriesEndDirectGame));
+    IMP originalSeriesGame = method_getImplementation(seriesGame);
     Method force = class_getClassMethod(SSBizVideoAdABTestHelper.class, @selector(enableEcomForceCard));
     IMP originalForce = method_getImplementation(force);
     Method wrongABI = class_getInstanceMethod(SSBizVideoAdCommonAdClient.class, @selector(shouldRequestShortVideoAd:));
     IMP originalWrongABI = method_getImplementation(wrongABI);
     HGInstallAds();
+    [self check:[HGGameFeedFixture(games) isEqual:@[@"drama-1", @"game-legacy", @"game-native", @"drama-2"]]
+        name:@"disabled feed filtering preserves legacy and native game cards in order"];
+    [self check:[SSBizVideoABTestHelper enableSeriesEndDirectGame]
+        name:@"disabled filtering preserves the series-end game decision"];
+    [defaults setBool:YES forKey:@"HongguoGlass.miniGamePendant"];
+    HGInstallAds();
+    [self check:[[games createFeedPageDataModelWithCellViewData:@"game-legacy" listVCContext:nil] isEqual:@"game-legacy"]
+        name:@"the bookstore pendant preference does not implicitly filter feed games"];
+    NSUInteger gameCreationsBeforeFiltering = gameModelCreations;
     [self check:[[live createFeedLiveInsertModelWithRoomModel:@"room"] isEqual:@"room"]
         name:@"disabled filtering preserves client inserted live models"];
     [self check:[[mixed liveFeedDataModelWithCellViewData:@"live-cell"] isEqual:@"live-cell"]
@@ -161,6 +210,16 @@ static NSUInteger forceRequests, feedRequests, manualEntries, patchRequests;
     [defaults setBool:YES forKey:@"HongguoGlass.feed"];
     [defaults setBool:YES forKey:@"HongguoGlass.patch"];
     HGInstallAds();
+    [self check:[games createFeedPageDataModelWithCellViewData:@"game-legacy" listVCContext:nil] == nil &&
+        [games createFeedPageDataModelWithCellViewData:@"game-native" listVCContext:@"context"] == nil &&
+        gameModelCreations == gameCreationsBeforeFiltering
+        name:@"both game feed variants are declined before host model construction"];
+    [self check:[HGGameFeedFixture(games) isEqual:@[@"drama-1", @"drama-2"]]
+        name:@"the caller nil guard omits game cards without empty entries or reordering drama"];
+    [self check:![SSBizVideoABTestHelper enableSeriesEndDirectGame]
+        name:@"series-end game insertion takes its disabled preparation branch"];
+    [self check:[[games createDirectGameContentModelWithCellViewData:@"selected-game" source:1 host:nil]
+        isEqual:@"selected-game"] name:@"the shared game content factory remains untouched"];
     [self check:[live createFeedLiveInsertModelWithRoomModel:@"room"] == nil
         name:@"client inserted live models are declined before queueing"];
     [self check:[mixed liveFeedDataModelWithCellViewData:@"live-cell"] == nil
@@ -210,10 +269,15 @@ static NSUInteger forceRequests, feedRequests, manualEntries, patchRequests;
     [self check:patchRequests == 1 name:@"optional absent completion does not invoke the host ad"];
     // Restore the fixture's host IMP to model a fresh process after turning off.
     method_setImplementation(force, originalForce);
+    method_setImplementation(gameFactory, originalGameFactory);
+    method_setImplementation(seriesGame, originalSeriesGame);
     [defaults setBool:NO forKey:@"HongguoGlass.feed"];
     HGInstallAds();
     [self check:[SSBizVideoAdABTestHelper enableEcomForceCard] && forceRequests == 2
         name:@"a fresh host implementation stays enabled after turning the option off"];
+    [self check:[SSBizVideoABTestHelper enableSeriesEndDirectGame] &&
+        [HGGameFeedFixture(games) isEqual:@[@"drama-1", @"game-legacy", @"game-native", @"drama-2"]]
+        name:@"fresh host game implementations remain original after disabling feed filtering"];
     [self finish];
 }
 - (void)finish {

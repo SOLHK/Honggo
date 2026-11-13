@@ -19,6 +19,7 @@ static BOOL HGNoTimesObject(id self, SEL cmd, double time, double duration, id c
 static BOOL HGNoObjectClass(id self, SEL cmd, id argument, Class viewClass) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGYesObject(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, YES); return YES; }
 static id HGNoModel(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, NO); return nil; }
+static id HGNoModels(id self, SEL cmd, id data, id context) { HGAdDecision(self, cmd, NO); return nil; }
 static void HGSkipSurvey(id self, SEL cmd, NSInteger style, id videoID) { HGAdDecision(self, cmd, NO); }
 static void HGSkipPendant(id self, SEL cmd, UIView *parent) { HGAdDecision(self, cmd, NO); }
 
@@ -78,6 +79,10 @@ static const HGGate HGGates[] = {
     {HGPatch, "BDADPlotTouchAdService", "canShowPlotAdWithContext:", "B24@0:8@16", (IMP)HGNoObject},
     {HGPatch, "BDADPlotTouchAdService", "canRequestAdWithPlaybackTime:context:", "B32@0:8d16@24", (IMP)HGNoTimeObject},
     {HGPatch, "BDADShortVideoSideBarPatchSwitchComponent", "isAvailableWithCtx:", "B24@0:8@16", (IMP)HGNoObject},
+    // Game feed cards and series-end game inserts are not the bookstore pendant.
+    // The feed caller skips nil before append; series-end NO precedes preparation.
+    {HGFeed, "SSVideoMiniGameService", "createFeedPageDataModelWithCellViewData:listVCContext:", "@32@0:8@16@24", (IMP)HGNoModels},
+    {HGFeed, "SSBizVideoABTestHelper", "enableSeriesEndDirectGame", "B16@0:8", (IMP)HGNo, YES},
 };
 
 static void HGAdDecision(id object, SEL selector, BOOL result) {

@@ -1,0 +1,727 @@
+{
+  "version": "1.1.15-R2",
+  "count": 45,
+  "failed": 0,
+  "checks": [
+    {
+      "rule": 0,
+      "feature": "HGSplash",
+      "class": "SSReadingAdSplashService",
+      "selector": "shouldShowSplashAd",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "shouldShowSplashAd",
+        "encoding": "B16@0:8",
+        "file_offset": "0xa79a128",
+        "vm_address": "0x10a79a128"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 1,
+      "feature": "HGSplash",
+      "class": "SSReadingAdSplashService",
+      "selector": "shouldShowSplashAtHotLaunch",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "shouldShowSplashAtHotLaunch",
+        "encoding": "B16@0:8",
+        "file_offset": "0xd5679dc",
+        "vm_address": "0x10d5679dc"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 2,
+      "feature": "HGSplash",
+      "class": "SSReadingAdSplashService",
+      "selector": "shouldShowSplashAdAtHotLaunchByThirdParty",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "shouldShowSplashAdAtHotLaunchByThirdParty",
+        "encoding": "B16@0:8",
+        "file_offset": "0xd567294",
+        "vm_address": "0x10d567294"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 3,
+      "feature": "HGTopView",
+      "class": "SSBizVideoAdTopviewService",
+      "selector": "topviewEnable",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "topviewEnable",
+        "encoding": "B16@0:8",
+        "file_offset": "0xa7cf738",
+        "vm_address": "0x10a7cf738"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 4,
+      "feature": "HGTopView",
+      "class": "SSBizVideoAdTopviewService",
+      "selector": "canShowTopView",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "canShowTopView",
+        "encoding": "B16@0:8",
+        "file_offset": "0xa7cf78c",
+        "vm_address": "0x10a7cf78c"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 5,
+      "feature": "HGFeed",
+      "class": "SSBizVideoAdCommonAdClient",
+      "selector": "shouldRequestShortVideoAd:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "shouldRequestShortVideoAd:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xfd3d600",
+        "vm_address": "0x10fd3d600"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 6,
+      "feature": "HGFeed",
+      "class": "SSBizVideoAdCommonAdClient",
+      "selector": "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xfd41048",
+        "vm_address": "0x10fd41048"
+      },
+      "replacement": "HGYesObject",
+      "matched": true
+    },
+    {
+      "rule": 7,
+      "feature": "HGFeed",
+      "class": "SSShortVideoMUnionAdService",
+      "selector": "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xfd4b634",
+        "vm_address": "0x10fd4b634"
+      },
+      "replacement": "HGYesObject",
+      "matched": true
+    },
+    {
+      "rule": 8,
+      "feature": "HGFeed",
+      "class": "SSShortVideoAdService",
+      "selector": "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xfd58240",
+        "vm_address": "0x10fd58240"
+      },
+      "replacement": "HGYesObject",
+      "matched": true
+    },
+    {
+      "rule": 9,
+      "feature": "HGComment",
+      "class": "SSShortVideoCommentAdService",
+      "selector": "enableCommentAd",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "+",
+        "selector": "enableCommentAd",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfd306d8",
+        "vm_address": "0x10fd306d8"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 10,
+      "feature": "HGComment",
+      "class": "SSShortVideoCommentAdService",
+      "selector": "enableShortVideoCommentAd:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "enableShortVideoCommentAd:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xfd2fe78",
+        "vm_address": "0x10fd2fe78"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 11,
+      "feature": "HGPause",
+      "class": "SSBizVideoPauseAdServiceImpl",
+      "selector": "canShowPauseAd:videoDataModel:",
+      "expectedEncoding": "B32@0:8@16@24",
+      "method": {
+        "kind": "-",
+        "selector": "canShowPauseAd:videoDataModel:",
+        "encoding": "B32@0:8@16@24",
+        "file_offset": "0xfd739d4",
+        "vm_address": "0x10fd739d4"
+      },
+      "replacement": "HGNoObjects",
+      "matched": true
+    },
+    {
+      "rule": 12,
+      "feature": "HGPause",
+      "class": "SSBizVideoPauseAdManager",
+      "selector": "shouldShowPauseAd",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "shouldShowPauseAd",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfd74a68",
+        "vm_address": "0x10fd74a68"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 13,
+      "feature": "HGPause",
+      "class": "SSBizVideoPauseAdManager",
+      "selector": "shouldRequestPauseAdData",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "shouldRequestPauseAdData",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfd75ef4",
+        "vm_address": "0x10fd75ef4"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 14,
+      "feature": "HGPatch",
+      "class": "SSBizVideoInVideoPatchAdServiceImp",
+      "selector": "canShowAd",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "canShowAd",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfd377d4",
+        "vm_address": "0x10fd377d4"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 15,
+      "feature": "HGPatch",
+      "class": "SSBizVideoPatchAdService",
+      "selector": "shouldSkipPatchAdWithContext:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "shouldSkipPatchAdWithContext:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xfd70fcc",
+        "vm_address": "0x10fd70fcc"
+      },
+      "replacement": "HGYesObject",
+      "matched": true
+    },
+    {
+      "rule": 16,
+      "feature": "HGPatch",
+      "class": "SSBizVideoPatchAdService",
+      "selector": "showPatchAdViewWithContext:seriesId:vId:currentTime:patchAdViewReadyBlock:removeBlock:",
+      "expectedEncoding": "v64@0:8@16@24@32d40@?48@?56",
+      "method": {
+        "kind": "-",
+        "selector": "showPatchAdViewWithContext:seriesId:vId:currentTime:patchAdViewReadyBlock:removeBlock:",
+        "encoding": "v64@0:8@16@24@32d40@?48@?56",
+        "file_offset": "0xfd71018",
+        "vm_address": "0x10fd71018"
+      },
+      "replacement": "HGSkipPatch",
+      "matched": true
+    },
+    {
+      "rule": 17,
+      "feature": "HGEcommerce",
+      "class": "SSStartUpEcomQCPXPopupOperation",
+      "selector": "shouldDisplay:viewClass:",
+      "expectedEncoding": "B32@0:8@16#24",
+      "method": {
+        "kind": "-",
+        "selector": "shouldDisplay:viewClass:",
+        "encoding": "B32@0:8@16#24",
+        "file_offset": "0xec8f468",
+        "vm_address": "0x10ec8f468"
+      },
+      "replacement": "HGNoObjectClass",
+      "matched": true
+    },
+    {
+      "rule": 18,
+      "feature": "HGMarketing",
+      "class": "SSBizMonetizationAdPopupOperation",
+      "selector": "checkCanShowPopup",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "checkCanShowPopup",
+        "encoding": "B16@0:8",
+        "file_offset": "0xed8b910",
+        "vm_address": "0x10ed8b910"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 19,
+      "feature": "HGRedPacket",
+      "class": "SSWelfareRedPacketPopupAdapter",
+      "selector": "couldShowRedPacket",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "couldShowRedPacket",
+        "encoding": "B16@0:8",
+        "file_offset": "0xa7739a4",
+        "vm_address": "0x10a7739a4"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 20,
+      "feature": "HGBookstoreAd",
+      "class": "SSBizAdBookShopBannerMaterialService",
+      "selector": "canShowBottomView",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "canShowBottomView",
+        "encoding": "B16@0:8",
+        "file_offset": "0xd449428",
+        "vm_address": "0x10d449428"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 21,
+      "feature": "HGCouponPendant",
+      "class": "SSECommBookCouponPendantManager",
+      "selector": "shouldShowPendant",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "shouldShowPendant",
+        "encoding": "B16@0:8",
+        "file_offset": "0xec0d1c4",
+        "vm_address": "0x10ec0d1c4"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 22,
+      "feature": "HGMiniGamePendant",
+      "class": "SSBookStorePendantManager",
+      "selector": "canShowMiniGamePendantView",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "canShowMiniGamePendantView",
+        "encoding": "B16@0:8",
+        "file_offset": "0xdb3d194",
+        "vm_address": "0x10db3d194"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 23,
+      "feature": "HGMiniGamePendant",
+      "class": "SSBookStoreMiniGamePendantView",
+      "selector": "addPendantViewInView:",
+      "expectedEncoding": "v24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "addPendantViewInView:",
+        "encoding": "v24@0:8@16",
+        "file_offset": "0xdbe03b4",
+        "vm_address": "0x10dbe03b4"
+      },
+      "replacement": "HGSkipPendant",
+      "matched": true
+    },
+    {
+      "rule": 24,
+      "feature": "HGWelfareGuide",
+      "class": "SSWelfareTabGuideTipManager",
+      "selector": "couldShowBubble",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "couldShowBubble",
+        "encoding": "B16@0:8",
+        "file_offset": "0xa92cd9c",
+        "vm_address": "0x10a92cd9c"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 25,
+      "feature": "HGSurvey",
+      "class": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "showSurveyWithStyle:videoId:",
+      "expectedEncoding": "v32@0:8q16@24",
+      "method": {
+        "kind": "-",
+        "selector": "showSurveyWithStyle:videoId:",
+        "encoding": "v32@0:8q16@24",
+        "file_offset": "0xff6e188",
+        "vm_address": "0x10ff6e188"
+      },
+      "replacement": "HGSkipSurvey",
+      "matched": true
+    },
+    {
+      "rule": 26,
+      "feature": "HGSurvey",
+      "class": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowSingleVideoSurveyIfNeededWithVideoId:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "tryShowSingleVideoSurveyIfNeededWithVideoId:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xff68f4c",
+        "vm_address": "0x10ff68f4c"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 27,
+      "feature": "HGSurvey",
+      "class": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowInnerFlowQuickSlideSurveyIfNeededWithVideoId:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "tryShowInnerFlowQuickSlideSurveyIfNeededWithVideoId:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xff6730c",
+        "vm_address": "0x10ff6730c"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 28,
+      "feature": "HGSurvey",
+      "class": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowInnerFlowDetailReturnSurveyIfNeededWithVideoId:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "tryShowInnerFlowDetailReturnSurveyIfNeededWithVideoId:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xff6875c",
+        "vm_address": "0x10ff6875c"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 29,
+      "feature": "HGSurvey",
+      "class": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowPeriodSkipSurveyIfNeededWithVideoId:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "tryShowPeriodSkipSurveyIfNeededWithVideoId:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xff643f8",
+        "vm_address": "0x10ff643f8"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 30,
+      "feature": "HGSurvey",
+      "class": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowContinueSkipSurveyIfNeededWithVideoId:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "tryShowContinueSkipSurveyIfNeededWithVideoId:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xff647d8",
+        "vm_address": "0x10ff647d8"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 31,
+      "feature": "HGSurvey",
+      "class": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryRestoreReadingItemSurveyIfNeededWithVideoId:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "tryRestoreReadingItemSurveyIfNeededWithVideoId:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xff728e0",
+        "vm_address": "0x10ff728e0"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 32,
+      "feature": "HGFeed",
+      "class": "SSBizVideoAdABTestHelper",
+      "selector": "enableEcomForceCard",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "+",
+        "selector": "enableEcomForceCard",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfd280d8",
+        "vm_address": "0x10fd280d8"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 33,
+      "feature": "HGFeed",
+      "class": "SSShortVideoLiveService",
+      "selector": "createFeedLiveInsertModelWithRoomModel:",
+      "expectedEncoding": "@24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "createFeedLiveInsertModelWithRoomModel:",
+        "encoding": "@24@0:8@16",
+        "file_offset": "0xff1950c",
+        "vm_address": "0x10ff1950c"
+      },
+      "replacement": "HGNoModel",
+      "matched": true
+    },
+    {
+      "rule": 34,
+      "feature": "HGFeed",
+      "class": "SSShortVideoRecommendOutterListDataSource",
+      "selector": "liveFeedDataModelWithCellViewData:",
+      "expectedEncoding": "@24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "liveFeedDataModelWithCellViewData:",
+        "encoding": "@24@0:8@16",
+        "file_offset": "0xf5a18e0",
+        "vm_address": "0x10f5a18e0"
+      },
+      "replacement": "HGNoModel",
+      "matched": true
+    },
+    {
+      "rule": 35,
+      "feature": "HGMarketing",
+      "class": "IESLiveUGBenefitCouponFragment",
+      "selector": "shouldShowBalanceCouponPopup",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "shouldShowBalanceCouponPopup",
+        "encoding": "B16@0:8",
+        "file_offset": "0xbbb1f80",
+        "vm_address": "0x10bbb1f80"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 36,
+      "feature": "HGMarketing",
+      "class": "IESLiveUGBenefitCouponFragment",
+      "selector": "shouldShowExpansionCouponPopup",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "-",
+        "selector": "shouldShowExpansionCouponPopup",
+        "encoding": "B16@0:8",
+        "file_offset": "0xbbb1ecc",
+        "vm_address": "0x10bbb1ecc"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    },
+    {
+      "rule": 37,
+      "feature": "HGEcommerce",
+      "class": "SSCouponPopupFrequencyHelper",
+      "selector": "canShowPopup:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "+",
+        "selector": "canShowPopup:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xec57d90",
+        "vm_address": "0x10ec57d90"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 38,
+      "feature": "HGPatch",
+      "class": "BDADBackPatchAdService",
+      "selector": "shouldShowAdWithContext:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "shouldShowAdWithContext:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xfd2c11c",
+        "vm_address": "0x10fd2c11c"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 39,
+      "feature": "HGPatch",
+      "class": "BDADBackPatchAdService",
+      "selector": "shouldRequestAdWithPlaybackTime:duration:context:",
+      "expectedEncoding": "B40@0:8d16d24@32",
+      "method": {
+        "kind": "-",
+        "selector": "shouldRequestAdWithPlaybackTime:duration:context:",
+        "encoding": "B40@0:8d16d24@32",
+        "file_offset": "0xfd2bffc",
+        "vm_address": "0x10fd2bffc"
+      },
+      "replacement": "HGNoTimesObject",
+      "matched": true
+    },
+    {
+      "rule": 40,
+      "feature": "HGPatch",
+      "class": "BDADPlotTouchAdService",
+      "selector": "canShowPlotAdWithContext:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "canShowPlotAdWithContext:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xfd7b158",
+        "vm_address": "0x10fd7b158"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 41,
+      "feature": "HGPatch",
+      "class": "BDADPlotTouchAdService",
+      "selector": "canRequestAdWithPlaybackTime:context:",
+      "expectedEncoding": "B32@0:8d16@24",
+      "method": {
+        "kind": "-",
+        "selector": "canRequestAdWithPlaybackTime:context:",
+        "encoding": "B32@0:8d16@24",
+        "file_offset": "0xfd7afc4",
+        "vm_address": "0x10fd7afc4"
+      },
+      "replacement": "HGNoTimeObject",
+      "matched": true
+    },
+    {
+      "rule": 42,
+      "feature": "HGPatch",
+      "class": "BDADShortVideoSideBarPatchSwitchComponent",
+      "selector": "isAvailableWithCtx:",
+      "expectedEncoding": "B24@0:8@16",
+      "method": {
+        "kind": "-",
+        "selector": "isAvailableWithCtx:",
+        "encoding": "B24@0:8@16",
+        "file_offset": "0xd547778",
+        "vm_address": "0x10d547778"
+      },
+      "replacement": "HGNoObject",
+      "matched": true
+    },
+    {
+      "rule": 43,
+      "feature": "HGFeed",
+      "class": "SSVideoMiniGameService",
+      "selector": "createFeedPageDataModelWithCellViewData:listVCContext:",
+      "expectedEncoding": "@32@0:8@16@24",
+      "method": {
+        "kind": "-",
+        "selector": "createFeedPageDataModelWithCellViewData:listVCContext:",
+        "encoding": "@32@0:8@16@24",
+        "file_offset": "0x1000553c",
+        "vm_address": "0x11000553c"
+      },
+      "replacement": "HGNoModels",
+      "matched": true
+    },
+    {
+      "rule": 44,
+      "feature": "HGFeed",
+      "class": "SSBizVideoABTestHelper",
+      "selector": "enableSeriesEndDirectGame",
+      "expectedEncoding": "B16@0:8",
+      "method": {
+        "kind": "+",
+        "selector": "enableSeriesEndDirectGame",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfed3980",
+        "vm_address": "0x10fed3980"
+      },
+      "replacement": "HGNo",
+      "matched": true
+    }
+  ]
+}
