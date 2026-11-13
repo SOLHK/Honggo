@@ -5,6 +5,60 @@
 
 static NSUInteger forceRequests, feedRequests, manualEntries, patchRequests;
 static NSUInteger gameModelCreations;
+static NSUInteger manualGameEntries;
+
+@interface SSGameService : NSObject
+- (void)enterGame:(id)game;
+@end
+@implementation SSGameService
+- (void)enterGame:(id)game { if (game) manualGameEntries++; }
+@end
+
+@interface SSShortVideoFeedDirectGameFeedPageHost : NSObject
+@property(nonatomic, getter=isCurrentDisplaying) BOOL currentDisplaying;
+@property(nonatomic, weak) id contentModel;
+@end
+@implementation SSShortVideoFeedDirectGameFeedPageHost
+@end
+
+@interface SSShortVideoFeedDirectGameSeriesEndInsertHost : SSShortVideoFeedDirectGameFeedPageHost
+@end
+@implementation SSShortVideoFeedDirectGameSeriesEndInsertHost
+@end
+
+@interface HGUnknownGameHost : SSShortVideoFeedDirectGameFeedPageHost
+@end
+@implementation HGUnknownGameHost
+@end
+
+@interface SSShortVideoFeedDirectGameContentModel : NSObject
+@property(nonatomic, strong) SSShortVideoFeedDirectGameFeedPageHost *host;
+@property(nonatomic) BOOL displaying;
+@property(nonatomic, getter=isInvalidated) BOOL invalidated;
+@property(nonatomic) NSUInteger displayCalls;
+@property(nonatomic) NSUInteger removalCalls;
+- (void)modelDidDisplay;
+- (void)handleTerminalFailureWithReason:(NSString *)reason;
+@end
+@implementation SSShortVideoFeedDirectGameContentModel
+- (void)modelDidDisplay {
+    self.displayCalls++;
+    if (!self.invalidated) self.displaying = YES;
+}
+- (void)handleTerminalFailureWithReason:(NSString *)reason {
+    self.removalCalls++;
+    self.invalidated = YES;
+}
+@end
+
+static SSShortVideoFeedDirectGameContentModel *HGDisplayingGame(Class hostType) {
+    SSShortVideoFeedDirectGameContentModel *model = [SSShortVideoFeedDirectGameContentModel new];
+    model.host = [hostType new];
+    model.host.currentDisplaying = YES;
+    model.host.contentModel = model;
+    [model modelDidDisplay];
+    return model;
+}
 
 @interface SSVideoMiniGameService : NSObject
 - (id)createFeedPageDataModelWithCellViewData:(id)cell listVCContext:(id)context;
@@ -148,6 +202,31 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
     [self.checks addObject:@{@"name": name, @"passed": @(passed)}];
     NSLog(@"[HonggoAdsTests] %@: %@", passed ? @"PASS" : @"FAIL", name);
 }
+- (void)checkDisplayedGamesWithDisabledModel:(SSShortVideoFeedDirectGameContentModel *)disabled {
+    SSShortVideoFeedDirectGameContentModel *feed = HGDisplayingGame(SSShortVideoFeedDirectGameFeedPageHost.class);
+    [feed modelDidDisplay];
+    SSShortVideoFeedDirectGameContentModel *series = HGDisplayingGame(SSShortVideoFeedDirectGameSeriesEndInsertHost.class);
+    SSShortVideoFeedDirectGameContentModel *scrolled = HGDisplayingGame(SSShortVideoFeedDirectGameFeedPageHost.class);
+    scrolled.host.currentDisplaying = NO;
+    SSShortVideoFeedDirectGameContentModel *ended = HGDisplayingGame(SSShortVideoFeedDirectGameSeriesEndInsertHost.class);
+    ended.displaying = NO;
+    SSShortVideoFeedDirectGameContentModel *rebound = HGDisplayingGame(SSShortVideoFeedDirectGameFeedPageHost.class);
+    rebound.host.contentModel = series;
+    SSShortVideoFeedDirectGameContentModel *invalidated = HGDisplayingGame(SSShortVideoFeedDirectGameFeedPageHost.class);
+    invalidated.invalidated = YES;
+    SSShortVideoFeedDirectGameContentModel *unknown = HGDisplayingGame(HGUnknownGameHost.class);
+    [self check:feed.displayCalls == 2 && series.displayCalls == 1 && feed.removalCalls == 0 && series.removalCalls == 0
+        name:@"game display runs the original and defers list removal"];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self check:feed.removalCalls == 1 && series.removalCalls == 1
+            name:@"each supported current card uses the host removal path once"];
+        [self check:scrolled.removalCalls == 0 && ended.removalCalls == 0 && rebound.removalCalls == 0 && invalidated.removalCalls == 0
+            name:@"scheduled removal skips a transitioned, rebound, or invalidated card"];
+        [self check:unknown.removalCalls == 0 && disabled.removalCalls == 0
+            name:@"unknown hosts and a display before hook installation keep host behavior"];
+        [self finish];
+    });
+}
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session
         options:(UISceneConnectionOptions *)options {
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
@@ -176,6 +255,10 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
     Method wrongABI = class_getInstanceMethod(SSBizVideoAdCommonAdClient.class, @selector(shouldRequestShortVideoAd:));
     IMP originalWrongABI = method_getImplementation(wrongABI);
     HGInstallAds();
+    SSShortVideoFeedDirectGameContentModel *disabledGame = HGDisplayingGame(SSShortVideoFeedDirectGameFeedPageHost.class);
+    [self check:[[games createDirectGameContentModelWithCellViewData:@"game" source:1 host:nil] isEqual:@"game"] &&
+        [[games createDirectGameContentModelWithCellViewData:@"game" source:2 host:nil] isEqual:@"game"]
+        name:@"disabled feed filtering preserves direct-game feed and series models"];
     [self check:[HGGameFeedFixture(games) isEqual:@[@"drama-1", @"game-legacy", @"game-native", @"drama-2"]]
         name:@"disabled feed filtering preserves legacy and native game cards in order"];
     [self check:[SSBizVideoABTestHelper enableSeriesEndDirectGame]
@@ -218,8 +301,11 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
         name:@"the caller nil guard omits game cards without empty entries or reordering drama"];
     [self check:![SSBizVideoABTestHelper enableSeriesEndDirectGame]
         name:@"series-end game insertion takes its disabled preparation branch"];
-    [self check:[[games createDirectGameContentModelWithCellViewData:@"selected-game" source:1 host:nil]
-        isEqual:@"selected-game"] name:@"the shared game content factory remains untouched"];
+    [self check:[games createDirectGameContentModelWithCellViewData:@"game" source:1 host:nil] == nil &&
+        [games createDirectGameContentModelWithCellViewData:@"game" source:2 host:nil] == nil
+        name:@"both direct-game callers receive the existing nil outcome"];
+    [[SSGameService new] enterGame:@"selected-game"];
+    [self check:manualGameEntries == 1 name:@"an independently selected game still reaches the launch service"];
     [self check:[live createFeedLiveInsertModelWithRoomModel:@"room"] == nil
         name:@"client inserted live models are declined before queueing"];
     [self check:[mixed liveFeedDataModelWithCellViewData:@"live-cell"] == nil
@@ -278,7 +364,7 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
     [self check:[SSBizVideoABTestHelper enableSeriesEndDirectGame] &&
         [HGGameFeedFixture(games) isEqual:@[@"drama-1", @"game-legacy", @"game-native", @"drama-2"]]
         name:@"fresh host game implementations remain original after disabling feed filtering"];
-    [self finish];
+    [self checkDisplayedGamesWithDisabledModel:disabledGame];
 }
 - (void)finish {
     NSUInteger failed = 0;

@@ -1,0 +1,128 @@
+{
+  "schema": 1,
+  "kind": "sanitized-projection-not-original-REA-record",
+  "host_build": "7.4.3.33",
+  "binary_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+  "tools": {
+    "REA": "6.9.0",
+    "Rizin": "0.9.1",
+    "Node": "24.22.1",
+    "mode": "raw arm64, base 0, file offsets"
+  },
+  "screenshot_static_association": {
+    "confidence": "strong static candidate, no device scene captured",
+    "view": "SSShortVideoFeedDirectGameContentView",
+    "method": "-bindContentModel:",
+    "method_offset": "0xfffd348",
+    "CTA": {
+      "text": "点击进入游戏",
+      "utf16_offset": "0x1710af86",
+      "cfstring_offset": "0x1a40bd78",
+      "load_offset": "0xfffd420",
+      "label": "enterTitleLabel"
+    },
+    "icon_key": "short_video_feed_direct_game_enter_icon",
+    "title_property": "gameContent.mpName",
+    "subtitle_property": "gameContent.gameSummary",
+    "resource_scan": "Main binary plus 3841 other IPA regular members were searched for UTF-8, UTF-16LE, UTF-16BE and JSON Unicode escapes. Exact CTA was found only as native UTF-16LE; 魔法幸存者 was absent.",
+    "resource_limit": "Does not cover remote downloads or decoding nested/proprietary compressed template formats.",
+    "guide_distinction": {
+      "screenshot": "上滑继续看短剧",
+      "source_2_native_guide": "上滑继续观看短剧",
+      "source_2_cfstring": "0x19da6498",
+      "source_2_helper": "0xfffe84c",
+      "conclusion": "Bottom wording does not prove source=2; static guide strings differ."
+    }
+  },
+  "shared_constructor": {
+    "class": "SSVideoMiniGameService",
+    "selector": "createDirectGameContentModelWithCellViewData:source:host:",
+    "kind": "-",
+    "encoding": "@40@0:8@16q24@32",
+    "file_offset": "0x100063f0",
+    "callers": [
+      {
+        "selector": "createNativeDirectGamePageDataModelWithCellViewData:listVCContext:",
+        "callsite": "0x10006188",
+        "source": 1,
+        "nil_branch": "0x10006198",
+        "effect": "nil content produces nil page before page model construction"
+      },
+      {
+        "selector": "prepareSeriesEndDirectGameWithCellViewData:anchorVideoDataModel:requestSeriesId:listVCContext:",
+        "callsite": "0x10005aa8",
+        "source": 2,
+        "nil_branch": "0x10005ab8",
+        "effect": "nil content logs failure and skips candidate submission"
+      }
+    ],
+    "constructor_checks": [
+      "native game cell classifier for source 1",
+      "series-end game cell classifier for source 2",
+      "non-nil host and list context",
+      "valid game data before content model init"
+    ],
+    "manual_entry_evidence": "Only two verified direct selector callers in this binary, both feed/series-end insertion. This does not prove absence of dynamically obtained IMP calls or remote invocation.",
+    "recommendation": "Returning nil here follows both observed normal failure paths and avoids constructing the game page. Keep higher-level R2 rules; root/native audit owns their fallback handling."
+  },
+  "lifecycle_discard": {
+    "method": "-[SSShortVideoFeedDirectGameContentModel invalidateWithReason:removeFromList:]",
+    "encoding": "v28@0:8@16B24",
+    "file_offset": "0xfff87f8",
+    "one_shot_guard": "0xfff8814 branches away when isInvalidated",
+    "set_invalidated": "0xfff8944 sets YES before controller release and optional host list removal",
+    "remove_call": "0xfff8ad4 removeContentModel:reason:completion:",
+    "recommendation": "Do not use arbitrary init/preload/view lifecycle invalidation as a suppression fallback without proving list membership and reentrancy. Early invalidation can precede enqueue and later invocations will not retry removal. Use exact-class diagnostics when the verified factory is bypassed."
+  },
+  "limitations": [
+    "No runtime view/class capture exists in the provided R2 log. Exact native wording is supporting static evidence, not proof of the screenshot execution path.",
+    "R2 factory/gate absence in log remains a runtime observation gap; this audit does not invent an alternate caller.",
+    "The old broad selector xref scanner can report stale ADRP candidates. Only manually disassembled callsites are treated as confirmed."
+  ],
+  "rea_evidence": [
+    {
+      "file": "rea-direct-game-paths.json",
+      "sha256": "725fcba251fc4480b197ec6a807a8b9aa407928bb1416172e874856268a0fd49",
+      "evidence_id": "ev_a87e95ce85179b41ff7dd31e0a3bbd9c970db406f9938a4ebba91d9c1a73683d",
+      "provider": {
+        "id": "rizin",
+        "name": "Rizin",
+        "version": null
+      },
+      "command": "e asm.arch; e asm.bits; oml; px 14 @ 0x1710af86; pd 20 @ 0xfffd41c; pd 28 @ 0xfffd59c; pd 28 @ 0x10006140; pd 30 @ 0x100063f0; pd 14 @ 0x10005a98; pd 16 @ 0x10006650",
+      "exit_code": 0,
+      "completion_status": "complete",
+      "output_truncated": false,
+      "artifact_changed": false,
+      "stderr": ""
+    },
+    {
+      "file": "rea-lifecycle-and-guide.json",
+      "sha256": "883e1d94cb5f9ab2b9039c72d78f5a59dac9b9d478a9ff240ed7457af0f127bb",
+      "evidence_id": "ev_8804d8411de1048ab4c87eae54b3f0a9f3a05c40b0665e5923aeeeaed826eab1",
+      "provider": {
+        "id": "rizin",
+        "name": "Rizin",
+        "version": null
+      },
+      "command": "e asm.arch; e asm.bits; oml; px 18 @ 0x1704a1de; pd 12 @ 0xfffe830; pd 14 @ 0xfffd8b8; pd 10 @ 0xfff8810; pd 8 @ 0xfff8938; pd 14 @ 0xfff8ab8",
+      "exit_code": 0,
+      "completion_status": "complete",
+      "output_truncated": false,
+      "artifact_changed": false,
+      "stderr": ""
+    }
+  ],
+  "files": [
+    "phrase-resource-matches.json",
+    "phrase-owners.json",
+    "direct-game-classes.json",
+    "direct-game-factory-refs.txt",
+    "direct-game-bind.disasm",
+    "direct-game-content-constructor.disasm",
+    "direct-game-series-end-caller.disasm",
+    "direct-game-presentation.disasm",
+    "direct-game-guide-helper.disasm",
+    "direct-game-invalidate.disasm"
+  ]
+}

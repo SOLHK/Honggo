@@ -1,0 +1,888 @@
+{
+  "schema": 1,
+  "sourceLog": "Honggo-log-0000001794586803.560-072CFC8B-6C13-451C-88B2-E4CEB07DBDD8.json",
+  "sourceLogSHA256": "eae5e5eef05d899d391063dd7576d4a33bfa92e73d29baf42a437a308c9bae02",
+  "referenceSourceCommit": "788c2465a6b1a3093b563e1ae7144fda8ad1a26e",
+  "pluginVersion": "1.1.15-R2",
+  "host": {
+    "os": "Version 27.0.1 (Build 24A446)",
+    "hostBuild": "7.4.3.33",
+    "executable": "Eggplant"
+  },
+  "events": 195,
+  "sessionCount": 2,
+  "currentSessionEvents": 149,
+  "eventTimeWindowShanghai": [
+    "2026-11-13T23:44:49.426833+08:00",
+    "2026-11-14T00:19:59.534278+08:00"
+  ],
+  "currentSessionTimeWindowShanghai": [
+    "2026-11-13T23:46:04.516297+08:00",
+    "2026-11-14T00:19:59.534278+08:00"
+  ],
+  "eventCounts": {
+    "startup.stage": 6,
+    "glass.startup": 2,
+    "controls.hook": 40,
+    "hook.installed": 57,
+    "settings.open": 3,
+    "settings.toggle": 14,
+    "ad.decision": 72,
+    "mask.transition": 1
+  },
+  "currentEventCounts": {
+    "startup.stage": 3,
+    "glass.startup": 1,
+    "controls.hook": 20,
+    "hook.installed": 51,
+    "ad.decision": 72,
+    "mask.transition": 1,
+    "settings.open": 1
+  },
+  "quality": {
+    "capacityPrunedRecords": 0,
+    "droppedRecords": 0,
+    "maskScenesPruned": 0,
+    "maskScenesRejected": 0
+  },
+  "capture": {
+    "maskScenes": 0,
+    "snapshotNodeCount": 126,
+    "snapshotTruncated": 0,
+    "classCounts": {
+      "UIWindow": 1,
+      "SSDarkModeObserveWindow": 1,
+      "UITextEffectsWindow": 1,
+      "UITransitionView": 3,
+      "UITrackingWindowView": 1,
+      "UIDropShadowView": 3,
+      "UIDimmingView": 2,
+      "UIKeyboardItemContainerView": 1,
+      "UIEditingOverlayGestureView": 1,
+      "UILayoutContainerView": 2,
+      "_UIRoundedRectShadowView": 1,
+      "_UIDropShadowClippingView": 1,
+      "UIView": 15,
+      "UIKeyboardDockView": 1,
+      "UINavigationTransitionView": 2,
+      "UIKeyboardDockItemButton": 2,
+      "UIViewControllerWrapperView": 2,
+      "UINavigationBar": 1,
+      "UIImageView": 4,
+      "UIButtonLabel": 6,
+      "_UIBarBackground": 1,
+      "_UINavigationBarContentView": 1,
+      "_UIPointerInteractionAssistantEffectContainerView": 1,
+      "FQReaderSaaSNavigationBar": 1,
+      "UITableView": 2,
+      "UIVisualEffectView": 1,
+      "_UIBarBackgroundShadowView": 1,
+      "_UIButtonBarStackView": 1,
+      "_UINavigationBarTitleControl": 1,
+      "UILabel": 5,
+      "SSSettingTableViewCell": 15,
+      "UITableViewWrapperView": 1,
+      "UITableViewHeaderFooterView": 4,
+      "_UIScrollViewScrollIndicator": 2,
+      "_UIButtonBarButton": 1,
+      "_UIIntrinsicContentSizeInvalidationForwardingWrapperView": 1,
+      "FQReaderSaaSBaseButton": 2,
+      "HGSettingsMenuControl": 1,
+      "UIButton": 1,
+      "UITableViewCell": 19,
+      "_UISystemBackgroundView": 4,
+      "_UITableViewHeaderFooterContentView": 4,
+      "_UIModernBarButton": 1,
+      "_UITableViewHeaderFooterViewLabel": 4
+    },
+    "ownVisibilityFlagClassCounts": {
+      "UIWindow": 1,
+      "SSDarkModeObserveWindow": 1,
+      "UITextEffectsWindow": 1,
+      "UITransitionView": 3,
+      "UITrackingWindowView": 1,
+      "UIDropShadowView": 3,
+      "UIDimmingView": 2,
+      "UIKeyboardItemContainerView": 1,
+      "UIEditingOverlayGestureView": 1,
+      "UILayoutContainerView": 2,
+      "_UIDropShadowClippingView": 1,
+      "UIView": 11,
+      "UINavigationTransitionView": 2,
+      "UIKeyboardDockItemButton": 2,
+      "UIViewControllerWrapperView": 2,
+      "UINavigationBar": 1,
+      "_UIBarBackground": 1,
+      "_UINavigationBarContentView": 1,
+      "_UIPointerInteractionAssistantEffectContainerView": 1,
+      "FQReaderSaaSNavigationBar": 1,
+      "UITableView": 2,
+      "UIVisualEffectView": 1,
+      "_UIBarBackgroundShadowView": 1,
+      "_UIButtonBarStackView": 1,
+      "_UINavigationBarTitleControl": 1,
+      "UILabel": 5,
+      "SSSettingTableViewCell": 14,
+      "UITableViewWrapperView": 1,
+      "UITableViewHeaderFooterView": 3,
+      "_UIButtonBarButton": 1,
+      "_UIIntrinsicContentSizeInvalidationForwardingWrapperView": 1,
+      "FQReaderSaaSBaseButton": 2,
+      "HGSettingsMenuControl": 1,
+      "UIButton": 1,
+      "UITableViewCell": 13,
+      "_UISystemBackgroundView": 4,
+      "_UITableViewHeaderFooterContentView": 4,
+      "_UIModernBarButton": 1,
+      "UIImageView": 2,
+      "UIButtonLabel": 2,
+      "_UITableViewHeaderFooterViewLabel": 4
+    },
+    "visibilityLimit": "Snapshot does not carry parent links; own hidden/alpha flags do not prove complete screen visibility."
+  },
+  "currentAdGates": [
+    {
+      "rule": 0,
+      "feature": "HGSplash",
+      "cls": "SSReadingAdSplashService",
+      "selector": "shouldShowSplashAd",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 3,
+      "observedCallCountLowerBound": 4,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:46:04.810736+08:00",
+        "2026-11-14T00:07:08.286279+08:00"
+      ]
+    },
+    {
+      "rule": 1,
+      "feature": "HGSplash",
+      "cls": "SSReadingAdSplashService",
+      "selector": "shouldShowSplashAtHotLaunch",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 2,
+      "observedCallCountLowerBound": 2,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:48:12.607812+08:00",
+        "2026-11-14T00:07:08.286245+08:00"
+      ]
+    },
+    {
+      "rule": 2,
+      "feature": "HGSplash",
+      "cls": "SSReadingAdSplashService",
+      "selector": "shouldShowSplashAdAtHotLaunchByThirdParty",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 3,
+      "feature": "HGTopView",
+      "cls": "SSBizVideoAdTopviewService",
+      "selector": "topviewEnable",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 4,
+      "feature": "HGTopView",
+      "cls": "SSBizVideoAdTopviewService",
+      "selector": "canShowTopView",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 2,
+      "observedCallCountLowerBound": 2,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:46:04.824354+08:00",
+        "2026-11-13T23:46:04.874630+08:00"
+      ]
+    },
+    {
+      "rule": 5,
+      "feature": "HGFeed",
+      "cls": "SSBizVideoAdCommonAdClient",
+      "selector": "shouldRequestShortVideoAd:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 6,
+      "feature": "HGFeed",
+      "cls": "SSBizVideoAdCommonAdClient",
+      "selector": "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 7,
+      "feature": "HGFeed",
+      "cls": "SSShortVideoMUnionAdService",
+      "selector": "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 8,
+      "feature": "HGFeed",
+      "cls": "SSShortVideoAdService",
+      "selector": "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 9,
+      "feature": "HGComment",
+      "cls": "SSShortVideoCommentAdService",
+      "selector": "enableCommentAd",
+      "encoding": "B16@0:8",
+      "classMethod": true,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 1,
+      "observedCallCountLowerBound": 1,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:46:06.987910+08:00",
+        "2026-11-13T23:46:06.987910+08:00"
+      ]
+    },
+    {
+      "rule": 10,
+      "feature": "HGComment",
+      "cls": "SSShortVideoCommentAdService",
+      "selector": "enableShortVideoCommentAd:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 11,
+      "feature": "HGPause",
+      "cls": "SSBizVideoPauseAdServiceImpl",
+      "selector": "canShowPauseAd:videoDataModel:",
+      "encoding": "B32@0:8@16@24",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 12,
+      "feature": "HGPause",
+      "cls": "SSBizVideoPauseAdManager",
+      "selector": "shouldShowPauseAd",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 3,
+      "observedCallCountLowerBound": 4,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:57:46.120716+08:00",
+        "2026-11-14T00:11:04.756270+08:00"
+      ]
+    },
+    {
+      "rule": 13,
+      "feature": "HGPause",
+      "cls": "SSBizVideoPauseAdManager",
+      "selector": "shouldRequestPauseAdData",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 5,
+      "observedCallCountLowerBound": 16,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:51:08.812794+08:00",
+        "2026-11-14T00:18:15.131107+08:00"
+      ]
+    },
+    {
+      "rule": 14,
+      "feature": "HGPatch",
+      "cls": "SSBizVideoInVideoPatchAdServiceImp",
+      "selector": "canShowAd",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 15,
+      "feature": "HGPatch",
+      "cls": "SSBizVideoPatchAdService",
+      "selector": "shouldSkipPatchAdWithContext:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 5,
+      "observedCallCountLowerBound": 16,
+      "results": [
+        true
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:46:07.064495+08:00",
+        "2026-11-14T00:03:35.596448+08:00"
+      ]
+    },
+    {
+      "rule": 16,
+      "feature": "HGPatch",
+      "cls": "SSBizVideoPatchAdService",
+      "selector": "showPatchAdViewWithContext:seriesId:vId:currentTime:patchAdViewReadyBlock:removeBlock:",
+      "encoding": "v64@0:8@16@24@32d40@?48@?56",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 11,
+      "observedCallCountLowerBound": 1024,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:46:06.789979+08:00",
+        "2026-11-14T00:05:56.662154+08:00"
+      ]
+    },
+    {
+      "rule": 17,
+      "feature": "HGEcommerce",
+      "cls": "SSStartUpEcomQCPXPopupOperation",
+      "selector": "shouldDisplay:viewClass:",
+      "encoding": "B32@0:8@16#24",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 18,
+      "feature": "HGMarketing",
+      "cls": "SSBizMonetizationAdPopupOperation",
+      "selector": "checkCanShowPopup",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 19,
+      "feature": "HGRedPacket",
+      "cls": "SSWelfareRedPacketPopupAdapter",
+      "selector": "couldShowRedPacket",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 4,
+      "observedCallCountLowerBound": 8,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:46:04.795083+08:00",
+        "2026-11-14T00:19:53.250499+08:00"
+      ]
+    },
+    {
+      "rule": 20,
+      "feature": "HGBookstoreAd",
+      "cls": "SSBizAdBookShopBannerMaterialService",
+      "selector": "canShowBottomView",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 21,
+      "feature": "HGCouponPendant",
+      "cls": "SSECommBookCouponPendantManager",
+      "selector": "shouldShowPendant",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 22,
+      "feature": "HGMiniGamePendant",
+      "cls": "SSBookStorePendantManager",
+      "selector": "canShowMiniGamePendantView",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 23,
+      "feature": "HGMiniGamePendant",
+      "cls": "SSBookStoreMiniGamePendantView",
+      "selector": "addPendantViewInView:",
+      "encoding": "v24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 24,
+      "feature": "HGWelfareGuide",
+      "cls": "SSWelfareTabGuideTipManager",
+      "selector": "couldShowBubble",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 25,
+      "feature": "HGSurvey",
+      "cls": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "showSurveyWithStyle:videoId:",
+      "encoding": "v32@0:8q16@24",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 26,
+      "feature": "HGSurvey",
+      "cls": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowSingleVideoSurveyIfNeededWithVideoId:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 10,
+      "observedCallCountLowerBound": 512,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:46:06.790367+08:00",
+        "2026-11-14T00:13:12.324669+08:00"
+      ]
+    },
+    {
+      "rule": 27,
+      "feature": "HGSurvey",
+      "cls": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowInnerFlowQuickSlideSurveyIfNeededWithVideoId:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 28,
+      "feature": "HGSurvey",
+      "cls": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowInnerFlowDetailReturnSurveyIfNeededWithVideoId:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 29,
+      "feature": "HGSurvey",
+      "cls": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowPeriodSkipSurveyIfNeededWithVideoId:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 30,
+      "feature": "HGSurvey",
+      "cls": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryShowContinueSkipSurveyIfNeededWithVideoId:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 10,
+      "observedCallCountLowerBound": 512,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:46:06.790360+08:00",
+        "2026-11-14T00:13:12.324650+08:00"
+      ]
+    },
+    {
+      "rule": 31,
+      "feature": "HGSurvey",
+      "cls": "SSShortVideoSatisfactionSurveyManager",
+      "selector": "tryRestoreReadingItemSurveyIfNeededWithVideoId:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 32,
+      "feature": "HGFeed",
+      "cls": "SSBizVideoAdABTestHelper",
+      "selector": "enableEcomForceCard",
+      "encoding": "B16@0:8",
+      "classMethod": true,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 5,
+      "observedCallCountLowerBound": 16,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:51:09.127908+08:00",
+        "2026-11-14T00:18:15.286794+08:00"
+      ]
+    },
+    {
+      "rule": 33,
+      "feature": "HGFeed",
+      "cls": "SSShortVideoLiveService",
+      "selector": "createFeedLiveInsertModelWithRoomModel:",
+      "encoding": "@24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 34,
+      "feature": "HGFeed",
+      "cls": "SSShortVideoRecommendOutterListDataSource",
+      "selector": "liveFeedDataModelWithCellViewData:",
+      "encoding": "@24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 35,
+      "feature": "HGMarketing",
+      "cls": "IESLiveUGBenefitCouponFragment",
+      "selector": "shouldShowBalanceCouponPopup",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 36,
+      "feature": "HGMarketing",
+      "cls": "IESLiveUGBenefitCouponFragment",
+      "selector": "shouldShowExpansionCouponPopup",
+      "encoding": "B16@0:8",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 37,
+      "feature": "HGEcommerce",
+      "cls": "SSCouponPopupFrequencyHelper",
+      "selector": "canShowPopup:",
+      "encoding": "B24@0:8@16",
+      "classMethod": true,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 38,
+      "feature": "HGPatch",
+      "cls": "BDADBackPatchAdService",
+      "selector": "shouldShowAdWithContext:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 39,
+      "feature": "HGPatch",
+      "cls": "BDADBackPatchAdService",
+      "selector": "shouldRequestAdWithPlaybackTime:duration:context:",
+      "encoding": "B40@0:8d16d24@32",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 40,
+      "feature": "HGPatch",
+      "cls": "BDADPlotTouchAdService",
+      "selector": "canShowPlotAdWithContext:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 41,
+      "feature": "HGPatch",
+      "cls": "BDADPlotTouchAdService",
+      "selector": "canRequestAdWithPlaybackTime:context:",
+      "encoding": "B32@0:8d16@24",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 42,
+      "feature": "HGPatch",
+      "cls": "BDADShortVideoSideBarPatchSwitchComponent",
+      "selector": "isAvailableWithCtx:",
+      "encoding": "B24@0:8@16",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 11,
+      "observedCallCountLowerBound": 1024,
+      "results": [
+        false
+      ],
+      "decisionTimeWindowShanghai": [
+        "2026-11-13T23:51:08.842668+08:00",
+        "2026-11-14T00:17:33.894298+08:00"
+      ]
+    },
+    {
+      "rule": 43,
+      "feature": "HGFeed",
+      "cls": "SSVideoMiniGameService",
+      "selector": "createFeedPageDataModelWithCellViewData:listVCContext:",
+      "encoding": "@32@0:8@16@24",
+      "classMethod": false,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    },
+    {
+      "rule": 44,
+      "feature": "HGFeed",
+      "cls": "SSBizVideoABTestHelper",
+      "selector": "enableSeriesEndDirectGame",
+      "encoding": "B16@0:8",
+      "classMethod": true,
+      "installedCurrentSession": true,
+      "decisionLogEvents": 0,
+      "observedCallCountLowerBound": 0,
+      "results": [],
+      "decisionTimeWindowShanghai": null
+    }
+  ],
+  "gateStatistics": {
+    "total": 45,
+    "installed": 45,
+    "rulesWithDecisionEvents": 13,
+    "decisionEvents": 72
+  },
+  "toggles": [
+    {
+      "timeShanghai": "2026-11-13T23:45:24.301434+08:00",
+      "feature": "splash",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:24.732586+08:00",
+      "feature": "topview",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:25.233036+08:00",
+      "feature": "feed",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:25.549728+08:00",
+      "feature": "comment",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:25.999848+08:00",
+      "feature": "pause",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:26.332651+08:00",
+      "feature": "patch",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:26.699520+08:00",
+      "feature": "commerce",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:27.200327+08:00",
+      "feature": "marketing",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:27.650355+08:00",
+      "feature": "redPacket",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:28.116938+08:00",
+      "feature": "bookstoreAd",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:28.683558+08:00",
+      "feature": "couponPendant",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:29.200932+08:00",
+      "feature": "miniGamePendant",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:29.734381+08:00",
+      "feature": "welfareGuide",
+      "enabled": true
+    },
+    {
+      "timeShanghai": "2026-11-13T23:45:40.921805+08:00",
+      "feature": "survey",
+      "enabled": true
+    }
+  ],
+  "observations": [
+    "All 45 R2 ad gates installed during the current process; 51 installed hooks total include 6 UI hooks. No hook.skipped records anywhere.",
+    "All 14 ad switches were turned on at 23:45:24-23:45:40 in the preceding process; a new current process started at 23:46:04 and installed all corresponding gates.",
+    "Current-session rule 32 forced-commerce gate reached at least 16 calls. Rule 42 sidebar gate and rule 16 patch skip each reached at least 1024 calls.",
+    "New R2 game gates 43 and 44 installed successfully but produced no current-session decision records. Live factories 33/34 and coupon gates 35/36/37 also produced no decisions.",
+    "All logged decision counters are powers of two; combined with no diagnostics.mode event this is consistent with ordinary diagnostics during observed activity. The export does not include the enhanced-diagnostics flag, so its complete state history cannot be proven.",
+    "No screenshot scene was retained: maskScenes is empty with zero pruned/rejected scenes. Snapshot captures settings UI, including SSSettingTableViewCell, FQReaderSaaSNavigationBar and HGSettingsMenuControl; no live, coupon, mini-game or player scene class is present.",
+    "The export therefore cannot identify the owning class/selector of a still-visible ad. Unhit installed hooks show no observed coverage of that path, not that their host methods are absent."
+  ],
+  "limitations": [
+    "Ad counters are first-hit/powers-of-two samples, so max count is a lower bound, not an exact total.",
+    "Source comparison uses the local R2 commit matching the advertised version. The log contains no source SHA or dylib hash to independently prove package provenance.",
+    "Screenshot capture requires enhanced diagnostics in src/AdSceneDiagnostics.m; absence of capture can also mean no screenshot notification or no captured windows. This export cannot distinguish these causes.",
+    "User content, URLs, account identifiers, session UUIDs, and source file contents are omitted from this summary."
+  ]
+}

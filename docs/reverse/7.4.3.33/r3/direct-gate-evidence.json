@@ -1,0 +1,173 @@
+{
+  "host_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+  "recommended_gate": {
+    "class": "SSVideoMiniGameService",
+    "kind": "-",
+    "selector": "createDirectGameContentModelWithCellViewData:source:host:",
+    "encoding": "@40@0:8@16q24@32",
+    "file_offset": "0x100063f0",
+    "vm_address": "0x1100063f0",
+    "replacement": "nil",
+    "feature": "HGFeed",
+    "callee_model": "SSShortVideoFeedDirectGameContentModel",
+    "safe_nil_callers": [
+      {
+        "class": "SSVideoMiniGameService",
+        "selector": "createNativeDirectGamePageDataModelWithCellViewData:listVCContext:",
+        "call_offset": "0x10006188",
+        "nil_check": "0x10006198",
+        "source": 1
+      },
+      {
+        "class": "SSVideoMiniGameService",
+        "selector": "prepareSeriesEndDirectGameWithCellViewData:anchorVideoDataModel:requestSeriesId:listVCContext:",
+        "call_offset": "0x10005aa8",
+        "nil_check": "0x10005ab8",
+        "source": 2
+      }
+    ],
+    "confidence": "ABI and nil control flow confirmed; screenshot class inferred from exact native CTA/resource; R2 no-hit cause unproven"
+  },
+  "bypass_checks": {
+    "executable_section": "__TEXT,__text",
+    "start_offset": 32768,
+    "size": 300724992,
+    "direct_B_BL_to_relevant_IMPs": 0,
+    "matching_category_overrides": 0,
+    "duplicate_classlist_selector_implementations": 0,
+    "note": "No static alternate constructor beyond the two callers has been proven. Dynamic runtime method replacement, loaded image difference, and screenshot/log timing remain unverified explanations."
+  },
+  "natural_ad_path": "Inspected but not recommended for this screenshot because exact CTA belongs to DirectGameContentView; retain as exploratory evidence only.",
+  "view_only_suppression_rejected": {
+    "class": "FQVShortVideoPageListCellView",
+    "selector": "refreshUI",
+    "file_offset": "0x849bcf4",
+    "reason": "createInsertView nil is assigned then addSubview; no model removal, blank page risk"
+  },
+  "secondary_failure_cleanup": {
+    "class": "SSShortVideoFeedDirectGameContentModel",
+    "entry": "modelDidDisplay",
+    "entry_encoding": "v16@0:8",
+    "entry_file_offset": "0xfff90e8",
+    "status": "narrowly scoped deferred main-queue catch supported by host state and removal code; real-device behavior unverified",
+    "sequence": [
+      "Call original modelDidDisplay first",
+      "Schedule at most one main-queue task for model, weakly captured",
+      "Recheck model exists, !isInvalidated, displaying, known exact host with host.contentModel==model and host.isCurrentDisplaying",
+      "Call handleTerminalFailureWithReason: with a local suppression reason",
+      "Let host perform scroll, resource release, delayed removal, token/retry checks"
+    ],
+    "timing_limit": "Primary gate prevents creation. If fallback runs, card may be briefly visible; source1 host scrolls then waits 0.5 seconds before deletion. Do not claim zero-frame suppression.",
+    "not_needed": "Avoid raw currentListCellIndex checks; host verifies actual current model and uses NSNotFound semantics internally.",
+    "abi": [
+      {
+        "class": "SSShortVideoFeedDirectGameContentModel",
+        "kind": "-",
+        "selector": "modelDidDisplay",
+        "encoding": "v16@0:8",
+        "file_offset": "0xfff90e8",
+        "vm_address": "0x10fff90e8"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameContentModel",
+        "kind": "-",
+        "selector": "modelDidEndDisplay",
+        "encoding": "v16@0:8",
+        "file_offset": "0xfff93d8",
+        "vm_address": "0x10fff93d8"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameContentModel",
+        "kind": "-",
+        "selector": "handleTerminalFailureWithReason:",
+        "encoding": "v24@0:8@16",
+        "file_offset": "0xfffb014",
+        "vm_address": "0x10fffb014"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameContentModel",
+        "kind": "-",
+        "selector": "host",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfffb090",
+        "vm_address": "0x10fffb090"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameContentModel",
+        "kind": "-",
+        "selector": "isInvalidated",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfffb130",
+        "vm_address": "0x10fffb130"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameContentModel",
+        "kind": "-",
+        "selector": "displaying",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfffb1a0",
+        "vm_address": "0x10fffb1a0"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameFeedPageHost",
+        "kind": "-",
+        "selector": "isCurrentDisplaying",
+        "encoding": "B16@0:8",
+        "file_offset": "0xfffe9b4",
+        "vm_address": "0x10fffe9b4"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameFeedPageHost",
+        "kind": "-",
+        "selector": "removeContentModel:reason:completion:",
+        "encoding": "v40@0:8@16@24@?32",
+        "file_offset": "0xfffea24",
+        "vm_address": "0x10fffea24"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameFeedPageHost",
+        "kind": "-",
+        "selector": "contentModel",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfffef58",
+        "vm_address": "0x10fffef58"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameSeriesEndInsertHost",
+        "kind": "-",
+        "selector": "isCurrentDisplaying",
+        "encoding": "B16@0:8",
+        "file_offset": "0xffff2bc",
+        "vm_address": "0x10ffff2bc"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameSeriesEndInsertHost",
+        "kind": "-",
+        "selector": "removeContentModel:reason:completion:",
+        "encoding": "v40@0:8@16@24@?32",
+        "file_offset": "0xffff358",
+        "vm_address": "0x10ffff358"
+      },
+      {
+        "class": "SSShortVideoFeedDirectGameSeriesEndInsertHost",
+        "kind": "-",
+        "selector": "contentModel",
+        "encoding": "@16@0:8",
+        "file_offset": "0xfffffdc",
+        "vm_address": "0x10fffffdc"
+      }
+    ],
+    "evidence": [
+      "direct-did-display.disasm",
+      "direct-did-end-display.disasm",
+      "direct-model-terminal.disasm",
+      "direct-model-invalidate.disasm",
+      "direct-host-visible.disasm",
+      "direct-host-remove.disasm",
+      "direct-finish-candidate.disasm",
+      "direct-series-host-visible.disasm",
+      "direct-series-host-remove.disasm",
+      "direct-series-attempt-remove.disasm"
+    ]
+  }
+}

@@ -1,5 +1,7 @@
 #import "Honggo.h"
+#import <dispatch/dispatch.h>
 #include <stdatomic.h>
+#include <string.h>
 
 typedef struct {
     HGFeature feature;
@@ -11,6 +13,62 @@ typedef struct {
 } HGGate;
 
 static void HGAdDecision(id object, SEL selector, BOOL result);
+static void (*HGOriginalDirectGameDidDisplay)(id, SEL);
+static Class HGDirectGameFeedHost, HGDirectGameSeriesHost;
+static char HGDirectGameRemovalPending;
+
+@protocol HGDirectGameHost <NSObject>
+- (id)contentModel;
+- (BOOL)isCurrentDisplaying;
+@end
+
+@protocol HGDirectGameModel <NSObject>
+- (id<HGDirectGameHost>)host;
+- (BOOL)displaying;
+- (BOOL)isInvalidated;
+- (void)handleTerminalFailureWithReason:(NSString *)reason;
+@end
+
+static void HGDirectGameDidDisplay(id<HGDirectGameModel> self, SEL cmd) {
+    HGOriginalDirectGameDidDisplay(self, cmd);
+    if (!NSThread.isMainThread || objc_getAssociatedObject(self, &HGDirectGameRemovalPending)) return;
+
+    objc_setAssociatedObject(self, &HGDirectGameRemovalPending, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak id<HGDirectGameModel> game = self;
+    // Let the host finish its display update before it changes the feed again.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        id<HGDirectGameModel> model = game;
+        if (!model) return;
+        objc_setAssociatedObject(model, &HGDirectGameRemovalPending, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (model.isInvalidated || !model.displaying) return;
+        id<HGDirectGameHost> host = model.host;
+        Class type = object_getClass(host);
+        if (!type || (type != HGDirectGameFeedHost && type != HGDirectGameSeriesHost) ||
+            host.contentModel != model || !host.isCurrentDisplaying) return;
+        HGAdDecision(model, cmd, NO);
+        [model handleTerminalFailureWithReason:@"honggo_feed_filter"];
+    });
+}
+
+static BOOL HGAdMethodMatches(Class type, SEL selector, const char *expected) {
+    Method method = class_getInstanceMethod(type, selector);
+    return method && strcmp(method_getTypeEncoding(method), expected) == 0;
+}
+
+static BOOL HGDirectGameDisplaySupported(Class model) {
+    Class feed = objc_lookUpClass("SSShortVideoFeedDirectGameFeedPageHost");
+    Class series = objc_lookUpClass("SSShortVideoFeedDirectGameSeriesEndInsertHost");
+    HGDirectGameFeedHost = HGAdMethodMatches(feed, @selector(isCurrentDisplaying), "B16@0:8") &&
+        HGAdMethodMatches(feed, @selector(contentModel), "@16@0:8") ? feed : Nil;
+    HGDirectGameSeriesHost = HGAdMethodMatches(series, @selector(isCurrentDisplaying), "B16@0:8") &&
+        HGAdMethodMatches(series, @selector(contentModel), "@16@0:8") ? series : Nil;
+    return (HGDirectGameFeedHost || HGDirectGameSeriesHost) &&
+        HGAdMethodMatches(model, @selector(host), "@16@0:8") &&
+        HGAdMethodMatches(model, @selector(displaying), "B16@0:8") &&
+        HGAdMethodMatches(model, @selector(isInvalidated), "B16@0:8") &&
+        HGAdMethodMatches(model, @selector(handleTerminalFailureWithReason:), "v24@0:8@16");
+}
+
 static BOOL HGNo(id self, SEL cmd) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGNoObject(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGNoObjects(id self, SEL cmd, id first, id second) { HGAdDecision(self, cmd, NO); return NO; }
@@ -20,6 +78,10 @@ static BOOL HGNoObjectClass(id self, SEL cmd, id argument, Class viewClass) { HG
 static BOOL HGYesObject(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, YES); return YES; }
 static id HGNoModel(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, NO); return nil; }
 static id HGNoModels(id self, SEL cmd, id data, id context) { HGAdDecision(self, cmd, NO); return nil; }
+static id HGNoDirectGameModel(id self, SEL cmd, id data, NSInteger source, id host) {
+    HGAdDecision(self, cmd, NO);
+    return nil;
+}
 static void HGSkipSurvey(id self, SEL cmd, NSInteger style, id videoID) { HGAdDecision(self, cmd, NO); }
 static void HGSkipPendant(id self, SEL cmd, UIView *parent) { HGAdDecision(self, cmd, NO); }
 
@@ -83,6 +145,9 @@ static const HGGate HGGates[] = {
     // The feed caller skips nil before append; series-end NO precedes preparation.
     {HGFeed, "SSVideoMiniGameService", "createFeedPageDataModelWithCellViewData:listVCContext:", "@32@0:8@16@24", (IMP)HGNoModels},
     {HGFeed, "SSBizVideoABTestHelper", "enableSeriesEndDirectGame", "B16@0:8", (IMP)HGNo, YES},
+    // Both direct-game callers check nil before constructing or enqueueing a page.
+    {HGFeed, "SSVideoMiniGameService", "createDirectGameContentModelWithCellViewData:source:host:", "@40@0:8@16q24@32", (IMP)HGNoDirectGameModel},
+    {HGFeed, "SSShortVideoFeedDirectGameContentModel", "modelDidDisplay", "v16@0:8", (IMP)HGDirectGameDidDisplay},
 };
 
 static void HGAdDecision(id object, SEL selector, BOOL result) {
@@ -120,7 +185,20 @@ void HGInstallAds(void) {
         if (gate->classMethod) {
             target = object_getClass(target);
         }
-        if (HGReplaceMethod(target, sel_registerName(gate->selector), gate->encoding, gate->replacement)) {
+        BOOL directGameDisplay = gate->replacement == (IMP)HGDirectGameDidDisplay;
+        SEL selector = sel_registerName(gate->selector);
+        if (directGameDisplay && HGOriginalDirectGameDidDisplay) {
+            installed++;
+            continue;
+        }
+        if (directGameDisplay && !HGDirectGameDisplaySupported(target)) {
+            HGLog(@"hook.skipped", @{@"class": @(gate->className), @"selector": @(gate->selector),
+                @"reason": @"direct-game host method ABI mismatch"});
+            continue;
+        }
+        IMP original = HGReplaceMethod(target, selector, gate->encoding, gate->replacement);
+        if (original) {
+            if (directGameDisplay) HGOriginalDirectGameDidDisplay = (void (*)(id, SEL))original;
             installed++;
         } else {
             NSLog(@"[Honggo] 跳过不匹配的入口 %s %s", gate->className, gate->selector);
