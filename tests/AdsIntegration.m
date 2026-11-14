@@ -8,6 +8,44 @@ static NSUInteger forceRequests, feedRequests, manualEntries, patchRequests;
 static NSUInteger gameModelCreations;
 static NSUInteger manualGameEntries;
 
+// Configure host classification outcomes without duplicating its JSON parser.
+@interface SSNaturalAdData : NSObject
+@property(nonatomic) NSInteger forceWatchTime;
+@property(nonatomic) BOOL gameAfterParsing;
+@property(nonatomic, getter=isGameContent) BOOL gameContent;
+@property(nonatomic) NSUInteger parseCalls;
+- (void)parseGameDict;
+@end
+@implementation SSNaturalAdData
+- (void)parseGameDict {
+    self.parseCalls++;
+    self.gameContent = self.gameAfterParsing;
+}
+@end
+
+@interface HGUnexpectedNaturalAdData : SSNaturalAdData
+@end
+@implementation HGUnexpectedNaturalAdData
+- (void)parseGameDict {
+    self.parseCalls++;
+    self.gameContent = YES;
+}
+@end
+
+@interface SSNaturalAdManager : NSObject
+@property(nonatomic) NSUInteger originalCalls;
+@property(nonatomic) BOOL originalResult;
+@property(nonatomic, strong) id lastArgument;
+- (BOOL)tryInsertDataToSaaS:(id)data;
+@end
+@implementation SSNaturalAdManager
+- (BOOL)tryInsertDataToSaaS:(id)data {
+    self.originalCalls++;
+    self.lastArgument = data;
+    return self.originalResult;
+}
+@end
+
 @interface SSGameService : NSObject
 - (void)enterGame:(id)game;
 @end
@@ -290,6 +328,71 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
     [self.checks addObject:@{@"name": name, @"passed": @(passed)}];
     NSLog(@"[HonggoAdsTests] %@: %@", passed ? @"PASS" : @"FAIL", name);
 }
+- (void)checkNaturalAdInsertionEnabled:(BOOL)enabled original:(IMP)original {
+    SSNaturalAdManager *manager = [SSNaturalAdManager new];
+    manager.originalResult = YES;
+    SSNaturalAdData *native = [SSNaturalAdData new];
+    native.gameAfterParsing = YES;
+    SSNaturalAdData *video = [SSNaturalAdData new];
+    video.gameAfterParsing = YES;
+    video.forceWatchTime = -1;
+    NSArray<SSNaturalAdData *> *games = @[native, video];
+    NSArray<NSString *> *channels = @[@"native game", @"video game"];
+    [self check:!native.isGameContent && !video.isGameContent && native.parseCalls == 0 && video.parseCalls == 0
+        name:[NSString stringWithFormat:@"%@ natural insertion starts with unclassified native and video payloads", enabled ? @"enabled" : @"disabled"]];
+    Method method = class_getInstanceMethod(SSNaturalAdManager.class, @selector(tryInsertDataToSaaS:));
+    IMP installed = method_getImplementation(method);
+    [self check:enabled ? installed != original : installed == original
+        name:[NSString stringWithFormat:@"%@ natural insertion has the expected original or replacement IMP", enabled ? @"enabled" : @"disabled"]];
+    for (NSUInteger index = 0; index < games.count; index++) {
+        SSNaturalAdData *data = games[index];
+        BOOL result = [manager tryInsertDataToSaaS:data];
+        BOOL correct = enabled ?
+            (!result && data.parseCalls == 1 && data.isGameContent && manager.originalCalls == 0 && manager.lastArgument == nil) :
+            (result && data.parseCalls == 0 && !data.isGameContent && manager.originalCalls == index + 1 && manager.lastArgument == data);
+        [self check:correct name:[NSString stringWithFormat:@"%@ %@ insertion %@", enabled ? @"enabled" : @"disabled", channels[index],
+            enabled ? @"classifies lazily and declines before the original" : @"preserves the exact original argument without classification"]];
+    }
+    if (!enabled) return;
+
+    SSNaturalAdData *mandatory = [SSNaturalAdData new];
+    mandatory.forceWatchTime = 1;
+    mandatory.gameAfterParsing = YES;
+    [self check:[manager tryInsertDataToSaaS:mandatory] && manager.originalCalls == 1 &&
+        manager.lastArgument == mandatory && mandatory.parseCalls == 0 && !mandatory.isGameContent
+        name:@"positive force-watch time preserves the original argument and bypasses optional-game parsing"];
+    SSNaturalAdData *ordinary = [SSNaturalAdData new];
+    [self check:[manager tryInsertDataToSaaS:ordinary] && manager.originalCalls == 2 &&
+        manager.lastArgument == ordinary && ordinary.parseCalls == 1 && !ordinary.isGameContent
+        name:@"a classified non-game payload reaches the original unchanged"];
+    NSObject *unknown = [NSObject new];
+    [self check:[manager tryInsertDataToSaaS:unknown] && manager.originalCalls == 3 && manager.lastArgument == unknown
+        name:@"an unknown payload without classification methods reaches the original unchanged"];
+    HGUnexpectedNaturalAdData *subclass = [HGUnexpectedNaturalAdData new];
+    [self check:[manager tryInsertDataToSaaS:subclass] && manager.originalCalls == 4 &&
+        manager.lastArgument == subclass && subclass.parseCalls == 0 && !subclass.isGameContent
+        name:@"an unexpected subclass bypasses its parser and retains the original path"];
+    SSNaturalAdData *refused = [SSNaturalAdData new];
+    manager.originalResult = NO;
+    [self check:![manager tryInsertDataToSaaS:refused] && manager.originalCalls == 5 &&
+        manager.lastArgument == refused && refused.parseCalls == 1
+        name:@"the original insertion refusal is preserved for ordinary content"];
+
+    HGInstallAds();
+    HGInstallAds();
+    [self check:method_getImplementation(method) == installed && installed != original
+        name:@"repeated installation retains the same natural insertion hook"];
+    SSNaturalAdData *repeatGame = [SSNaturalAdData new];
+    repeatGame.gameAfterParsing = YES;
+    [self check:![manager tryInsertDataToSaaS:repeatGame] && repeatGame.parseCalls == 1 &&
+        repeatGame.isGameContent && manager.originalCalls == 5 && manager.lastArgument == refused
+        name:@"optional-game classification still declines after repeated installation"];
+    manager.originalResult = YES;
+    SSNaturalAdData *repeatOrdinary = [SSNaturalAdData new];
+    [self check:[manager tryInsertDataToSaaS:repeatOrdinary] && manager.originalCalls == 6 &&
+        manager.lastArgument == repeatOrdinary && repeatOrdinary.parseCalls == 1
+        name:@"ordinary insertion reaches its original exactly once after reinstallation without recursion"];
+}
 - (void)checkGameBindingHidden:(BOOL)hidden {
     NSArray<UIView *> *wrappers = @[
         [[FQVShortVideoFeedPageCellView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)],
@@ -410,7 +513,10 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
     IMP originalForce = method_getImplementation(force);
     Method wrongABI = class_getInstanceMethod(SSBizVideoAdCommonAdClient.class, @selector(shouldRequestShortVideoAd:));
     IMP originalWrongABI = method_getImplementation(wrongABI);
+    Method naturalInsert = class_getInstanceMethod(SSNaturalAdManager.class, @selector(tryInsertDataToSaaS:));
+    IMP originalNaturalInsert = method_getImplementation(naturalInsert);
     HGInstallAds();
+    [self checkNaturalAdInsertionEnabled:NO original:originalNaturalInsert];
     [self checkGameBindingHidden:NO];
     SSShortVideoFeedDirectGameContentModel *disabledGame = HGDisplayingGame(SSShortVideoFeedDirectGameFeedPageHost.class);
     [self check:[[games createDirectGameContentModelWithCellViewData:@"game" source:1 host:nil] isEqual:@"game"] &&
@@ -450,6 +556,7 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
     [defaults setBool:YES forKey:@"HongguoGlass.feed"];
     [defaults setBool:YES forKey:@"HongguoGlass.patch"];
     HGInstallAds();
+    [self checkNaturalAdInsertionEnabled:YES original:originalNaturalInsert];
     [self checkGameBindingHidden:YES];
     [self check:[games createFeedPageDataModelWithCellViewData:@"game-legacy" listVCContext:nil] == nil &&
         [games createFeedPageDataModelWithCellViewData:@"game-native" listVCContext:@"context"] == nil &&

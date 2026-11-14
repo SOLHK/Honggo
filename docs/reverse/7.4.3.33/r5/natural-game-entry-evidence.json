@@ -1,0 +1,377 @@
+{
+  "host": "Eggplant 7.4.3.33 arm64",
+  "executable_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+  "text_vm_base": "0x100000000",
+  "repository_modified": false,
+  "runtime_screenshot_attribution_proven": false,
+  "device_verification": "not performed by this static audit",
+  "recommended_boundary": {
+    "class": "SSNaturalAdManager",
+    "kind": "-",
+    "selector": "tryInsertDataToSaaS:",
+    "file_offset": "0xfd60c64",
+    "encoding": "B24@0:8@16",
+    "predicate": "existing feed suppression option && exact SSNaturalAdData && forceWatchTime < 1 && (host parseGameDict executed, host isGameContent true)",
+    "matching_behavior": "return NO before original entry body",
+    "otherwise": "call original unchanged",
+    "state_changes_to_avoid": [
+      "hasWatch",
+      "hasInserted",
+      "forceWatchTime",
+      "benefits",
+      "synthetic callback success"
+    ]
+  },
+  "native_classifier": {
+    "parse_selector": "parseGameDict",
+    "parse_file_offset": "0xfd63a28",
+    "input": "serialized lynxData JSON array via lynxDataArray",
+    "channel_key": {
+      "name": "feed_game_channel",
+      "cfstring_file_offset": "0x1a3f50b8",
+      "materialization_helper": "0xfd64780"
+    },
+    "content_key": {
+      "name": "game_content",
+      "cfstring_file_offset": "0x1a356398",
+      "materialization_helper": "0xe974010"
+    },
+    "required_content": "NSDictionary with count > 0",
+    "direct_game_channels": [
+      1,
+      2
+    ],
+    "video_game_channels": [
+      4,
+      6
+    ],
+    "accepted_result": "isGameContent = YES plus directGameDict or videoGameDict",
+    "non_game_passthrough": true,
+    "preload_or_mount_in_parser_found": false,
+    "cache_side_effects": [
+      "hasParseGame",
+      "directGameDict",
+      "videoGameDict",
+      "isGameContent",
+      "lazy lynxDataArray cache",
+      "diagnostic logging"
+    ]
+  },
+  "forced_watch": {
+    "getter": "forceWatchTime",
+    "encoding": "q16@0:8",
+    "file_offset": "0xfd65e5c",
+    "comparison": "signed cmp x0,#1; b.lt",
+    "comparison_offset": "0xfd60c8c",
+    "preserve_positive_values": true,
+    "isGameContent_independent_of_forceWatchTime": true
+  },
+  "incoming_callers": [
+    {
+      "class": "SSBizVideoAdCommonAdClient",
+      "selector_materialization": "0xfd4315c",
+      "call": "0xfd43164",
+      "return_used": false,
+      "completion_argument": false,
+      "caller_offset": "0xfd42b7c"
+    },
+    {
+      "class": "SSShortVideoMUnionAdService",
+      "selector_materialization": "0xfd4e64c",
+      "call": "0xfd4e654",
+      "return_used": false,
+      "complement_invoked_in_natural_handler": false,
+      "caller_offset": "0xfd4e090"
+    },
+    {
+      "class": "SSShortVideoAdService",
+      "selector_materialization": "0xfd5765c",
+      "call": "0xfd57664",
+      "return_used": false,
+      "complement_invoked_in_natural_handler": false,
+      "caller_offset": "0xfd570a8"
+    }
+  ],
+  "before_entry": "natural data allocation + metadata/template assignment, host settings, manager bookkeeping/listeners; no ad content root construction or mount observed in these paths",
+  "after_entry": [
+    "landscape copy/session/peer links",
+    "portrait and landscape insertion attempts",
+    "retry queue updates",
+    "successful hasInserted/list tracking",
+    "container creation/access",
+    "naturalManager:addDataSuccess callback"
+  ],
+  "false_return_semantics": "native rejection; nil input and declined insertion already return NO; incoming callers release locals",
+  "retry_limitation": "already queued items use tryInsertPortrait/isRetry or tryInsertLandScape/isRetry directly, bypassing the selected initial delivery boundary",
+  "last_natural_data": "entry method does not write; inspected success branches clear only if identical; early rejection leaves prior state intact",
+  "full_text_direct_branch_matches": 0,
+  "relevant_category_matches": 0,
+  "abi_records": [
+    {
+      "class": "SSBizVideoAdCommonAdClient",
+      "kind": "-",
+      "selector": "handleNaturalAdData:uniqueId:seriesId:episodeIndex:videoIndex:",
+      "encoding": "v56@0:8@16@24@32q40Q48",
+      "file_offset": "0xfd42b7c",
+      "vm_address": "0x10fd42b7c"
+    },
+    {
+      "class": "SSShortVideoMUnionAdService",
+      "kind": "-",
+      "selector": "handleNaturalAdData:uniqueId:seriesId:episodeIndex:videoIndex:complement:",
+      "encoding": "v64@0:8@16@24@32q40Q48@?56",
+      "file_offset": "0xfd4e090",
+      "vm_address": "0x10fd4e090"
+    },
+    {
+      "class": "SSShortVideoAdService",
+      "kind": "-",
+      "selector": "handleNaturalAdData:uniqueId:seriesId:episodeIndex:videoIndex:complement:",
+      "encoding": "v64@0:8@16@24@32q40Q48@?56",
+      "file_offset": "0xfd570a8",
+      "vm_address": "0x10fd570a8"
+    },
+    {
+      "class": "SSNaturalAdManager",
+      "kind": "-",
+      "selector": "initWithContext:",
+      "encoding": "@24@0:8@16",
+      "file_offset": "0xfd59a48",
+      "vm_address": "0x10fd59a48"
+    },
+    {
+      "class": "SSNaturalAdManager",
+      "kind": "-",
+      "selector": "retryNextNaturalAdInQueue:landscape:",
+      "encoding": "v28@0:8@16B24",
+      "file_offset": "0xfd60be0",
+      "vm_address": "0x10fd60be0"
+    },
+    {
+      "class": "SSNaturalAdManager",
+      "kind": "-",
+      "selector": "tryInsertDataToSaaS:",
+      "encoding": "B24@0:8@16",
+      "file_offset": "0xfd60c64",
+      "vm_address": "0x10fd60c64"
+    },
+    {
+      "class": "SSNaturalAdManager",
+      "kind": "-",
+      "selector": "tryInsertPortrait:isRetry:",
+      "encoding": "B28@0:8@16B24",
+      "file_offset": "0xfd61408",
+      "vm_address": "0x10fd61408"
+    },
+    {
+      "class": "SSNaturalAdManager",
+      "kind": "-",
+      "selector": "tryInsertLandScape:isRetry:",
+      "encoding": "B28@0:8@16B24",
+      "file_offset": "0xfd62970",
+      "vm_address": "0x10fd62970"
+    },
+    {
+      "class": "SSNaturalAdData",
+      "kind": "-",
+      "selector": "directGameDict",
+      "encoding": "@16@0:8",
+      "file_offset": "0xfd639f4",
+      "vm_address": "0x10fd639f4"
+    },
+    {
+      "class": "SSNaturalAdData",
+      "kind": "-",
+      "selector": "parseGameDict",
+      "encoding": "v16@0:8",
+      "file_offset": "0xfd63a28",
+      "vm_address": "0x10fd63a28"
+    },
+    {
+      "class": "SSNaturalAdData",
+      "kind": "-",
+      "selector": "proloadVideoContentGameIfNeed",
+      "encoding": "v16@0:8",
+      "file_offset": "0xfd63f8c",
+      "vm_address": "0x10fd63f8c"
+    },
+    {
+      "class": "SSNaturalAdData",
+      "kind": "-",
+      "selector": "finishPendingInsertWithReason:",
+      "encoding": "v24@0:8@16",
+      "file_offset": "0xfd656a4",
+      "vm_address": "0x10fd656a4"
+    },
+    {
+      "class": "SSNaturalAdData",
+      "kind": "-",
+      "selector": "lynxDataArray",
+      "encoding": "@16@0:8",
+      "file_offset": "0xfd65d10",
+      "vm_address": "0x10fd65d10"
+    },
+    {
+      "class": "SSNaturalAdData",
+      "kind": "-",
+      "selector": "lynxData",
+      "encoding": "@16@0:8",
+      "file_offset": "0xfd65d84",
+      "vm_address": "0x10fd65d84"
+    },
+    {
+      "class": "SSNaturalAdData",
+      "kind": "-",
+      "selector": "forceWatchTime",
+      "encoding": "q16@0:8",
+      "file_offset": "0xfd65e5c",
+      "vm_address": "0x10fd65e5c"
+    },
+    {
+      "class": "SSNaturalAdData",
+      "kind": "-",
+      "selector": "videoGameDict",
+      "encoding": "@16@0:8",
+      "file_offset": "0xfd6603c",
+      "vm_address": "0x10fd6603c"
+    },
+    {
+      "class": "SSNaturalAdData",
+      "kind": "-",
+      "selector": "hasParseGame",
+      "encoding": "B16@0:8",
+      "file_offset": "0xfd66048",
+      "vm_address": "0x10fd66048"
+    },
+    {
+      "class": "SSNaturalAdData",
+      "kind": "-",
+      "selector": "isGameContent",
+      "encoding": "B16@0:8",
+      "file_offset": "0xfd66060",
+      "vm_address": "0x10fd66060"
+    }
+  ],
+  "evidence_files": [
+    {
+      "name": "ad-delivery.disasm",
+      "size": 7697,
+      "sha256": "cd95fc82df4d0b1c39ec4870377d778b97984fb7cf989193c81f1a36dcfde31a"
+    },
+    {
+      "name": "munion-delivery.disasm",
+      "size": 10187,
+      "sha256": "9283e98830e637b608cc6d507138bba43f99ce75ede74f285f51edbc5067869c"
+    },
+    {
+      "name": "munion-natural-handler.disasm",
+      "size": 36093,
+      "sha256": "5c40eb172b50a29f555869605ac5931fe11a4af35cea75d90f2574f9cc85c7d6"
+    },
+    {
+      "name": "natural-change-index.disasm",
+      "size": 35233,
+      "sha256": "eae2df3d345091b47814d95c440ef76126e4b7264c7441edda8eb69929f0b1a0"
+    },
+    {
+      "name": "natural-create-insert-view.disasm",
+      "size": 8919,
+      "sha256": "d44d0c24b0312158925acf121ac9e1b2176e9933c2960f615f9c2ffa8bf80bf4"
+    },
+    {
+      "name": "natural-data-lazy-array.disasm",
+      "size": 2985,
+      "sha256": "5853b0adfc1b79f57608a84c302a22fce8e216be16b5851c619196cd53e543ed"
+    },
+    {
+      "name": "natural-entry-full.disasm",
+      "size": 9976,
+      "sha256": "056731f5b5239c136e0d3c17ee81d687e369e2c81023304b15c30c24ee5bab8d"
+    },
+    {
+      "name": "natural-game-parse.disasm",
+      "size": 36967,
+      "sha256": "cc8fcf01216b9b454e4b205b4c11fd8edb71d2bd838e6bafcabfba65a0809307"
+    },
+    {
+      "name": "natural-insert-tail.disasm",
+      "size": 4348,
+      "sha256": "67f8811c310d2f3de31933b3635a607732de926ac8884477246bbd440781f11c"
+    },
+    {
+      "name": "natural-landscape-commit.disasm",
+      "size": 7929,
+      "sha256": "90303aab1ab45d599f67e8f8e1757d58671af0477be9c6d065b73d6f9d2b06d7"
+    },
+    {
+      "name": "natural-landscape-insert.disasm",
+      "size": 43834,
+      "sha256": "6c000532e3df1a7ded4a5e32fd78e83ea43b73a8f7ace8715bb0e9985745e37a"
+    },
+    {
+      "name": "natural-manager-init.disasm",
+      "size": 9527,
+      "sha256": "e2d11509f11594d5cf70e94a7dd03b77c61f7ae4eebd8be15b6078297e6d8f32"
+    },
+    {
+      "name": "natural-pending-finish.disasm",
+      "size": 5998,
+      "sha256": "f9def0e2da2aab366790ac309906e3c1fa7cdb49182ba30972fe893e6e1a03b5"
+    },
+    {
+      "name": "natural-portrait-commit.disasm",
+      "size": 8441,
+      "sha256": "08766514441cc9632b0352e35d3a8a826eab1b0c83a97735da47851611a469f7"
+    },
+    {
+      "name": "natural-portrait-insert.disasm",
+      "size": 50850,
+      "sha256": "2b8a0ae77f864f8019a5e188a323fda94571e5fee91f182da5151d04286aaa51"
+    },
+    {
+      "name": "natural-retry.disasm",
+      "size": 4602,
+      "sha256": "a59ad4e8a2b986fd8b61c1fde007875025bb2e91c1a3b0a0544d58cf1f1b8e8f"
+    },
+    {
+      "name": "natural-update.disasm",
+      "size": 8585,
+      "sha256": "6f1b7d336dfe332e91fb54f8d01a896df166c30a9555bc1493280ad3e07bc05e"
+    },
+    {
+      "name": "normal-natural-handler.disasm",
+      "size": 36151,
+      "sha256": "589f002f845dfda732342a1034a665dfeffe4aa8aa2c7359db975d14f7d9a0bf"
+    },
+    {
+      "name": "natural-entry-categories.stderr.txt",
+      "size": 254,
+      "sha256": "f062853d0ca0d0d276a0fb6db6f6af006f11835faf76bb089f93b4494e4a1109"
+    },
+    {
+      "name": "natural-entry-categories.txt",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "natural-entry-direct-calls.stderr.txt",
+      "size": 375,
+      "sha256": "8050a5809bdbce7d95c9bad1b1b1dea5a9b376b09bada2e07a79d539831f79f4"
+    },
+    {
+      "name": "natural-entry-direct-calls.txt",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "natural-entry-refs.stderr.txt",
+      "size": 333,
+      "sha256": "52ee9e04a101e16e04b7e90cff5c43a58054ce1115bd0b232823eddbd31de547"
+    },
+    {
+      "name": "natural-entry-refs.txt",
+      "size": 941,
+      "sha256": "b4d42e3fe46fa3914e72effd4e07ee85a4b4edb7dd1ecf9c8c48b1cc96b47ae7"
+    }
+  ]
+}

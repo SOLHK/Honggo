@@ -18,6 +18,8 @@ typedef UIView *(*HGDirectGameInitializer)(UIView * __attribute__((ns_consumed))
 static void HGAdDecision(id object, SEL selector, BOOL result);
 static void (*HGOriginalDirectGameDidDisplay)(id, SEL);
 static HGDirectGameInitializer HGOriginalDirectGameInit;
+static BOOL (*HGOriginalNaturalAdInsert)(id, SEL, id);
+static Class HGNaturalAdDataClass;
 static Class HGDirectGameFeedHost, HGDirectGameSeriesHost;
 static char HGDirectGameRemovalPending;
 
@@ -32,6 +34,24 @@ static char HGDirectGameRemovalPending;
 - (BOOL)isInvalidated;
 - (void)handleTerminalFailureWithReason:(NSString *)reason;
 @end
+
+@protocol HGNaturalAdData <NSObject>
+- (NSInteger)forceWatchTime;
+- (void)parseGameDict;
+- (BOOL)isGameContent;
+@end
+
+static BOOL HGNaturalAdInsert(id self, SEL cmd, id<HGNaturalAdData> data) {
+    if (data && object_getClass(data) == HGNaturalAdDataClass && data.forceWatchTime < 1) {
+        // The host classifies this payload lazily, before preparing its game views.
+        [data parseGameDict];
+        if (data.isGameContent) {
+            HGAdDecision(self, cmd, NO);
+            return NO;
+        }
+    }
+    return HGOriginalNaturalAdInsert(self, cmd, data);
+}
 
 __attribute__((ns_returns_retained))
 static UIView *HGDirectGameInit(UIView * __attribute__((ns_consumed)) self, SEL cmd, CGRect frame) {
@@ -66,6 +86,15 @@ static void HGDirectGameDidDisplay(id<HGDirectGameModel> self, SEL cmd) {
 static BOOL HGAdMethodMatches(Class type, SEL selector, const char *expected) {
     Method method = class_getInstanceMethod(type, selector);
     return method && strcmp(method_getTypeEncoding(method), expected) == 0;
+}
+
+static BOOL HGNaturalAdInsertSupported(void) {
+    Class data = objc_lookUpClass("SSNaturalAdData");
+    if (!HGAdMethodMatches(data, @selector(forceWatchTime), "q16@0:8") ||
+        !HGAdMethodMatches(data, @selector(parseGameDict), "v16@0:8") ||
+        !HGAdMethodMatches(data, @selector(isGameContent), "B16@0:8")) return NO;
+    HGNaturalAdDataClass = data;
+    return YES;
 }
 
 static BOOL HGDirectGameDisplaySupported(Class model) {
@@ -162,6 +191,7 @@ static const HGGate HGGates[] = {
     {HGFeed, "SSVideoMiniGameService", "createDirectGameContentModelWithCellViewData:source:host:", "@40@0:8@16q24@32", (IMP)HGNoDirectGameModel},
     {HGFeed, "SSShortVideoFeedDirectGameContentModel", "modelDidDisplay", "v16@0:8", (IMP)HGDirectGameDidDisplay},
     {HGFeed, "SSShortVideoFeedDirectGameContentView", "initWithFrame:", "@48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16", (IMP)HGDirectGameInit},
+    {HGFeed, "SSNaturalAdManager", "tryInsertDataToSaaS:", "B24@0:8@16", (IMP)HGNaturalAdInsert},
 };
 
 static void HGAdDecision(id object, SEL selector, BOOL result) {
@@ -201,9 +231,11 @@ void HGInstallAds(void) {
         }
         BOOL directGameDisplay = gate->replacement == (IMP)HGDirectGameDidDisplay;
         BOOL directGameInit = gate->replacement == (IMP)HGDirectGameInit;
+        BOOL naturalAdInsert = gate->replacement == (IMP)HGNaturalAdInsert;
         SEL selector = sel_registerName(gate->selector);
         if ((directGameDisplay && HGOriginalDirectGameDidDisplay) ||
-            (directGameInit && HGOriginalDirectGameInit)) {
+            (directGameInit && HGOriginalDirectGameInit) ||
+            (naturalAdInsert && HGOriginalNaturalAdInsert)) {
             installed++;
             continue;
         }
@@ -212,10 +244,16 @@ void HGInstallAds(void) {
                 @"reason": @"direct-game host method ABI mismatch"});
             continue;
         }
+        if (naturalAdInsert && !HGNaturalAdInsertSupported()) {
+            HGLog(@"hook.skipped", @{@"class": @(gate->className), @"selector": @(gate->selector),
+                @"reason": @"natural ad data method ABI mismatch"});
+            continue;
+        }
         IMP original = HGReplaceMethod(target, selector, gate->encoding, gate->replacement);
         if (original) {
             if (directGameDisplay) HGOriginalDirectGameDidDisplay = (void (*)(id, SEL))original;
             if (directGameInit) HGOriginalDirectGameInit = (HGDirectGameInitializer)original;
+            if (naturalAdInsert) HGOriginalNaturalAdInsert = (BOOL (*)(id, SEL, id))original;
             installed++;
         } else {
             NSLog(@"[Honggo] 跳过不匹配的入口 %s %s", gate->className, gate->selector);

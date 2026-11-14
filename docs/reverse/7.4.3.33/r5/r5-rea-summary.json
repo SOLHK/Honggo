@@ -1,0 +1,52 @@
+[
+  {
+    "source_record": "natural-parse-and-enqueue-rea.json",
+    "source_record_sha256": "25f531c0bfc16d2067cea549834fad83d88107681cf96d17a6497e234d88d221",
+    "evidence_id": "ev_99f30f86400b9ab1088109e831d39287e9011ca3d1b44fb0813bbdb343d7483b",
+    "host_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+    "operation": "execute_rizin_command",
+    "rea_version": "6.9.0",
+    "rizin_version": "0.9.1",
+    "rizin_commit": "c3a90e9226d977f58f4e9c75f78fa6b07afe13c7",
+    "file_offset_mapping": true,
+    "command": "e asm.arch; e asm.bits; oml; pd 130 @ 0xfd60c64; pd 345 @ 0xfd63a28; pd 199 @ 0xfd64108; pd 35 @ 0xfd6488c; pd 3 @ 0xfd64780; pd 3 @ 0xe974010; pd 4 @ 0xfd65e5c; pd 4 @ 0xfd66060",
+    "result": {
+      "exit_code": 0,
+      "completion_status": "complete",
+      "output_truncated": false,
+      "artifact_changed": false,
+      "artifact_sha256_after": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+      "stderr": ""
+    },
+    "limits": [
+      "Raw file-offset disassembly; no full Mach-O loader/whole-program CFG was run.",
+      "Objective-C labels and strings in companion notes come from separately decoded Mach-O metadata.",
+      "Does not establish runtime screenshot class, device rendering, or active remote template."
+    ]
+  },
+  {
+    "source_record": "natural-lynx-container-rea.json",
+    "source_record_sha256": "a4e4a128ed75d580af5aa8fb78a1b0e97fe81ecd3123d9e69b378ba5f590557c",
+    "evidence_id": "ev_1bcf99de326337adf19da0e44667dfe3f44ef99a4f491de15b22b2e2b28ab8ee",
+    "host_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+    "operation": "execute_rizin_command",
+    "rea_version": "6.9.0",
+    "rizin_version": "0.9.1",
+    "rizin_commit": "c3a90e9226d977f58f4e9c75f78fa6b07afe13c7",
+    "file_offset_mapping": true,
+    "command": "e asm.arch; e asm.bits; oml; pd 82 @ 0xfd67d48; pd 53 @ 0xfd68a40; pd 20 @ 0xfd57104; pd 13 @ 0xfd57180; pd 4 @ 0x66b2060",
+    "result": {
+      "exit_code": 0,
+      "completion_status": "complete",
+      "output_truncated": false,
+      "artifact_changed": false,
+      "artifact_sha256_after": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+      "stderr": ""
+    },
+    "limits": [
+      "Raw file-offset disassembly; no full Mach-O loader/whole-program CFG was run.",
+      "Objective-C labels and strings in companion notes come from separately decoded Mach-O metadata.",
+      "Does not establish runtime screenshot class, device rendering, or active remote template."
+    ]
+  }
+]
