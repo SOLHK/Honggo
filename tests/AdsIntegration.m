@@ -2,6 +2,7 @@
 // These controlled host fixtures do not establish real Hongguo device behavior.
 #import "Honggo.h"
 #import <objc/message.h>
+#import <QuartzCore/QuartzCore.h>
 
 static NSUInteger forceRequests, feedRequests, manualEntries, patchRequests;
 static NSUInteger gameModelCreations;
@@ -31,6 +32,43 @@ static NSUInteger manualGameEntries;
 @implementation HGUnknownGameHost
 @end
 
+@interface SSShortVideoFeedDirectGameContentView : UIView
+@property(nonatomic) NSUInteger bindCalls;
+@property(nonatomic) BOOL hiddenAtNativeBind;
+@property(nonatomic) BOOL detachedAtNativeBind;
+@property(nonatomic) BOOL hiddenAfterInitialization;
+@property(nonatomic, strong) id boundModel;
+@property(nonatomic, strong) UIView *defaultCTA;
+- (void)bindContentModel:(id)model;
+- (void)resetContent;
+@end
+@implementation SSShortVideoFeedDirectGameContentView
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        // Native construction creates default content before any model bind.
+        self.defaultCTA = [[UIView alloc] initWithFrame:self.bounds];
+        self.defaultCTA.backgroundColor = UIColor.redColor;
+        [self addSubview:self.defaultCTA];
+    }
+    return self;
+}
+- (void)resetContent {
+    self.boundModel = nil;
+    self.backgroundColor = UIColor.clearColor;
+}
+- (void)bindContentModel:(id)model {
+    // The original bind must inherit the constructor's visibility, including
+    // when a reused view resets its content before accepting another model.
+    self.hiddenAtNativeBind = self.hidden;
+    self.detachedAtNativeBind = self.superview == nil;
+    self.bindCalls++;
+    [self resetContent];
+    self.boundModel = model;
+    self.backgroundColor = UIColor.redColor;
+}
+@end
+
 @interface SSShortVideoFeedDirectGameContentModel : NSObject
 @property(nonatomic, strong) SSShortVideoFeedDirectGameFeedPageHost *host;
 @property(nonatomic) BOOL displaying;
@@ -39,6 +77,7 @@ static NSUInteger manualGameEntries;
 @property(nonatomic) NSUInteger removalCalls;
 - (void)modelDidDisplay;
 - (void)handleTerminalFailureWithReason:(NSString *)reason;
+- (UIView *)createInsertView;
 @end
 @implementation SSShortVideoFeedDirectGameContentModel
 - (void)modelDidDisplay {
@@ -49,7 +88,56 @@ static NSUInteger manualGameEntries;
     self.removalCalls++;
     self.invalidated = YES;
 }
+- (UIView *)createInsertView {
+    SSShortVideoFeedDirectGameContentView *view = [[SSShortVideoFeedDirectGameContentView alloc]
+        initWithFrame:CGRectMake(0, 0, 32, 32)];
+    view.hiddenAfterInitialization = view.hidden;
+    [view bindContentModel:self];
+    return view;
+}
 @end
+
+// Controlled callers replay the two native wrapper orders. The mixed feed's
+// content wrapper forwards setDataModel: to the common bind represented here.
+@interface FQVShortVideoFeedPageCellView : UIView
+@property(nonatomic, strong) SSShortVideoFeedDirectGameContentModel *model;
+@property(nonatomic, strong) SSShortVideoFeedDirectGameContentView *gameView;
+- (void)refreshUI;
+@end
+@implementation FQVShortVideoFeedPageCellView
+- (void)refreshUI {
+    self.gameView = [[SSShortVideoFeedDirectGameContentView alloc] initWithFrame:self.bounds];
+    self.gameView.hiddenAfterInitialization = self.gameView.hidden;
+    if (self.model.isInvalidated) [self.gameView resetContent];
+    else [self.gameView bindContentModel:self.model];
+    [self addSubview:self.gameView];
+}
+@end
+
+@interface FQVShortVideoPageListCellView : UIView
+@property(nonatomic, strong) SSShortVideoFeedDirectGameContentModel *model;
+@property(nonatomic, strong) SSShortVideoFeedDirectGameContentView *gameView;
+- (void)refreshUI;
+@end
+@implementation FQVShortVideoPageListCellView
+- (void)refreshUI {
+    self.gameView = (SSShortVideoFeedDirectGameContentView *)[self.model createInsertView];
+    [self addSubview:self.gameView];
+}
+@end
+
+static BOOL HGGameWrapperHasRedPixel(UIView *wrapper) {
+    unsigned char pixel[4] = {0};
+    CGColorSpaceRef colors = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(pixel, 1, 1, 8, 4, colors,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGContextTranslateCTM(context, -16, -16);
+    [wrapper.layer renderInContext:context];
+    BOOL red = pixel[0] > 200 && pixel[1] < 30 && pixel[2] < 30;
+    CGContextRelease(context);
+    CGColorSpaceRelease(colors);
+    return red;
+}
 
 static SSShortVideoFeedDirectGameContentModel *HGDisplayingGame(Class hostType) {
     SSShortVideoFeedDirectGameContentModel *model = [SSShortVideoFeedDirectGameContentModel new];
@@ -202,6 +290,74 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
     [self.checks addObject:@{@"name": name, @"passed": @(passed)}];
     NSLog(@"[HonggoAdsTests] %@: %@", passed ? @"PASS" : @"FAIL", name);
 }
+- (void)checkGameBindingHidden:(BOOL)hidden {
+    NSArray<UIView *> *wrappers = @[
+        [[FQVShortVideoFeedPageCellView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)],
+        [[FQVShortVideoPageListCellView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)]
+    ];
+    NSArray<NSString *> *names = @[@"mixed feed", @"series-end insert"];
+    for (NSUInteger index = 0; index < wrappers.count; index++) {
+        UIView *wrapper = wrappers[index];
+        wrapper.backgroundColor = UIColor.blackColor;
+        [self.window.rootViewController.view addSubview:wrapper];
+        SSShortVideoFeedDirectGameContentModel *model = [SSShortVideoFeedDirectGameContentModel new];
+        [(id)wrapper setModel:model];
+        [(id)wrapper refreshUI];
+        SSShortVideoFeedDirectGameContentView *view = [(id)wrapper gameView];
+        NSString *state = hidden ? @"enabled" : @"disabled";
+        [self check:view.defaultCTA.superview == view && view.hiddenAfterInitialization == hidden &&
+            view.bindCalls == 1 && view.detachedAtNativeBind && view.hiddenAtNativeBind == hidden
+            name:[NSString stringWithFormat:@"%@ %@ filtering preserves expected visibility from initialization through original binding", names[index], state]];
+        [self check:view.superview == wrapper && view.window == self.window &&
+            view.hidden == hidden && view.boundModel == model && model.removalCalls == 0
+            name:[NSString stringWithFormat:@"%@ %@ filtering preserves native binding and attachment before cleanup", names[index], state]];
+        [self check:HGGameWrapperHasRedPixel(wrapper) == !hidden
+            name:[NSString stringWithFormat:@"%@ %@ filtering has the expected first synchronous rendered pixel", names[index], state]];
+        if (hidden) {
+            UIView *sentinel = [[UIView alloc] initWithFrame:view.bounds];
+            sentinel.backgroundColor = UIColor.redColor;
+            [view addSubview:sentinel];
+            [self check:sentinel.superview == view && !sentinel.hidden && view.hidden &&
+                !HGGameWrapperHasRedPixel(wrapper) && model.displayCalls == 0 && model.removalCalls == 0
+                name:[NSString stringWithFormat:@"%@ children mounted after attachment remain invisible before display or cleanup", names[index]]];
+            SSShortVideoFeedDirectGameContentModel *next = [SSShortVideoFeedDirectGameContentModel new];
+            [view bindContentModel:next];
+            [self check:view.bindCalls == 2 && view.hiddenAtNativeBind && view.hidden &&
+                view.boundModel == next && !HGGameWrapperHasRedPixel(wrapper)
+                name:[NSString stringWithFormat:@"%@ reuse preserves invisibility while binding the next model", names[index]]];
+            [view bindContentModel:nil];
+            [self check:view.bindCalls == 3 && view.hiddenAtNativeBind && view.hidden &&
+                view.boundModel == nil && !HGGameWrapperHasRedPixel(wrapper)
+                name:[NSString stringWithFormat:@"%@ clearing the model binding does not expose the mounted subtree", names[index]]];
+        }
+        [wrapper removeFromSuperview];
+    }
+    FQVShortVideoFeedPageCellView *invalidWrapper = [[FQVShortVideoFeedPageCellView alloc]
+        initWithFrame:CGRectMake(0, 0, 32, 32)];
+    invalidWrapper.backgroundColor = UIColor.blackColor;
+    invalidWrapper.model = [SSShortVideoFeedDirectGameContentModel new];
+    invalidWrapper.model.invalidated = YES;
+    [self.window.rootViewController.view addSubview:invalidWrapper];
+    [invalidWrapper refreshUI];
+    SSShortVideoFeedDirectGameContentView *unbound = invalidWrapper.gameView;
+    NSString *state = hidden ? @"enabled" : @"disabled";
+    [self check:unbound.defaultCTA.superview == unbound && !unbound.defaultCTA.hidden &&
+        unbound.bindCalls == 0 && unbound.boundModel == nil && unbound.hiddenAfterInitialization == hidden &&
+        unbound.hidden == hidden && unbound.superview == invalidWrapper && unbound.window == self.window &&
+        invalidWrapper.model.displayCalls == 0 && invalidWrapper.model.removalCalls == 0
+        name:[NSString stringWithFormat:@"invalidated mixed card with %@ filtering attaches default content without ever binding a model", state]];
+    [self check:HGGameWrapperHasRedPixel(invalidWrapper) == !hidden
+        name:[NSString stringWithFormat:@"invalidated mixed card with %@ filtering has the expected default-CTA pixel before any cleanup", state]];
+    [invalidWrapper removeFromSuperview];
+    if (hidden) {
+        UIView *ordinary = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)];
+        ordinary.backgroundColor = UIColor.redColor;
+        [self.window.rootViewController.view addSubview:ordinary];
+        [self check:!ordinary.hidden && HGGameWrapperHasRedPixel(ordinary)
+            name:@"unrelated ordinary content remains visible with feed filtering enabled"];
+        [ordinary removeFromSuperview];
+    }
+}
 - (void)checkDisplayedGamesWithDisabledModel:(SSShortVideoFeedDirectGameContentModel *)disabled {
     SSShortVideoFeedDirectGameContentModel *feed = HGDisplayingGame(SSShortVideoFeedDirectGameFeedPageHost.class);
     [feed modelDidDisplay];
@@ -255,6 +411,7 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
     Method wrongABI = class_getInstanceMethod(SSBizVideoAdCommonAdClient.class, @selector(shouldRequestShortVideoAd:));
     IMP originalWrongABI = method_getImplementation(wrongABI);
     HGInstallAds();
+    [self checkGameBindingHidden:NO];
     SSShortVideoFeedDirectGameContentModel *disabledGame = HGDisplayingGame(SSShortVideoFeedDirectGameFeedPageHost.class);
     [self check:[[games createDirectGameContentModelWithCellViewData:@"game" source:1 host:nil] isEqual:@"game"] &&
         [[games createDirectGameContentModelWithCellViewData:@"game" source:2 host:nil] isEqual:@"game"]
@@ -293,6 +450,7 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
     [defaults setBool:YES forKey:@"HongguoGlass.feed"];
     [defaults setBool:YES forKey:@"HongguoGlass.patch"];
     HGInstallAds();
+    [self checkGameBindingHidden:YES];
     [self check:[games createFeedPageDataModelWithCellViewData:@"game-legacy" listVCContext:nil] == nil &&
         [games createFeedPageDataModelWithCellViewData:@"game-native" listVCContext:@"context"] == nil &&
         gameModelCreations == gameCreationsBeforeFiltering

@@ -1,0 +1,420 @@
+{
+  "host_version": "7.4.3.33",
+  "executable_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+  "text_vm_base": "0x100000000",
+  "analysis_kind": "Static metadata and disassembly, no device acceptance",
+  "repository_modified": false,
+  "decision": "Do not add legacy behavior in R4 without new runtime evidence; retain this record for later diagnosis. All confirmed static legacy construction is covered by the R2 feed factory.",
+  "class_definitions_and_declared_methods": [
+    {
+      "class": "FQVShortVideoFeedPageCellView",
+      "method_count": 10
+    },
+    {
+      "class": "FQVShortVideoListFeedPageModel",
+      "method_count": 39
+    },
+    {
+      "class": "FQVShortVideoListPlayer",
+      "method_count": 234
+    },
+    {
+      "class": "FQVShortVideoListVCDataComponent",
+      "method_count": 62
+    },
+    {
+      "class": "SSShortVideoFeedDirectGameContentView",
+      "method_count": 69
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "method_count": 51
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentView",
+      "method_count": 11
+    },
+    {
+      "class": "SSVideoMiniGameService",
+      "method_count": 20
+    }
+  ],
+  "abi_records": [
+    {
+      "class": "FQVShortVideoFeedPageCellView",
+      "kind": "-",
+      "selector": "refreshUI",
+      "encoding": "v16@0:8",
+      "file_offset": "0x84055dc",
+      "vm_address": "0x1084055dc"
+    },
+    {
+      "class": "FQVShortVideoListFeedPageModel",
+      "kind": "-",
+      "selector": "modelDidDisplay",
+      "encoding": "v16@0:8",
+      "file_offset": "0x841a638",
+      "vm_address": "0x10841a638"
+    },
+    {
+      "class": "FQVShortVideoListFeedPageModel",
+      "kind": "-",
+      "selector": "modelDidEndDisplay",
+      "encoding": "v16@0:8",
+      "file_offset": "0x841a6c4",
+      "vm_address": "0x10841a6c4"
+    },
+    {
+      "class": "FQVShortVideoListFeedPageModel",
+      "kind": "-",
+      "selector": "modelWillDisplay",
+      "encoding": "v16@0:8",
+      "file_offset": "0x841a750",
+      "vm_address": "0x10841a750"
+    },
+    {
+      "class": "FQVShortVideoListFeedPageModel",
+      "kind": "-",
+      "selector": "contentModel",
+      "encoding": "@16@0:8",
+      "file_offset": "0x841ad40",
+      "vm_address": "0x10841ad40"
+    },
+    {
+      "class": "FQVShortVideoListFeedPageModel",
+      "kind": "-",
+      "selector": "listVCContext",
+      "encoding": "@16@0:8",
+      "file_offset": "0x841ad74",
+      "vm_address": "0x10841ad74"
+    },
+    {
+      "class": "FQVShortVideoListPlayer",
+      "kind": "-",
+      "selector": "dataContext",
+      "encoding": "@16@0:8",
+      "file_offset": "0x841e81c",
+      "vm_address": "0x10841e81c"
+    },
+    {
+      "class": "FQVShortVideoListVCDataComponent",
+      "kind": "-",
+      "selector": "removeDataModel:completion:",
+      "encoding": "v32@0:8@16@?24",
+      "file_offset": "0x8434a48",
+      "vm_address": "0x108434a48"
+    },
+    {
+      "class": "FQVShortVideoListVCDataComponent",
+      "kind": "-",
+      "selector": "cellIndexForDataModel:",
+      "encoding": "q24@0:8@16",
+      "file_offset": "0x84360b4",
+      "vm_address": "0x1084360b4"
+    },
+    {
+      "class": "FQVShortVideoListVCDataComponent",
+      "kind": "-",
+      "selector": "currentDataModel",
+      "encoding": "@16@0:8",
+      "file_offset": "0xa856dc8",
+      "vm_address": "0x10a856dc8"
+    },
+    {
+      "class": "SSShortVideoFeedDirectGameContentView",
+      "kind": "-",
+      "selector": "initWithFrame:",
+      "encoding": "@48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",
+      "file_offset": "0xfffb66c",
+      "vm_address": "0x10fffb66c"
+    },
+    {
+      "class": "SSShortVideoFeedDirectGameContentView",
+      "kind": "-",
+      "selector": "setDataModel:",
+      "encoding": "v24@0:8@16",
+      "file_offset": "0xfffbce4",
+      "vm_address": "0x10fffbce4"
+    },
+    {
+      "class": "SSShortVideoFeedDirectGameContentView",
+      "kind": "-",
+      "selector": "bindContentModel:",
+      "encoding": "v24@0:8@16",
+      "file_offset": "0xfffd348",
+      "vm_address": "0x10fffd348"
+    },
+    {
+      "class": "SSShortVideoFeedDirectGameContentView",
+      "kind": "-",
+      "selector": "contentModel",
+      "encoding": "@16@0:8",
+      "file_offset": "0xfffe2f8",
+      "vm_address": "0x10fffe2f8"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "initWithCellViewData:miniGameData:",
+      "encoding": "@32@0:8@16@24",
+      "file_offset": "0x10001fd4",
+      "vm_address": "0x110001fd4"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "feedContentViewClass",
+      "encoding": "#16@0:8",
+      "file_offset": "0x100020dc",
+      "vm_address": "0x1100020dc"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "modelWillDisplay",
+      "encoding": "v16@0:8",
+      "file_offset": "0x100020e8",
+      "vm_address": "0x1100020e8"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "modelDidDisplay",
+      "encoding": "v16@0:8",
+      "file_offset": "0x100020fc",
+      "vm_address": "0x1100020fc"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "modelDidEndDisplay",
+      "encoding": "v16@0:8",
+      "file_offset": "0x1000213c",
+      "vm_address": "0x11000213c"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "attachContentView:",
+      "encoding": "@24@0:8@16",
+      "file_offset": "0x100022f0",
+      "vm_address": "0x1100022f0"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "removeCurrentModelAfterDislike",
+      "encoding": "v16@0:8",
+      "file_offset": "0x10002408",
+      "vm_address": "0x110002408"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "listVCContext",
+      "encoding": "@16@0:8",
+      "file_offset": "0x10002c68",
+      "vm_address": "0x110002c68"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "pageDataModel",
+      "encoding": "@16@0:8",
+      "file_offset": "0x10003090",
+      "vm_address": "0x110003090"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "isDisplaying",
+      "encoding": "B16@0:8",
+      "file_offset": "0x100030e0",
+      "vm_address": "0x1100030e0"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentModel",
+      "kind": "-",
+      "selector": "isListViewVisible",
+      "encoding": "B16@0:8",
+      "file_offset": "0x100030e8",
+      "vm_address": "0x1100030e8"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentView",
+      "kind": "-",
+      "selector": "initWithFrame:",
+      "encoding": "@48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",
+      "file_offset": "0x10003220",
+      "vm_address": "0x110003220"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentView",
+      "kind": "-",
+      "selector": "setDataModel:",
+      "encoding": "v24@0:8@16",
+      "file_offset": "0x100032d8",
+      "vm_address": "0x1100032d8"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentView",
+      "kind": "-",
+      "selector": "bindContentModel:",
+      "encoding": "v24@0:8@16",
+      "file_offset": "0x10003374",
+      "vm_address": "0x110003374"
+    },
+    {
+      "class": "SSShortVideoFeedMiniGameContentView",
+      "kind": "-",
+      "selector": "contentModel",
+      "encoding": "@16@0:8",
+      "file_offset": "0x10003544",
+      "vm_address": "0x110003544"
+    },
+    {
+      "class": "SSVideoMiniGameService",
+      "kind": "-",
+      "selector": "createFeedPageDataModelWithCellViewData:listVCContext:",
+      "encoding": "@32@0:8@16@24",
+      "file_offset": "0x1000553c",
+      "vm_address": "0x11000553c"
+    }
+  ],
+  "constructor_evidence": {
+    "selector": "initWithCellViewData:miniGameData:",
+    "declared_implementations_in_full_index": 1,
+    "validated_selector_call_sites": 1,
+    "selector_materialization": "0x100056e4..0x100056e8",
+    "call_through_objc_send_thunk": "0x100056ec",
+    "caller": "-[SSVideoMiniGameService createFeedPageDataModelWithCellViewData:listVCContext:]",
+    "caller_file_offset": "0x1000553c",
+    "direct_B_BL_matches": 0,
+    "direct_targets": [
+      "0x10001fd4",
+      "0x1000553c",
+      "0x10003220"
+    ],
+    "relevant_category_matches": 0,
+    "uncovered_static_producer_found": false,
+    "limitations": "Selector materialization scans may have stale-register candidates; this one was manually validated. Exact B/BL scans cannot exclude reflection, indirect calls or runtime method replacement."
+  },
+  "legacy_display_order": [
+    {
+      "offset": "0x84056a8",
+      "event": "mixed feed wrapper calls dedicated content root setDataModel"
+    },
+    {
+      "offset": "0x10003364",
+      "event": "legacy root calls bindContentModel after model type check"
+    },
+    {
+      "offset": "0x1000341c",
+      "event": "legacy model attaches/reuses pooled Lynx container"
+    },
+    {
+      "offset": "0x10003480",
+      "event": "legacy root adds container to its subtree"
+    },
+    {
+      "offset": "0x84056c4",
+      "event": "mixed feed wrapper adds dedicated root"
+    }
+  ],
+  "legacy_removal": {
+    "selector": "removeCurrentModelAfterDislike",
+    "file_offset": "0x10002408",
+    "encoding": "v16@0:8",
+    "dependencies": [
+      "pageDataModel",
+      "listVCContext",
+      "dataContext"
+    ],
+    "current_page_comparison": "0x10002504",
+    "current_page_action": "scrollToNextIndexWithReserve:NO animate:YES; main-queue removal block after 0.5 seconds",
+    "non_current_page_action": "execute exact-page removal block immediately",
+    "removal_block_offset": "0x100025d4",
+    "membership_check": "cellIndexForDataModel != NSNotFound (0x7fffffffffffffff)",
+    "remove_call": "0x100025fc: removeDataModel:completion:nil",
+    "feedback_request_found_in_method_and_block": false,
+    "internal_pending_guard_found": false,
+    "future_use_constraints": [
+      "main queue",
+      "one request per model while pending",
+      "verify exact feed model and current page identity before initiating navigation",
+      "do not fabricate dislike or feedback event"
+    ]
+  },
+  "evidence_files": [
+    {
+      "name": "legacy-categories.jsonl",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "legacy-constructor-refs.txt",
+      "size": 141,
+      "sha256": "28d4131f1959dfc1bb47aac7b14abb3f3777027094712989bd17d3705c3794ae"
+    },
+    {
+      "name": "legacy-content-init.disasm",
+      "size": 5389,
+      "sha256": "bdbc37124aabe1327498c7ee3955d7554ba34c7fa3ad7b1a02bc2710178367fb"
+    },
+    {
+      "name": "legacy-direct-imp-calls.jsonl",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "legacy-feed-factory.disasm",
+      "size": 15300,
+      "sha256": "c30d55e1e13e03b5cb35b22ed43c0ad7c76859e4befc7d0da4eafc7fff099a08"
+    },
+    {
+      "name": "legacy-feed-type-gate.disasm",
+      "size": 1588,
+      "sha256": "3be874d1038d66ebd3b4ed8bac16f5b15d8b1f480bf0d1fa608f145f178b2a9e"
+    },
+    {
+      "name": "legacy-game-template-load.disasm",
+      "size": 13326,
+      "sha256": "90f1d88678c103ee5e1782c82ea0b9e6585e47120c4e02f9ee613a4519689841"
+    },
+    {
+      "name": "legacy-model-attach.disasm",
+      "size": 5748,
+      "sha256": "259c06ef74f8c5e33748d87583e55dc732b08fac70eaffccb5b74a73432357c2"
+    },
+    {
+      "name": "legacy-model-display.disasm",
+      "size": 14036,
+      "sha256": "af16b8d80c8a48ea71046c00a0967624ec64fcdac746a2436bf6e7cfebfee6c5"
+    },
+    {
+      "name": "legacy-model-remove.disasm",
+      "size": 16756,
+      "sha256": "bd4f0530bf3d58f5a9498ccc28cffb8f271922f92be28a13c3fc43387bbaace1"
+    },
+    {
+      "name": "legacy-view-init.disasm",
+      "size": 2603,
+      "sha256": "c2500f6bfab3942820f081b122250f0dff3e497e38e3f8d2cffb9afb900c8861"
+    },
+    {
+      "name": "legacy-view-set-bind.disasm",
+      "size": 13697,
+      "sha256": "6bb070b98de161ce9d0082ca8670df9d6e802cf42fbf7c7288462dd775073a1b"
+    },
+    {
+      "name": "mixed-wrapper-attachment.disasm",
+      "size": 8277,
+      "sha256": "67f487c5dd3dd601b4c3ea8cd182abfadf7caf6c762566d2a3ecb7458a0f3788"
+    },
+    {
+      "name": "mixed-wrapper-refresh.disasm",
+      "size": 4917,
+      "sha256": "819220838889165f6684db2f291a806b6f9b9dd5e227809439a8676fef3d4cb3"
+    }
+  ]
+}

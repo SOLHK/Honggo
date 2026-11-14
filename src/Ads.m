@@ -12,8 +12,12 @@ typedef struct {
     BOOL classMethod;
 } HGGate;
 
+typedef UIView *(*HGDirectGameInitializer)(UIView * __attribute__((ns_consumed)), SEL, CGRect)
+    __attribute__((ns_returns_retained));
+
 static void HGAdDecision(id object, SEL selector, BOOL result);
 static void (*HGOriginalDirectGameDidDisplay)(id, SEL);
+static HGDirectGameInitializer HGOriginalDirectGameInit;
 static Class HGDirectGameFeedHost, HGDirectGameSeriesHost;
 static char HGDirectGameRemovalPending;
 
@@ -28,6 +32,15 @@ static char HGDirectGameRemovalPending;
 - (BOOL)isInvalidated;
 - (void)handleTerminalFailureWithReason:(NSString *)reason;
 @end
+
+__attribute__((ns_returns_retained))
+static UIView *HGDirectGameInit(UIView * __attribute__((ns_consumed)) self, SEL cmd, CGRect frame) {
+    UIView *view = HGOriginalDirectGameInit(self, cmd, frame);
+    // Both wrappers attach this root only after initialization, even if binding is skipped.
+    view.hidden = YES;
+    HGAdDecision(view, cmd, NO);
+    return view;
+}
 
 static void HGDirectGameDidDisplay(id<HGDirectGameModel> self, SEL cmd) {
     HGOriginalDirectGameDidDisplay(self, cmd);
@@ -148,6 +161,7 @@ static const HGGate HGGates[] = {
     // Both direct-game callers check nil before constructing or enqueueing a page.
     {HGFeed, "SSVideoMiniGameService", "createDirectGameContentModelWithCellViewData:source:host:", "@40@0:8@16q24@32", (IMP)HGNoDirectGameModel},
     {HGFeed, "SSShortVideoFeedDirectGameContentModel", "modelDidDisplay", "v16@0:8", (IMP)HGDirectGameDidDisplay},
+    {HGFeed, "SSShortVideoFeedDirectGameContentView", "initWithFrame:", "@48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16", (IMP)HGDirectGameInit},
 };
 
 static void HGAdDecision(id object, SEL selector, BOOL result) {
@@ -186,8 +200,10 @@ void HGInstallAds(void) {
             target = object_getClass(target);
         }
         BOOL directGameDisplay = gate->replacement == (IMP)HGDirectGameDidDisplay;
+        BOOL directGameInit = gate->replacement == (IMP)HGDirectGameInit;
         SEL selector = sel_registerName(gate->selector);
-        if (directGameDisplay && HGOriginalDirectGameDidDisplay) {
+        if ((directGameDisplay && HGOriginalDirectGameDidDisplay) ||
+            (directGameInit && HGOriginalDirectGameInit)) {
             installed++;
             continue;
         }
@@ -199,6 +215,7 @@ void HGInstallAds(void) {
         IMP original = HGReplaceMethod(target, selector, gate->encoding, gate->replacement);
         if (original) {
             if (directGameDisplay) HGOriginalDirectGameDidDisplay = (void (*)(id, SEL))original;
+            if (directGameInit) HGOriginalDirectGameInit = (HGDirectGameInitializer)original;
             installed++;
         } else {
             NSLog(@"[Honggo] 跳过不匹配的入口 %s %s", gate->className, gate->selector);
