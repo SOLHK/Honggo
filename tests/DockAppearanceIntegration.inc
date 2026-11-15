@@ -244,9 +244,12 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
     list.contentInset=UIEdgeInsetsMake(3,4,12,5);
     list.verticalScrollIndicatorInsets=UIEdgeInsetsMake(0,0,9,0);
     list.contentSize=CGSizeMake(width,bottom*3);
-    [viewport addSubview:list];[host.view insertSubview:viewport belowSubview:bar];
+    [viewport addSubview:list];
+    // The host root's observed didAddSubview: refreshes the dock synchronously.
+    // Capture native values before attachment can extend this fixture.
     CGRect originalViewport=viewport.frame,originalList=list.frame;
     UIEdgeInsets originalInset=list.contentInset;
+    [host.view insertSubview:viewport belowSubview:bar];
     CAShapeLayer *hostMask=[CAShapeLayer layer];
     hostMask.frame=bar.bounds;hostMask.path=[UIBezierPath bezierPathWithRect:bar.bounds].CGPath;
     bar.layer.mask=hostMask;bar.clipsToBounds=YES;Layout(bar);
@@ -255,8 +258,11 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
     Check(fabs(CGRectGetMaxY(viewport.frame)-bottom)<0.75 && fabs(list.bounds.size.height-bottom)<0.75,
         @"custom dock extends the ordinary library viewport beneath the home-indicator area");
     CGFloat expectedInset=originalInset.bottom+bottom-barTop;
-    Check(fabs(list.contentInset.bottom-expectedInset)<0.75 && list.contentInset.top==3 &&
-        list.contentInset.left==4 && list.contentInset.right==5,
+    BOOL insetPreserved=fabs(list.contentInset.bottom-expectedInset)<0.75 && list.contentInset.top==3 &&
+        list.contentInset.left==4 && list.contentInset.right==5;
+    if(!insetPreserved)NSLog(@"DOCK_VIEWPORT inset native=%@ actual=%@ expectedBottom=%.3f barTop=%.3f bottom=%.3f",
+        NSStringFromUIEdgeInsets(originalInset),NSStringFromUIEdgeInsets(list.contentInset),expectedInset,barTop,bottom);
+    Check(insetPreserved,
         @"extended library list keeps its last row reachable and preserves the other native insets");
     CGRect settledViewport=viewport.frame,settledList=list.frame;
     UIEdgeInsets settledInset=list.contentInset;
@@ -269,9 +275,14 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
         Find(bar,@"honggo.appearance.dock.selection"),
         @"host background cleanup leaves the plugin-owned capsule and selection intact");
     bar.hidden=YES;
-    Check(bar.layer.mask==hostMask && bar.clipsToBounds &&
+    BOOL geometryRestored=bar.layer.mask==hostMask && bar.clipsToBounds &&
         CGRectEqualToRect(viewport.frame,originalViewport) && CGRectEqualToRect(list.frame,originalList) &&
-        UIEdgeInsetsEqualToEdgeInsets(list.contentInset,originalInset),
+        UIEdgeInsetsEqualToEdgeInsets(list.contentInset,originalInset);
+    if(!geometryRestored)NSLog(@"DOCK_VIEWPORT restore viewport=%@ expected=%@ list=%@ expected=%@ inset=%@ expected=%@ mask=%d clips=%d",
+        NSStringFromCGRect(viewport.frame),NSStringFromCGRect(originalViewport),NSStringFromCGRect(list.frame),
+        NSStringFromCGRect(originalList),NSStringFromUIEdgeInsets(list.contentInset),NSStringFromUIEdgeInsets(originalInset),
+        bar.layer.mask==hostMask,bar.clipsToBounds);
+    Check(geometryRestored,
         @"hiding the custom dock restores native masking and exact list geometry");
     UIColor *nativeBackground=bar.backgroundColor;
     BOOL nativeOpaque=bar.opaque;
@@ -284,10 +295,11 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
         collectionViewLayout:[UICollectionViewFlowLayout new]];
     video.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
     video.pagingEnabled=YES;video.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
-    [videoPage addSubview:video];[host.view insertSubview:videoPage belowSubview:bar];Layout(video);
+    [videoPage addSubview:video];Layout(video);
     CGRect originalPage=videoPage.frame,originalVideo=video.frame;
     UIEdgeInsets videoInset=video.contentInset;
     CGSize videoContent=video.contentSize;
+    [host.view insertSubview:videoPage belowSubview:bar];
     for(NSUInteger i=0;i<25;i++)Layout(bar);
     Check(CGRectEqualToRect(videoPage.frame,originalPage) && CGRectEqualToRect(video.frame,originalVideo) &&
         UIEdgeInsetsEqualToEdgeInsets(video.contentInset,videoInset) && CGSizeEqualToSize(video.contentSize,videoContent),
@@ -297,8 +309,8 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
     UIScrollView *verticalPager=[[UIScrollView alloc] initWithFrame:CGRectMake(0,0,width,barTop)];
     verticalPager.pagingEnabled=YES;verticalPager.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
     verticalPager.contentSize=CGSizeMake(width,barTop*3);
-    [host.view insertSubview:verticalPager belowSubview:bar];
-    CGRect nativePager=verticalPager.frame;Layout(bar);
+    CGRect nativePager=verticalPager.frame;
+    [host.view insertSubview:verticalPager belowSubview:bar];Layout(bar);
     Check(CGRectEqualToRect(verticalPager.frame,nativePager) && verticalPager.contentInset.bottom==0,
         @"unmapped vertical paging views also keep their native page size and no added padding");
     [verticalPager removeFromSuperview];
