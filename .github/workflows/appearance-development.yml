@@ -5,39 +5,12 @@ on:
 permissions:
   contents: read
 jobs:
-  integrate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      contents: write
-    outputs:
-      source: ${{ steps.source.outputs.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
-      - name: Apply reviewed source changes without modifying workflow permissions
-        id: source
-        run: |
-          set -euo pipefail
-          if test -f .github/hga-integration-0.patch; then
-            cat .github/hga-integration-{0,1,2,3}.patch > /tmp/hga-reviewed.patch
-            echo '4d087b8c3000a35a1d5cc06766c47b6b106a10992d53a19b22ffbd5bafa34a9d  /tmp/hga-reviewed.patch' | sha256sum -c -
-            git apply --check --exclude=.github/workflows/ios.yml /tmp/hga-reviewed.patch
-            git apply --index --exclude=.github/workflows/ios.yml /tmp/hga-reviewed.patch
-            git rm .github/hga-integration-{0,1,2,3}.patch
-            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Integrate independent R5 appearance settings, adapters and regression tests'
-            git push origin HEAD:refs/heads/work/appearance-r5
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   validate:
-    needs: integrate
     runs-on: macos-26
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.integrate.outputs.source }}
           persist-credentials: false
       - name: Compile device plugin
         run: bash tools/build-ios.sh

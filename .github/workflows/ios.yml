@@ -74,7 +74,6 @@ jobs:
   adscene:
     name: Check screenshot diagnostics in UIKit
     runs-on: macos-26
-    # Both sequential suites create a cold simulator and install their test app.
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,9 +94,28 @@ jobs:
             build/ads-tests/*.log
           if-no-files-found: warn
 
+  appearance:
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate appearance preference boundaries
+        run: bash tools/test-appearance-preferences.sh
+      - name: Validate visual adapters and restoration in UIKit
+        run: bash tools/test-appearance-ios.sh
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        if: always()
+        with:
+          name: Honggo-appearance-simulator-evidence
+          path: |
+            build/appearance-tests/*.json
+            build/appearance-tests/*.log
+          if-no-files-found: warn
+
   iphoneos:
-    # Require UI, diagnostics, and ad-filter behavior checks before packaging.
-    needs: [tabbar, settings, adscene]
+    needs: [tabbar, settings, adscene, appearance]
     runs-on: macos-26
     timeout-minutes: 5
     steps:
@@ -127,7 +145,7 @@ jobs:
   publish_test:
     name: Publish verified test dylib
     if: github.ref == 'refs/heads/test'
-    needs: [tabbar, settings, adscene, iphoneos]
+    needs: [tabbar, settings, adscene, appearance, iphoneos]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -175,8 +193,8 @@ jobs:
           printf '%s\n' \
             "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
             "Source commit: ${GITHUB_SHA}" \
-            "macOS/iPhoneOS build, settings search, scoped preference restore, runtime boundaries, tab-bar, diagnostics and ad-filter regression checks passed." \
-            "Adds settings search, local switch backup/restore and runtime compatibility reporting, with independent ad installation and guarded getters." \
+            "macOS/iPhoneOS build, appearance adapters, settings, preferences, runtime, tab-bar, diagnostics and ad-filter regression checks passed." \
+            "Adds independent customizable dock, collapse gestures, playback layout and glass, panel materials, state-aware icons, local image/font imports and typography settings." \
             "Reference behavior was studied; implementation is written for Honggo without importing NaiwaGuo source or assets." \
             "Actual Hongguo iPhone appearance, playback and ad disappearance remain unverified." \
             "R-numbered builds are tests; the suffix is removed only for a stable release on main." \

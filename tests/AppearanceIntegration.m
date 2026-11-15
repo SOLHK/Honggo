@@ -233,7 +233,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     UIView *unrelated=[[UIView alloc] initWithFrame:CGRectMake(0,0,50,50)];unrelated.backgroundColor=UIColor.purpleColor;[root addSubview:unrelated];
     HGAppearanceApply(HGAppearancePreset(@"glass"),nil);HGAppearanceProcessView(unrelated);
     Check(unrelated.subviews.count==0 && [unrelated.backgroundColor isEqual:UIColor.purpleColor],@"unknown views remain untouched");
-    Class settings=NSClassFromString(@"HGAAppearanceController");UITableViewController *page=[[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    Class settings=NSClassFromString(@"HGAAppearanceController");UITableViewController *page=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [page loadViewIfNeeded];Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]>=10,@"appearance home exposes presets groups import export and reset");
     UISearchController *search=page.navigationItem.searchController;search.searchBar.text=@"layout.like";
     [search.searchResultsUpdater updateSearchResultsForSearchController:search];
