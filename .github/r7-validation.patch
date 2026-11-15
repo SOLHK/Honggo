@@ -1,0 +1,136 @@
+diff --git a/docs/REPAIR_1.1.15-R7.md b/docs/REPAIR_1.1.15-R7.md
+index 5efec9a..46cbc20 100644
+--- a/docs/REPAIR_1.1.15-R7.md
++++ b/docs/REPAIR_1.1.15-R7.md
+@@ -20,2 +20,11 @@ GitHub Actions 使用 `xcode-27` runner，显式选择 `/Applications/Xcode_27.2
+ 
+ 只注入一份 `Honggo-1.1.15-R7.dylib`，移除旧 Honggo/HongguoGlass。打开「我的 → 设置 → Honggo → 外观」，应用「玻璃外观」预设后完全退出红果再打开。字体、控件位置与竖屏填满按需单独设置；横屏/方形画面不强制放大。具体视觉覆盖边界沿用 R5/R6 文档。
++
++## 首轮 27.2 验证修正
++
++首次 27.2 CI（43709722973）中，当前底栏 121 项、启动配置 123 项、材质像素、外观 74 项和广告 42 项均通过，发布仍被两项验证问题拦截，未生成发布版：
++
++1. 对照 App 使用 Xcode 27.2 SDK 构建。Apple 明确说明此类主程序会忽略 `UIDesignRequiresCompatibility`，因此旧对照条件“清空后必须是空壳”不再成立。测试现在记录编译 SDK，并验证其与 xcrun 选择一致；27 SDK 对照必须实际呈现玻璃，26 SDK 对照仍保留旧负例。没有取消像素校验、透明/纯色对照或历史遮罩负例。此处只调整测试 App 的预期，不能据此推断旧 SDK 红果主程序也忽略该键。
++2. 设置搜索后导出配置的检查在 8 秒时超时，日志显示随后系统分享服务仍在完成冷启动。只将系统分享面板的检查上限设为 30 秒，其他动作仍为 8 秒，并记录实际耗时；必须真的显示且完成呈现才能通过。整套测试预算按新增频道场景扩展到 180 秒，最低完整检查数量从 21 提升为 72，任何失败仍阻止发布。
++
++说明依据：[Apple 兼容键文档](https://developer.apple.com/documentation/bundleresources/information-property-list/uidesignrequirescompatibility)与 [Apple Frameworks Engineer 的 SDK 说明](https://developer.apple.com/forums/thread/838637)。这次只修改测试及验证文档，不改 R7 插件二进制源码；版本沿用未发布的 R7。重新运行的实际 CI 结果才是最终发布依据。
+diff --git a/tests/SettingsIntegration.m b/tests/SettingsIntegration.m
+index 73e1016..1de87a9 100644
+--- a/tests/SettingsIntegration.m
++++ b/tests/SettingsIntegration.m
+@@ -526,5 +526,11 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
+         }
+         NSUInteger dismissalsBefore = self.searchEvents.dismissals;
+-        [self recordSearchState:@"action.selected" settings:settings extra:@{@"query": queries[index]}];
++        // The cold simulator launches the system ShareSheet service lazily.
++        // Keep every presentation assertion; only that external-service startup
++        // gets a larger bounded budget. Record elapsed time instead of sleeping.
++        NSTimeInterval presentationBudget = index == 3 ? 30 : 8;
++        NSDate *actionStarted = NSDate.date;
++        [self recordSearchState:@"action.selected" settings:settings extra:@{@"query": queries[index],
++            @"presentationBudgetSeconds": @(presentationBudget)}];
+         [settings tableView:settings.tableView didSelectRowAtIndexPath:
+             [NSIndexPath indexPathForRow:0 inSection:section]];
+@@ -536,7 +542,9 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
+                 index == 2 ? UIDocumentPickerViewController.class : UIActivityViewController.class;
+             return [presented isKindOfClass:expected] && !presented.isBeingPresented;
+-        } deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL performed) {
++        } deadline:[NSDate dateWithTimeInterval:presentationBudget sinceDate:actionStarted] completion:^(BOOL performed) {
+             [self recordSearchState:performed ? @"action.finished" : @"action.timeout"
+-                settings:settings extra:@{@"query": queries[index]}];
++                settings:settings extra:@{@"query": queries[index],
++                    @"elapsedSeconds": @(-actionStarted.timeIntervalSinceNow),
++                    @"presentationBudgetSeconds": @(presentationBudget)}];
+             [self check:performed name:names[index]];
+             if (!performed) {
+diff --git a/tests/TabBarIntegration.m b/tests/TabBarIntegration.m
+index 9028620..e2e6a5a 100644
+--- a/tests/TabBarIntegration.m
++++ b/tests/TabBarIntegration.m
+@@ -1891,4 +1891,5 @@ static UIImage *HGWhiteImage(void) {
+     NSDictionary *report = @{
+         @"scope": @"real UIKit with a simulated SSTabBar host; not a Hongguo IPA or physical-device test",
++        @"buildSDKVersion": @(__IPHONE_OS_VERSION_MAX_ALLOWED),
+         @"status": failed == 0 ? @"passed" : @"failed",
+         @"failed": @(failed),
+diff --git a/tools/test-settings-ios.sh b/tools/test-settings-ios.sh
+index 6face31..19dbe52 100644
+--- a/tools/test-settings-ios.sh
++++ b/tools/test-settings-ios.sh
+@@ -61,5 +61,7 @@ data_directory=$(xcrun simctl get_app_container "$device_id" "$bundle_id" data)
+ rm -f -- "$data_directory/Documents/settings-results.json"
+ xcrun simctl launch "$device_id" "$bundle_id"
+-for ((attempt=0; attempt<45; attempt++)); do
++# Five search-action scenarios plus close/return checks have independent bounded
++# deadlines; allow the full sequence to finish even on a cold simulator.
++for ((attempt=0; attempt<180; attempt++)); do
+     if [ -f "$data_directory/Documents/settings-results.json" ]; then
+         break
+@@ -70,5 +72,5 @@ xcrun simctl spawn "$device_id" log show --style compact --last 2m \
+     --predicate 'process == "HGSettingsTests"' > "$work/simulator.log" 2>&1 || true
+ if [ ! -f "$data_directory/Documents/settings-results.json" ]; then
+-    printf 'Settings integration app did not write its result within 45 seconds.\n' >&2
++    printf 'Settings integration app did not write its result within 180 seconds.\n' >&2
+     exit 1
+ fi
+@@ -85,5 +87,7 @@ import sys
+ report = json.load(open(sys.argv[1]))
+ print(json.dumps(report, indent=2, ensure_ascii=False))
+-if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < 21:
+-    raise SystemExit("Settings UIKit integration checks failed")
++checks = report.get("checks", [])
++if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < 72 or \
++        len(checks) != report.get("total") or any(check.get("passed") is not True for check in checks):
++    raise SystemExit("Settings UIKit integration checks failed or omitted required channel scenarios")
+ PY
+diff --git a/tools/test-tabbar-ios.sh b/tools/test-tabbar-ios.sh
+index 7fd999d..8d39eb2 100644
+--- a/tools/test-tabbar-ios.sh
++++ b/tools/test-tabbar-ios.sh
+@@ -8,4 +8,5 @@ work="$source_root/build/tabbar-tests"
+ sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
+ architecture=$(uname -m)
++build_sdk=$(xcrun --sdk iphonesimulator --show-sdk-version)
+ baseline_ref=65758841996f7e7ce8187c776032b04fd1b0e2c5
+ background_reset_baseline_ref=5d16b2411c262313b58585b5920e83599f2a0e99
+@@ -255,5 +256,5 @@ print('Nested viewport ownership checks passed; previous source installs observe
+ PY
+ 
+-python3 - "$work" <<'PY'
++python3 - "$work" "$source_root" "$build_sdk" <<'PY'
+ import json
+ import statistics
+@@ -264,4 +265,7 @@ from pathlib import Path
+ 
+ root = Path(sys.argv[1])
++sys.path.insert(0, sys.argv[2])
++from tools.glass_expectations import encode_sdk_version, expected_unsupported_reference
++expected_build_sdk = encode_sdk_version(sys.argv[3])
+ reports = {}
+ for name, path in {
+@@ -277,4 +281,6 @@ for name, path in {
+ }.items():
+     report = json.loads(path.read_text())
++    if report.get("buildSDKVersion") != expected_build_sdk:
++        raise SystemExit(f"{name} lacks matching compiled SDK evidence")
+     reports[name] = report
+     print(name)
+@@ -559,5 +565,10 @@ for name in ("current", "startup", "reference-modern", "reference-compat"):
+         try:
+             snapshot = next(item for item in reports[name]["snapshots"] if item["phase"] == phase)
+-            comparison = compare_material_pixels(root / name, snapshot, expect_unsupported=name == "reference-compat")
++            # Xcode 27-built test executables ignore the compatibility opt-out.
++            # Require visible compositor output in that case, not the obsolete
++            # empty-shell expectation. Older-SDK fixtures keep the strict negative.
++            unsupported = expected_unsupported_reference(name, reports[name]["buildSDKVersion"])
++            comparison = compare_material_pixels(root / name, snapshot, expect_unsupported=unsupported)
++            comparison["buildSDKVersion"] = reports[name]["buildSDKVersion"]
+         except (OSError, ValueError, KeyError, TypeError, StopIteration, struct.error, zlib.error) as error:
+             comparison = {"phase": phase, "passed": False, "error": str(error)}
+@@ -607,4 +618,6 @@ summary = {
+     "status": "failed" if failed else "passed",
+     "scope": "UIKit simulator plus known-bad-source negative control; not the Hongguo IPA or a physical device",
++    "buildSDKVersion": expected_build_sdk,
++    "referenceCompatibilityOptOutHonored": expected_unsupported_reference("reference-compat", expected_build_sdk),
+     "currentTotal": reports["current"].get("total"),
+     "currentFailed": reports["current"].get("failed"),
