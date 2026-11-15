@@ -65,7 +65,7 @@ static void HGPlaybackCheckCoordinator(UIViewController *host,BOOL accepted,BOOL
     [owner.view addSubview:canvas];
     TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:CGRectMake(50,0,200,350)];
     [canvas addSubview:render];Layout(canvas);Layout(render);
-    CGAffineTransform filled=render.transform;
+    CATransform3D filled=render.layer.sublayerTransform;
     NSString *(^name)(NSString *)=^NSString *(NSString *check) {
         return [NSString stringWithFormat:@"transition coordinator [queued=%d cancelled=%d hostGeometry=%d]: %@",
             accepted,cancelled,hostOwnsTransform,check];
@@ -73,15 +73,16 @@ static void HGPlaybackCheckCoordinator(UIViewController *host,BOOL accepted,BOOL
     HGPlaybackTransitionCoordinator *coordinator=[HGPlaybackTransitionCoordinator new];
     coordinator.acceptsAnimations=accepted;coordinator.containerView=owner.view;
     @try {
-        Check(filled.a>1,name(@"attached portrait renderer starts filled"));
+        Check(filled.m11>1 && CGAffineTransformIsIdentity(render.transform),name(@"attached portrait renderer starts filled with native view geometry"));
         owner.fixtureTransition=coordinator;
         HGPlaybackResetTransformWrites(render);Layout(render);
-        Check(CGAffineTransformIsIdentity(render.transform) && HGPlaybackTransformWrites(render)==1,
+        Check(CATransform3DIsIdentity(render.layer.sublayerTransform) &&
+            CGAffineTransformIsIdentity(render.transform) && HGPlaybackFillWrites(render)==1 && HGPlaybackTransformWrites(render)==0,
             name(@"active transition releases owned zoom once"));
         HGPlaybackResetTransformWrites(render);
         for(NSUInteger pass=0;pass<8;pass++){Layout(canvas);Layout(render);}
         Check(coordinator.registrations==1 && coordinator.completions.count==1 &&
-            HGPlaybackTransformWrites(render)==0,
+            HGPlaybackTransformWrites(render)==0 && HGPlaybackFillWrites(render)==0,
             name(@"repeated layouts register only one completion and keep native geometry"));
 
         CGAffineTransform native=CGAffineTransformMakeTranslation(24,-10);
@@ -92,12 +93,13 @@ static void HGPlaybackCheckCoordinator(UIViewController *host,BOOL accepted,BOOL
         // No explicit setNeedsLayout here: the production completion must
         // schedule the safe follow-up after completion or cancellation.
         [render layoutIfNeeded];
-        Check(CGAffineTransformEqualToTransform(render.transform,hostOwnsTransform?native:filled) &&
-            HGPlaybackTransformWrites(render)==(hostOwnsTransform?0u:1u),
+        Check(CGAffineTransformEqualToTransform(render.transform,hostOwnsTransform?native:CGAffineTransformIdentity) &&
+            CATransform3DEqualToTransform(render.layer.sublayerTransform,hostOwnsTransform?CATransform3DIdentity:filled) &&
+            HGPlaybackTransformWrites(render)==0 && HGPlaybackFillWrites(render)==(hostOwnsTransform?0u:1u),
             name(@"completion schedules one safe update and preserves newer host transforms"));
         HGPlaybackResetTransformWrites(render);
         for(NSUInteger pass=0;pass<4;pass++){Layout(canvas);Layout(render);}
-        Check(HGPlaybackTransformWrites(render)==0 && coordinator.registrations==1,
+        Check(HGPlaybackTransformWrites(render)==0 && HGPlaybackFillWrites(render)==0 && coordinator.registrations==1,
             name(@"settled navigation does not repeat transform writes or registration"));
     } @finally {
         owner.fixtureTransition=nil;

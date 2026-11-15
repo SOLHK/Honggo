@@ -5,6 +5,7 @@
 @property(nonatomic,strong) NSMapTable<UIView *,NSNumber *> *hiddenSources;
 @property(nonatomic,strong) UIColor *hostBackground;
 @property(nonatomic) BOOL backgroundOwned;
+@property(nonatomic) BOOL hostOpaque;
 @property(nonatomic,strong) UIView *capsule;
 @property(nonatomic,strong) UIView *selection;
 @property(nonatomic,strong) UIButton *extra;
@@ -160,7 +161,10 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         if(self.superview!=bar)[bar addSubview:self];
         if(!CGRectEqualToRect(self.frame,bar.bounds))self.frame=bar.bounds;
         if(!self.backgroundOwned || ![bar.backgroundColor isEqual:UIColor.clearColor])self.hostBackground=bar.backgroundColor;
-        self.backgroundOwned=YES;bar.backgroundColor=UIColor.clearColor;
+        if(!self.backgroundOwned || bar.opaque)self.hostOpaque=bar.opaque;
+        self.backgroundOwned=YES;
+        if(![bar.backgroundColor isEqual:UIColor.clearColor])bar.backgroundColor=UIColor.clearColor;
+        if(bar.opaque)bar.opaque=NO;
         [self hideSource:HGAViewGetter(bar,"contentView",bar)];
         const char *backdrops[]={"backgroundImageView","lightView","darkView","lineView"};
         for(NSUInteger i=0;i<4;i++)[self hideSource:HGAViewGetter(bar,backdrops[i],bar)];
@@ -276,6 +280,7 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     for(UIView *view in self.hiddenSources.keyEnumerator)if(view.hidden)view.hidden=[[self.hiddenSources objectForKey:view] boolValue];
     [self.hiddenSources removeAllObjects];
     if(self.backgroundOwned && [self.hostBar.backgroundColor isEqual:UIColor.clearColor])self.hostBar.backgroundColor=self.hostBackground;
+    if(self.backgroundOwned && !self.hostBar.opaque)self.hostBar.opaque=self.hostOpaque;
     self.backgroundOwned=NO;self.collapsed=NO;
     [self removeFromSuperview];
 }

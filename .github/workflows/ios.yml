@@ -218,11 +218,13 @@ jobs:
             "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
             "Source commit: ${GITHUB_SHA}" \
             "Built with Xcode 27.2 / iPhoneOS SDK 27.2. Required UIKit regression suites ran on the pinned iOS 27.2 simulator, not a fallback runtime." \
-            "R9 fixes repeated appearance geometry/material changes and restores plugin-owned player transforms before native episode-page transfer. Stable layouts no longer undo and reapply the same scale or resize circular glass twice." \
-            "The floating dock now uses consistent white icons, a compact translucent neutral-gray selection pill, and explicit state styling that prevents inherited accent-blue selection." \
-            "R10 keeps accessory-button glass behind UIKit's foreground content, fixing the blurred profile glyph found in a full-window R9 preview. The window preview now waits for animations to settle and checks actual composited foreground clarity." \
-            "Adds transfer/layout regression fixtures and rendered dock color checks, while preserving R8 host-owned playback callbacks and existing advertisement eligibility gates." \
-            "Candidate for portrait full-screen video freezing after tapping Watch complete drama. The R8 log does not establish a unique root cause; actual Hongguo navigation/playback needs device verification." \
+            "R11 isolates portrait fill in the verified TTMetalView rendering subtree. Native player frame, bounds, center and UIView transform remain owned by the host during episode-page transfers." \
+            "Transfer cleanup preserves later host compositor changes, guards reentry and records paired lifecycle phases. Unknown renderers retain native geometry." \
+            "The Watch complete drama entry now rounds its native wrapper and content with the glass, removes rectangular corner fills and restores styling on reuse or disable." \
+            "The custom floating dock now clears inherited host masks and extends ordinary library content through the bottom safe area. Vertical video pagination and its ancestors retain their original dimensions." \
+            "Retains white dock icons, the translucent neutral-gray selection pill, native button actions, R8 host-owned playback callbacks and existing advertisement eligibility gates." \
+            "Adds UIKit regression coverage for native frame-driven layout, render clipping and transfer, episode corner pixels and reuse, dock masks, ordinary-list insets and mode restoration." \
+            "The R10 log places two session endings near player transfer but contains no hang stack. This is a targeted candidate fix; actual Hongguo navigation and decoding still need device verification." \
             "Retains independent appearance customization and the TG update channel https://t.me/Naloiafeed." \
             "Reference behavior was studied; implementation is written for Honggo without importing NaiwaGuo source or assets." \
             "Actual Hongguo iPhone appearance, playback and ad disappearance remain unverified." \

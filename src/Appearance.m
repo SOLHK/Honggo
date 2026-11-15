@@ -4,6 +4,7 @@
 #import <PhotosUI/PhotosUI.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <ImageIO/ImageIO.h>
+#import <QuartzCore/QuartzCore.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <objc/message.h>
 #import <dispatch/dispatch.h>
@@ -98,31 +99,60 @@ static NSError *HGAAssetError(NSString *message) {
 // Exact adapters only. UIKit base classes and arbitrary third-party classes
 // never receive a global appearance hook. Missing adapters remain untouched.
 static NSMutableDictionary<NSString *,NSValue *> *HGAHooks;
+static NSUInteger HGAPlayerTransferInvocation;
+static void HGATracePlayerTransfer(id object,SEL selector,id destination,NSUInteger invocation,NSString *phase) {
+    if(!invocation)return;
+    HGLog(@"appearance.player-transfer",@{@"class":NSStringFromClass([object class]),
+        @"method":NSStringFromSelector(selector),@"attached":@(destination!=nil),
+        @"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),@"phase":phase,
+        @"invocation":@(invocation),@"mode":@"render-sublayers"});
+}
 static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controller) {
     NSString *key=[NSString stringWithFormat:@"%@/%@",NSStringFromClass(cls),NSStringFromSelector(selector)];
     if (HGAHooks[key]) return;
-    __block IMP original=NULL;
+    Method method=class_getInstanceMethod(cls,selector);
+    const char *actual=method?method_getTypeEncoding(method):NULL;
+    // Publish a checked original before installing the replacement; UIKit can
+    // reach a lifecycle observer as soon as class_replaceMethod returns.
+    __block IMP original=actual && !strcmp(actual,encoding)?method_getImplementation(method):NULL;
+    NSString *className=NSStringFromClass(cls);
+    BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
+    BOOL episode=[HGAViewRoles()[className] isEqual:@"episodes"];
+    BOOL episodeWrapper=[className isEqual:@"FQVShortVideoBaseInsertView"];
     IMP replacement=NULL;
     if (!strcmp(encoding,"v16@0:8")) {
         replacement=imp_implementationWithBlock(^(id object) {
             ((void(*)(id,SEL))original)(object,selector);
-            if(!controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
-                HGAFinishPlayerTransfer(object);
+            if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
+                HGAFinishPlayerTransfer(object,selector);
+            if(episodeWrapper)HGAEpisodeWrapperChanged(object);
             if (controller) HGAppearanceProcessController(object);
             else if ((selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)) && [(UIView *)object window]) [(UIView *)object setNeedsLayout];
             else HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v24@0:8@16")) {
         replacement=imp_implementationWithBlock(^(id object,id argument) {
-            BOOL transfer=selector==@selector(willMoveToSuperview:) || selector==@selector(willMoveToWindow:);
-            if(transfer && NSThread.isMainThread) {
-                HGAPreparePlayerTransfer(object);
-                if(HGEnhancedDiagnostics())HGLog(@"appearance.player-transfer",@{
-                    @"class":NSStringFromClass([object class]),@"method":NSStringFromSelector(selector),
-                    @"attached":@(argument!=nil),@"fullscreen":@(HGAppearanceFlag(@"player.fullscreen"))});
+            BOOL transfer=player && (selector==@selector(willMoveToSuperview:) || selector==@selector(willMoveToWindow:));
+            BOOL episodeMove=episode && selector==@selector(willMoveToSuperview:);
+            BOOL guarded=(transfer || episodeMove) && NSThread.isMainThread;
+            BOOL wasApplying=HGAApplying,completed=NO;
+            NSUInteger invocation=guarded && transfer && HGEnhancedDiagnostics()?++HGAPlayerTransferInvocation:0;
+            HGATracePlayerTransfer(object,selector,argument,invocation,@"enter");
+            if(guarded)HGAApplying=YES;
+            @try {
+                if(guarded && transfer) {
+                    HGAPreparePlayerTransfer(object,selector);
+                    HGATracePlayerTransfer(object,selector,argument,invocation,@"prepared");
+                }
+                if(guarded && episodeMove)HGAApplyEpisodeCorners(object,NO,0);
+                ((void(*)(id,SEL,id))original)(object,selector,argument);
+                completed=YES;
+            } @finally {
+                if(guarded)HGAApplying=wasApplying;
+                HGATracePlayerTransfer(object,selector,argument,invocation,completed?@"return":@"exception");
             }
-            ((void(*)(id,SEL,id))original)(object,selector,argument);
-            if(!transfer)HGAppearanceProcessView(object);
+            if(episodeWrapper && selector==@selector(didAddSubview:))HGAEpisodeWrapperChanged(object);
+            if(!transfer && !episodeMove)HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v28@0:8@16B24")) {
         replacement=imp_implementationWithBlock(^(id object,id argument,BOOL animated) {
@@ -146,6 +176,7 @@ void HGAppearanceRefresh(void) {
     HGRecordCapability(@"module.appearance",@{@"module":@"appearance",
         @"state":HGAppearanceEnabled() ? (HGAHooks.count ? @"partial":@"unavailable") : @"disabled",
         @"installedHooks":@(HGAHooks.count),@"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),
+        @"playerFillMode":@"render-sublayers",
         @"episodeGlass":@(HGAppearanceFlag(@"player.episodeGlass")),@"rightGlass":@(HGAppearanceFlag(@"player.rightGlass")),
         @"dock":@(HGAppearanceDockEnabled()),@"reason":@"scoped visual adapters; device behavior not verified"});
     if (!HGAppearanceEnabled() || !HGAppearanceFlag(@"fonts.enabled")) for (UIView *text in HGATexts.allObjects) HGARestoreText(text);
@@ -159,7 +190,7 @@ void HGInstallAppearance(void) {
         NSUInteger found=0;
         NSMutableOrderedSet *classes=[NSMutableOrderedSet orderedSetWithArray:HGAViewRoles().allKeys];
         [classes addObjectsFromArray:HGACommentSurfaces()];
-        [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar"]];
+        [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar",@"FQVShortVideoBaseInsertView"]];
         for (NSString *name in classes) {
             Class cls=NSClassFromString(name);
             if (![cls isSubclassOfClass:UIView.class]) {
@@ -175,6 +206,12 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,@selector(willMoveToWindow:),"v24@0:8@16",NO);
                 HGAHook(cls,@selector(didMoveToSuperview),"v16@0:8",NO);
             }
+            if([HGAViewRoles()[name] isEqual:@"episodes"]) {
+                HGAHook(cls,@selector(willMoveToSuperview:),"v24@0:8@16",NO);
+                HGAHook(cls,@selector(didMoveToSuperview),"v16@0:8",NO);
+            }
+            if([name isEqual:@"FQVShortVideoBaseInsertView"])
+                HGAHook(cls,@selector(didAddSubview:),"v24@0:8@16",NO);
             if ([name hasPrefix:@"SSShortVideoRightInteraction"]) {
                 NSArray *names=@[@"setModel:",@"refreshUIWithModel:",@"refreshUIWithModel:animated:",@"setIsCollected:"];
                 const char *types[]={"v24@0:8@16","v24@0:8@16","v28@0:8@16B24","v20@0:8B16"};
@@ -207,6 +244,7 @@ void HGInstallAppearance(void) {
         HGRecordCapability(@"module.appearance",@{@"module":@"appearance",
             @"state":HGAppearanceEnabled() ? (found ? @"partial":@"unavailable") : @"disabled",
             @"available":@(found),@"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),
+            @"playerFillMode":@"render-sublayers",
             @"episodeGlass":@(HGAppearanceFlag(@"player.episodeGlass")),@"rightGlass":@(HGAppearanceFlag(@"player.rightGlass")),
             @"dock":@(HGAppearanceDockEnabled()),@"reason":@"scoped visual adapters; device behavior not verified"});
     }

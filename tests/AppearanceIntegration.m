@@ -1,5 +1,6 @@
 #import "Honggo.h"
 #import "Appearance.h"
+#import <QuartzCore/QuartzCore.h>
 #import <dispatch/dispatch.h>
 #include <math.h>
 
@@ -46,8 +47,35 @@
 @implementation SSShortVideoOutterSeriesInfoView @end
 @interface FQVShortVideoPlayerCellView : UIView @end
 @implementation FQVShortVideoPlayerCellView @end
-@interface TTPlayerView : UIView @end
-@implementation TTPlayerView @end
+@interface TTMetalView : UIView @end
+@implementation TTMetalView @end
+@interface HGPlaybackRenderLayer : CALayer
+@property(nonatomic) NSUInteger fillWrites;
+@end
+@implementation HGPlaybackRenderLayer
+- (void)setSublayerTransform:(CATransform3D)value {self.fillWrites++;[super setSublayerTransform:value];}
+@end
+@interface TTPlayerView : UIView
+@property(nonatomic) BOOL nativeFrameWriterEnabled;
+@property(nonatomic) CGRect nativeFrame;
+@property(nonatomic) NSUInteger nativeLayoutPasses;
+@end
+@implementation TTPlayerView
++ (Class)layerClass{return HGPlaybackRenderLayer.class;}
+- (instancetype)initWithFrame:(CGRect)frame {
+    if((self=[super initWithFrame:frame])) {
+        TTMetalView *surface=[[TTMetalView alloc] initWithFrame:self.bounds];
+        surface.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        surface.backgroundColor=UIColor.greenColor;[self addSubview:surface];
+    }
+    return self;
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];self.nativeLayoutPasses++;
+    if(self.nativeFrameWriterEnabled)self.frame=self.nativeFrame;
+    self.subviews.firstObject.frame=self.bounds;
+}
+@end
 @interface FQVCollectionView : UICollectionView @end
 @implementation FQVCollectionView @end
 @interface FQCShortVideoCommentPanelViewController : UIViewController @end
@@ -113,6 +141,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
 #include "PlaybackAppearanceIntegration.inc"
 #include "AppearanceTransitionCoordinatorTests.inc"
 #include "DockAppearanceIntegration.inc"
+#include "EpisodeGlassIntegration.inc"
 @interface HGAAppearanceTests : UIResponder <UIWindowSceneDelegate>
 @property(nonatomic,strong) UIWindow *window;
 @property(nonatomic,strong) SSTabBarController *host;
@@ -188,6 +217,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Check(Find(header,@"honggo.appearance.material")!=nil,@"top channel glass is active");
     SSShortVideoBottomDistributionView *episodes=[[SSShortVideoBottomDistributionView alloc] initWithFrame:CGRectMake(20,220,280,44)];[root addSubview:episodes];Layout(episodes);
     Check(Find(episodes,@"honggo.appearance.material")!=nil,@"episode entry glass is active");
+    RunEpisodeGlassChecks(root);
 
     SSShortVideoOutterSeriesInfoView *info=[[SSShortVideoOutterSeriesInfoView alloc] initWithFrame:CGRectMake(20,280,280,60)];[root addSubview:info];
     UILabel *rich=[[UILabel alloc] initWithFrame:CGRectMake(0,0,180,24)];
@@ -205,14 +235,16 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:CGRectMake(50,0,200,300)];[canvas addSubview:render];
     UIView *hud=[[UIView alloc] initWithFrame:CGRectMake(250,100,44,44)];[canvas addSubview:hud];CGRect hudFrame=hud.frame;
     HGAppearanceSet(@"player.fullscreen",@YES,nil);Layout(render);
-    Check(render.transform.a>1 && fabs(render.transform.a-render.transform.d)<0.001,@"portrait fullscreen uses uniform rather than stretched scaling");
+    Check(render.layer.sublayerTransform.m11>1 &&
+        fabs(render.layer.sublayerTransform.m11-render.layer.sublayerTransform.m22)<0.001 &&
+        CGAffineTransformIsIdentity(render.transform),@"portrait fullscreen uniformly scales render sublayers with native view geometry");
     Check(CGRectEqualToRect(hud.frame,hudFrame),@"fullscreen preserves HUD frame and hit target");
-    HGAppearanceSet(@"player.fullscreen",@NO,nil);Check(CGAffineTransformIsIdentity(render.transform),@"fullscreen can be reversed");
+    HGAppearanceSet(@"player.fullscreen",@NO,nil);Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && CGAffineTransformIsIdentity(render.transform),@"fullscreen can be reversed");
     render.frame=CGRectMake(0,70,300,170);CGRect wide=render.frame;
     HGAppearanceSet(@"player.fullscreen",@YES,nil);Layout(render);
-    Check(CGAffineTransformIsIdentity(render.transform) && CGRectEqualToRect(wide,render.frame),@"landscape video preserves size and placement");
+    Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && CGAffineTransformIsIdentity(render.transform) && CGRectEqualToRect(wide,render.frame),@"landscape video preserves size and placement");
     render.frame=CGRectMake(0,0,300,300);Layout(render);
-    Check(CGAffineTransformIsIdentity(render.transform),@"square video remains native sized");
+    Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && CGAffineTransformIsIdentity(render.transform),@"square video remains native sized");
     RunPlaybackAppearanceChecks(root);
     RunAppearanceTransitionCoordinatorChecks(self.host);
 

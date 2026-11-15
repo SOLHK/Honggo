@@ -218,6 +218,7 @@ static void HGRestoreViewports(NSArray<HGViewportRecord *> *records) {
 @property(nonatomic, strong) NSHashTable<UIView *> *observed;
 @property(nonatomic, strong) NSMapTable<UILabel *, HGTabTitleRecord *> *titles;
 @property(nonatomic) BOOL refreshing;
+@property(nonatomic) BOOL customDock;
 @property(nonatomic) BOOL nativeGlass;
 @property(nonatomic) BOOL logged;
 @property(nonatomic) NSTimeInterval lastDiagnostic;
@@ -347,6 +348,39 @@ static BOOL HGContainerScroll(UIView *view) {
         hasPrefix:@"RKMPandroidx.compose.ui.scene.UIKitTransparentContainerView"];
 }
 
+static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
+    // A video feed's page height is also its paging stride. Extending either
+    // the feed or an autoresizing ancestor can reveal the following episode
+    // and change the host's scroll-end/player-transfer decisions. Only ordinary
+    // lists may extend beneath the floating bar; leave video branches intact.
+    Class videoFeed = objc_lookUpClass("FQVCollectionView");
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:branch];
+    for (NSUInteger i = 0; i < queue.count && i < 192; i++) {
+        UIView *view = queue[i];
+        if (view.hidden || view.alpha < 0.01 || CGRectIsEmpty(view.bounds) ||
+            !CGRectIntersectsRect([view convertRect:view.bounds toView:root], root.bounds)) continue;
+        if (videoFeed && [view isKindOfClass:videoFeed]) return YES;
+        if ([view isKindOfClass:UIScrollView.class]) {
+            UIScrollView *scroll = (UIScrollView *)view;
+            BOOL verticalPages = scroll.pagingEnabled &&
+                scroll.contentSize.height > scroll.bounds.size.height + 2 &&
+                scroll.contentSize.width <= scroll.bounds.size.width + 2;
+            if (verticalPages) return YES;
+            // Ordinary list cells and carousels do not decide the containing
+            // page's viewport. Continue through host container/horizontal pagers.
+            if (!HGContainerScroll(scroll) && !scroll.pagingEnabled) continue;
+        }
+        if ([view isKindOfClass:UIControl.class] || [view isKindOfClass:UILabel.class] ||
+            [view isKindOfClass:UIImageView.class] || [view isKindOfClass:UIVisualEffectView.class] ||
+            [view isKindOfClass:UITableViewCell.class] || [view isKindOfClass:UICollectionViewCell.class]) continue;
+        for (UIView *child in view.subviews) {
+            if (queue.count >= 192) return YES; // Ambiguous tree: preserve host geometry.
+            [queue addObject:child];
+        }
+    }
+    return NO;
+}
+
 @implementation HGTabState
 - (instancetype)init {
     self = [super init];
@@ -368,7 +402,8 @@ static BOOL HGContainerScroll(UIView *view) {
     return record;
 }
 - (void)clearBackgrounds:(UIView *)view content:(UIView *)content frame:(CGRect)frame depth:(NSUInteger)depth {
-    if (view == self.glass || depth > 10 || [view isKindOfClass:UIScrollView.class]) return;
+    if (view == self.glass || [view.accessibilityIdentifier hasPrefix:@"honggo.appearance."] ||
+        depth > 10 || [view isKindOfClass:UIScrollView.class]) return;
     BOOL inContent = view == content || [view isDescendantOfView:content];
     BOOL contentPath = view == self.bar || view == content || [content isDescendantOfView:view];
     BOOL control = [view isKindOfClass:UIControl.class];
@@ -397,7 +432,9 @@ static BOOL HGContainerScroll(UIView *view) {
     BOOL itemContainer = inContent && !image && view.subviews.count > 0 &&
         CGRectGetWidth(rect) >= 44 && CGRectGetHeight(rect) >= 24;
     if (!control && !label && (contentPath || itemContainer)) {
-        [[self surface:view] clearFill];
+        // The custom dock owns the host bar's fill. A second saved color here
+        // would overwrite a newer host theme when switching dock modes.
+        if (view != self.bar || !self.customDock) [[self surface:view] clearFill];
         HGObserve(view, self);
     } else if (!control && !label && broad && !HGContainsControls(view, 0)) {
         [[self surface:view] hideBackground];
@@ -572,8 +609,10 @@ static BOOL HGContainerScroll(UIView *view) {
         for (UIView *child in parent.subviews) if (child != path) [branches addObject:child];
         path = parent;
     }
-    for (UIView *branch in branches)
-        [self collectViewports:branch root:root barTop:barTop bottom:bottom records:records depth:0];
+    for (UIView *branch in branches) {
+        if (!HGContainsVisibleVerticalPager(branch, root))
+            [self collectViewports:branch root:root barTop:barTop bottom:bottom records:records depth:0];
+    }
     NSHashTable<UIView *> *active = [NSHashTable weakObjectsHashTable];
     for (HGViewportRecord *record in records) [active addObject:record.view];
     NSMutableArray<HGViewportRecord *> *inactive = [NSMutableArray array];
@@ -688,13 +727,17 @@ static BOOL HGContainerScroll(UIView *view) {
     [CATransaction setDisableActions:YES];
     @try {
         UIView *bar = self.bar;
-        if (HGAppearanceDockEnabled()) {
+        BOOL customDock = HGAppearanceDockEnabled();
+        if (customDock != self.customDock) {
+            // Release the old mode once before taking new baselines. Do not
+            // restore/reapply live list geometry on every custom-dock layout.
+            HGAppearanceRestoreDock(bar);
             [self restore];
-            HGAppearanceLayoutDock(bar, self.controller);
-            return;
+            self.customDock = customDock;
         }
-        HGAppearanceRestoreDock(bar);
-        if (!HGGlassEnabled || !bar.window || bar.hidden) {
+        if (!customDock) HGAppearanceRestoreDock(bar);
+        if ((!HGGlassEnabled && !customDock) || !bar.window || bar.hidden) {
+            HGAppearanceRestoreDock(bar);
             [self restore];
             return;
         }
@@ -706,6 +749,7 @@ static BOOL HGContainerScroll(UIView *view) {
             if (ancestor != bar) HGObserve(ancestor, self);
         }
         if (!visible) {
+            if (customDock) HGAppearanceRestoreDock(bar);
             self.glass.effect = nil;
             self.glass.hidden = YES;
             return; // Visibility setters on this instance's ancestor path retry synchronously.
@@ -766,6 +810,21 @@ static BOOL HGContainerScroll(UIView *view) {
         barRecord.unclipped = YES;
         if (bar.layer.mask) bar.layer.mask = nil;
         if (bar.clipsToBounds) bar.clipsToBounds = NO;
+        if (customDock) {
+            // The custom capsule needs the same host-surface cleanup as the
+            // original glass bar. The old early return restored a full-screen
+            // host mask and left list content ending abruptly above the dock.
+            self.glass.effect = nil;
+            self.glass.hidden = YES;
+            [self.glass removeFromSuperview];
+            HGAppearanceLayoutDock(bar, self.controller);
+            BOOL attached = NO;
+            for (UIView *child in bar.subviews)
+                if ([child.accessibilityIdentifier isEqual:@"honggo.appearance.dock"] && !child.hidden) attached = YES;
+            if (attached) [self refreshViewports];
+            else [self restore]; // Unmapped/too-small dock: keep native navigation visible.
+            return;
+        }
         [self prepareGlass:frame content:content];
         [self refreshViewports];
         NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;

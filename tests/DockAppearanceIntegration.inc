@@ -165,7 +165,106 @@ static BOOL HGASaveDockPreview(SSTabBarController *host,UIView *dock) {
     [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
     return [UIImagePNGRepresentation(preview) writeToURL:[directory URLByAppendingPathComponent:@"dock-preview.png"] atomically:YES];
 }
+static void HGRunDockSurfaceChecks(SSTabBarController *host) {
+    NSDictionary *saved=HGAppearanceValues();
+    SSTabBar *bar=host.customTabBar;
+    CALayer *savedMask=bar.layer.mask;
+    BOOL savedClip=bar.clipsToBounds, savedHidden=bar.hidden;
+    CGFloat width=host.view.bounds.size.width, bottom=host.view.bounds.size.height;
+    CGFloat barTop=[bar convertRect:bar.bounds toView:host.view].origin.y;
+    HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.extra":@NO,
+        @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@NO,@"dock.hide.mine":@NO},nil);
+
+    // A clipped library list ending at the host bar is the R10 hard edge.
+    // The real capsule and TabBar implementation both run in this fixture.
+    UIView *viewport=[[UIView alloc] initWithFrame:CGRectMake(0,0,width,barTop)];
+    viewport.clipsToBounds=YES;
+    UIScrollView *list=[[UIScrollView alloc] initWithFrame:viewport.bounds];
+    list.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
+    list.contentInset=UIEdgeInsetsMake(3,4,12,5);
+    list.verticalScrollIndicatorInsets=UIEdgeInsetsMake(0,0,9,0);
+    list.contentSize=CGSizeMake(width,bottom*3);
+    [viewport addSubview:list];[host.view insertSubview:viewport belowSubview:bar];
+    CGRect originalViewport=viewport.frame,originalList=list.frame;
+    UIEdgeInsets originalInset=list.contentInset;
+    CAShapeLayer *hostMask=[CAShapeLayer layer];
+    hostMask.frame=bar.bounds;hostMask.path=[UIBezierPath bezierPathWithRect:bar.bounds].CGPath;
+    bar.layer.mask=hostMask;bar.clipsToBounds=YES;Layout(bar);
+    Check(!bar.layer.mask && !bar.clipsToBounds && Find(bar,@"honggo.appearance.dock"),
+        @"custom dock removes the inherited host mask without masking the glass capsule");
+    Check(fabs(CGRectGetMaxY(viewport.frame)-bottom)<0.75 && fabs(list.bounds.size.height-bottom)<0.75,
+        @"custom dock extends the ordinary library viewport beneath the home-indicator area");
+    CGFloat expectedInset=originalInset.bottom+bottom-barTop;
+    Check(fabs(list.contentInset.bottom-expectedInset)<0.75 && list.contentInset.top==3 &&
+        list.contentInset.left==4 && list.contentInset.right==5,
+        @"extended library list keeps its last row reachable and preserves the other native insets");
+    CGRect settledViewport=viewport.frame,settledList=list.frame;
+    UIEdgeInsets settledInset=list.contentInset;
+    for(NSUInteger i=0;i<25;i++)Layout(bar);
+    Check(CGRectEqualToRect(viewport.frame,settledViewport) && CGRectEqualToRect(list.frame,settledList) &&
+        UIEdgeInsetsEqualToEdgeInsets(list.contentInset,settledInset),
+        @"custom dock repeated layouts do not accumulate viewport height or bottom padding");
+    UIView *capsule=Find(bar,@"honggo.appearance.dock.capsule");
+    Check(Find(capsule,@"honggo.appearance.material") && !capsule.hidden &&
+        Find(bar,@"honggo.appearance.dock.selection"),
+        @"host background cleanup leaves the plugin-owned capsule and selection intact");
+    bar.hidden=YES;
+    Check(bar.layer.mask==hostMask && bar.clipsToBounds &&
+        CGRectEqualToRect(viewport.frame,originalViewport) && CGRectEqualToRect(list.frame,originalList) &&
+        UIEdgeInsetsEqualToEdgeInsets(list.contentInset,originalInset),
+        @"hiding the custom dock restores native masking and exact list geometry");
+    UIColor *nativeBackground=bar.backgroundColor;
+    BOOL nativeOpaque=bar.opaque;
+    [viewport removeFromSuperview];bar.layer.mask=savedMask;bar.clipsToBounds=savedClip;bar.hidden=NO;
+
+    // The ancestor deliberately autoresizes its feed. Extending the ancestor
+    // alone would change pagination even if the feed itself were skipped.
+    UIView *videoPage=[[UIView alloc] initWithFrame:CGRectMake(0,0,width,barTop)];
+    FQVCollectionView *video=[[FQVCollectionView alloc] initWithFrame:videoPage.bounds
+        collectionViewLayout:[UICollectionViewFlowLayout new]];
+    video.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    video.pagingEnabled=YES;video.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
+    [videoPage addSubview:video];[host.view insertSubview:videoPage belowSubview:bar];Layout(video);
+    CGRect originalPage=videoPage.frame,originalVideo=video.frame;
+    UIEdgeInsets videoInset=video.contentInset;
+    CGSize videoContent=video.contentSize;
+    for(NSUInteger i=0;i<25;i++)Layout(bar);
+    Check(CGRectEqualToRect(videoPage.frame,originalPage) && CGRectEqualToRect(video.frame,originalVideo) &&
+        UIEdgeInsetsEqualToEdgeInsets(video.contentInset,videoInset) && CGSizeEqualToSize(video.contentSize,videoContent),
+        @"video page and autoresizing ancestors retain the native episode stride under a custom dock");
+    [videoPage removeFromSuperview];
+
+    UIScrollView *verticalPager=[[UIScrollView alloc] initWithFrame:CGRectMake(0,0,width,barTop)];
+    verticalPager.pagingEnabled=YES;verticalPager.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
+    verticalPager.contentSize=CGSizeMake(width,barTop*3);
+    [host.view insertSubview:verticalPager belowSubview:bar];
+    CGRect nativePager=verticalPager.frame;Layout(bar);
+    Check(CGRectEqualToRect(verticalPager.frame,nativePager) && verticalPager.contentInset.bottom==0,
+        @"unmapped vertical paging views also keep their native page size and no added padding");
+    [verticalPager removeFromSuperview];
+
+    bar.backgroundColor=UIColor.systemPurpleColor;bar.opaque=YES;Layout(bar);
+    HGAppearanceSet(@"dock.enabled",@NO,nil);Layout(bar);
+    Check(!Find(bar,@"honggo.appearance.dock") && !bar.contentView.hidden &&
+        Find(bar,@"honggo.tabbar.glass"),
+        @"switching custom dock off restores native navigation with one legacy glass surface");
+    HGAppearanceSet(@"dock.enabled",@YES,nil);Layout(bar);bar.hidden=YES;
+    Check([bar.backgroundColor isEqual:UIColor.systemPurpleColor] && bar.opaque,
+        @"custom and legacy dock mode switches preserve the newest host fill and opacity");
+    bar.hidden=NO;
+    host.view.hidden=YES;
+    Check(!Find(bar,@"honggo.appearance.dock") && [bar.backgroundColor isEqual:UIColor.systemPurpleColor],
+        @"hiding an observed ancestor releases the custom dock and its host background ownership");
+    host.view.hidden=NO;
+    Check(Find(bar,@"honggo.appearance.dock") && !bar.layer.mask,
+        @"showing the same ancestor restores the custom dock without an extra layout request");
+    bar.hidden=YES;bar.backgroundColor=nativeBackground;bar.opaque=nativeOpaque;
+    bar.layer.mask=savedMask;bar.clipsToBounds=savedClip;
+    HGAppearanceApply(saved,nil);bar.hidden=savedHidden;Layout(bar);
+}
+
 static void HGRunDockAppearanceChecks(SSTabBarController *host) {
+    HGRunDockSurfaceChecks(host);
     NSDictionary *saved=HGAppearanceValues();
     NSUInteger savedIndex=host.selectedIndex;
     UIUserInterfaceStyle savedStyle=host.overrideUserInterfaceStyle;

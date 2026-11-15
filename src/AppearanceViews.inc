@@ -176,6 +176,7 @@ static BOOL HGAHasRoleAncestor(UIView *view,NSString *role) {
         if([HGARole(parent) isEqual:role])return YES;
     return NO;
 }
+#include "AppearanceEpisode.inc"
 
 @interface HGAIconState : NSObject
 @property(nonatomic,weak) UIImageView *imageView;
@@ -322,73 +323,7 @@ static void HGAApplyTypography(UIView *root) {
     }
 }
 
-// Preserve native feed stride, content offsets, hit targets and HUD geometry.
-// Only the identified video render is uniformly enlarged inside its own page.
-static BOOL HGAWaitForPlayerTransition(UIView *render,UIView *canvas) {
-    id<UIViewControllerTransitionCoordinator> transition=HGAOwner(canvas).transitionCoordinator;
-    if(!transition)return NO;
-    HGAViewState *state=HGAState(render,YES);
-    if(state.transition!=transition) {
-        state.transition=transition;
-        __weak UIView *weakRender=render;
-        __weak UIView *weakParent=render.superview;
-        __weak id<UIViewControllerTransitionCoordinator> weakTransition=transition;
-        // UIKit may retain a completion even when no animation was queued and
-        // the method returns NO. Attempt once per coordinator in either case.
-        [transition animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
-            UIView *view=weakRender;
-            HGAViewState *current=HGAState(view,NO);
-            if(current.transition==weakTransition)current.transition=nil;
-            // Both a completed push and a cancelled interactive transition
-            // return ownership to native layout before filling the new canvas.
-            if(view.window && view.superview==weakParent)[view setNeedsLayout];
-        }];
-    }
-    return YES;
-}
-static void HGAPreparePlayerTransfer(UIView *view) {
-    HGAState(view,YES).transferring=YES;
-    HGARestoreGeometry(view);
-    if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"])
-        for(UIView *child in HGADescendants(view,100))
-            if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"]) {
-                HGAState(child,YES).transferring=YES;HGARestoreGeometry(child);
-            }
-}
-static void HGAFinishPlayerTransfer(UIView *view) {
-    HGAState(view,NO).transferring=NO;
-    if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"])
-        for(UIView *child in HGADescendants(view,100))
-            if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAState(child,NO).transferring=NO;
-}
-static void HGAApplyFullScreen(UIView *render) {
-    if(!HGAppearanceEnabled() || !HGAppearanceFlag(@"player.fullscreen") || !render.window || HGAState(render,NO).transferring) {
-        HGARestoreGeometry(render);return;
-    }
-    UIView *canvas=render.superview;
-    for(NSUInteger i=0;canvas && i<12;i++,canvas=canvas.superview)
-        if([NSStringFromClass(canvas.class) isEqual:@"FQVShortVideoPlayerCellView"])break;
-    HGAViewState *state=HGAState(render,NO);
-    CGAffineTransform nativeTransform=state.geometry &&
-        CGAffineTransformEqualToTransform(render.transform,state.appliedTransform) ? state.sourceTransform : render.transform;
-    if(!canvas || ![NSStringFromClass(canvas.class) isEqual:@"FQVShortVideoPlayerCellView"] ||
-        HGAState(canvas,NO).transferring ||
-        !CGAffineTransformIsIdentity(nativeTransform) ||
-        render.window.bounds.size.width>=render.window.bounds.size.height) {
-        HGARestoreGeometry(render);return;
-    }
-    for(UIView *node=render.superview;node;node=node.superview) {
-        if(!CGAffineTransformIsIdentity(node.transform)){HGARestoreGeometry(render);return;}
-        if(node==canvas)break;
-    }
-    if(HGAWaitForPlayerTransition(render,canvas)){HGARestoreGeometry(render);return;}
-    CGSize native=render.bounds.size;
-    if(native.width<120 || native.height<160 || native.width>=native.height*0.85){HGARestoreGeometry(render);return;}
-    CGRect rect=[canvas convertRect:canvas.bounds toView:render.superview];
-    CGFloat zoom=MAX(rect.size.width/native.width,rect.size.height/native.height);
-    if(!isfinite(zoom) || zoom<1 || zoom>1.6){HGARestoreGeometry(render);return;}
-    HGASetGeometry(render,CGRectGetMidX(rect)-render.center.x,CGRectGetMidY(rect)-render.center.y,zoom);
-}
+#include "AppearancePlayer.inc"
 static NSDictionary<NSString *,NSString *> *HGAPanelControllers(void) {
     return @{@"SSShortVideoCommentPanelViewController":@"comment",
         @"FQCShortVideoCommentPanelViewController":@"comment",
@@ -461,8 +396,11 @@ void HGAppearanceProcessView(UIView *view) {
         BOOL glass=enabled && outer && ((action && HGAppearanceFlag(@"player.rightGlass")) ||
             ([role isEqual:@"channels"] && HGAppearanceFlag(@"player.headerGlass")) ||
             ([role isEqual:@"episodes"] && HGAppearanceFlag(@"player.episodeGlass")));
+        BOOL episode=[role isEqual:@"episodes"];
+        CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
+        if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
         if(glass && !view.hidden) {
-            CGRect glassFrame=view.bounds;CGFloat radius=20;
+            CGRect glassFrame=view.bounds;CGFloat radius=episode ? episodeRadius : 20;
             if(action) {
                 UIImageView *icon=HGAFindIcon(view);
                 CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
