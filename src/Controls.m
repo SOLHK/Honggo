@@ -1,4 +1,5 @@
 #import "Honggo.h"
+#import "RuntimeSupport.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
 #include <math.h>
@@ -206,29 +207,63 @@ static void HGRefreshControls(id owner, NSArray<NSString *> *getters) {
     }
 }
 void HGInstallControls(void) {
-    static BOOL installed;
-    if (installed) return;
-    installed = YES;
+    static NSMutableDictionary<NSString *, NSValue *> *replacements;
+    if (!replacements) replacements = [NSMutableDictionary dictionary];
+    NSUInteger installed = 0, available = 0;
     for (NSUInteger i = 0; i < sizeof(HGControlTargets) / sizeof(HGControlTargets[0]); i++) {
         Class cls = objc_lookUpClass(HGControlTargets[i].className);
         BOOL controller = [cls isSubclassOfClass:UIViewController.class];
-        if (!controller && ![cls isSubclassOfClass:UIView.class]) continue;
+        NSString *className = @(HGControlTargets[i].className);
+        if (!controller && ![cls isSubclassOfClass:UIView.class]) {
+            HGRecordCapability([@"control." stringByAppendingString:className],
+                @{@"module": @"controls", @"class": className,
+                  @"state": cls ? @"unavailable" : @"missing-class",
+                  @"reason": @"known control owner is not available with its expected base class"});
+            continue;
+        }
+        available++;
         NSString *names = @(HGControlTargets[i].getters);
         NSArray *getters = names.length ? [names componentsSeparatedByString:@" "] : @[];
         NSArray *lifecycle = controller ? @[@"viewDidLayoutSubviews"] : @[@"layoutSubviews", @"didMoveToWindow"];
+        NSUInteger targetInstalled = 0;
         for (NSString *name in lifecycle) {
             SEL selector = NSSelectorFromString(name);
+            NSString *key = [NSString stringWithFormat:@"hook.controls.instance.%@.%@", className, name];
+            IMP hook = (IMP)[replacements[key] pointerValue];
+            if (hook) {
+                HGInstallVerifiedHook(cls, selector, "v16@0:8", hook, @"controls");
+                if (class_getMethodImplementation(cls, selector) == hook) targetInstalled++;
+                continue;
+            }
             Method method = class_getInstanceMethod(cls, selector);
-            if (!method || strcmp(method_getTypeEncoding(method), "v16@0:8")) continue;
-            void (*original)(id, SEL) = (void (*)(id, SEL))method_getImplementation(method);
-            IMP hook = imp_implementationWithBlock(^(id view) {
-                original(view, selector);
+            const char *encoding = method ? method_getTypeEncoding(method) : NULL;
+            if (!encoding || strcmp(encoding, "v16@0:8")) {
+                HGRecordCapability(key, @{@"module": @"controls", @"class": className,
+                    @"selector": name, @"expected": @"v16@0:8", @"actual": encoding ? @(encoding) : @"missing",
+                    @"state": method ? @"abi-mismatch" : @"missing-method"});
+                continue;
+            }
+            __block IMP original = method_getImplementation(method);
+            hook = imp_implementationWithBlock(^(id view) {
+                ((void (*)(id, SEL))original)(view, selector);
                 HGRefreshControls(view, getters);
             });
-            class_replaceMethod(cls, selector, hook, "v16@0:8");
+            IMP verifiedOriginal = HGInstallVerifiedHook(cls, selector, "v16@0:8", hook, @"controls");
+            if (!verifiedOriginal) { imp_removeBlock(hook); continue; }
+            original = verifiedOriginal;
+            replacements[key] = [NSValue valueWithPointer:(const void *)hook];
+            if (class_getMethodImplementation(cls, selector) == hook) targetInstalled++;
         }
-        HGLog(@"controls.hook", @{@"class": NSStringFromClass(cls), @"getters": getters});
+        if (targetInstalled) installed++;
+        HGRecordCapability([@"control." stringByAppendingString:className],
+            @{@"module": @"controls", @"class": className,
+              @"state": targetInstalled == lifecycle.count ? @"installed" : targetInstalled ? @"partial" : @"unavailable",
+              @"installed": @(targetInstalled), @"required": @(lifecycle.count)});
     }
+    HGRecordCapability(@"module.controls", @{@"module": @"controls",
+        @"state": !HGIsEnabled(HGGlassControls) ? @"disabled" : installed == sizeof(HGControlTargets) / sizeof(HGControlTargets[0]) ? @"installed" : installed ? @"partial" : @"unavailable",
+        @"available": @(available), @"installed": @(installed),
+        @"reason": @"known control owners only; missing targets can retry on the next startup pass"});
 }
 
 NSDictionary *HGInterfaceSnapshot(void) {
@@ -270,7 +305,7 @@ NSDictionary *HGInterfaceSnapshot(void) {
             @"backgroundAlpha": @(view.backgroundColor ? CGColorGetAlpha(view.backgroundColor.CGColor) : 0),
             @"effect": NSStringFromClass(glass.effect.class) ?: @"none"}];
     }
-    return @{@"nativeGlassConfigured": @(HGNativeGlassConfigured()),
+    return @{@"nativeGlassConfigured": @(HGNativeGlassConfigured()), @"runtime": HGRuntimeSnapshot(),
         @"startupGlassOverride": @(HGNativeGlassStartupOverride()),
         @"compatibility": [NSBundle.mainBundle objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] ?: NSNull.null,
         @"reduceTransparency": @(UIAccessibilityIsReduceTransparencyEnabled()),

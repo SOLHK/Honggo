@@ -1,4 +1,5 @@
 #import "Honggo.h"
+#import "RuntimeSupport.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
 #include <math.h>
@@ -23,8 +24,7 @@ static void (*HGOriginalMineAppear)(id, SEL, BOOL);
 static char HGMineRefreshPendingKey;
 
 static id HGObject(id object, const char *name) {
-    SEL selector = sel_registerName(name);
-    return [object respondsToSelector:selector] ? ((id (*)(id, SEL))objc_msgSend)(object, selector) : nil;
+    return HGReadObjectGetter(object, name);
 }
 
 static UIView *HGView(id object, const char *name) {
@@ -909,9 +909,20 @@ BOOL HGInstallTabBar(void) {
         HGTabBarClass = objc_lookUpClass("SSTabBar");
         Class controller = objc_lookUpClass("SSTabBarController");
         if (![HGTabBarClass isSubclassOfClass:UIView.class] ||
-            ![controller isSubclassOfClass:UIViewController.class] ||
-            !class_getInstanceMethod(controller, sel_registerName("customTabBar")) ||
-            !class_getInstanceMethod(HGTabBarClass, sel_registerName("contentView"))) return NO;
+            ![controller isSubclassOfClass:UIViewController.class]) return NO;
+        Class getterTargets[] = {controller, HGTabBarClass};
+        const char *getterNames[] = {"customTabBar", "contentView"};
+        for (NSUInteger i = 0; i < 2; i++) {
+            Method method = class_getInstanceMethod(getterTargets[i], sel_registerName(getterNames[i]));
+            const char *encoding = method ? method_getTypeEncoding(method) : NULL;
+            if (!encoding || strcmp(encoding, "@16@0:8") != 0) {
+                HGRecordCapability([NSString stringWithFormat:@"getter.tabbar.%s", getterNames[i]],
+                    @{@"module": @"tabbar", @"class": NSStringFromClass(getterTargets[i]),
+                      @"selector": @(getterNames[i]), @"state": method ? @"abi-mismatch" : @"missing-method",
+                      @"expected": @"@16@0:8", @"actual": encoding ? @(encoding) : @"missing"});
+                return NO;
+            }
+        }
         Class targets[] = {controller, HGTabBarClass, HGTabBarClass, HGTabBarClass};
         SEL selectors[] = {@selector(viewDidLayoutSubviews), @selector(layoutSubviews),
             @selector(didMoveToWindow), @selector(didAddSubview:)};

@@ -104,10 +104,11 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
                 @try {
                     [self runOptionsChecks];
                     [self capture:@"settings-options-simulator.png"];
+                    [self runSearchChecksWithCompletion:^{ [self finish]; }];
                 } @catch (NSException *exception) {
                     [self check:NO name:[@"options exception: " stringByAppendingString:exception.description]];
+                    [self finish];
                 }
-                [self finish];
             });
         } @catch (NSException *exception) {
             [self check:NO name:[@"layout exception: " stringByAppendingString:exception.description]];
@@ -213,8 +214,10 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [settings.tableView layoutIfNeeded];
     [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount && HGFeatureCount == 16
         name:@"settings preserves 15 switches and adds native control glass"];
-    [self check:[settings.tableView numberOfRowsInSection:1] == 3
-        name:@"settings exposes enhanced diagnostics export and clear"];
+    [self check:[settings.tableView numberOfRowsInSection:1] == 4
+        name:@"settings exposes diagnostics export clear and compatibility"];
+    [self check:[settings.tableView numberOfRowsInSection:2] == 3
+        name:@"configuration management exposes export restore and reset"];
     UITableViewCell *diagnostics = [settings tableView:settings.tableView cellForRowAtIndexPath:
         [NSIndexPath indexPathForRow:0 inSection:1]];
     UISwitch *enhanced = (UISwitch *)diagnostics.accessoryView;
@@ -255,6 +258,181 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self check:self.host.presentedViewController == presented && !presented.presentedViewController
         name:@"repeated menu action does not stack a second settings sheet"];
     [settings.tableView reloadData];
+}
+- (void)filterSettings:(HGSettingsController *)settings text:(NSString *)text {
+    UISearchController *search = settings.navigationItem.searchController;
+    search.searchBar.text = text;
+    [search.searchResultsUpdater updateSearchResultsForSearchController:search];
+    [settings.tableView layoutIfNeeded];
+}
+- (UITableViewCell *)settingsCell:(HGSettingsController *)settings section:(NSInteger)section row:(NSInteger)row {
+    if ([settings.tableView numberOfRowsInSection:section] <= row) return nil;
+    return [settings tableView:settings.tableView cellForRowAtIndexPath:
+        [NSIndexPath indexPathForRow:row inSection:section]];
+}
+- (void)poll:(BOOL (^)(void))condition deadline:(NSDate *)deadline completion:(void (^)(BOOL))completion {
+    if (condition()) { completion(YES); return; }
+    if (deadline.timeIntervalSinceNow <= 0) { completion(NO); return; }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        [self poll:condition deadline:deadline completion:completion];
+    });
+}
+- (void)activateSearch:(HGSettingsController *)settings query:(NSString *)query completion:(void (^)(BOOL))completion {
+    UISearchController *search = settings.navigationItem.searchController;
+    search.active = YES;
+    [self filterSettings:settings text:query];
+    // Give UIKit a turn to begin its presentation before checking completion.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        [self poll:^BOOL {
+            return search.active && !search.isBeingPresented && search.searchBar.window != nil;
+        } deadline:[NSDate dateWithTimeIntervalSinceNow:4] completion:completion];
+    });
+}
+- (void)runSearchChecksWithCompletion:(dispatch_block_t)completion {
+    UINavigationController *navigation = (UINavigationController *)self.host.presentedViewController;
+    HGSettingsController *settings = [navigation isKindOfClass:UINavigationController.class] ?
+        (HGSettingsController *)navigation.topViewController : nil;
+    if (![settings isKindOfClass:HGSettingsController.class]) { completion(); return; }
+    UISearchController *search = settings.navigationItem.searchController;
+    [self check:[search isKindOfClass:UISearchController.class] && search.searchResultsUpdater != nil &&
+        [search.searchBar.accessibilityIdentifier isEqual:@"honggo.settings.search"]
+        name:@"settings search uses the native UIKit search controller"];
+
+    [self filterSettings:settings text:@"信息流"];
+    UISwitch *feed = (UISwitch *)[self settingsCell:settings section:0 row:0].accessoryView;
+    [self check:[settings.tableView numberOfRowsInSection:0] == 1 && feed.tag == HGFeed &&
+        [feed.accessibilityIdentifier isEqual:@"hg.option.feed"]
+        name:@"search aliases find the feed filter by its stable feature identity"];
+
+    [self filterSettings:settings text:@"直播 领券"];
+    UISwitch *marketing = (UISwitch *)[self settingsCell:settings section:0 row:0].accessoryView;
+    BOOL glassBefore = HGIsEnabled(HGGlass);
+    [self check:[settings.tableView numberOfRowsInSection:0] == 1 && marketing.tag == HGMarketing
+        name:@"multiple search terms must match the same feature"];
+    marketing.on = NO;
+    [marketing sendActionsForControlEvents:UIControlEventValueChanged];
+    [self check:[marketing isKindOfClass:UISwitch.class] &&
+        ![NSUserDefaults.standardUserDefaults boolForKey:@"HongguoGlass.marketing"] &&
+        HGIsEnabled(HGGlass) == glassBefore
+        name:@"filtered row zero changes marketing without changing original row zero"];
+
+    [self filterSettings:settings text:@"gLaSs cOnTrOlS"];
+    UISwitch *controls = (UISwitch *)[self settingsCell:settings section:0 row:0].accessoryView;
+    [self check:[settings.tableView numberOfRowsInSection:0] == 1 && controls.tag == HGGlassControls
+        name:@"English aliases match case-insensitively across multiple terms"];
+
+    [self filterSettings:settings text:@"日志"];
+    [self check:[settings.tableView numberOfRowsInSection:1] == 2 &&
+        [[self settingsCell:settings section:1 row:0].accessibilityIdentifier isEqual:@"honggo.diagnostics.export"] &&
+        [[self settingsCell:settings section:1 row:1].accessibilityIdentifier isEqual:@"honggo.diagnostics.clear"]
+        name:@"filtered diagnostic rows retain export and clear identities"];
+    [self filterSettings:settings text:@"兼容"];
+    [self check:[settings.tableView numberOfRowsInSection:1] == 1 &&
+        [[self settingsCell:settings section:1 row:0].accessibilityIdentifier isEqual:@"honggo.compatibility.open"]
+        name:@"compatibility remains a distinct diagnostic action after filtering"];
+    [self filterSettings:settings text:@"restore import"];
+    [self check:[settings.tableView numberOfRowsInSection:2] == 1 &&
+        [[self settingsCell:settings section:2 row:0].accessibilityIdentifier isEqual:@"honggo.preferences.import"]
+        name:@"restore result keeps its action identity at filtered row zero"];
+    [self filterSettings:settings text:@"backup export"];
+    [self check:[settings.tableView numberOfRowsInSection:2] == 1 &&
+        [[self settingsCell:settings section:2 row:0].accessibilityIdentifier isEqual:@"honggo.preferences.export"]
+        name:@"backup export is distinct from diagnostic log export"];
+    [self filterSettings:settings text:@"reset"];
+    [self check:[settings.tableView numberOfRowsInSection:2] == 1 &&
+        [[self settingsCell:settings section:2 row:0].accessibilityIdentifier isEqual:@"honggo.preferences.reset"]
+        name:@"reset search result keeps its destructive action identity"];
+    [self filterSettings:settings text:@"not-a-honggo-setting-123"];
+    [self check:[settings.tableView numberOfRowsInSection:0] == 0 &&
+        [settings.tableView numberOfRowsInSection:1] == 0 &&
+        [settings.tableView numberOfRowsInSection:2] == 0 &&
+        [settings.tableView.backgroundView.accessibilityIdentifier isEqual:@"honggo.settings.search.empty"]
+        name:@"unmatched search has no stale rows and exposes an accessible empty state"];
+    [self filterSettings:settings text:@" \n\t "];
+    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount &&
+        [settings.tableView numberOfRowsInSection:1] == 4 && [settings.tableView numberOfRowsInSection:2] == 3 &&
+        settings.tableView.backgroundView == nil
+        name:@"whitespace search restores every section and removes the empty state"];
+    [self filterSettings:settings text:@""];
+    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount
+        name:@"clearing the query restores the full feature catalog"];
+    [self runSearchAction:0 settings:settings completion:completion];
+}
+- (void)runSearchAction:(NSUInteger)index settings:(HGSettingsController *)settings completion:(dispatch_block_t)completion {
+    NSArray<NSString *> *queries = @[@"兼容", @"reset", @"restore import", @"backup export"];
+    NSArray<NSString *> *names = @[@"active search opens compatibility after search dismissal",
+        @"active search opens the reset confirmation after search dismissal",
+        @"active search opens the JSON picker after search dismissal",
+        @"active search exports configuration to the native share sheet"];
+    if (index >= queries.count) {
+        [self activateSearch:settings query:@"玻璃" completion:^(BOOL active) {
+            [self check:active name:@"search can be reactivated before closing settings"];
+            UIBarButtonItem *done = settings.navigationItem.rightBarButtonItem;
+            [UIApplication.sharedApplication sendAction:done.action to:done.target from:done forEvent:nil];
+            [self poll:^BOOL { return self.host.presentedViewController == nil; }
+                deadline:[NSDate dateWithTimeIntervalSinceNow:4] completion:^(BOOL closed) {
+                [self check:closed name:@"Done dismisses the entire settings sheet while search is active"];
+                completion();
+            }];
+        }];
+        return;
+    }
+    NSDictionary *before = HGPreferencesParse(HGPreferencesExport(nil), nil);
+    BOOL diagnosticsConsent = HGEnhancedDiagnostics();
+    [self activateSearch:settings query:queries[index] completion:^(BOOL active) {
+        if (!active) { [self check:NO name:names[index]]; completion(); return; }
+        NSInteger section = index == 0 ? 1 : 2;
+        if ([settings.tableView numberOfRowsInSection:section] != 1) {
+            [self check:NO name:@"active result list resolves exactly one action"];
+            completion();
+            return;
+        }
+        [settings tableView:settings.tableView didSelectRowAtIndexPath:
+            [NSIndexPath indexPathForRow:0 inSection:section]];
+        [self poll:^BOOL {
+            if (index == 0) return settings.navigationController.topViewController != settings;
+            UIViewController *presented = settings.presentedViewController;
+            Class expected = index == 1 ? UIAlertController.class :
+                index == 2 ? UIDocumentPickerViewController.class : UIActivityViewController.class;
+            return [presented isKindOfClass:expected] && !presented.isBeingPresented;
+        } deadline:[NSDate dateWithTimeIntervalSinceNow:4] completion:^(BOOL performed) {
+            [self check:performed name:names[index]];
+            if (!performed) { completion(); return; }
+            [self check:[HGPreferencesParse(HGPreferencesExport(nil), nil) isEqual:before] &&
+                HGEnhancedDiagnostics() == diagnosticsConsent &&
+                [[NSUserDefaults.standardUserDefaults stringForKey:@"host.setting"] isEqual:@"preserved"]
+                name:@"opening configuration tools does not change features host settings or diagnostic consent"];
+            if (index == 0) {
+                UIViewController *compatibility = settings.navigationController.topViewController;
+                [compatibility loadViewIfNeeded];
+                [self check:[compatibility.view.accessibilityIdentifier isEqual:@"honggo.compatibility"] &&
+                    [compatibility isKindOfClass:UITableViewController.class]
+                    name:@"compatibility action displays the dedicated native status table"];
+                [settings.navigationController popToViewController:settings animated:NO];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self runSearchAction:index + 1 settings:settings completion:completion];
+                });
+            } else {
+                if (index == 1) {
+                    UIAlertController *alert = (UIAlertController *)settings.presentedViewController;
+                    BOOL hasCancel = NO, hasDestructive = NO;
+                    for (UIAlertAction *action in alert.actions) {
+                        hasCancel |= action.style == UIAlertActionStyleCancel;
+                        hasDestructive |= action.style == UIAlertActionStyleDestructive;
+                    }
+                    [self check:[alert.title isEqual:@"关闭全部功能开关？"] && hasCancel && hasDestructive
+                        name:@"reset requires a concrete confirmation before changing switches"];
+                } else if (index == 2) {
+                    UIDocumentPickerViewController *picker = (UIDocumentPickerViewController *)settings.presentedViewController;
+                    [self check:!picker.allowsMultipleSelection && picker.delegate == (id)settings
+                        name:@"restore uses a single-document native picker with a plugin delegate"];
+                }
+                [settings dismissViewControllerAnimated:NO completion:^{
+                    [self runSearchAction:index + 1 settings:settings completion:completion];
+                }];
+            }
+        }];
+    }];
 }
 - (void)finish {
     NSUInteger failed = 0;

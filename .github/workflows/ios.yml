@@ -50,6 +50,10 @@ jobs:
         run: bash tools/test-settings-ios.sh
       - name: Check bounded diagnostics on real Foundation
         run: bash tools/test-diagnostics.sh
+      - name: Check scoped preference backup and restore
+        run: bash tools/test-preferences.sh
+      - name: Check independent runtime modules and safe hook retries
+        run: bash tools/test-runtime-ios.sh
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
@@ -59,6 +63,9 @@ jobs:
             build/settings-tests/simulator.log
             build/settings-tests/*-simulator.png
             build/diagnostics-tests/*.log
+            build/preferences-tests/*.log
+            build/runtime-tests/*.json
+            build/runtime-tests/*.log
           if-no-files-found: warn
 
   adscene:
@@ -165,8 +172,10 @@ jobs:
           printf '%s\n' \
             "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
             "Source commit: ${GITHUB_SHA}" \
-            "macOS/iPhoneOS build, settings, tab-bar, screenshot diagnostics and ad-filter regression checks passed." \
-            "Live-commerce and other verified ad-entry filtering is implemented. Actual iPhone ad disappearance and playback remain unverified." \
+            "macOS/iPhoneOS build, settings search, scoped preference restore, runtime boundaries, tab-bar, diagnostics and ad-filter regression checks passed." \
+            "Adds settings search, local switch backup/restore and runtime compatibility reporting, with independent ad installation and guarded getters." \
+            "Reference behavior was studied; implementation is written for Honggo without importing NaiwaGuo source or assets." \
+            "Actual Hongguo iPhone appearance, playback and ad disappearance remain unverified." \
             "R-numbered builds are tests; the suffix is removed only for a stable release on main." \
             "Not a device-accepted stable release. Inject only one dylib into the supported host app." \
             "Assets include the dylib, SHA256SUMS.txt, VERSION and source-commit.txt." \

@@ -1,5 +1,6 @@
 #import "Honggo.h"
 #import "AdSceneDiagnostics.h"
+#import "RuntimeSupport.h"
 #import <dispatch/dispatch.h>
 #include <string.h>
 
@@ -34,25 +35,18 @@ BOOL HGNativeGlassConfigured(void) {
 }
 
 IMP HGReplaceMethod(Class target, SEL selector, const char *encoding, IMP replacement) {
-    Method method = class_getInstanceMethod(target, selector);
-    if (method == NULL || strcmp(method_getTypeEncoding(method), encoding) != 0) {
-        HGLog(@"hook.skipped", @{@"class": NSStringFromClass(target) ?: @"missing",
-            @"selector": NSStringFromSelector(selector), @"expected": @(encoding),
-            @"actual": method ? @(method_getTypeEncoding(method)) : @"missing"});
-        return NULL;
-    }
-
-    IMP original = method_getImplementation(method);
-    class_replaceMethod(target, selector, replacement, encoding);
-    HGLog(@"hook.installed", @{@"class": NSStringFromClass(target), @"selector": NSStringFromSelector(selector)});
-    return original;
+    return HGInstallVerifiedHook(target, selector, encoding, replacement, @"runtime");
 }
 
 static BOOL HGSettingsInstalled;
 static BOOL HGTabBarInstalled;
-static BOOL HGAdsInstalled;
+static NSUInteger HGInstallationAttempts;
 
-static BOOL HGInstall(void) {
+BOOL HGInstallRuntimeModules(void) {
+    if (HGInstallationAttempts >= 2) return HGSettingsInstalled && HGTabBarInstalled;
+    HGInstallationAttempts++;
+    HGInstallControls();
+    HGLoadStage(@"controlsInstalled");
     // Settings must remain discoverable even when the optional tab-bar hook is unavailable.
     if (!HGSettingsInstalled) {
         HGSettingsInstalled = HGInstallSettings();
@@ -60,10 +54,15 @@ static BOOL HGInstall(void) {
     if (!HGTabBarInstalled) {
         HGTabBarInstalled = HGInstallTabBar();
     }
-    if (HGTabBarInstalled && !HGAdsInstalled) {
-        HGInstallAds();
-        HGAdsInstalled = YES;
-    }
+    // Advertisement gates have their own class/ABI checks and must not depend
+    // on an optional appearance module. Retrying is safe at the hook boundary.
+    HGInstallAds();
+    HGRecordCapability(@"module.settings", @{@"module": @"settings",
+        @"state": HGSettingsInstalled ? @"installed" : @"unavailable",
+        @"reason": HGSettingsInstalled ? @"settings entry available" : @"settings entry preflight failed"});
+    HGRecordCapability(@"module.tabbar", @{@"module": @"tabbar",
+        @"state": HGTabBarInstalled ? @"installed" : @"unavailable",
+        @"reason": HGTabBarInstalled ? @"tab-bar entry available" : @"tab-bar entry preflight failed"});
     return HGSettingsInstalled && HGTabBarInstalled;
 }
 
@@ -83,22 +82,21 @@ __attribute__((constructor)) static void HGStart(void) {
         HGLoadStage(@"entry");
         HGLog(@"glass.startup", @{@"processOverride": @(HGNativeGlassStartupOverride()),
             @"compatibility": [bundle objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] ?: NSNull.null});
-        HGInstallControls();
-        HGLoadStage(@"controlsInstalled");
-
-        if (!HGInstall()) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (!HGInstall()) {
-                    NSLog(@"[Honggo] 版本 %@，设置菜单入口：%@；底栏入口：%@。已安装部分继续生效。",
-                        HG_PLUGIN_VERSION,
-                        HGSettingsInstalled ? @"已安装" : @"未就绪",
-                        HGTabBarInstalled ? @"已安装" : @"未就绪");
-                } else {
-                    NSLog(@"[Honggo] 版本 %@ 已载入，请在 我的 → 设置 → Honggo 管理开关", HG_PLUGIN_VERSION);
-                }
-                HGLoadStage(@"installationRetried");
-            });
-        } else {
+        BOOL complete = HGInstallRuntimeModules();
+        // One next-main-loop pass also covers independently missing control/ad
+        // classes. No polling loop or unbounded late loading hook is installed.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!HGInstallRuntimeModules()) {
+                NSLog(@"[Honggo] 版本 %@，设置菜单入口：%@；底栏入口：%@。已安装部分继续生效。",
+                    HG_PLUGIN_VERSION,
+                    HGSettingsInstalled ? @"已安装" : @"未就绪",
+                    HGTabBarInstalled ? @"已安装" : @"未就绪");
+            } else {
+                NSLog(@"[Honggo] 版本 %@ 已载入，请在 我的 → 设置 → Honggo 管理开关", HG_PLUGIN_VERSION);
+            }
+            HGLoadStage(@"installationRetried");
+        });
+        if (complete) {
             NSLog(@"[Honggo] 版本 %@ 已载入，请在 我的 → 设置 → Honggo 管理开关", HG_PLUGIN_VERSION);
         }
         HGLoadStage(@"installationReturned");

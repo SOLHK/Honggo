@@ -5,28 +5,8 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import "Diagnostics.h"
-
-typedef NS_ENUM(NSUInteger, HGFeature) {
-    HGGlass,
-    HGSplash,
-    HGTopView,
-    HGFeed,
-    HGComment,
-    HGPause,
-    HGPatch,
-    HGEcommerce,
-    HGMarketing,
-    HGRedPacket,
-    HGBookstoreAd,
-    HGCouponPendant,
-    HGMiniGamePendant,
-    HGWelfareGuide,
-    HGSurvey,
-    HGGlassControls,
-    HGFeatureCount,
-};
-
-BOOL HGIsEnabled(HGFeature feature);
+#import "Preferences.h"
+#import "RuntimeSupport.h"
 BOOL HGNativeGlassConfigured(void);
 void HGPrepareNativeGlass(void);
 BOOL HGNativeGlassStartupOverride(void);
@@ -42,4 +22,6 @@ UIUserInterfaceStyle HGGlassForegroundStyle(UIView *content, UITraitCollection *
 UIColor *HGOriginalTabTitleColor(UILabel *label);
 
 @interface HGSettingsController : UITableViewController
++ (void)openFromController:(UIViewController *)presenter;
++ (void)openFromTabBar:(UILongPressGestureRecognizer *)gesture;
 @end

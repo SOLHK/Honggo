@@ -1,4 +1,5 @@
 #import "Honggo.h"
+#import "RuntimeSupport.h"
 #import <dispatch/dispatch.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -176,7 +177,11 @@ void HGInstallAds(void) {
     NSUInteger selected = 0;
     for (NSUInteger index = 0; index < sizeof(HGGates) / sizeof(HGGates[0]); index++) {
         const HGGate *gate = &HGGates[index];
+        NSString *identifier = [NSString stringWithFormat:@"hook.ads.%@.%s.%s",
+            gate->classMethod ? @"class" : @"instance", gate->className, gate->selector];
         if (!enabled[gate->feature]) {
+            HGRecordCapability(identifier, @{@"module": @"ads", @"class": @(gate->className),
+                @"selector": @(gate->selector), @"state": @"disabled", @"feature": @(gate->feature)});
             continue;
         }
 
@@ -185,25 +190,34 @@ void HGInstallAds(void) {
         if (gate->classMethod) {
             target = object_getClass(target);
         }
-        BOOL directGameDisplay = gate->replacement == (IMP)HGDirectGameDidDisplay;
-        SEL selector = sel_registerName(gate->selector);
-        if (directGameDisplay && HGOriginalDirectGameDidDisplay) {
-            installed++;
+        if (!target) {
+            HGRecordCapability(identifier, @{@"module": @"ads", @"class": @(gate->className),
+                @"selector": @(gate->selector), @"state": @"missing-class",
+                @"expected": @(gate->encoding), @"actual": @"missing", @"feature": @(gate->feature)});
             continue;
         }
+        BOOL directGameDisplay = gate->replacement == (IMP)HGDirectGameDidDisplay;
+        SEL selector = sel_registerName(gate->selector);
         if (directGameDisplay && !HGDirectGameDisplaySupported(target)) {
+            HGRecordCapability(identifier, @{@"module": @"ads", @"class": @(gate->className),
+                @"selector": @(gate->selector), @"state": @"abi-mismatch",
+                @"reason": @"direct-game host method ABI mismatch", @"feature": @(gate->feature)});
             HGLog(@"hook.skipped", @{@"class": @(gate->className), @"selector": @(gate->selector),
                 @"reason": @"direct-game host method ABI mismatch"});
             continue;
         }
-        IMP original = HGReplaceMethod(target, selector, gate->encoding, gate->replacement);
+        IMP original = HGInstallVerifiedHook(target, selector, gate->encoding, gate->replacement, @"ads");
         if (original) {
             if (directGameDisplay) HGOriginalDirectGameDidDisplay = (void (*)(id, SEL))original;
-            installed++;
+            if (class_getMethodImplementation(target, selector) == gate->replacement) installed++;
         } else {
             NSLog(@"[Honggo] 跳过不匹配的入口 %s %s", gate->className, gate->selector);
         }
     }
 
+    HGRecordCapability(@"module.ads", @{@"module": @"ads",
+        @"state": selected == 0 ? @"disabled" : installed == selected ? @"installed" : installed ? @"partial" : @"unavailable",
+        @"selected": @(selected), @"installed": @(installed),
+        @"reason": @"enabled advertisement rules install independently of appearance modules"});
     NSLog(@"[Honggo] 广告与营销入口 %lu/%lu", (unsigned long)installed, (unsigned long)selected);
 }

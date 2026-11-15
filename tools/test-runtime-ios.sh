@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Execute the production runtime boundary in a UIKit app, with controlled
+# host fixtures. A passing result is not Hongguo device validation.
+source_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+work="$source_root/build/runtime-tests"
+app="$work/HGRuntimeTests.app"
+bundle_id=org.honggo.runtime.tests
+mkdir -p "$app"
+if ! command -v xcrun >/dev/null 2>&1; then
+    printf 'Runtime compatibility UIKit integration requires macOS with Xcode and an iOS simulator runtime.\n' >&2
+    exit 1
+fi
+sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
+architecture=$(uname -m)
+
+xcrun --sdk iphonesimulator clang \
+    -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
+    -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
+    -framework Foundation -framework CoreFoundation -framework UIKit -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
+    "$source_root"/src/*.m "$source_root/tests/RuntimeIntegration.m" \
+    -o "$app/HGRuntimeTests" 2>&1 | tee "$work/build.log"
+
+python3 - "$app/Info.plist" "$bundle_id" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_bytes(plistlib.dumps({
+    "CFBundleIdentifier": sys.argv[2],
+    "CFBundleName": "Honggo Runtime Compatibility Tests",
+    "CFBundleExecutable": "HGRuntimeTests",
+    "CFBundlePackageType": "APPL",
+    "CFBundleVersion": "1",
+    "CFBundleShortVersionString": "1.0",
+    "CFBundleSupportedPlatforms": ["iPhoneSimulator"],
+    "LSRequiresIPhoneOS": True,
+    "MinimumOSVersion": "15.0",
+    "UIDeviceFamily": [1, 2],
+    "UILaunchScreen": {},
+    "UIApplicationSceneManifest": {"UIApplicationSupportsMultipleScenes": False},
+    "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"],
+}))
+PY
+codesign --force --sign - "$app"
+xcrun simctl list --json > "$work/simulators.json"
+selection=$(python3 - "$work/simulators.json" <<'PY'
+import json
+import re
+import sys
+
+inventory = json.load(open(sys.argv[1]))
+ios = [(tuple(map(int, re.findall(r"\d+", runtime.split(".iOS-")[-1]))), runtime, entries)
+       for runtime, entries in inventory["devices"].items() if ".iOS-" in runtime]
+for _, runtime, entries in sorted(ios, reverse=True):
+    phones = [entry for entry in entries
+              if entry.get("isAvailable") and entry["name"].startswith("iPhone")]
+    if not phones:
+        continue
+    device_type = phones[0].get("deviceTypeIdentifier")
+    if not device_type:
+        device_type = next(item["identifier"] for item in inventory["devicetypes"]
+                           if item["name"] == phones[0]["name"])
+    print(device_type, runtime)
+    break
+else:
+    raise SystemExit("No available iPhone simulator runtime is installed")
+PY
+)
+read -r device_type runtime_id <<< "$selection"
+device_id=$(xcrun simctl create "HonggoRuntime-$$" "$device_type" "$runtime_id")
+cleanup() {
+    xcrun simctl terminate "$device_id" "$bundle_id" >/dev/null 2>&1 || true
+    xcrun simctl shutdown "$device_id" >/dev/null 2>&1 || true
+    xcrun simctl delete "$device_id" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+xcrun simctl boot "$device_id"
+xcrun simctl bootstatus "$device_id" -b
+xcrun simctl install "$device_id" "$app"
+data_directory=$(xcrun simctl get_app_container "$device_id" "$bundle_id" data)
+rm -f -- "$data_directory/Documents/runtime-results.json"
+xcrun simctl launch "$device_id" "$bundle_id" 2>&1 | tee "$work/launch.log"
+for ((attempt=0; attempt<45; attempt++)); do
+    if [ -f "$data_directory/Documents/runtime-results.json" ]; then
+        break
+    fi
+    sleep 1
+done
+xcrun simctl spawn "$device_id" log show --style compact --last 2m \
+    --predicate 'process == "HGRuntimeTests"' > "$work/simulator.log" 2>&1 || true
+if [ ! -f "$data_directory/Documents/runtime-results.json" ]; then
+    cat "$work/simulator.log"
+    printf 'Runtime compatibility integration app did not write a result within 45 seconds.\n' >&2
+    exit 1
+fi
+cp "$data_directory/Documents/runtime-results.json" "$work/runtime-results.json"
+python3 - "$work/runtime-results.json" <<'PY'
+import json
+import sys
+
+report = json.load(open(sys.argv[1]))
+print(json.dumps(report, indent=2, ensure_ascii=False))
+checks = report.get("checks", [])
+if report.get("status") != "passed" or report.get("failed") != 0 or \
+        report.get("total", 0) < 26 or len(checks) != report.get("total") or \
+        any(check.get("passed") is not True for check in checks):
+    raise SystemExit("Runtime compatibility UIKit integration checks failed")
+PY
+
