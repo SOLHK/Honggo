@@ -124,7 +124,7 @@ static char HGAIconKey;
 static void HGARestoreIcon(UIView *root) {
     HGAIconState *s=objc_getAssociatedObject(root,&HGAIconKey);
     HGARestoreGeometry(s.imageView);
-    if(s.imageView.image==s.applied)s.imageView.image=s.source;
+    if(s.imageView.image==s.applied || [s.imageView.image isEqual:s.applied])s.imageView.image=s.source;
     if(s.appliedTint && [s.imageView.tintColor isEqual:s.appliedTint])s.imageView.tintColor=s.tint;
     objc_setAssociatedObject(root,&HGAIconKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
@@ -164,8 +164,11 @@ static void HGAApplyIcon(UIView *root,NSString *role) {
     if(!icon || !image){HGARestoreIcon(root);return;}
     if(!state){state=[HGAIconState new];state.imageView=icon;state.source=icon.image;state.tint=icon.tintColor;
         objc_setAssociatedObject(root,&HGAIconKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
-    else if(icon.image!=state.applied)state.source=icon.image;
-    state.applied=image;icon.image=image;
+    else if(icon.image!=state.applied && ![icon.image isEqual:state.applied])state.source=icon.image;
+    icon.image=image;
+    // UIImageView can normalize a symbol to its own configuration. Track the
+    // value actually retained by UIKit, not the pre-assignment image pointer.
+    state.applied=icon.image;
     if(selected) {
         if(!state.appliedTint || ![icon.tintColor isEqual:state.appliedTint])state.tint=icon.tintColor;
         state.appliedTint=[role isEqual:@"like"]?UIColor.systemPinkColor:UIColor.systemYellowColor;
