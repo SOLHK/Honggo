@@ -94,7 +94,7 @@ if [ ! -f "$data_directory/Documents/settings-results.json" ]; then
     exit 1
 fi
 cp "$data_directory/Documents/settings-results.json" "$work/settings-results.json"
-for name in settings-menu-simulator.png settings-options-simulator.png; do
+for name in settings-menu-simulator.png settings-options-simulator.png settings-search-failure-simulator.png; do
     if [ -f "$data_directory/Documents/$name" ]; then
         cp "$data_directory/Documents/$name" "$work/$name"
     fi

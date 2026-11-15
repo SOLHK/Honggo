@@ -43,10 +43,44 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     return matches;
 }
 
+// Observe public search lifecycle events without changing the plugin's handler.
+// In particular, didDismiss must still reach HGSettingsController so a queued
+// action is tested through the production path, never invoked by the fixture.
+@interface HGSearchTransitionRecorder : NSObject <UISearchControllerDelegate>
+@property(nonatomic, weak) id<UISearchControllerDelegate> downstream;
+@property(nonatomic) NSUInteger presentations;
+@property(nonatomic) NSUInteger dismissals;
+@property(nonatomic, copy) void (^record)(NSString *);
+@end
+
+@implementation HGSearchTransitionRecorder
+- (void)willPresentSearchController:(UISearchController *)searchController {
+    if (self.record) self.record(@"delegate.willPresent");
+    if ([self.downstream respondsToSelector:_cmd]) [self.downstream willPresentSearchController:searchController];
+}
+- (void)didPresentSearchController:(UISearchController *)searchController {
+    self.presentations++;
+    if (self.record) self.record(@"delegate.didPresent");
+    if ([self.downstream respondsToSelector:_cmd]) [self.downstream didPresentSearchController:searchController];
+}
+- (void)willDismissSearchController:(UISearchController *)searchController {
+    if (self.record) self.record(@"delegate.willDismiss");
+    if ([self.downstream respondsToSelector:_cmd]) [self.downstream willDismissSearchController:searchController];
+}
+- (void)didDismissSearchController:(UISearchController *)searchController {
+    self.dismissals++;
+    if (self.record) self.record(@"delegate.didDismiss.beforeForward");
+    if ([self.downstream respondsToSelector:_cmd]) [self.downstream didDismissSearchController:searchController];
+    if (self.record) self.record(@"delegate.didDismiss.afterForward");
+}
+@end
+
 @interface HGSettingsTests : UIResponder <UIWindowSceneDelegate>
 @property(nonatomic, strong) UIWindow *window;
 @property(nonatomic, strong) SSSettingViewController *host;
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *checks;
+@property(nonatomic, strong) HGSearchTransitionRecorder *searchEvents;
+@property(nonatomic, strong) NSMutableArray<NSDictionary *> *searchStateTrace;
 @end
 
 @implementation HGSettingsTests
@@ -80,6 +114,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session
         options:(UISceneConnectionOptions *)options {
     self.checks = [NSMutableArray array];
+    self.searchStateTrace = [NSMutableArray array];
     [NSUserDefaults.standardUserDefaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
     [NSUserDefaults.standardUserDefaults setObject:@"preserved" forKey:@"host.setting"];
     [UIView setAnimationsEnabled:NO];
@@ -277,16 +312,87 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [self poll:condition deadline:deadline completion:completion];
     });
 }
+- (void)recordSearchState:(NSString *)stage settings:(HGSettingsController *)settings extra:(NSDictionary *)extra {
+    UISearchController *search = settings.navigationItem.searchController;
+    UINavigationController *navigation = settings.navigationController;
+    NSMutableDictionary *state = [@{
+        @"stage": stage,
+        @"time": @(NSDate.date.timeIntervalSince1970),
+        @"sceneState": @(self.window.windowScene.activationState),
+        @"applicationState": @(UIApplication.sharedApplication.applicationState),
+        @"windowKey": @(self.window.isKeyWindow),
+        @"settingsInWindow": @(settings.viewIfLoaded.window == self.window),
+        @"settingsBeingPresented": @(settings.isBeingPresented),
+        @"settingsBeingDismissed": @(settings.isBeingDismissed),
+        @"navigationBeingPresented": @(navigation.isBeingPresented),
+        @"navigationBeingDismissed": @(navigation.isBeingDismissed),
+        @"settingsTransition": @(settings.transitionCoordinator != nil),
+        @"navigationTransition": @(navigation.transitionCoordinator != nil),
+        @"active": @(search.active),
+        @"searchBeingPresented": @(search.isBeingPresented),
+        @"searchBeingDismissed": @(search.isBeingDismissed),
+        @"searchBarInWindow": @(search.searchBar.window != nil),
+        @"searchFieldInWindow": @(search.searchBar.searchTextField.window != nil),
+        @"searchBarFirstResponder": @(search.searchBar.isFirstResponder),
+        @"searchFieldFirstResponder": @(search.searchBar.searchTextField.isFirstResponder),
+        @"searchPresenter": NSStringFromClass(search.presentingViewController.class) ?: @"none",
+        @"settingsPresented": NSStringFromClass(settings.presentedViewController.class) ?: @"none",
+        @"navigationTop": NSStringFromClass(navigation.topViewController.class) ?: @"none",
+        @"delegate": NSStringFromClass([(id)search.delegate class]) ?: @"none",
+        @"forwardedDelegate": NSStringFromClass([(id)self.searchEvents.downstream class]) ?: @"none",
+        @"forwardsDismissal": @([self.searchEvents.downstream respondsToSelector:@selector(didDismissSearchController:)]),
+        @"presentations": @(self.searchEvents.presentations),
+        @"dismissals": @(self.searchEvents.dismissals)
+    } mutableCopy];
+    if (extra) [state addEntriesFromDictionary:extra];
+    [self.searchStateTrace addObject:state.copy];
+    NSLog(@"[HonggoSettingsTests] SEARCH_STATE %@", state);
+}
 - (void)activateSearch:(HGSettingsController *)settings query:(NSString *)query completion:(void (^)(BOOL))completion {
     UISearchController *search = settings.navigationItem.searchController;
-    search.active = YES;
-    [self filterSettings:settings text:query];
-    // Give UIKit a turn to begin its presentation before checking completion.
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+    [self recordSearchState:@"activation.waitForScene" settings:settings extra:@{@"query": query}];
+    // The original fixture ran from willConnectToSession, before this cold
+    // simulator's scene became active. Wait for the same state in which a user
+    // can touch the settled settings sheet; an attached view alone is not enough.
+    [self poll:^BOOL {
+        UINavigationController *navigation = settings.navigationController;
+        return self.window.windowScene.activationState == UISceneActivationStateForegroundActive &&
+            UIApplication.sharedApplication.applicationState == UIApplicationStateActive &&
+            self.window.isKeyWindow && settings.viewIfLoaded.window == self.window &&
+            navigation.topViewController == settings && navigation.presentingViewController != nil &&
+            !navigation.isBeingPresented && !navigation.isBeingDismissed &&
+            !settings.isBeingPresented && !settings.isBeingDismissed &&
+            !navigation.transitionCoordinator && !settings.transitionCoordinator &&
+            settings.presentedViewController == nil;
+    } deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL ready) {
+        [self recordSearchState:ready ? @"activation.sceneReady" : @"activation.sceneTimeout"
+            settings:settings extra:@{@"query": query}];
+        [self check:ready name:[NSString stringWithFormat:@"settings is foreground key and settled before search (%@)", query]];
+        if (!ready) {
+            [self capture:@"settings-search-failure-simulator.png"];
+            completion(NO);
+            return;
+        }
+        NSUInteger presentationsBefore = self.searchEvents.presentations;
+        // These are public interaction APIs. Do not reparent the search bar or
+        // require its inactive toolbar representation to be the same UIView.
+        BOOL beganEditing = [search.searchBar becomeFirstResponder];
+        if (!beganEditing) beganEditing = [search.searchBar.searchTextField becomeFirstResponder];
+        search.active = YES;
+        [self filterSettings:settings text:query];
+        [self recordSearchState:@"activation.requested" settings:settings
+            extra:@{@"query": query, @"editingRequestAccepted": @(beganEditing)}];
         [self poll:^BOOL {
-            return search.active && !search.isBeingPresented && search.searchBar.window != nil;
-        } deadline:[NSDate dateWithTimeIntervalSinceNow:4] completion:completion];
-    });
+            return search.active && !search.isBeingPresented &&
+                self.searchEvents.presentations > presentationsBefore;
+        } deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL active) {
+            [self recordSearchState:active ? @"activation.presented" : @"activation.timeout"
+                settings:settings extra:@{@"query": query}];
+            [self check:active name:[NSString stringWithFormat:@"native search actually presents before result action (%@)", query]];
+            if (!active) [self capture:@"settings-search-failure-simulator.png"];
+            completion(active);
+        }];
+    }];
 }
 - (void)runSearchChecksWithCompletion:(dispatch_block_t)completion {
     UINavigationController *navigation = (UINavigationController *)self.host.presentedViewController;
@@ -297,6 +403,16 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self check:[search isKindOfClass:UISearchController.class] && search.searchResultsUpdater != nil &&
         [search.searchBar.accessibilityIdentifier isEqual:@"honggo.settings.search"]
         name:@"settings search uses the native UIKit search controller"];
+    self.searchEvents = [HGSearchTransitionRecorder new];
+    self.searchEvents.downstream = search.delegate;
+    __weak HGSettingsTests *weakSelf = self;
+    __weak HGSettingsController *weakSettings = settings;
+    self.searchEvents.record = ^(NSString *stage) {
+        HGSettingsTests *tests = weakSelf;
+        HGSettingsController *panel = weakSettings;
+        if (tests && panel) [tests recordSearchState:stage settings:panel extra:nil];
+    };
+    search.delegate = self.searchEvents;
 
     [self filterSettings:settings text:@"信息流"];
     UISwitch *feed = (UISwitch *)[self settingsCell:settings section:0 row:0].accessoryView;
@@ -366,12 +482,17 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         @"active search exports configuration to the native share sheet"];
     if (index >= queries.count) {
         [self activateSearch:settings query:@"玻璃" completion:^(BOOL active) {
-            [self check:active name:@"search can be reactivated before closing settings"];
+            if (!active) { completion(); return; }
+            NSUInteger dismissalsBefore = self.searchEvents.dismissals;
             UIBarButtonItem *done = settings.navigationItem.rightBarButtonItem;
+            [self recordSearchState:@"close.requested" settings:settings extra:nil];
             [UIApplication.sharedApplication sendAction:done.action to:done.target from:done forEvent:nil];
-            [self poll:^BOOL { return self.host.presentedViewController == nil; }
-                deadline:[NSDate dateWithTimeIntervalSinceNow:4] completion:^(BOOL closed) {
+            [self poll:^BOOL { return self.host.presentedViewController == nil &&
+                    self.searchEvents.dismissals > dismissalsBefore; }
+                deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL closed) {
+                [self recordSearchState:closed ? @"close.finished" : @"close.timeout" settings:settings extra:nil];
                 [self check:closed name:@"Done dismisses the entire settings sheet while search is active"];
+                if (!closed) [self capture:@"settings-search-failure-simulator.png"];
                 completion();
             }];
         }];
@@ -380,24 +501,33 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     NSDictionary *before = HGPreferencesParse(HGPreferencesExport(nil), nil);
     BOOL diagnosticsConsent = HGEnhancedDiagnostics();
     [self activateSearch:settings query:queries[index] completion:^(BOOL active) {
-        if (!active) { [self check:NO name:names[index]]; completion(); return; }
+        if (!active) { completion(); return; }
         NSInteger section = index == 0 ? 1 : 2;
         if ([settings.tableView numberOfRowsInSection:section] != 1) {
             [self check:NO name:@"active result list resolves exactly one action"];
             completion();
             return;
         }
+        NSUInteger dismissalsBefore = self.searchEvents.dismissals;
+        [self recordSearchState:@"action.selected" settings:settings extra:@{@"query": queries[index]}];
         [settings tableView:settings.tableView didSelectRowAtIndexPath:
             [NSIndexPath indexPathForRow:0 inSection:section]];
         [self poll:^BOOL {
+            if (settings.navigationItem.searchController.active || self.searchEvents.dismissals <= dismissalsBefore) return NO;
             if (index == 0) return settings.navigationController.topViewController != settings;
             UIViewController *presented = settings.presentedViewController;
             Class expected = index == 1 ? UIAlertController.class :
                 index == 2 ? UIDocumentPickerViewController.class : UIActivityViewController.class;
             return [presented isKindOfClass:expected] && !presented.isBeingPresented;
-        } deadline:[NSDate dateWithTimeIntervalSinceNow:4] completion:^(BOOL performed) {
+        } deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL performed) {
+            [self recordSearchState:performed ? @"action.finished" : @"action.timeout"
+                settings:settings extra:@{@"query": queries[index]}];
             [self check:performed name:names[index]];
-            if (!performed) { completion(); return; }
+            if (!performed) {
+                [self capture:@"settings-search-failure-simulator.png"];
+                completion();
+                return;
+            }
             [self check:[HGPreferencesParse(HGPreferencesExport(nil), nil) isEqual:before] &&
                 HGEnhancedDiagnostics() == diagnosticsConsent &&
                 [[NSUserDefaults.standardUserDefaults stringForKey:@"host.setting"] isEqual:@"preserved"]
@@ -441,7 +571,8 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     }
     NSDictionary *report = @{@"plugin": HG_PLUGIN_NAME, @"version": HG_PLUGIN_VERSION, @"scope": @"real UIKit with a simulated host; not a Hongguo device test",
         @"status": failed == 0 ? @"passed" : @"failed", @"failed": @(failed),
-        @"total": @(self.checks.count), @"checks": self.checks};
+        @"total": @(self.checks.count), @"checks": self.checks,
+        @"searchStateTrace": self.searchStateTrace ?: @[]};
     NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil];
     [data writeToURL:[self outputURL:@"settings-results.json"] options:NSDataWritingAtomic error:nil];
 }
