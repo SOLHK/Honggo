@@ -1,3 +1,4 @@
+#import "SettingsTransition.h"
 @interface HGAAppearanceController : UITableViewController <UISearchResultsUpdating,UISearchControllerDelegate,PHPickerViewControllerDelegate,UIDocumentPickerDelegate,UIFontPickerViewControllerDelegate,UIColorPickerViewControllerDelegate>
 @property(nonatomic,copy) NSString *group;
 @property(nonatomic,copy) NSArray<NSDictionary *> *rows;
@@ -33,12 +34,21 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
 }
 - (void)afterSearch:(dispatch_block_t)action {
     if(self.search.active || self.search.isBeingDismissed || self.presentedViewController==self.search) {
-        self.pendingAction=action;self.search.active=NO;
-    }else if(!self.presentedViewController)action();
+        self.pendingAction=action;
+        if(!self.search.isBeingDismissed) HGAfterViewTransition(self.search, ^{
+            if(self.pendingAction)self.search.active=NO;
+        });
+    }else if(!self.presentedViewController) HGAfterViewTransition(self, ^{
+        if(self.viewIfLoaded.window && !self.presentedViewController &&
+            !self.isBeingDismissed && !self.navigationController.isBeingDismissed)action();
+    });
 }
 - (void)didDismissSearchController:(UISearchController *)searchController {
-    dispatch_block_t action=self.pendingAction;self.pendingAction=nil;
-    if(action && self.viewIfLoaded.window && !self.isBeingDismissed)action();
+    HGAfterViewTransition(self, ^{
+        dispatch_block_t action=self.pendingAction;self.pendingAction=nil;
+        if(action && self.viewIfLoaded.window && !self.presentedViewController &&
+            !self.isBeingDismissed && !self.navigationController.isBeingDismissed)action();
+    });
 }
 - (void)updateSearchResultsForSearchController:(UISearchController *)controller {[self reloadRows];}
 - (void)reloadRows {

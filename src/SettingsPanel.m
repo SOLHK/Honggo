@@ -1,5 +1,6 @@
 #import "Honggo.h"
 #import "Appearance.h"
+#import "SettingsTransition.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <dispatch/dispatch.h>
 
@@ -168,14 +169,27 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
         // Search owns a presentation until its dismissal completes. Keep the
         // resolved action, not its old row index, while the result list resets.
         self.afterSearchDismissal = action;
-        self.settingsSearch.active = NO;
-    } else if (!self.presentedViewController) action();
+        if (!self.settingsSearch.isBeingDismissed) {
+            HGAfterViewTransition(self.settingsSearch, ^{
+                if (self.afterSearchDismissal) self.settingsSearch.active = NO;
+            });
+        }
+    } else if (!self.presentedViewController) {
+        HGAfterViewTransition(self, ^{
+            if (self.viewIfLoaded.window && !self.presentedViewController &&
+                    !self.isBeingDismissed && !self.navigationController.isBeingDismissed) action();
+        });
+    }
 }
 - (void)didDismissSearchController:(UISearchController *)searchController {
-    dispatch_block_t action = self.afterSearchDismissal;
-    self.afterSearchDismissal = nil;
-    if (action && self.viewIfLoaded.window && !self.isBeingDismissed &&
-            !self.navigationController.isBeingDismissed) action();
+    // UIKit can call didDismiss before its presentation bookkeeping unwinds.
+    // Starting the parent sheet dismissal in that callback can be discarded.
+    HGAfterViewTransition(self, ^{
+        dispatch_block_t action = self.afterSearchDismissal;
+        self.afterSearchDismissal = nil;
+        if (action && self.viewIfLoaded.window && !self.presentedViewController &&
+                !self.isBeingDismissed && !self.navigationController.isBeingDismissed) action();
+    });
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 3; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -190,7 +204,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     if (section == 1) return @"增强诊断即时生效。复现广告或遮罩后截屏，再回来导出日志；仅记录控件结构，不读取截图像素或页面文字。本次启动保留最近 10 份现场，导出前不要退出应用。";
     if (section == 2) return @"配置文件仅保存 Honggo 的功能开关。恢复前会核对格式并显示变更数量；账号、宿主设置和增强诊断选择保持不变。恢复或关闭全部开关后，请完全退出再打开。";
     NSString *mode = HGNativeGlassConfigured() ?
-        @"本次启动已配置系统玻璃。关闭两个玻璃开关并重启后，插件停止启用该配置。" :
+        @"本次启动已配置系统玻璃。关闭两个原有玻璃开关及外观定制并重启后，插件停止启用该配置。" :
         @"iOS 26 及以上打开玻璃开关并重启后，会在启动时请求系统玻璃；旧系统底栏使用模糊材质。";
     return [@"功能开关更改后请完全退出红果短剧，再重新打开。" stringByAppendingString:mode];
 }
