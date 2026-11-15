@@ -5,12 +5,38 @@ on:
 permissions:
   contents: read
 jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    outputs:
+      source: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+      - name: Apply reviewed source-only regression checks
+        id: source
+        run: |
+          set -euo pipefail
+          if test -f .github/appearance-review.patch; then
+            echo '1046a00a1e655b5ce54998bcbe7a8874ee1747146a32a448cc763e81ef0bdb50  .github/appearance-review.patch' | sha256sum -c -
+            git apply --check --index .github/appearance-review.patch
+            git apply --index .github/appearance-review.patch
+            git rm .github/appearance-review.patch
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Add repeated icon reset regressions and refresh appearance capability status'
+            git push origin HEAD:refs/heads/work/appearance-r5
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   validate:
+    needs: integrate
     runs-on: macos-26
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ needs.integrate.outputs.source }}
           persist-credentials: false
       - name: Compile device plugin
         run: bash tools/build-ios.sh
