@@ -6,6 +6,10 @@
 #include <math.h>
 #include <string.h>
 
+// Shared with the custom dock implementation. Host setter observations must
+// not take a new geometry/background baseline halfway through its transaction.
+BOOL HGAppearanceDockIsMutating(UIView *bar);
+
 // Only the version-checked host tab bar is a global hook target. Page/content
 // observers below are per-instance subclasses, never UIView/UIScrollView hooks.
 static Class HGTabBarClass;
@@ -219,6 +223,7 @@ static void HGRestoreViewports(NSArray<HGViewportRecord *> *records) {
 @property(nonatomic, strong) NSMapTable<UILabel *, HGTabTitleRecord *> *titles;
 @property(nonatomic) BOOL refreshing;
 @property(nonatomic) BOOL customDock;
+@property(nonatomic) BOOL refreshPending;
 @property(nonatomic) BOOL nativeGlass;
 @property(nonatomic) BOOL logged;
 @property(nonatomic) NSTimeInterval lastDiagnostic;
@@ -722,6 +727,18 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
 }
 - (void)refresh {
     if (self.refreshing) return;
+    if (HGAppearanceDockIsMutating(self.bar)) {
+        if (!self.refreshPending) {
+            self.refreshPending = YES;
+            __weak HGTabState *weak = self;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                HGTabState *state = weak;
+                state.refreshPending = NO;
+                [state refresh];
+            });
+        }
+        return;
+    }
     self.refreshing = YES;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];

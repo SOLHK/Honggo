@@ -165,6 +165,66 @@ static BOOL HGASaveDockPreview(SSTabBarController *host,UIView *dock) {
     [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
     return [UIImagePNGRepresentation(preview) writeToURL:[directory URLByAppendingPathComponent:@"dock-preview.png"] atomically:YES];
 }
+@interface HGADockRestorationProbe : UIView
+@property(nonatomic,copy) void (^onRestore)(void);
+@end
+@implementation HGADockRestorationProbe
+- (void)setHidden:(BOOL)hidden {
+    BOOL wasHidden=self.hidden;
+    [super setHidden:hidden];
+    if(wasHidden && !hidden && self.onRestore)self.onRestore();
+}
+- (void)nativeTab:(UIControl *)sender {}
+@end
+
+static void HGRunDockRestoreReentryChecks(SSTabBarController *host) {
+    NSDictionary *saved=HGAppearanceValues();
+    HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.extra":@NO,
+        @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@NO,@"dock.hide.mine":@NO},nil);
+    SSTabBar *bar=[[SSTabBar alloc] initWithFrame:host.customTabBar.frame];
+    [bar.contentView removeFromSuperview];
+    HGADockRestorationProbe *source=[[HGADockRestorationProbe alloc] initWithFrame:bar.bounds];
+    bar.contentView=source;[bar addSubview:source];
+    UIView *previousGlass=[[UIView alloc] initWithFrame:bar.bounds];
+    previousGlass.accessibilityIdentifier=@"honggo.tabbar.glass";
+    [bar insertSubview:previousGlass belowSubview:source];
+    NSArray *titles=@[@"首页",@"剧场",@"商城",@"我的"];
+    for(NSUInteger i=0;i<titles.count;i++) {
+        UIControl *item=[[UIControl alloc] initWithFrame:CGRectMake(i*bar.bounds.size.width/4,0,
+            bar.bounds.size.width/4,bar.bounds.size.height)];
+        UILabel *label=[[UILabel alloc] initWithFrame:item.bounds];label.text=titles[i];
+        [item addSubview:label];[item addTarget:source action:@selector(nativeTab:) forControlEvents:UIControlEventTouchUpInside];
+        [source addSubview:item];
+    }
+    bar.backgroundColor=UIColor.systemOrangeColor;bar.opaque=YES;
+    [host.view addSubview:bar];HGAppearanceLayoutDock(bar,host);Layout(bar);
+    Check(source.hidden && Find(bar,@"honggo.appearance.dock"),
+        @"restoration reentry fixture starts with a hidden observed native source");
+    __block NSUInteger restoreCallbacks=0;
+    __weak SSTabBar *weakBar=bar;
+    source.onRestore=^{
+        restoreCallbacks++;
+        // A host setter can synchronously ask both modules to update. This
+        // used to clear hiddenSources while the outer restore enumerated it.
+        HGAppearanceRestoreDock(weakBar);
+        Layout(weakBar);
+    };
+    HGAppearanceSet(@"enabled",@NO,nil);
+    Check(restoreCallbacks==1 && !source.hidden && !Find(bar,@"honggo.appearance.dock"),
+        @"reentrant host source restoration runs once and leaves native navigation visible");
+    Check([bar.backgroundColor isEqual:UIColor.systemOrangeColor] && bar.opaque,
+        @"nested layout cannot capture a half-restored dock background or opacity");
+    // The coalesced tab-bar update must run after the restore has completed,
+    // then legacy mode can acquire the complete original baseline safely.
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+    Layout(bar);bar.hidden=YES;
+    Check([bar.backgroundColor isEqual:UIColor.systemOrangeColor] && bar.opaque && !source.hidden,
+        @"deferred legacy reconciliation retains the restored host baseline");
+    source.onRestore=nil;
+    [bar removeFromSuperview];
+    HGAppearanceApply(saved,nil);Layout(host.customTabBar);
+}
+
 static void HGRunDockSurfaceChecks(SSTabBarController *host) {
     NSDictionary *saved=HGAppearanceValues();
     SSTabBar *bar=host.customTabBar;
@@ -264,6 +324,7 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
 }
 
 static void HGRunDockAppearanceChecks(SSTabBarController *host) {
+    HGRunDockRestoreReentryChecks(host);
     HGRunDockSurfaceChecks(host);
     NSDictionary *saved=HGAppearanceValues();
     NSUInteger savedIndex=host.selectedIndex;

@@ -14,6 +14,7 @@
 @property(nonatomic,strong) NSArray<UISwipeGestureRecognizer *> *swipes;
 @property(nonatomic) BOOL collapsed;
 @property(nonatomic) BOOL rendering;
+@property(nonatomic) BOOL restoring;
 - (void)refresh;
 - (void)restore;
 - (void)setCollapsed:(BOOL)value animated:(BOOL)animated;
@@ -141,7 +142,7 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     return self.targets.count>0;
 }
 - (void)refresh {
-    if(self.rendering)return;self.rendering=YES;
+    if(self.rendering || self.restoring)return;self.rendering=YES;
     @try {
         UIView *bar=self.hostBar;
         if(!HGAppearanceDockEnabled() || !bar.window || !HGAVisible(bar)) {[self restore];return;}
@@ -277,12 +278,34 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     self.extra.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[[HGATabIDs() indexOfObject:action]]);
 }
 - (void)restore {
-    for(UIView *view in self.hiddenSources.keyEnumerator)if(view.hidden)view.hidden=[[self.hiddenSources objectForKey:view] boolValue];
-    [self.hiddenSources removeAllObjects];
-    if(self.backgroundOwned && [self.hostBar.backgroundColor isEqual:UIColor.clearColor])self.hostBar.backgroundColor=self.hostBackground;
-    if(self.backgroundOwned && !self.hostBar.opaque)self.hostBar.opaque=self.hostOpaque;
-    self.backgroundOwned=NO;self.collapsed=NO;
-    [self removeFromSuperview];
+    if(self.restoring)return;
+    BOOL wasRendering=self.rendering;
+    self.restoring=YES;self.rendering=YES;
+    @try {
+        // Restoring a source calls host setters. Their per-instance observers
+        // can request another dock/tab-bar update synchronously. Consume the
+        // complete old ownership before any setter, and keep strong immutable
+        // pairs so neither reentry nor a weak-key removal can mutate the walk.
+        NSMutableArray<NSArray *> *restorations=[NSMutableArray array];
+        for(UIView *view in self.hiddenSources.keyEnumerator.allObjects) {
+            NSNumber *hidden=[self.hiddenSources objectForKey:view];
+            if(hidden)[restorations addObject:@[view,hidden]];
+        }
+        [self.hiddenSources removeAllObjects];
+        UIView *bar=self.hostBar;
+        BOOL backgroundOwned=self.backgroundOwned,opaque=self.hostOpaque;
+        UIColor *background=self.hostBackground;
+        self.backgroundOwned=NO;self.collapsed=NO;
+        for(NSArray *entry in restorations) {
+            UIView *view=entry[0];
+            if(view.hidden)view.hidden=[entry[1] boolValue];
+        }
+        if(backgroundOwned && [bar.backgroundColor isEqual:UIColor.clearColor])bar.backgroundColor=background;
+        if(backgroundOwned && !bar.opaque)bar.opaque=opaque;
+        [self removeFromSuperview];
+    } @finally {
+        self.rendering=wasRendering;self.restoring=NO;
+    }
 }
 - (void)feedback {
     if(HGAppearanceFlag(@"dock.haptics"))[[[UISelectionFeedbackGenerator alloc] init] selectionChanged];
@@ -329,6 +352,10 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     }else [self renderGeometry];
 }
 @end
+BOOL HGAppearanceDockIsMutating(UIView *bar) {
+    HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
+    return dock.rendering || dock.restoring;
+}
 void HGAppearanceLayoutDock(UIView *bar,UIViewController *controller) {
     if(!NSThread.isMainThread || !bar)return;
     if(!HGABars)HGABars=[NSHashTable weakObjectsHashTable];[HGABars addObject:bar];

@@ -222,6 +222,7 @@ jobs:
             "Transfer cleanup preserves later host compositor changes, guards reentry and records paired lifecycle phases. Unknown renderers retain native geometry." \
             "The Watch complete drama entry now rounds its native wrapper and content with the glass, removes rectangular corner fills and restores styling on reuse or disable." \
             "The custom floating dock now clears inherited host masks and extends ordinary library content through the bottom safe area. Vertical video pagination and its ancestors retain their original dimensions." \
+            "R12 makes custom-dock restoration reentrancy-safe and prevents native visibility observers from refreshing a half-restored dock. It also derives transfer suspension from the current player canvas when an intermediate container moves." \
             "Retains white dock icons, the translucent neutral-gray selection pill, native button actions, R8 host-owned playback callbacks and existing advertisement eligibility gates." \
             "Adds UIKit regression coverage for native frame-driven layout, render clipping and transfer, episode corner pixels and reuse, dock masks, ordinary-list insets and mode restoration." \
             "The R10 log places two session endings near player transfer but contains no hang stack. This is a targeted candidate fix; actual Hongguo navigation and decoding still need device verification." \

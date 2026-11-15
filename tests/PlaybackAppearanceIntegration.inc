@@ -346,7 +346,24 @@ static void HGPlaybackCheckNativeLayout(UIView *root) {
         Layout(nextCanvas);Layout(render);
         Check(render.layer.sublayerTransform.m11>1 && CGAffineTransformIsIdentity(render.transform),
             @"borrowing a renderer during an unfinished canvas transfer cannot retain stale ancestor suspension");
-        [canvas addSubview:render];[nextCanvas removeFromSuperview];
+        [canvas addSubview:render];
+
+        UIView *wrapper=[[UIView alloc] initWithFrame:canvas.bounds];
+        [canvas addSubview:wrapper];[wrapper addSubview:render];Layout(canvas);Layout(render);
+        BOOL initiallyFilled=render.layer.sublayerTransform.m11>1;
+        UIView *unchangedParent=render.superview;UIWindow *unchangedWindow=render.window;
+        [canvas willMoveToSuperview:nextCanvas];Layout(render);
+        Check(initiallyFilled && CATransform3DIsIdentity(render.layer.sublayerTransform),
+            @"an intermediate wrapper does not bypass the current canvas transfer guard");
+        // Model a wrapper being borrowed mid-transfer without changing the
+        // renderer's direct parent. This is a controlled lifecycle regression,
+        // not evidence that the real host executes this ordering.
+        [nextCanvas addSubview:wrapper];[canvas didMoveToSuperview];
+        Layout(nextCanvas);Layout(render);
+        Check(render.superview==unchangedParent && render.window==unchangedWindow &&
+            render.layer.sublayerTransform.m11>1 && CGAffineTransformIsIdentity(render.transform),
+            @"borrowing a wrapper cannot permanently suspend its renderer after the old canvas finishes");
+        [canvas addSubview:render];[wrapper removeFromSuperview];[nextCanvas removeFromSuperview];
     } @finally {[canvas removeFromSuperview];}
 }
 

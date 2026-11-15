@@ -11,7 +11,6 @@
 @property(nonatomic) BOOL yieldedToHost;
 @property(nonatomic) NSUInteger transferFlags;
 @property(nonatomic) NSUInteger generation;
-@property(nonatomic) BOOL ancestorTransferring;
 @property(nonatomic,weak) UIView *parent;
 @property(nonatomic,weak) id<UIViewControllerTransitionCoordinator> transition;
 @property(nonatomic,copy) NSString *lastStatus;
@@ -75,17 +74,13 @@ static BOOL HGAWaitForPlayerTransition(UIView *render,UIView *canvas) {
 static void HGAPreparePlayerTransfer(UIView *view,SEL selector) {
     HGAPlayerFillState *state=HGAPlayerState(view,YES);
     state.transferFlags|=selector==@selector(willMoveToSuperview:)?1u:2u;
-    // A renderer can be borrowed while its old canvas is still moving. The
-    // old canvas cannot clear a flag on a renderer it no longer contains.
-    // Its own new-parent transfer, and the actual canvas flags below, now gate it.
-    if(selector==@selector(willMoveToSuperview:))state.ancestorTransferring=NO;
     state.generation++;state.transition=nil;state.yieldedToHost=NO;
     HGARestorePlayerFill(view);
     if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"])
         for(UIView *child in HGADescendants(view,100))
             if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"]) {
                 HGAPlayerFillState *childState=HGAPlayerState(child,YES);
-                childState.ancestorTransferring=YES;childState.generation++;
+                childState.generation++;
                 childState.transition=nil;childState.yieldedToHost=NO;
                 HGARestorePlayerFill(child);
             }
@@ -93,10 +88,6 @@ static void HGAPreparePlayerTransfer(UIView *view,SEL selector) {
 static void HGAFinishPlayerTransfer(UIView *view,SEL selector) {
     HGAPlayerFillState *state=HGAPlayerState(view,NO);
     state.transferFlags&=~(selector==@selector(didMoveToSuperview)?1u:2u);
-    if(!state.transferFlags && [NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"])
-        for(UIView *child in HGADescendants(view,100))
-            if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])
-                HGAPlayerState(child,NO).ancestorTransferring=NO;
 }
 static BOOL HGAHasKnownPlayerSurface(UIView *render) {
     // This hierarchy is present in the supplied 7.4.3.33 scene. Do not zoom
@@ -114,12 +105,14 @@ static void HGAApplyFullScreen(UIView *render) {
     if(!HGAppearanceEnabled() || !HGAppearanceFlag(@"player.fullscreen")) {
         HGARestorePlayerFill(render);state.yieldedToHost=NO;return;
     }
-    if(!render.window || state.transferFlags || state.ancestorTransferring) {
+    if(!render.window || state.transferFlags) {
         HGARestorePlayerFill(render);return;
     }
     UIView *canvas=render.superview;
     for(NSUInteger i=0;canvas && i<12;i++,canvas=canvas.superview)
         if([NSStringFromClass(canvas.class) isEqual:@"FQVShortVideoPlayerCellView"])break;
+    // Resolve the current canvas instead of copying its transition state onto
+    // a renderer that the host may borrow together with an intermediate view.
     HGAPlayerFillState *canvasState=HGAPlayerState(canvas,NO);
     if(!canvas || ![NSStringFromClass(canvas.class) isEqual:@"FQVShortVideoPlayerCellView"] ||
         canvasState.transferFlags || !CGAffineTransformIsIdentity(render.transform) ||
