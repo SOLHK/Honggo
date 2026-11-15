@@ -107,7 +107,9 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         replacement=imp_implementationWithBlock(^(id object) {
             if (!controller && selector==@selector(layoutSubviews) && NSThread.isMainThread && !HGAApplying) HGARestoreGeometry(object);
             ((void(*)(id,SEL))original)(object,selector);
-            if (controller) HGAppearanceProcessController(object); else HGAppearanceProcessView(object);
+            if (controller) HGAppearanceProcessController(object);
+            else if (selector==@selector(didMoveToWindow) && [(UIView *)object window]) [(UIView *)object setNeedsLayout];
+            else HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v24@0:8@16")) {
         replacement=imp_implementationWithBlock(^(id object,id argument) {

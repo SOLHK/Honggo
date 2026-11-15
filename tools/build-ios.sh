@@ -23,9 +23,9 @@ xcrun --sdk iphoneos clang \
     -O2 -fobjc-arc -fblocks -fvisibility=hidden -Wall -Werror \
     -dynamiclib -Wl,-install_name,@rpath/Honggo.dylib -Wl,-no_adhoc_codesign \
     "-Wl,-current_version,$macho_version" -Wl,-compatibility_version,1.0.0 \
-    -framework Foundation -framework CoreFoundation -framework UIKit -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
+    -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
     "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
-    "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" \
+    "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/AppearancePreferences.m" "$source_root/src/Appearance.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" \
     "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
     "$source_root/src/AdSceneDiagnostics.m" -o "$output"
 

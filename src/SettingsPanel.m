@@ -1,4 +1,5 @@
 #import "Honggo.h"
+#import "Appearance.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <dispatch/dispatch.h>
 
@@ -39,8 +40,8 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
             @"当前未配置系统玻璃；底栏按系统能力使用模糊材质。"}
     ]];
     NSDictionary *snapshot = HGRuntimeSnapshot();
-    NSArray *modules = @[@"settings", @"tabbar", @"controls", @"ads", @"runtime"];
-    NSArray *titles = @[@"设置入口", @"底栏", @"按钮外观", @"广告过滤", @"基础适配检查"];
+    NSArray *modules = @[@"settings", @"tabbar", @"controls", @"ads", @"runtime", @"appearance"];
+    NSArray *titles = @[@"设置入口", @"底栏", @"按钮外观", @"广告过滤", @"基础适配检查", @"外观定制"];
     for (NSUInteger index = 0; index < modules.count; index++) {
         NSUInteger installed = 0, skipped = 0, disabled = 0;
         BOOL moduleDisabled = NO;
@@ -101,6 +102,9 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     self.tableView.estimatedRowHeight = 62;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
         initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeSettings)];
+    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"外观"
+        style:UIBarButtonItemStylePlain target:self action:@selector(openAppearance)];
+    self.navigationItem.leftBarButtonItem.accessibilityIdentifier = @"honggo.appearance.open";
     self.settingsSearch = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.settingsSearch.searchResultsUpdater = self;
     self.settingsSearch.delegate = self;
@@ -149,6 +153,9 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     }
     self.tableView.backgroundView = empty;
     [self.tableView reloadData];
+}
+- (void)openAppearance {
+    [self performAfterSearchDismissal:^{ HGOpenAppearance(self, nil); }];
 }
 - (void)closeSettings {
     self.afterSearchDismissal = nil;
@@ -356,6 +363,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"全部关闭" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         HGPreferencesReset();
+        HGAppearanceReset();
         HGLog(@"settings.reset", @{@"features": @(HGFeatureCount)});
         [self.tableView reloadData];
     }]];

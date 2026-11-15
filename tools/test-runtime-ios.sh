@@ -18,7 +18,7 @@ architecture=$(uname -m)
 xcrun --sdk iphonesimulator clang \
     -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
     -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
-    -framework Foundation -framework CoreFoundation -framework UIKit -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
+    -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
     "$source_root"/src/*.m "$source_root/tests/RuntimeIntegration.m" \
     -o "$app/HGRuntimeTests" 2>&1 | tee "$work/build.log"
 

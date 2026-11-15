@@ -1,4 +1,5 @@
 #import "Honggo.h"
+#import "Appearance.h"
 #import "RuntimeSupport.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
@@ -687,6 +688,12 @@ static BOOL HGContainerScroll(UIView *view) {
     [CATransaction setDisableActions:YES];
     @try {
         UIView *bar = self.bar;
+        if (HGAppearanceDockEnabled()) {
+            [self restore];
+            HGAppearanceLayoutDock(bar, self.controller);
+            return;
+        }
+        HGAppearanceRestoreDock(bar);
         if (!HGGlassEnabled || !bar.window || bar.hidden) {
             [self restore];
             return;
@@ -822,7 +829,7 @@ static void HGRefreshTabBar(UIViewController *controller) {
     UIView *bar = HGView(controller, "customTabBar");
     if (![bar isKindOfClass:HGTabBarClass]) return;
     HGAttachSettings(bar);
-    if (HGGlassEnabled) {
+    if (HGGlassEnabled || HGAppearanceDockEnabled()) {
         HGTabState *state = HGState(bar);
         state.controller = controller;
         [state refresh];

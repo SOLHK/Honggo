@@ -108,6 +108,14 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
             HGRecordCapability(@"appearance.dock.navigation",@{@"module":@"appearance",@"state":@"unavailable",@"reason":@"native tab actions could not be mapped; original navigation retained"});
             return;
         }
+        NSUInteger visibleCount=0;
+        for(NSString *key in HGATabIDs()) if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))visibleCount++;
+        CGFloat extraWidth=HGAppearanceFlag(@"dock.extra") ? MIN(HGAppearanceNumber(@"dock.extraSize"),bar.bounds.size.height)+8 : 0;
+        if(bar.bounds.size.width-8 < visibleCount*44+extraWidth) {
+            [self restore];
+            HGRecordCapability(@"appearance.dock.navigation",@{@"module":@"appearance",@"state":@"unavailable",@"reason":@"insufficient space for accessible tab targets; native navigation retained"});
+            return;
+        }
         if(self.superview!=bar)[bar addSubview:self];
         if(!CGRectEqualToRect(self.frame,bar.bounds))self.frame=bar.bounds;
         if(!self.backgroundOwned || ![bar.backgroundColor isEqual:UIColor.clearColor])self.hostBackground=bar.backgroundColor;
@@ -176,7 +184,10 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         config.imagePlacement=NSDirectionalRectEdgeTop;config.imagePadding=3;
         config.baseForegroundColor=color;config.contentInsets=NSDirectionalEdgeInsetsMake(3,0,3,0);
         config.titleTextAttributesTransformer=^NSDictionary *(NSDictionary *attributes){
-            NSMutableDictionary *updated=attributes.mutableCopy;updated[NSFontAttributeName]=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];return updated;
+            NSMutableDictionary *updated=attributes.mutableCopy;
+            UIFont *base=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];
+            updated[NSFontAttributeName]=HGAppearanceFlag(@"fonts.enabled") ? HGAConfiguredFont(base) : base;
+            return updated;
         };
         b.configuration=config;b.enabled=source.enabled;b.selected=active;
         b.accessibilityLabel=HGATabTitles()[index];

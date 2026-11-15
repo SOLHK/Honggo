@@ -1,4 +1,5 @@
 #import "Honggo.h"
+#import "Appearance.h"
 #import "AdSceneDiagnostics.h"
 #import "RuntimeSupport.h"
 #import <dispatch/dispatch.h>
@@ -12,7 +13,7 @@ void HGPrepareNativeGlass(void) {
     // disabling both glass switches (or removing this dylib) restores the
     // host's own configuration on the next launch without preference cleanup.
     if (HGStartupGlassOverride || NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 ||
-        (!HGIsEnabled(HGGlass) && !HGIsEnabled(HGGlassControls))) return;
+        (!HGIsEnabled(HGGlass) && !HGIsEnabled(HGGlassControls) && !HGAppearanceNeedsGlass())) return;
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSMutableDictionary *arguments = [[defaults volatileDomainForName:NSArgumentDomain] mutableCopy];
     if (!arguments) arguments = [NSMutableDictionary dictionary];
@@ -57,6 +58,7 @@ BOOL HGInstallRuntimeModules(void) {
     // Advertisement gates have their own class/ABI checks and must not depend
     // on an optional appearance module. Retrying is safe at the hook boundary.
     HGInstallAds();
+    HGInstallAppearance();
     HGRecordCapability(@"module.settings", @{@"module": @"settings",
         @"state": HGSettingsInstalled ? @"installed" : @"unavailable",
         @"reason": HGSettingsInstalled ? @"settings entry available" : @"settings entry preflight failed"});

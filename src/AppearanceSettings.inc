@@ -175,7 +175,9 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
     if([kind isEqual:@"color"] || [kind isEqual:@"image"] || [kind isEqual:@"font"] || [kind isEqual:@"fontfile"]) {
         UIAlertController *a=[UIAlertController alertControllerWithTitle:row[@"title"] message:nil preferredStyle:UIAlertControllerStyleActionSheet];
         [a addAction:[UIAlertAction actionWithTitle:@"选择…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *button){
-            dispatch_async(dispatch_get_main_queue(),^{[self launchPicker:row];});
+            // Wait for the action sheet's dismissal; presenting on the next
+            // run-loop tick is too early on devices with animated transitions.
+            [a dismissViewControllerAnimated:YES completion:^{[self launchPicker:row];}];
         }]];
         [a addAction:[UIAlertAction actionWithTitle:@"恢复默认／清除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *button){
             if([kind isEqual:@"fontfile"])HGAppearanceApply(@{@"fonts.asset":@"",@"fonts.name":@""},nil);
