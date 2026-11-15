@@ -60,7 +60,9 @@ xcrun simctl install "$device_id" "$app"
 data_directory=$(xcrun simctl get_app_container "$device_id" "$bundle_id" data)
 rm -f -- "$data_directory/Documents/settings-results.json"
 xcrun simctl launch "$device_id" "$bundle_id"
-for ((attempt=0; attempt<45; attempt++)); do
+# Five search-action scenarios plus close/return checks have independent bounded
+# deadlines; allow the full sequence to finish even on a cold simulator.
+for ((attempt=0; attempt<180; attempt++)); do
     if [ -f "$data_directory/Documents/settings-results.json" ]; then
         break
     fi
@@ -69,7 +71,7 @@ done
 xcrun simctl spawn "$device_id" log show --style compact --last 2m \
     --predicate 'process == "HGSettingsTests"' > "$work/simulator.log" 2>&1 || true
 if [ ! -f "$data_directory/Documents/settings-results.json" ]; then
-    printf 'Settings integration app did not write its result within 45 seconds.\n' >&2
+    printf 'Settings integration app did not write its result within 180 seconds.\n' >&2
     exit 1
 fi
 cp "$data_directory/Documents/settings-results.json" "$work/settings-results.json"
@@ -84,6 +86,8 @@ import sys
 
 report = json.load(open(sys.argv[1]))
 print(json.dumps(report, indent=2, ensure_ascii=False))
-if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < 21:
-    raise SystemExit("Settings UIKit integration checks failed")
+checks = report.get("checks", [])
+if report.get("status") != "passed" or report.get("failed") != 0 or report.get("total", 0) < 72 or \
+        len(checks) != report.get("total") or any(check.get("passed") is not True for check in checks):
+    raise SystemExit("Settings UIKit integration checks failed or omitted required channel scenarios")
 PY

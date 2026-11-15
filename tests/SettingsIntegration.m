@@ -525,7 +525,13 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
             return;
         }
         NSUInteger dismissalsBefore = self.searchEvents.dismissals;
-        [self recordSearchState:@"action.selected" settings:settings extra:@{@"query": queries[index]}];
+        // The cold simulator launches the system ShareSheet service lazily.
+        // Keep every presentation assertion; only that external-service startup
+        // gets a larger bounded budget. Record elapsed time instead of sleeping.
+        NSTimeInterval presentationBudget = index == 3 ? 30 : 8;
+        NSDate *actionStarted = NSDate.date;
+        [self recordSearchState:@"action.selected" settings:settings extra:@{@"query": queries[index],
+            @"presentationBudgetSeconds": @(presentationBudget)}];
         [settings tableView:settings.tableView didSelectRowAtIndexPath:
             [NSIndexPath indexPathForRow:0 inSection:section]];
         [self poll:^BOOL {
@@ -535,9 +541,11 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
             Class expected = (index == 1 || index == 4) ? UIAlertController.class :
                 index == 2 ? UIDocumentPickerViewController.class : UIActivityViewController.class;
             return [presented isKindOfClass:expected] && !presented.isBeingPresented;
-        } deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL performed) {
+        } deadline:[NSDate dateWithTimeInterval:presentationBudget sinceDate:actionStarted] completion:^(BOOL performed) {
             [self recordSearchState:performed ? @"action.finished" : @"action.timeout"
-                settings:settings extra:@{@"query": queries[index]}];
+                settings:settings extra:@{@"query": queries[index],
+                    @"elapsedSeconds": @(-actionStarted.timeIntervalSinceNow),
+                    @"presentationBudgetSeconds": @(presentationBudget)}];
             [self check:performed name:names[index]];
             if (!performed) {
                 [self capture:@"settings-search-failure-simulator.png"];

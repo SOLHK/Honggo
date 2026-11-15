@@ -7,6 +7,7 @@ source_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 work="$source_root/build/tabbar-tests"
 sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
 architecture=$(uname -m)
+build_sdk=$(xcrun --sdk iphonesimulator --show-sdk-version)
 baseline_ref=65758841996f7e7ce8187c776032b04fd1b0e2c5
 background_reset_baseline_ref=5d16b2411c262313b58585b5920e83599f2a0e99
 mkdir -p "$work/current" "$work/legacy" "$work/background-baseline"
@@ -254,7 +255,7 @@ print('Nested viewport ownership checks passed; previous source installs observe
 
 PY
 
-python3 - "$work" <<'PY'
+python3 - "$work" "$source_root" "$build_sdk" <<'PY'
 import json
 import statistics
 import struct
@@ -263,6 +264,9 @@ import zlib
 from pathlib import Path
 
 root = Path(sys.argv[1])
+sys.path.insert(0, sys.argv[2])
+from tools.glass_expectations import encode_sdk_version, expected_unsupported_reference
+expected_build_sdk = encode_sdk_version(sys.argv[3])
 reports = {}
 for name, path in {
     "current": root / "current/tabbar-results.json",
@@ -276,6 +280,8 @@ for name, path in {
     "background-baseline": root / "background-baseline/tabbar-background-reset-results.json",
 }.items():
     report = json.loads(path.read_text())
+    if report.get("buildSDKVersion") != expected_build_sdk:
+        raise SystemExit(f"{name} lacks matching compiled SDK evidence")
     reports[name] = report
     print(name)
     print(json.dumps(report, indent=2, ensure_ascii=False))
@@ -558,7 +564,12 @@ for name in ("current", "startup", "reference-modern", "reference-compat"):
     for phase in ("native-reference-light", "native-reference-dark"):
         try:
             snapshot = next(item for item in reports[name]["snapshots"] if item["phase"] == phase)
-            comparison = compare_material_pixels(root / name, snapshot, expect_unsupported=name == "reference-compat")
+            # Xcode 27-built test executables ignore the compatibility opt-out.
+            # Require visible compositor output in that case, not the obsolete
+            # empty-shell expectation. Older-SDK fixtures keep the strict negative.
+            unsupported = expected_unsupported_reference(name, reports[name]["buildSDKVersion"])
+            comparison = compare_material_pixels(root / name, snapshot, expect_unsupported=unsupported)
+            comparison["buildSDKVersion"] = reports[name]["buildSDKVersion"]
         except (OSError, ValueError, KeyError, TypeError, StopIteration, struct.error, zlib.error) as error:
             comparison = {"phase": phase, "passed": False, "error": str(error)}
         comparisons.append(comparison)
@@ -606,6 +617,8 @@ if legacy.get("failed", 0) < 3 or any(legacy_checks.get(name) is not False for n
 summary = {
     "status": "failed" if failed else "passed",
     "scope": "UIKit simulator plus known-bad-source negative control; not the Hongguo IPA or a physical device",
+    "buildSDKVersion": expected_build_sdk,
+    "referenceCompatibilityOptOutHonored": expected_unsupported_reference("reference-compat", expected_build_sdk),
     "currentTotal": reports["current"].get("total"),
     "currentFailed": reports["current"].get("failed"),
     "disabledTotal": reports["disabled"].get("total"),

@@ -1890,6 +1890,7 @@ static UIImage *HGWhiteImage(void) {
     }
     NSDictionary *report = @{
         @"scope": @"real UIKit with a simulated SSTabBar host; not a Hongguo IPA or physical-device test",
+        @"buildSDKVersion": @(__IPHONE_OS_VERSION_MAX_ALLOWED),
         @"status": failed == 0 ? @"passed" : @"failed",
         @"failed": @(failed),
         @"total": @(self.checks.count),
