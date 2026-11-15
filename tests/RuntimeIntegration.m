@@ -3,6 +3,7 @@
 #import "Honggo.h"
 #import "RuntimeSupport.h"
 #import <objc/message.h>
+#include "PlaybackDiagnosticsIntegration.inc"
 
 static NSUInteger HGValueCalls, HGWrongGetterCalls, HGLateLayouts;
 static IMP HGValueOriginal, HGClassValueOriginal;
@@ -84,6 +85,10 @@ static NSDictionary *HGCapability(NSString *identifier) {
     self.checks = [NSMutableArray array];
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     [defaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
+
+    HGRunPlaybackDiagnosticsChecks(^(BOOL passed, NSString *name) {
+        [self check:passed name:name];
+    });
 
     SEL valueSelector = @selector(value);
     Method inherited = class_getInstanceMethod(HGRuntimeChild.class, valueSelector);

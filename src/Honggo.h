@@ -12,6 +12,7 @@ void HGPrepareNativeGlass(void);
 BOOL HGNativeGlassStartupOverride(void);
 IMP HGReplaceMethod(Class target, SEL selector, const char *encoding, IMP replacement);
 void HGInstallAds(void);
+void HGInstallPlaybackDiagnostics(void);
 BOOL HGInstallTabBar(void);
 BOOL HGInstallSettings(void);
 void HGAttachSettings(UIView *tabBar);

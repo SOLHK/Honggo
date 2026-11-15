@@ -27,7 +27,7 @@ xcrun --sdk iphoneos clang \
     "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
     "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/AppearancePreferences.m" "$source_root/src/Appearance.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" \
     "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
-    "$source_root/src/AdSceneDiagnostics.m" -o "$output"
+    "$source_root/src/AdSceneDiagnostics.m" "$source_root/src/PlaybackDiagnostics.m" -o "$output"
 
 xcrun otool -hv "$output"
 xcrun otool -L "$output"

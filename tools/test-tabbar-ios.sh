@@ -36,7 +36,7 @@ build_variant() {
         "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
         "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/AppearancePreferences.m" "$source_root/src/Appearance.m" "$source_root/src/RuntimeSupport.m" "$tabbar_source" \
         "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
-        "$source_root/src/AdSceneDiagnostics.m" \
+        "$source_root/src/AdSceneDiagnostics.m" "$source_root/src/PlaybackDiagnostics.m" \
         "$source_root/tests/ControlsIntegration.m" \
         "$source_root/tests/TabBarIntegration.m" "$title_compat" -o "$app/HGTabBarTests"
     python3 - "$app/Info.plist" "$bundle_id" "$source_root" <<'PY'

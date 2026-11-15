@@ -1,0 +1,30 @@
+{
+  "plugin_version": "1.1.15-R3",
+  "host_build": "7.4.3.33",
+  "os": "Version 27.0.1 (Build 24A446)",
+  "events": 839,
+  "sessions": 2,
+  "mask_scenes": 0,
+  "dropped_records": 0,
+  "capacity_pruned_records": 0,
+  "last_cumulative_counts": {
+    "patch_presentation_replacement": 429,
+    "patch_skip_gate": 27,
+    "sidebar_gate": 426,
+    "pause_request_gate": 23,
+    "pause_show_gate": 3
+  },
+  "repro_report": [
+    "portrait clear screen",
+    "hold 2x near episode end",
+    "release",
+    "auto-next episode frame freezes"
+  ],
+  "observations": [
+    "export snapshot is settings, not frozen playback",
+    "no recorded hook installation failures",
+    "R3 has no long-press, playback-rate or episode trace"
+  ],
+  "causal_status": "unconfirmed: synthetic patch-ready callback is a candidate; available log cannot connect it to the reported freeze",
+  "privacy": "sanitized aggregate data only; no raw log, session identifiers, object addresses or user content"
+}

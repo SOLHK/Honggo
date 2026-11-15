@@ -58,6 +58,7 @@ BOOL HGInstallRuntimeModules(void) {
     // Advertisement gates have their own class/ABI checks and must not depend
     // on an optional appearance module. Retrying is safe at the hook boundary.
     HGInstallAds();
+    HGInstallPlaybackDiagnostics();
     HGInstallAppearance();
     HGRecordCapability(@"module.settings", @{@"module": @"settings",
         @"state": HGSettingsInstalled ? @"installed" : @"unavailable",

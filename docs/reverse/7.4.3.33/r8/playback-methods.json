@@ -1,0 +1,56 @@
+{
+  "host_build": "7.4.3.33",
+  "host_sha256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+  "source": "../ad-candidates.json.gz",
+  "evidence": "reused Objective-C metadata only; no new host binary or declined-path disassembly acquired",
+  "methods": [
+    {
+      "class": "SSBizVideoPatchAdService",
+      "kind": "-",
+      "selector": "videoListVCContextPlayModelDidUpdatedNotifyAtScrollEnd:",
+      "encoding": "v24@0:8@16",
+      "file_offset": "0xfd70624",
+      "vm_address": "0x10fd70624"
+    },
+    {
+      "class": "SSBizVideoPatchAdService",
+      "kind": "-",
+      "selector": "videoListVCContextDidChangeCleanMode:isCleanMode:",
+      "encoding": "v28@0:8@16B24",
+      "file_offset": "0xfd70f80",
+      "vm_address": "0x10fd70f80"
+    },
+    {
+      "class": "SSBizVideoPatchAdService",
+      "kind": "-",
+      "selector": "shouldSkipPatchAdWithContext:",
+      "encoding": "B24@0:8@16",
+      "file_offset": "0xfd70fcc",
+      "vm_address": "0x10fd70fcc"
+    },
+    {
+      "class": "SSBizVideoPatchAdService",
+      "kind": "-",
+      "selector": "showPatchAdViewWithContext:seriesId:vId:currentTime:patchAdViewReadyBlock:removeBlock:",
+      "encoding": "v64@0:8@16@24@32d40@?48@?56",
+      "file_offset": "0xfd71018",
+      "vm_address": "0x10fd71018"
+    },
+    {
+      "class": "SSBizVideoPauseAdManager",
+      "kind": "-",
+      "selector": "videoListVCContextPlayStateDidUpdated:",
+      "encoding": "v24@0:8@16",
+      "file_offset": "0xfd7585c",
+      "vm_address": "0x10fd7585c"
+    },
+    {
+      "class": "SSBizVideoAdImpl",
+      "kind": "-",
+      "selector": "shouldInterceptVideoFinishWithContext:videoDataModel:",
+      "encoding": "B32@0:8@16@24",
+      "file_offset": "0xfd7e390",
+      "vm_address": "0x10fd7e390"
+    }
+  ]
+}

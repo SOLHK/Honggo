@@ -19,7 +19,7 @@ xcrun --sdk iphonesimulator clang \
     -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
     -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
     -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
-    "$source_root/src/Ads.m" "$source_root/src/Honggo.m" "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/AppearancePreferences.m" "$source_root/src/Appearance.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" "$source_root/src/AdSceneDiagnostics.m" "$source_root/tests/AdsIntegration.m" \
+    "$source_root/src/Ads.m" "$source_root/src/Honggo.m" "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/AppearancePreferences.m" "$source_root/src/Appearance.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" "$source_root/src/AdSceneDiagnostics.m" "$source_root/src/PlaybackDiagnostics.m" "$source_root/tests/AdsIntegration.m" \
     -o "$app/HGAdsTests" 2>&1 | tee "$work/build.log"
 
 python3 - "$app/Info.plist" "$bundle_id" <<'PY'
@@ -83,7 +83,7 @@ report = json.load(open(sys.argv[1]))
 print(json.dumps(report, indent=2, ensure_ascii=False))
 checks = report.get("checks", [])
 if report.get("status") != "passed" or report.get("failed") != 0 or \
-        report.get("total", 0) < 42 or len(checks) != report.get("total") or \
+        report.get("total", 0) < 55 or len(checks) != report.get("total") or \
         any(check.get("passed") is not True for check in checks):
     raise SystemExit("Ad filtering UIKit integration checks failed")
 PY

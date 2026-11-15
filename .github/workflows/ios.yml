@@ -216,7 +216,10 @@ jobs:
             "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
             "Source commit: ${GITHUB_SHA}" \
             "Built with Xcode 27.2 / iPhoneOS SDK 27.2. Required UIKit regression suites ran on the pinned iOS 27.2 simulator, not a fallback runtime." \
-            "Includes independent dock, playback, panels, icons and font customization. Adds the TG update channel https://t.me/Naloiafeed in main and appearance settings, with open/copy actions and search." \
+            "R8 restores the original patch presentation method and host-owned callback timing instead of synthesizing ready(nil). Existing advertisement eligibility gates remain enabled." \
+            "Adds opt-in, privacy-safe lifecycle traces for clean mode, model updates, playback-state notifications and finish interception." \
+            "Candidate for the portrait clean-mode / long-press 2x / auto-next freeze report; the old log does not establish its root cause. Actual playback and patch-ad coverage require device verification." \
+            "Retains independent appearance customization and the TG update channel https://t.me/Naloiafeed." \
             "Reference behavior was studied; implementation is written for Honggo without importing NaiwaGuo source or assets." \
             "Actual Hongguo iPhone appearance, playback and ad disappearance remain unverified." \
             "R-numbered builds are tests; the suffix is removed only for a stable release on main." \

@@ -15,6 +15,10 @@ typedef struct {
 
 static void HGAdDecision(id object, SEL selector, BOOL result);
 static void (*HGOriginalDirectGameDidDisplay)(id, SEL);
+typedef void (*HGPatchPresentationIMP)(id, SEL, id, id, id, double,
+    void (^)(id), void (^)(void));
+static _Atomic(HGPatchPresentationIMP) HGOriginalPatchPresentation;
+static BOOL HGPatchPresentationInstalled;
 static Class HGDirectGameFeedHost, HGDirectGameSeriesHost;
 static char HGDirectGameRemovalPending;
 
@@ -86,12 +90,49 @@ static id HGNoDirectGameModel(id self, SEL cmd, id data, NSInteger source, id ho
 static void HGSkipSurvey(id self, SEL cmd, NSInteger style, id videoID) { HGAdDecision(self, cmd, NO); }
 static void HGSkipPendant(id self, SEL cmd, UIView *parent) { HGAdDecision(self, cmd, NO); }
 
-static void HGSkipPatch(id self, SEL cmd, id context, id seriesID, id videoID,
+static void HGForwardPatchPresentation(id self, SEL cmd, id context, id seriesID, id videoID,
     double currentTime, void (^ready)(id), void (^remove)(void)) {
-    HGAdDecision(self, cmd, NO);
-    // Follow the host's declined-ad path so playback callers get their completion.
-    if (ready) {
-        ready(nil);
+    static atomic_ulong calls;
+    unsigned long count = atomic_fetch_add_explicit(&calls, 1, memory_order_relaxed) + 1;
+    if ((count & (count - 1)) == 0 || HGEnhancedDiagnostics()) {
+        HGLog(@"patch.presentation", @{@"rule": @16, @"action": @"forwarded",
+            @"hasReady": @(ready != nil), @"hasRemove": @(remove != nil),
+            @"mainThread": @(NSThread.isMainThread), @"count": @(count)});
+    }
+    // The R3 log does not establish the freeze's root cause or the callback
+    // contract of every declined presentation. Keep the host's lifecycle,
+    // callback identities and scheduling intact instead of synthesizing ready(nil).
+    // The separate shouldSkipPatchAdWithContext: decision gate stays installed.
+    HGPatchPresentationIMP original = atomic_load_explicit(&HGOriginalPatchPresentation,
+        memory_order_acquire);
+    original(self, cmd, context, seriesID, videoID, currentTime, ready, remove);
+}
+
+static IMP HGInstallPatchPresentation(Class target, SEL selector, const char *encoding) {
+    @synchronized (target) {
+        // Seed a distinct, ABI-checked original before publishing the wrapper:
+        // another thread may enter as soon as class_replaceMethod returns.
+        // Never reseed from a later interposer, which may itself call our wrapper.
+        if (!HGPatchPresentationInstalled) {
+            Method method = class_getInstanceMethod(target, selector);
+            const char *actual = method ? method_getTypeEncoding(method) : NULL;
+            IMP candidate = method ? method_getImplementation(method) : NULL;
+            if (actual && strcmp(actual, encoding) == 0 && candidate &&
+                    candidate != (IMP)HGForwardPatchPresentation) {
+                atomic_store_explicit(&HGOriginalPatchPresentation,
+                    (HGPatchPresentationIMP)candidate, memory_order_release);
+            }
+        }
+        IMP original = HGInstallVerifiedHook(target, selector, encoding,
+            (IMP)HGForwardPatchPresentation, @"ads");
+        if (original && original != (IMP)HGForwardPatchPresentation) {
+            // The verified installer returns this wrapper's saved original on
+            // retries, including when another plugin has installed above it.
+            atomic_store_explicit(&HGOriginalPatchPresentation,
+                (HGPatchPresentationIMP)original, memory_order_release);
+            HGPatchPresentationInstalled = YES;
+        }
+        return original;
     }
 }
 
@@ -112,7 +153,7 @@ static const HGGate HGGates[] = {
     {HGPause, "SSBizVideoPauseAdManager", "shouldRequestPauseAdData", "B16@0:8", (IMP)HGNo},
     {HGPatch, "SSBizVideoInVideoPatchAdServiceImp", "canShowAd", "B16@0:8", (IMP)HGNo},
     {HGPatch, "SSBizVideoPatchAdService", "shouldSkipPatchAdWithContext:", "B24@0:8@16", (IMP)HGYesObject},
-    {HGPatch, "SSBizVideoPatchAdService", "showPatchAdViewWithContext:seriesId:vId:currentTime:patchAdViewReadyBlock:removeBlock:", "v64@0:8@16@24@32d40@?48@?56", (IMP)HGSkipPatch},
+    {HGPatch, "SSBizVideoPatchAdService", "showPatchAdViewWithContext:seriesId:vId:currentTime:patchAdViewReadyBlock:removeBlock:", "v64@0:8@16@24@32d40@?48@?56", (IMP)HGForwardPatchPresentation},
     {HGEcommerce, "SSStartUpEcomQCPXPopupOperation", "shouldDisplay:viewClass:", "B32@0:8@16#24", (IMP)HGNoObjectClass},
     {HGMarketing, "SSBizMonetizationAdPopupOperation", "checkCanShowPopup", "B16@0:8", (IMP)HGNo},
     {HGRedPacket, "SSWelfareRedPacketPopupAdapter", "couldShowRedPacket", "B16@0:8", (IMP)HGNo},
@@ -206,7 +247,9 @@ void HGInstallAds(void) {
                 @"reason": @"direct-game host method ABI mismatch"});
             continue;
         }
-        IMP original = HGInstallVerifiedHook(target, selector, gate->encoding, gate->replacement, @"ads");
+        IMP original = gate->replacement == (IMP)HGForwardPatchPresentation ?
+            HGInstallPatchPresentation(target, selector, gate->encoding) :
+            HGInstallVerifiedHook(target, selector, gate->encoding, gate->replacement, @"ads");
         if (original) {
             if (directGameDisplay) HGOriginalDirectGameDidDisplay = (void (*)(id, SEL))original;
             if (class_getMethodImplementation(target, selector) == gate->replacement) installed++;
