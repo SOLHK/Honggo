@@ -1,4 +1,5 @@
 #import "SettingsTransition.h"
+#import "Community.h"
 @interface HGAAppearanceController : UITableViewController <UISearchResultsUpdating,UISearchControllerDelegate,PHPickerViewControllerDelegate,UIDocumentPickerDelegate,UIFontPickerViewControllerDelegate,UIColorPickerViewControllerDelegate>
 @property(nonatomic,copy) NSString *group;
 @property(nonatomic,copy) NSArray<NSDictionary *> *rows;
@@ -73,6 +74,8 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
         }
         if([self.group isEqual:@"fonts"] && !query.length)[rows addObject:HGATool(@"@fonts.reset",@"恢复宿主原字体与字号")];
     }
+    if(!self.group && HGCommunityMatchesQuery(query))
+        [rows addObject:HGATool(@"@community",@"TG 更新频道 · @Naloiafeed")];
     self.rows=rows;
     UILabel *empty=nil;
     if(!rows.count){empty=[UILabel new];empty.text=@"没有匹配的外观设置";empty.textAlignment=NSTextAlignmentCenter;empty.textColor=UIColor.secondaryLabelColor;}
@@ -156,6 +159,7 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
 - (void)openRow:(NSDictionary *)row {
     if(self.busy)return;
     NSString *key=row[@"key"],*kind=row[@"kind"];
+    if([key isEqual:@"@community"]){HGShowCommunity(self);return;}
     if([key hasPrefix:@"@group."]){HGOpenAppearance(self,[key substringFromIndex:7]);return;}
     if([key hasPrefix:@"@preset."]) {
         NSString *preset=[key substringFromIndex:8];

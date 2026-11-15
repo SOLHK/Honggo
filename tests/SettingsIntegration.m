@@ -1,3 +1,4 @@
+#import "Community.h"
 // Real UIKit integration checks with a controlled host, not the Hongguo IPA.
 #import "Honggo.h"
 #import <dispatch/dispatch.h>
@@ -414,6 +415,20 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     };
     search.delegate = self.searchEvents;
 
+    [self check:[settings.tableView numberOfRowsInSection:3] == 1 &&
+        [[self settingsCell:settings section:3 row:0].accessibilityIdentifier isEqual:@"honggo.community.channel"]
+        name:@"Telegram channel is visible without enabling any feature"];
+    [self check:[HGCommunityURLString() isEqual:@"https://t.me/Naloiafeed"]
+        name:@"channel destination matches the owner supplied HTTPS address exactly"];
+    for (NSString *query in @[@"TG", @"频道", @"nAlOiAfEeD", @"telegram 更新"]) {
+        [self filterSettings:settings text:query];
+        [self check:[settings.tableView numberOfRowsInSection:3] == 1 &&
+            [settings.tableView numberOfRowsInSection:0] == 0 &&
+            [[self settingsCell:settings section:3 row:0].accessibilityIdentifier isEqual:@"honggo.community.channel"]
+            name:@"channel search uses a stable identity without modifying feature rows"];
+    }
+    [self check:!HGCommunityMatchesQuery(@"unrelated-channel-123")
+        name:@"unmatched channel searches cannot expose a stale result"];
     [self filterSettings:settings text:@"信息流"];
     UISwitch *feed = (UISwitch *)[self settingsCell:settings section:0 row:0].accessoryView;
     [self check:[settings.tableView numberOfRowsInSection:0] == 1 && feed.tag == HGFeed &&
@@ -475,11 +490,12 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self runSearchAction:0 settings:settings completion:completion];
 }
 - (void)runSearchAction:(NSUInteger)index settings:(HGSettingsController *)settings completion:(dispatch_block_t)completion {
-    NSArray<NSString *> *queries = @[@"兼容", @"reset", @"restore import", @"backup export"];
+    NSArray<NSString *> *queries = @[@"兼容", @"reset", @"restore import", @"backup export", @"TG Naloiafeed"];
     NSArray<NSString *> *names = @[@"active search opens compatibility after search dismissal",
         @"active search opens the reset confirmation after search dismissal",
         @"active search opens the JSON picker after search dismissal",
-        @"active search exports configuration to the native share sheet"];
+        @"active search exports configuration to the native share sheet",
+        @"active search opens the Telegram menu only after search dismissal"];
     if (index >= queries.count) {
         [self activateSearch:settings query:@"玻璃" completion:^(BOOL active) {
             if (!active) { completion(); return; }
@@ -502,7 +518,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     BOOL diagnosticsConsent = HGEnhancedDiagnostics();
     [self activateSearch:settings query:queries[index] completion:^(BOOL active) {
         if (!active) { completion(); return; }
-        NSInteger section = index == 0 ? 1 : 2;
+        NSInteger section = index == 0 ? 1 : index == 4 ? 3 : 2;
         if ([settings.tableView numberOfRowsInSection:section] != 1) {
             [self check:NO name:@"active result list resolves exactly one action"];
             completion();
@@ -516,7 +532,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
             if (settings.navigationItem.searchController.active || self.searchEvents.dismissals <= dismissalsBefore) return NO;
             if (index == 0) return settings.navigationController.topViewController != settings;
             UIViewController *presented = settings.presentedViewController;
-            Class expected = index == 1 ? UIAlertController.class :
+            Class expected = (index == 1 || index == 4) ? UIAlertController.class :
                 index == 2 ? UIDocumentPickerViewController.class : UIActivityViewController.class;
             return [presented isKindOfClass:expected] && !presented.isBeingPresented;
         } deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL performed) {
@@ -552,6 +568,15 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
                     }
                     [self check:[alert.title isEqual:@"关闭全部功能开关？"] && hasCancel && hasDestructive
                         name:@"reset requires a concrete confirmation before changing switches"];
+                } else if (index == 4) {
+                    UIAlertController *menu = (UIAlertController *)settings.presentedViewController;
+                    NSMutableSet *titles = [NSMutableSet set];
+                    for (UIAlertAction *action in menu.actions) [titles addObject:action.title];
+                    [self check:[menu.message isEqual:HGCommunityURLString()] &&
+                        [titles containsObject:@"打开频道"] && [titles containsObject:@"复制地址"] &&
+                        [titles containsObject:@"取消"] && menu.actions.count == 3
+                        name:@"channel menu shows the exact destination and explicit open copy cancel choices"];
+                    [self capture:@"settings-community-simulator.png"];
                 } else if (index == 2) {
                     UIDocumentPickerViewController *picker = (UIDocumentPickerViewController *)settings.presentedViewController;
                     [self check:!picker.allowsMultipleSelection && picker.delegate == (id)settings
@@ -570,6 +595,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         failed += ![check[@"passed"] boolValue];
     }
     NSDictionary *report = @{@"plugin": HG_PLUGIN_NAME, @"version": HG_PLUGIN_VERSION, @"scope": @"real UIKit with a simulated host; not a Hongguo device test",
+        @"simulatorOS": UIDevice.currentDevice.systemVersion,
         @"status": failed == 0 ? @"passed" : @"failed", @"failed": @(failed),
         @"total": @(self.checks.count), @"checks": self.checks,
         @"searchStateTrace": self.searchStateTrace ?: @[]};

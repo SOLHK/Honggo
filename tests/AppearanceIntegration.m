@@ -276,11 +276,16 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     UISearchController *search=page.navigationItem.searchController;search.searchBar.text=@"layout.like";
     [search.searchResultsUpdater updateSearchResultsForSearchController:search];
     Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==4,@"appearance search resolves stable per-control keys");
+    search.searchBar.text=@"TG Naloiafeed";
+    [search.searchResultsUpdater updateSearchResultsForSearchController:search];
+    Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==1,@"appearance search finds the Telegram channel");
+    UITableViewCell *channel=[page.tableView.dataSource tableView:page.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
+    Check([channel.accessibilityIdentifier isEqual:@"honggo.appearance.setting.@community"],@"appearance channel keeps its stable action identity");
     HGAppearanceReset();
 }
 - (void)finish {
     NSUInteger failed=0;for(NSDictionary *c in checks)failed+=![c[@"passed"] boolValue];
-    NSDictionary *report=@{@"plugin":@"Honggo",@"version":HG_PLUGIN_VERSION,@"status":failed?@"failed":@"passed",@"total":@(checks.count),@"failed":@(failed),@"checks":checks,@"scope":@"production visual code with controlled UIKit hosts; not Hongguo device acceptance"};
+    NSDictionary *report=@{@"plugin":@"Honggo",@"simulatorOS":UIDevice.currentDevice.systemVersion,@"version":HG_PLUGIN_VERSION,@"status":failed?@"failed":@"passed",@"total":@(checks.count),@"failed":@(failed),@"checks":checks,@"scope":@"production visual code with controlled UIKit hosts; not Hongguo device acceptance"};
     NSURL *directory=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
     [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
     [[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil] writeToURL:[directory URLByAppendingPathComponent:@"appearance-results.json"] atomically:YES];

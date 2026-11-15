@@ -1,5 +1,6 @@
 #import "Honggo.h"
 #import "Appearance.h"
+#import "Community.h"
 #import "SettingsTransition.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <dispatch/dispatch.h>
@@ -89,6 +90,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleDiagnostics;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleConfiguration;
 @property(nonatomic) BOOL preferenceOperationInFlight;
+@property(nonatomic) BOOL communityVisible;
 @property(nonatomic, copy) dispatch_block_t afterSearchDismissal;
 @end
 
@@ -141,8 +143,9 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     self.visibleFeatures = features;
     self.visibleDiagnostics = diagnostics;
     self.visibleConfiguration = configuration;
+    self.communityVisible = HGCommunityMatchesQuery(query);
     UILabel *empty = nil;
-    if (features.count + diagnostics.count + configuration.count == 0) {
+    if (features.count + diagnostics.count + configuration.count == 0 && !self.communityVisible) {
         empty = [[UILabel alloc] initWithFrame:self.tableView.bounds];
         empty.text = @"未找到匹配的设置\n试试“玻璃”“直播”或“日志”";
         empty.numberOfLines = 0;
@@ -191,16 +194,19 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
                 !self.isBeingDismissed && !self.navigationController.isBeingDismissed) action();
     });
 }
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 3; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 4; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return section == 0 ? self.visibleFeatures.count : section == 1 ? self.visibleDiagnostics.count : self.visibleConfiguration.count;
+    if (section == 3) return self.communityVisible ? 1 : 0;
+    return section == 0 ? self.visibleFeatures.count : section == 1 ? self.visibleDiagnostics.count :
+        section == 2 ? self.visibleConfiguration.count : 0;
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
-    return @[@"版本 " HG_PLUGIN_VERSION, @"诊断与兼容", @"配置管理"][section];
+    return @[@"版本 " HG_PLUGIN_VERSION, @"诊断与兼容", @"配置管理", @"更新与频道"][section];
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
+    if (section == 3) return @"查看插件更新与测试版公告。只有点击打开或复制时才执行操作，不会自动加入频道。";
     if (section == 1) return @"增强诊断即时生效。复现广告或遮罩后截屏，再回来导出日志；仅记录控件结构，不读取截图像素或页面文字。本次启动保留最近 10 份现场，导出前不要退出应用。";
     if (section == 2) return @"配置文件仅保存 Honggo 的功能开关。恢复前会核对格式并显示变更数量；账号、宿主设置和增强诊断选择保持不变。恢复或关闭全部开关后，请完全退出再打开。";
     NSString *mode = HGNativeGlassConfigured() ?
@@ -209,6 +215,20 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     return [@"功能开关更改后请完全退出红果短剧，再重新打开。" stringByAppendingString:mode];
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section == 3) {
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+        cell.textLabel.text = @"TG 更新频道";
+        cell.detailTextLabel.text = @"@Naloiafeed · 打开频道或复制地址";
+        cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+        cell.detailTextLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+        cell.textLabel.adjustsFontForContentSizeCategory = YES;
+        cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
+        cell.textLabel.numberOfLines = 0;
+        cell.detailTextLabel.numberOfLines = 0;
+        cell.accessibilityIdentifier = @"honggo.community.channel";
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return cell;
+    }
     if (indexPath.section == 0) {
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"HonggoOption"];
         if (!cell) {
@@ -386,6 +406,10 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (self.preferenceOperationInFlight || indexPath.section == 0) return;
+    if (indexPath.section == 3) {
+        [self performAfterSearchDismissal:^{ HGShowCommunity(self); }];
+        return;
+    }
     // A result remains identified by its stable action even when only one row matches.
     NSInteger section = indexPath.section;
     NSArray<NSNumber *> *actions = section == 2 ? self.visibleConfiguration : self.visibleDiagnostics;

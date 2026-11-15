@@ -44,29 +44,7 @@ Path(sys.argv[1]).write_bytes(plistlib.dumps({
 PY
 codesign --force --sign - "$app"
 xcrun simctl list --json > "$work/simulators.json"
-selection=$(python3 - "$work/simulators.json" <<'PY'
-import json
-import re
-import sys
-
-inventory = json.load(open(sys.argv[1]))
-devices = inventory["devices"]
-ios = [(tuple(map(int, re.findall(r"\d+", runtime.split(".iOS-")[-1]))), entries)
-       for runtime, entries in devices.items() if ".iOS-" in runtime]
-for _, entries in sorted(ios, reverse=True):
-    phones = [item for item in entries if item.get("isAvailable") and item["name"].startswith("iPhone")]
-    if phones:
-        device_type = phones[0].get("deviceTypeIdentifier")
-        if not device_type:
-            device_type = next(item["identifier"] for item in inventory["devicetypes"]
-                               if item["name"] == phones[0]["name"])
-        runtime = next(key for key, value in devices.items() if value == entries)
-        print(device_type, runtime)
-        break
-else:
-    raise SystemExit("No available iPhone simulator runtime is installed")
-PY
-)
+selection=$(python3 "$source_root/tools/simulator_target.py" "$work/simulators.json" --record "$work/simulator-target.json")
 read -r device_type runtime_id <<< "$selection"
 device_id=$(xcrun simctl create "HonggoSettings-$$" "$device_type" "$runtime_id")
 cleanup() {
@@ -77,6 +55,7 @@ cleanup() {
 trap cleanup EXIT
 xcrun simctl boot "$device_id"
 xcrun simctl bootstatus "$device_id" -b
+python3 "$source_root/tools/simulator_target.py" "$work/simulators.json" --record "$work/simulator-target.json" --verify-booted "$device_id"
 xcrun simctl install "$device_id" "$app"
 data_directory=$(xcrun simctl get_app_container "$device_id" "$bundle_id" data)
 rm -f -- "$data_directory/Documents/settings-results.json"
@@ -94,7 +73,7 @@ if [ ! -f "$data_directory/Documents/settings-results.json" ]; then
     exit 1
 fi
 cp "$data_directory/Documents/settings-results.json" "$work/settings-results.json"
-for name in settings-menu-simulator.png settings-options-simulator.png settings-search-failure-simulator.png; do
+for name in settings-menu-simulator.png settings-options-simulator.png settings-community-simulator.png settings-search-failure-simulator.png; do
     if [ -f "$data_directory/Documents/$name" ]; then
         cp "$data_directory/Documents/$name" "$work/$name"
     fi
