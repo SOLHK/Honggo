@@ -287,6 +287,13 @@ static NSDictionary<NSString *,NSString *> *HGAPanelControllers(void) {
         @"SSSharePanelViewController":@"share",
         @"UGKmpSharePanelContainerViewController":@"share"};
 }
+// Concrete comment surfaces are present even when the app changes the
+// containing controller. Do not hook generic text, drawing or scroll classes.
+static NSArray<NSString *> *HGACommentSurfaces(void) {
+    return @[@"FQCShortVideoCommentPanelTitleView", @"FQCShortVideoCommentTitleView",
+        @"FQCShortVideoCommentListCollectionView", @"FQCShortVideoBottomToolBar",
+        @"FQCShortVideoNewEditorView"];
+}
 static char HGAPanelCoversKey;
 static void HGAApplyPanel(UIView *root,NSString *kind) {
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag([@"panels." stringByAppendingString:kind]) && root.window;
@@ -324,6 +331,9 @@ void HGAppearanceProcessView(UIView *view) {
         if([name isEqual:@"FQVShortVideoPlayerCellView"]){
             for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
             HGAApplyTypography(view);return;
+        }
+        if([HGACommentSurfaces() containsObject:name]) {
+            HGAApplyPanel(view,@"comment");HGAApplyTypography(view);return;
         }
         if(!role)return;
         BOOL enabled=HGAppearanceEnabled() && view.window;

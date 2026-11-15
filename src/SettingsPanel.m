@@ -358,12 +358,12 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 }
 - (void)confirmReset {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"关闭全部功能开关？"
-        message:@"关闭 Honggo 的全部功能开关，保留账号、宿主设置和增强诊断选择。完全退出并重新打开红果后生效。"
+        message:@"关闭 Honggo 的全部功能，保留外观参数、账号、宿主设置和增强诊断选择。完全退出并重新打开红果后生效。"
         preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"全部关闭" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         HGPreferencesReset();
-        HGAppearanceReset();
+        HGAppearanceSet(@"enabled", @NO, nil);
         HGLog(@"settings.reset", @{@"features": @(HGFeatureCount)});
         [self.tableView reloadData];
     }]];

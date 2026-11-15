@@ -148,6 +148,7 @@ void HGInstallAppearance(void) {
         if (!HGAHooks) HGAHooks=[NSMutableDictionary dictionary];
         NSUInteger found=0;
         NSMutableOrderedSet *classes=[NSMutableOrderedSet orderedSetWithArray:HGAViewRoles().allKeys];
+        [classes addObjectsFromArray:HGACommentSurfaces()];
         [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar"]];
         for (NSString *name in classes) {
             Class cls=NSClassFromString(name);
