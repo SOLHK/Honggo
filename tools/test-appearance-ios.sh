@@ -74,8 +74,8 @@ if [ ! -f "$data_directory/Documents/appearance-results.json" ]; then
     exit 1
 fi
 cp "$data_directory/Documents/appearance-results.json" "$work/appearance-results.json"
-if [ -f "$data_directory/Documents/dock-r9-preview.png" ]; then
-    cp "$data_directory/Documents/dock-r9-preview.png" "$work/dock-r9-preview.png"
+if [ -f "$data_directory/Documents/dock-preview.png" ]; then
+    cp "$data_directory/Documents/dock-preview.png" "$work/dock-preview.png"
 fi
 python3 - "$work/appearance-results.json" <<'PY'
 import json

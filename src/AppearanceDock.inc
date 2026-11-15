@@ -209,6 +209,14 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     HGAInstallGlass(self.capsule,style,self.collapsed?22:radius,0.08);
     HGAInstallGlass(self.extra,style,circle/2,0.08);
     HGAInstallGlass(self.expand,style,22,0.08);
+    // UIKit may reorder a UIButton's configuration content after our background
+    // was inserted. These two buttons belong entirely to Honggo: keep their
+    // material behind every normal content layer so it cannot blur the glyph.
+    // Do not reorder or change z positions on any host-owned view.
+    for(UIButton *accessory in @[self.extra,self.expand]) {
+        CALayer *materialLayer=HGAState(accessory,NO).glass.layer;
+        if(materialLayer.zPosition!=-1)materialLayer.zPosition=-1;
+    }
     self.capsule.hidden=self.collapsed;
     UIColor *tint=HGAppearanceColor(HGAppearanceString(@"dock.tint"),nil);
     UIColor *surfaceColor=translucent ? [UIColor colorWithWhite:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor;

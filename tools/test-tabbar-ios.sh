@@ -153,9 +153,10 @@ run_variant() {
         tabbar-reference-results.json:*|tabbar-fallback-results.json:*) phase_count=2 ;;
         tabbar-results.json:legacy) phase_count=5 ;;
     esac
-    # Each scene has a bounded 60-second capture budget, plus two minutes for
-    # application startup. The full seven-scene host is bounded at 540 seconds.
-    local run_timeout=$((phase_count * 60 + 120))
+    # Two bounded transport attempts fit inside each scene's 120-second ACK
+    # budget, plus two minutes for application startup. All phases and pixel
+    # assertions remain required; seven-scene hosts are bounded at 960 seconds.
+    local run_timeout=$((phase_count * 120 + 120))
     local run_deadline=$((SECONDS + run_timeout))
     while ((SECONDS < run_deadline)); do
         if [ -f "$data_directory/Documents/$result_name" ]; then
@@ -168,19 +169,103 @@ run_variant() {
                 tabbar-light|tabbar-dark|tabbar-scroll|tabbar-disabled|tabbar-material-light|tabbar-material-dark|native-reference-light|native-reference-dark)
                     if [ "$phase" != "$captured_phase" ]; then
                         captured_phase=$phase
-                        if python3 - "$device_id" "$work/$variant/$phase-system-simulator.png" "$phase" <<'PY'
+                        if python3 - "$device_id" "$work/$variant/$phase-system-simulator.png" "$phase" \
+                            "$data_directory/Documents/tabbar-capture-phase.txt" \
+                            "$data_directory/Documents/$result_name" <<'PY'
+from pathlib import Path
+import struct
 import subprocess
 import sys
+import tempfile
 import time
+import zlib
 
-started = time.monotonic()
-try:
-    subprocess.run(["xcrun", "simctl", "io", sys.argv[1], "screenshot", sys.argv[2]],
-                   check=True, timeout=55)
-except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-    print(f"Capture failed for {sys.argv[3]}: {error}", file=sys.stderr)
-    raise SystemExit(1)
-print(f"Capture completed for {sys.argv[3]} in {time.monotonic() - started:.3f}s")
+
+class CaptureStopped(RuntimeError):
+    pass
+
+
+def require_current_phase(phase_file, result_file, phase):
+    if result_file.exists():
+        raise CaptureStopped("app has already finished waiting")
+    if phase_file.read_text().strip() != phase:
+        raise CaptureStopped("app is no longer displaying the requested phase")
+
+
+def validate_png(path):
+    # A completed subprocess is insufficient if it left a partial/corrupt PNG.
+    # Pixel/material assertions still run in the suite's existing comparison.
+    data = path.read_bytes()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("capture is not a PNG")
+    offset = 8
+    header = False
+    pixels = False
+    while offset + 12 <= len(data):
+        length = struct.unpack_from(">I", data, offset)[0]
+        end = offset + 12 + length
+        if end > len(data):
+            raise ValueError("capture contains a truncated PNG chunk")
+        kind = data[offset + 4:offset + 8]
+        chunk = data[offset + 8:offset + 8 + length]
+        crc = struct.unpack_from(">I", data, offset + 8 + length)[0]
+        if zlib.crc32(kind + chunk) & 0xFFFFFFFF != crc:
+            raise ValueError("capture contains a corrupt PNG chunk")
+        if not header:
+            if kind != b"IHDR" or length != 13:
+                raise ValueError("capture lacks a PNG image header")
+            width, height = struct.unpack_from(">II", chunk)
+            if not width or not height:
+                raise ValueError("capture has empty dimensions")
+            header = True
+        if kind == b"IDAT" and length:
+            pixels = True
+        if kind == b"IEND":
+            if length or end != len(data) or not pixels:
+                raise ValueError("capture has an incomplete PNG image")
+            return
+        offset = end
+    raise ValueError("capture lacks the PNG end marker")
+
+
+def capture():
+    device, destination, phase, phase_file, result_file = sys.argv[1:]
+    destination = Path(destination)
+    phase_file, result_file = Path(phase_file), Path(result_file)
+    # A prior failed invocation must not leave an image that looks successful.
+    destination.unlink(missing_ok=True)
+    started = time.monotonic()
+    for attempt in (1, 2):
+        temporary = None
+        try:
+            require_current_phase(phase_file, result_file, phase)
+            # Unique paths isolate a retry from a late writer left by a timed
+            # out simctl operation. Only validated bytes receive the final name.
+            with tempfile.NamedTemporaryFile(dir=destination.parent,
+                    prefix=f"{destination.stem}.attempt-{attempt}-", suffix=".png") as placeholder:
+                temporary = Path(placeholder.name)
+            subprocess.run(["xcrun", "simctl", "io", device, "screenshot", str(temporary)],
+                           check=True, timeout=50)
+            validate_png(temporary)
+            require_current_phase(phase_file, result_file, phase)
+            temporary.replace(destination)
+            print(f"Capture completed for {phase} on attempt {attempt} "
+                  f"in {time.monotonic() - started:.3f}s")
+            return 0
+        except CaptureStopped as error:
+            print(f"Capture stopped for {phase}: {error}", file=sys.stderr)
+            return 1
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError) as error:
+            print(f"Capture attempt {attempt}/2 failed for {phase}: {error}", file=sys.stderr)
+            # The next attempt checks both phase identity and the absence of a
+            # result before issuing another command; finished scenes never retry.
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    return 1
+
+
+raise SystemExit(capture())
 PY
                         then
                             local current_phase

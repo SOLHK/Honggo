@@ -6,6 +6,10 @@
 #import <objc/message.h>
 #include <math.h>
 
+// Two 50-second simctl transport attempts plus scheduling/validation margin.
+// A missing acknowledgement still fails the same required screenshot check.
+static const CFTimeInterval HGSystemCaptureTimeoutSeconds = 120;
+
 NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
 @interface HGTitleProbe : UILabel
 @property(nonatomic) NSUInteger fontWrites;
@@ -1854,8 +1858,8 @@ static UIImage *HGWhiteImage(void) {
         }
         CFTimeInterval ready = CACurrentMediaTime();
         [self.captureEvents addObject:@{@"phase": phase, @"event": @"ready",
-            @"monotonicSeconds": @(ready), @"deadlineSeconds": @60}];
-        [self waitForSystemCapture:phase index:index deadline:ready + 60];
+            @"monotonicSeconds": @(ready), @"deadlineSeconds": @(HGSystemCaptureTimeoutSeconds)}];
+        [self waitForSystemCapture:phase index:index deadline:ready + HGSystemCaptureTimeoutSeconds];
     });
 }
 - (void)waitForSystemCapture:(NSString *)phase index:(NSUInteger)index deadline:(CFTimeInterval)deadline {
