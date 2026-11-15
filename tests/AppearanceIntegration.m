@@ -142,6 +142,8 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
 #include "AppearanceTransitionCoordinatorTests.inc"
 #include "DockAppearanceIntegration.inc"
 #include "EpisodeGlassIntegration.inc"
+#include "EpisodeSpacingIntegration.inc"
+#include "ActionShareAppearanceIntegration.inc"
 @interface HGAAppearanceTests : UIResponder <UIWindowSceneDelegate>
 @property(nonatomic,strong) UIWindow *window;
 @property(nonatomic,strong) SSTabBarController *host;
@@ -218,6 +220,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     SSShortVideoBottomDistributionView *episodes=[[SSShortVideoBottomDistributionView alloc] initWithFrame:CGRectMake(20,220,280,44)];[root addSubview:episodes];Layout(episodes);
     Check(Find(episodes,@"honggo.appearance.material")!=nil,@"episode entry glass is active");
     RunEpisodeGlassChecks(root);
+    RunEpisodeSpacingChecks(root);
 
     SSShortVideoOutterSeriesInfoView *info=[[SSShortVideoOutterSeriesInfoView alloc] initWithFrame:CGRectMake(20,280,280,60)];[root addSubview:info];
     UILabel *rich=[[UILabel alloc] initWithFrame:CGRectMake(0,0,180,24)];
@@ -260,6 +263,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
         Check(Find(panel.view,@"honggo.appearance.material")==nil && [backdrop.backgroundColor isEqual:UIColor.whiteColor],@"panel reset restores all owned backgrounds");
         [panel.view removeFromSuperview];[panel removeFromParentViewController];HGAppearanceSet(@"enabled",@YES,nil);
     }
+    RunActionShareAppearanceChecks(self.host);
 
     FQCShortVideoCommentPanelTitleView *commentSurface=[[FQCShortVideoCommentPanelTitleView alloc] initWithFrame:CGRectMake(20,300,280,52)];
     commentSurface.backgroundColor=UIColor.whiteColor;[root addSubview:commentSurface];Layout(commentSurface);

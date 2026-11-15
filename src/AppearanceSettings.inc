@@ -84,7 +84,7 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section{return self.rows.count;}
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if([self.group isEqual:@"fonts"])return @"只改变已适配播放页、面板及底栏的原生文字，不修改视频内字幕、网页或自绘文字。编辑中的输入框、密码、图标字体保持原样。字体导入上限 50 MiB，仅本机使用。";
-    if([self.group isEqual:@"player"])return @"偏移单位为点，比例 1 表示原始大小。作者与剧集信息按容器整体调整。横屏／方形画面不放大；竖屏填满只修改画面，不修改翻页距离、播放器逻辑和系统状态栏。";
+    if([self.group isEqual:@"player"])return @"偏移单位为点，比例 1 表示原始大小。播放页的「铺满屏幕」等比裁切画面边缘，横屏／方形视频也可手动铺满；再点「还原比例」恢复完整画面。自动铺满只用于竖屏视频。只调整视频渲染，不修改翻页距离、播放器逻辑和系统状态栏。";
     if([self.group isEqual:@"dock"])return @"底栏优先保留至少 44 点的点击区域，尺寸会受宿主可用空间限制。上滑收缩，下滑或点击圆钮展开；语音朗读开启时保持展开。搜索需要在首页有可用宿主入口。";
     if([self.group isEqual:@"icons"])return @"图片优先于 SF Symbol，最后使用预设。收藏和点赞按宿主真实状态显示；无法读取状态时保留原图标。自选图片在本地缩小为不超过 256 像素的 PNG。";
     if([self.group isEqual:@"panels"])return @"仅处理已识别面板，不隐藏绘制内容、输入框或点击遮罩。未匹配的面板保留原样，适配状态可以随日志导出。";

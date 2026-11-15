@@ -14,6 +14,12 @@ int main(void) {@autoreleasepool {
     }
     Check(unique && keys.count>100,@"every visual option has one stable key");
     Check(defaults && !HGAppearanceEnabled(),@"all appearance switches default off");
+    Check([HGAppearanceString(@"player.fillButton") isEqual:@"show"] &&
+        [HGAppearanceString(@"player.separateProgress") isEqual:@"show"],@"playback usability controls are available once appearance is enabled");
+    Check(HGAppearanceSet(@"player.fillButton",@"hide",nil) &&
+        !HGAppearanceSet(@"player.fillButton",@YES,nil),@"fill control visibility is a validated choice without enabling automatic crop");
+    Check(!HGAppearanceFlag(@"player.fullscreen"),@"showing or hiding the fill control never enables automatic cropping");
+    Check(HGAppearanceSet(@"player.fillButton",@"show",nil),@"fill control can be shown again");
     Check(HGAppearanceNumber(@"layout.like.scale")==1,@"layout default scale is identity");
     Check(HGAppearanceNumber(@"layout.like.x")==0,@"layout default offset is zero");
     Check(!HGAppearanceSet(@"unknown",@YES,nil),@"unknown setting rejected");

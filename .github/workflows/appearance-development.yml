@@ -1,17 +1,22 @@
 name: Appearance development
 on:
   push:
-    branches: [work/appearance-r5]
+    branches: [work/appearance-r5, work/r13-ui-paging]
 permissions:
   contents: read
+env:
+  DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+  HG_SIMULATOR_OS: "27.2"
 jobs:
   validate:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Require Xcode 27.2 and iOS 27.2 runtime
+        run: bash tools/verify-ios-toolchain.sh
       - name: Compile device plugin
         run: bash tools/build-ios.sh
       - name: Validate appearance preferences
@@ -36,5 +41,6 @@ jobs:
             build/appearance-tests/*.log
             build/appearance-tests/*.tar
             build/appearance-tests/*.txt
+            build/appearance-tests/*.png
             build/*.dylib
           if-no-files-found: warn

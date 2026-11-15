@@ -57,7 +57,9 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"player.rightGlass",@"player",@"右侧动作按钮玻璃");
         flag(@"player.headerGlass",@"player",@"顶部频道玻璃");
         flag(@"player.episodeGlass",@"player",@"全集入口玻璃");
-        flag(@"player.fullscreen",@"player",@"竖屏视频填满播放画布");
+        flag(@"player.fullscreen",@"player",@"自动铺满竖屏视频");
+        choice(@"player.fillButton",@"player",@"画面铺满按钮",@[@"show",@"hide"],@[@"显示铺满／还原按钮",@"隐藏按钮"]);
+        choice(@"player.separateProgress",@"player",@"合集与进度条分开布局",@[@"show",@"hide"],@[@"自动留出间距",@"原始布局"]);
         choice(@"player.material",@"player",@"播放控件材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"系统磨砂"]);
         NSArray *roles = HGAppearanceRoles(), *titles = HGAppearanceRoleTitles();
         for (NSUInteger i=0; i<roles.count; i++) {
@@ -75,7 +77,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         number(@"panels.opacity",@"panels",@"面板底色不透明度",0.28,0.08,0.85);
         flag(@"icons.enabled",@"icons",@"使用自定义动作图标");
         choice(@"icons.preset",@"icons",@"图标预设",@[@"outline",@"filled",@"circle",@"square"],@[@"线性",@"实心",@"圆形",@"方形"]);
-        number(@"icons.size",@"icons",@"动作图标大小",30,20,48);
+        number(@"icons.size",@"icons",@"动作图标大小",26,20,48);
         for (NSString *role in @[@"like",@"collect",@"comment",@"share"]) {
             NSString *title = [HGAppearanceRoleTitles() objectAtIndex:[HGAppearanceRoles() indexOfObject:role]];
             for (NSString *state in @[@"normal",@"selected"]) {

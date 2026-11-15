@@ -21,6 +21,9 @@ static void HGARefreshAssets(void);
 static void HGAApplyTypography(UIView *root);
 static void HGAObserveFeed(UIScrollView *feed);
 static void HGARefreshDock(UIView *bar);
+static NSArray<NSString *> *HGABottomControlClasses(void);
+static void HGAUpdateBottomLayoutForView(UIView *view);
+static void HGARestoreBottomLayoutForView(UIView *view);
 
 UIColor *HGAppearanceColor(NSString *hex, UIColor *fallback) {
     if (hex.length != 7 || ![hex hasPrefix:@"#"]) return fallback;
@@ -93,6 +96,7 @@ static NSError *HGAAssetError(NSString *message) {
 }
 #include "AppearanceAssets.inc"
 #include "AppearanceViews.inc"
+#include "AppearanceBottomLayout.inc"
 #include "AppearanceDock.inc"
 #include "AppearanceSettings.inc"
 
@@ -116,13 +120,23 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     // reach a lifecycle observer as soon as class_replaceMethod returns.
     __block IMP original=actual && !strcmp(actual,encoding)?method_getImplementation(method):NULL;
     NSString *className=NSStringFromClass(cls);
+    BOOL playerCanvas=[className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL episode=[HGAViewRoles()[className] isEqual:@"episodes"];
     BOOL episodeWrapper=[className isEqual:@"FQVShortVideoBaseInsertView"];
+    BOOL bottomParticipant=episodeWrapper || [HGABottomControlClasses() containsObject:className] ||
+        [className isEqual:@"FQVShortVideoProgressView"] ||
+        [className isEqual:@"SSShortVideoDerivateInfoView"] || [className isEqual:@"SSShortVideoOutterSeriesInfoView"];
     IMP replacement=NULL;
     if (!strcmp(encoding,"v16@0:8")) {
         replacement=imp_implementationWithBlock(^(id object) {
-            ((void(*)(id,SEL))original)(object,selector);
+            BOOL recycling=playerCanvas && selector==sel_registerName("resetToRecycle") && NSThread.isMainThread;
+            BOOL wasApplying=HGAApplying;
+            if(recycling)HGAApplying=YES;
+            @try {
+                if(recycling)HGAResetPlayerFillControl(object);
+                ((void(*)(id,SEL))original)(object,selector);
+            } @finally {if(recycling)HGAApplying=wasApplying;}
             if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
                 HGAFinishPlayerTransfer(object,selector);
             if(episodeWrapper)HGAEpisodeWrapperChanged(object);
@@ -134,7 +148,9 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         replacement=imp_implementationWithBlock(^(id object,id argument) {
             BOOL transfer=player && (selector==@selector(willMoveToSuperview:) || selector==@selector(willMoveToWindow:));
             BOOL episodeMove=episode && selector==@selector(willMoveToSuperview:);
-            BOOL guarded=(transfer || episodeMove) && NSThread.isMainThread;
+            BOOL bottomMove=bottomParticipant && selector==@selector(willMoveToSuperview:);
+            BOOL modelChange=playerCanvas && selector==sel_registerName("setModel:");
+            BOOL guarded=(transfer || episodeMove || bottomMove || modelChange) && NSThread.isMainThread;
             BOOL wasApplying=HGAApplying,completed=NO;
             NSUInteger invocation=guarded && transfer && HGEnhancedDiagnostics()?++HGAPlayerTransferInvocation:0;
             HGATracePlayerTransfer(object,selector,argument,invocation,@"enter");
@@ -145,6 +161,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGATracePlayerTransfer(object,selector,argument,invocation,@"prepared");
                 }
                 if(guarded && episodeMove)HGAApplyEpisodeCorners(object,NO,0);
+                if(guarded && (episodeMove || bottomMove))HGARestoreBottomLayoutForView(object);
+                if(guarded && modelChange)HGAPlayerModelWillChange(object,argument);
                 ((void(*)(id,SEL,id))original)(object,selector,argument);
                 completed=YES;
             } @finally {
@@ -152,7 +170,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGATracePlayerTransfer(object,selector,argument,invocation,completed?@"return":@"exception");
             }
             if(episodeWrapper && selector==@selector(didAddSubview:))HGAEpisodeWrapperChanged(object);
-            if(!transfer && !episodeMove)HGAppearanceProcessView(object);
+            if(!transfer && !episodeMove && !bottomMove)HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v28@0:8@16B24")) {
         replacement=imp_implementationWithBlock(^(id object,id argument,BOOL animated) {
@@ -177,6 +195,8 @@ void HGAppearanceRefresh(void) {
         @"state":HGAppearanceEnabled() ? (HGAHooks.count ? @"partial":@"unavailable") : @"disabled",
         @"installedHooks":@(HGAHooks.count),@"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),
         @"playerFillMode":@"render-sublayers",
+        @"fillButton":@([HGAppearanceString(@"player.fillButton") isEqual:@"show"]),
+        @"episodeSpacing":@([HGAppearanceString(@"player.separateProgress") isEqual:@"show"]),
         @"episodeGlass":@(HGAppearanceFlag(@"player.episodeGlass")),@"rightGlass":@(HGAppearanceFlag(@"player.rightGlass")),
         @"dock":@(HGAppearanceDockEnabled()),@"reason":@"scoped visual adapters; device behavior not verified"});
     if (!HGAppearanceEnabled() || !HGAppearanceFlag(@"fonts.enabled")) for (UIView *text in HGATexts.allObjects) HGARestoreText(text);
@@ -190,6 +210,8 @@ void HGInstallAppearance(void) {
         NSUInteger found=0;
         NSMutableOrderedSet *classes=[NSMutableOrderedSet orderedSetWithArray:HGAViewRoles().allKeys];
         [classes addObjectsFromArray:HGACommentSurfaces()];
+        [classes addObjectsFromArray:HGAActionPanelSurfaces()];
+        [classes addObjectsFromArray:HGABottomControlClasses()];
         [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar",@"FQVShortVideoBaseInsertView"]];
         for (NSString *name in classes) {
             Class cls=NSClassFromString(name);
@@ -206,12 +228,25 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,@selector(willMoveToWindow:),"v24@0:8@16",NO);
                 HGAHook(cls,@selector(didMoveToSuperview),"v16@0:8",NO);
             }
+            if([name isEqual:@"FQVShortVideoPlayerCellView"]) {
+                for(NSString *selectorName in @[@"setModel:",@"resetToRecycle"]) {
+                    SEL selector=NSSelectorFromString(selectorName);
+                    if(class_getInstanceMethod(cls,selector))
+                        HGAHook(cls,selector,[selectorName isEqual:@"setModel:"]?"v24@0:8@16":"v16@0:8",NO);
+                }
+            }
             if([HGAViewRoles()[name] isEqual:@"episodes"]) {
                 HGAHook(cls,@selector(willMoveToSuperview:),"v24@0:8@16",NO);
                 HGAHook(cls,@selector(didMoveToSuperview),"v16@0:8",NO);
             }
             if([name isEqual:@"FQVShortVideoBaseInsertView"])
                 HGAHook(cls,@selector(didAddSubview:),"v24@0:8@16",NO);
+            if([name isEqual:@"FQVShortVideoBaseInsertView"] || [HGABottomControlClasses() containsObject:name] ||
+                [name isEqual:@"FQVShortVideoProgressView"] ||
+                [name isEqual:@"SSShortVideoDerivateInfoView"] || [name isEqual:@"SSShortVideoOutterSeriesInfoView"]) {
+                HGAHook(cls,@selector(willMoveToSuperview:),"v24@0:8@16",NO);
+                HGAHook(cls,@selector(didMoveToSuperview),"v16@0:8",NO);
+            }
             if ([name hasPrefix:@"SSShortVideoRightInteraction"]) {
                 NSArray *names=@[@"setModel:",@"refreshUIWithModel:",@"refreshUIWithModel:animated:",@"setIsCollected:"];
                 const char *types[]={"v24@0:8@16","v24@0:8@16","v28@0:8@16B24","v20@0:8B16"};

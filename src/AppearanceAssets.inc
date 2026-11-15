@@ -110,7 +110,7 @@ static UIImage *HGAIcon(NSString *role,BOOL selected) {
     NSString *symbol=HGAppearanceString([slot stringByAppendingString:@".symbol"]);
     if(symbol.length) image=[UIImage systemImageNamed:symbol];
     if(image)return image;
-    NSString *base=@{@"like":@"heart",@"collect":@"star",@"comment":@"bubble.right",@"share":@"arrowshape.turn.up.right"}[role];
+    NSString *base=@{@"like":@"heart",@"collect":@"bookmark",@"comment":@"text.bubble",@"share":@"square.and.arrow.up"}[role];
     if(!base)return nil;
     NSString *preset=HGAppearanceString(@"icons.preset");
     NSString *name=base;
@@ -118,5 +118,5 @@ static UIImage *HGAIcon(NSString *role,BOOL selected) {
     else if([preset isEqual:@"square"])name=[base stringByAppendingString:@".square"];
     if(selected || [preset isEqual:@"filled"])name=[name stringByAppendingString:@".fill"];
     image=[UIImage systemImageNamed:name] ?: [UIImage systemImageNamed:selected?[base stringByAppendingString:@".fill"]:base];
-    return [image imageWithConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:HGAppearanceNumber(@"icons.size") weight:UIImageSymbolWeightSemibold]];
+    return [image imageWithConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:HGAppearanceNumber(@"icons.size") weight:UIImageSymbolWeightMedium]];
 }

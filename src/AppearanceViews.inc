@@ -184,14 +184,22 @@ static BOOL HGAHasRoleAncestor(UIView *view,NSString *role) {
 @property(nonatomic,strong) UIImage *applied;
 @property(nonatomic,strong) UIColor *tint;
 @property(nonatomic,strong) UIColor *appliedTint;
+@property(nonatomic) UIViewContentMode contentMode;
+@property(nonatomic) BOOL ownsContentMode;
+@property(nonatomic,strong) UIImageSymbolConfiguration *symbolConfiguration;
+@property(nonatomic,strong) UIImageSymbolConfiguration *appliedSymbolConfiguration;
 @end
 @implementation HGAIconState @end
 static char HGAIconKey;
 static void HGARestoreIcon(UIView *root) {
     HGAIconState *s=objc_getAssociatedObject(root,&HGAIconKey);
     HGARestoreGeometry(s.imageView);
-    if(s.imageView.image==s.applied || [s.imageView.image isEqual:s.applied])s.imageView.image=s.source;
+    BOOL ownedImage=s.imageView.image==s.applied || [s.imageView.image isEqual:s.applied];
     if(s.appliedTint && [s.imageView.tintColor isEqual:s.appliedTint])s.imageView.tintColor=s.tint;
+    if(s.ownsContentMode && s.imageView.contentMode==UIViewContentModeScaleAspectFit)s.imageView.contentMode=s.contentMode;
+    if(s.appliedSymbolConfiguration && [s.imageView.preferredSymbolConfiguration isEqual:s.appliedSymbolConfiguration])
+        s.imageView.preferredSymbolConfiguration=s.symbolConfiguration;
+    if(ownedImage)s.imageView.image=s.source;
     objc_setAssociatedObject(root,&HGAIconKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 static UIImageView *HGAFindIcon(UIView *root) {
@@ -231,18 +239,33 @@ static void HGAApplyIcon(UIView *root,NSString *role) {
     if(!state){state=[HGAIconState new];state.imageView=icon;state.source=icon.image;state.tint=icon.tintColor;
         objc_setAssociatedObject(root,&HGAIconKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     else if(icon.image!=state.applied && ![icon.image isEqual:state.applied])state.source=icon.image;
-    icon.image=image;
+    if(image.isSymbolImage) {
+        // Template symbols otherwise inherit the host's blue tint even in
+        // their normal state. Bake the selected colour into the symbol, while
+        // keeping custom bitmap assets and native action targets untouched.
+        UIColor *color=selected ? ([role isEqual:@"like"]?UIColor.systemPinkColor:UIColor.systemYellowColor) : UIColor.whiteColor;
+        if(!state.appliedTint || ![icon.tintColor isEqual:state.appliedTint])state.tint=icon.tintColor;
+        state.appliedTint=color;
+        if(![icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.appliedTint;
+        if(!state.appliedSymbolConfiguration || ![icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
+            state.symbolConfiguration=icon.preferredSymbolConfiguration;
+        state.appliedSymbolConfiguration=[UIImageSymbolConfiguration configurationWithPointSize:HGAppearanceNumber(@"icons.size") weight:UIImageSymbolWeightMedium];
+        if(![icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
+            icon.preferredSymbolConfiguration=state.appliedSymbolConfiguration;
+        image=[[image imageWithConfiguration:state.appliedSymbolConfiguration] imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal];
+    } else {
+        if(state.appliedTint && [icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.tint;
+        if(state.appliedSymbolConfiguration && [icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
+            icon.preferredSymbolConfiguration=state.symbolConfiguration;
+        state.appliedTint=nil;state.appliedSymbolConfiguration=nil;
+    }
+    if(!state.ownsContentMode || icon.contentMode!=UIViewContentModeScaleAspectFit)state.contentMode=icon.contentMode;
+    state.ownsContentMode=YES;
+    if(icon.contentMode!=UIViewContentModeScaleAspectFit)icon.contentMode=UIViewContentModeScaleAspectFit;
+    if(icon.image!=image && ![icon.image isEqual:image])icon.image=image;
     // UIImageView can normalize a symbol to its own configuration. Track the
     // value actually retained by UIKit, not the pre-assignment image pointer.
     state.applied=icon.image;
-    if(selected) {
-        if(!state.appliedTint || ![icon.tintColor isEqual:state.appliedTint])state.tint=icon.tintColor;
-        state.appliedTint=[role isEqual:@"like"]?UIColor.systemPinkColor:UIColor.systemYellowColor;
-        icon.tintColor=state.appliedTint;
-    }else if(state.appliedTint) {
-        if([icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.tint;
-        state.appliedTint=nil;
-    }
     // Adjust only the image's rendering scale, not the touch owner or its count.
     CGFloat side=MIN(icon.bounds.size.width,icon.bounds.size.height);
     if(side>0)HGASetGeometry(icon,0,0,MIN(1.5,HGAppearanceNumber(@"icons.size")/side));
@@ -336,6 +359,13 @@ static NSDictionary<NSString *,NSString *> *HGAPanelControllers(void) {
         @"SSSharePanelViewController":@"share",
         @"UGKmpSharePanelContainerViewController":@"share"};
 }
+static NSString *HGAPanelKind(UIViewController *controller) {
+    for(Class cls=object_getClass(controller);cls && cls!=UIViewController.class;cls=class_getSuperclass(cls)) {
+        NSString *kind=HGAPanelControllers()[NSStringFromClass(cls)];
+        if(kind)return kind;
+    }
+    return nil;
+}
 // Concrete comment surfaces are present even when the app changes the
 // containing controller. Do not hook generic text, drawing or scroll classes.
 static NSArray<NSString *> *HGACommentSurfaces(void) {
@@ -343,8 +373,12 @@ static NSArray<NSString *> *HGACommentSurfaces(void) {
         @"FQCShortVideoCommentListCollectionView", @"FQCShortVideoBottomToolBar",
         @"FQCShortVideoNewEditorView"];
 }
+#include "AppearanceShare.inc"
 static char HGAPanelCoversKey;
 static void HGAApplyPanel(UIView *root,NSString *kind) {
+    if([@[@"share",@"longpress",@"speed"] containsObject:kind]) {
+        HGAApplyActionSheet(root,kind);return;
+    }
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag([@"panels." stringByAppendingString:kind]) && root.window;
     NSMapTable<UIView *,UIColor *> *covers=objc_getAssociatedObject(root,&HGAPanelCoversKey);
     if(!enabled) {
@@ -376,14 +410,17 @@ void HGAppearanceProcessView(UIView *view) {
         NSString *name=NSStringFromClass(view.class),*role=HGARole(view);
         if([name isEqual:@"SSTabBar"]){HGARefreshDock(view);return;}
         if([name isEqual:@"FQVCollectionView"] && [view isKindOfClass:UIScrollView.class]) {HGAObserveFeed((id)view);return;}
-        if([name isEqual:@"TTPlayerView"]){HGAApplyFullScreen(view);return;}
+        if([name isEqual:@"TTPlayerView"]){
+            HGAApplyFullScreen(view);HGARefreshPlayerFillControls(HGAPlayerCanvas(view));return;
+        }
         if([name isEqual:@"FQVShortVideoPlayerCellView"]){
             for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
-            HGAApplyTypography(view);return;
+            HGARefreshPlayerFillControls(view);HGAApplyTypography(view);return;
         }
         if([HGACommentSurfaces() containsObject:name]) {
             HGAApplyPanel(view,@"comment");HGAApplyTypography(view);return;
         }
+        if(HGAIsActionPanelSurface(view)) {HGAUpdateActionPanelSurface(view);return;}
         if(!role)return;
         BOOL enabled=HGAppearanceEnabled() && view.window;
         BOOL outer=!HGAHasRoleAncestor(view,role);
@@ -399,20 +436,35 @@ void HGAppearanceProcessView(UIView *view) {
         BOOL episode=[role isEqual:@"episodes"];
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
         if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
+        HGAApplyIcon(view,role);
         if(glass && !view.hidden) {
             CGRect glassFrame=view.bounds;CGFloat radius=episode ? episodeRadius : 20;
             if(action) {
                 UIImageView *icon=HGAFindIcon(view);
                 CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
-                CGFloat side=MAX(36,MIN(view.bounds.size.width,MAX(rect.size.width,rect.size.height)+10));
+                CGFloat side=MIN(view.bounds.size.width,MAX(36,MIN(48,MAX(rect.size.width,rect.size.height)+12)));
                 glassFrame=CGRectMake((view.bounds.size.width-side)/2,MAX(0,CGRectGetMidY(rect)-side/2),side,side);
                 radius=side/2;
             }
-            HGAInstallGlassInRect(view,HGAppearanceString(@"player.material"),glassFrame,radius,0.08);
+            NSString *material=HGAppearanceString(@"player.material");
+            if(action && [material isEqual:@"regular"])material=@"clear";
+            HGAInstallGlassInRect(view,material,glassFrame,radius,action?0:0.08);
+            if(action) {
+                // A quiet, dark scrim gives white symbols contrast without the
+                // large grey magnifying discs used by the old regular glass.
+                HGASetGlassOverlay(view,[UIColor.blackColor colorWithAlphaComponent:
+                    UIAccessibilityIsReduceTransparencyEnabled()?0.82:0.14]);
+            }
         }
         else HGARemoveGlass(view);
-        HGAApplyIcon(view,role);HGAApplyTypography(view);
-    }@finally {HGAApplying=NO;}
+        HGAApplyTypography(view);
+    }@finally {
+        @try {
+            HGAUpdateBottomLayoutForView(view);
+            if([HGARole(view) isEqual:@"info"])HGARefreshPlayerFillControls(HGAPlayerCanvas(view));
+        }
+        @finally {HGAApplying=NO;}
+    }
 }
 void HGAppearanceProcessController(UIViewController *controller) {
     if(!NSThread.isMainThread || HGAApplying || ![controller isKindOfClass:UIViewController.class] || !controller.isViewLoaded)return;
@@ -425,7 +477,7 @@ void HGAppearanceProcessController(UIViewController *controller) {
             if(bar)HGAppearanceLayoutDock(bar,controller);
             return;
         }
-        NSString *kind=HGAPanelControllers()[name];
+        NSString *kind=HGAPanelKind(controller);
         if(kind){HGAApplyPanel(controller.view,kind);HGAApplyTypography(controller.view);}
     }@finally {HGAApplying=NO;}
 }

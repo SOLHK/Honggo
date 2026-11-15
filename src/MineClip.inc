@@ -2,13 +2,14 @@
 // host content. Both expanded and pinned headers must reveal the glass area.
 @interface HGMineClipRecord : NSObject
 @property(nonatomic) BOOL clips;
+@property(nonatomic) BOOL captured;
 @property(nonatomic, strong) CAShapeLayer *mask;
 @property(nonatomic, strong) id top;
 @property(nonatomic, strong) id bottom;
 @property(nonatomic) BOOL topHidden;
 @property(nonatomic) BOOL bottomHidden;
 - (void)restore:(UIView *)view;
-- (void)apply:(UIView *)view height:(CGFloat)height;
+- (void)apply:(UIView *)view height:(CGFloat)height movingViewport:(BOOL)movingViewport;
 @end
 @implementation HGMineClipRecord
 - (void)restore:(UIView *)view {
@@ -17,10 +18,10 @@
     if (self.top) ((void (*)(id, SEL, BOOL))objc_msgSend)(self.top, @selector(setHidden:), self.topHidden);
     if (self.bottom) ((void (*)(id, SEL, BOOL))objc_msgSend)(self.bottom, @selector(setHidden:), self.bottomHidden);
 }
-- (void)apply:(UIView *)view height:(CGFloat)height {
-    if (!self.mask) {
+- (void)apply:(UIView *)view height:(CGFloat)height movingViewport:(BOOL)movingViewport {
+    if (!self.captured) {
+        self.captured = YES;
         self.clips = view.clipsToBounds;
-        self.mask = [CAShapeLayer layer]; self.mask.fillColor = UIColor.blackColor.CGColor;
         for (NSString *name in @[@"topEdgeEffect", @"bottomEdgeEffect"]) {
             id edge = HGObject(view, name.UTF8String);
             if (![edge respondsToSelector:@selector(setHidden:)] || ![edge respondsToSelector:sel_registerName("isHidden")]) continue;
@@ -29,16 +30,30 @@
             else { self.bottom = edge; self.bottomHidden = hidden; }
         }
     }
-    CGRect clip = view.bounds; clip.size.height = height;
-    if (!CGRectEqualToRect(self.mask.frame, clip)) {
-        BOOL resize = !CGSizeEqualToSize(self.mask.bounds.size, clip.size) || !self.mask.path;
-        self.mask.frame = clip;
-        if (resize) {
-            CGPathRef path = CGPathCreateWithRect((CGRect){CGPointZero, clip.size}, NULL);
-            self.mask.path = path; CGPathRelease(path);
+    if (movingViewport) {
+        // History/Collection taps animate a horizontal pager's bounds without
+        // calling the outer Mine scroll delegate. A mask in those moving
+        // coordinates stays on the old page and clips the incoming page to
+        // nothing (or half its width). The stationary outer/tabs masks already
+        // provide the screen boundary. Release only this pager's clipping;
+        // never chase its contentOffset or interfere with its animation.
+        if (view.layer.mask == self.mask) view.layer.mask = nil;
+    } else {
+        if (!self.mask) {
+            self.mask = [CAShapeLayer layer]; self.mask.fillColor = UIColor.blackColor.CGColor;
         }
+        CGRect clip = view.bounds; clip.size.height = height;
+        if (!CGRectEqualToRect(self.mask.frame, clip)) {
+            BOOL resize = !CGSizeEqualToSize(self.mask.bounds.size, clip.size) || !self.mask.path;
+            self.mask.frame = clip;
+            if (resize) {
+                CGPathRef path = CGPathCreateWithRect((CGRect){CGPointZero, clip.size}, NULL);
+                self.mask.path = path; CGPathRelease(path);
+            }
+        }
+        view.layer.mask = self.mask;
     }
-    view.clipsToBounds = NO; view.layer.mask = self.mask;
+    view.clipsToBounds = NO;
     // Preserve the inner list's own top boundary; only the outer coordinator
     // had a redundant top edge effect behind the custom header.
     if (self.top && [view isKindOfClass:objc_lookUpClass("SSMyUser637NestedContainerScrollView")])
@@ -47,6 +62,16 @@
 }
 @end
 static char HGMineClipKey, HGMineClipPendingKey;
+static BOOL HGMineMovingViewport(UIView *view) {
+    if (![view isKindOfClass:UIScrollView.class]) return NO;
+    UIScrollView *scroll = (UIScrollView *)view;
+    // pagingEnabled also covers lazy/empty pagers before contentSize is known.
+    // Keep a known vertical pager's top crop; only its horizontal counterpart
+    // has the stale bounds.x problem. Non-paging section scrollers qualify too.
+    BOOL horizontal = scroll.contentSize.width > scroll.bounds.size.width + 2;
+    BOOL vertical = scroll.contentSize.height > scroll.bounds.size.height + 2;
+    return horizontal || (scroll.pagingEnabled && !vertical);
+}
 static void HGApplyMineClip(UIScrollView *scroll) {
     if (!scroll) return;
     NSMapTable<UIView *, HGMineClipRecord *> *records = objc_getAssociatedObject(scroll, &HGMineClipKey);
@@ -88,7 +113,8 @@ static void HGApplyMineClip(UIScrollView *scroll) {
             if (!view.clipsToBounds) continue;
             record = [HGMineClipRecord new]; [records setObject:record forKey:view];
         }
-        [active addObject:view]; [record apply:view height:height];
+        [active addObject:view];
+        [record apply:view height:height movingViewport:(view != scroll && HGMineMovingViewport(view))];
     }
     for (UIView *view in records.keyEnumerator.allObjects) {
         if (![active containsObject:view]) { [[records objectForKey:view] restore:view]; [records removeObjectForKey:view]; }

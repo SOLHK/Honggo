@@ -760,6 +760,7 @@ static UIImage *HGWhiteImage(void) {
 - (void)runNestedChecks {
     [self runTitleContrastChecks];
     [self runMineClipChecks];
+    [self runMinePagingChecks];
     [self runMineAppearanceChecks];
     [self runNestedChecksForClass:SSNestedContainerScrollView.class];
     [self runNestedChecksForClass:SSMyUser637NestedContainerScrollView.class];
@@ -860,6 +861,8 @@ static UIImage *HGWhiteImage(void) {
     [page removeFromSuperview];
     [owner removeFromParentViewController];
 }
+#import "MineClipPagingIntegration.inc"
+
 - (void)runMineAppearanceChecks {
     [self layoutHost];
     UIView *root = self.host.view;

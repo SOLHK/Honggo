@@ -74,9 +74,11 @@ if [ ! -f "$data_directory/Documents/appearance-results.json" ]; then
     exit 1
 fi
 cp "$data_directory/Documents/appearance-results.json" "$work/appearance-results.json"
-if [ -f "$data_directory/Documents/dock-preview.png" ]; then
-    cp "$data_directory/Documents/dock-preview.png" "$work/dock-preview.png"
-fi
+for preview in dock-preview action-preview share-preview; do
+    if [ -f "$data_directory/Documents/$preview.png" ]; then
+        cp "$data_directory/Documents/$preview.png" "$work/$preview.png"
+    fi
+done
 python3 - "$work/appearance-results.json" <<'PY'
 import json
 import sys
