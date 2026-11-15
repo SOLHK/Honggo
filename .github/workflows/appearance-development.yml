@@ -1,0 +1,40 @@
+name: Appearance development
+on:
+  push:
+    branches: [work/appearance-r5]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Compile device plugin
+        run: bash tools/build-ios.sh
+      - name: Validate appearance preferences
+        if: ${{ !cancelled() }}
+        run: bash tools/test-appearance-preferences.sh
+      - name: Validate appearance behavior in UIKit
+        if: ${{ !cancelled() }}
+        run: bash tools/test-appearance-ios.sh
+      - name: Snapshot tested source
+        if: always()
+        run: |
+          mkdir -p build/appearance-tests
+          git archive --format=tar HEAD > build/appearance-tests/source.tar
+          git rev-parse HEAD > build/appearance-tests/source-commit.txt
+      - name: Archive development evidence
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: Honggo-appearance-development
+          path: |
+            build/appearance-tests/*.json
+            build/appearance-tests/*.log
+            build/appearance-tests/*.tar
+            build/appearance-tests/*.txt
+            build/*.dylib
+          if-no-files-found: warn

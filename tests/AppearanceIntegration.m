@@ -58,6 +58,8 @@
 @implementation FQVShortVideoSettingsViewController @end
 @interface FQVShortVideoNewSpeedSelectController : UIViewController @end
 @implementation FQVShortVideoNewSpeedSelectController @end
+@interface FQCShortVideoCommentPanelTitleView : UIView @end
+@implementation FQCShortVideoCommentPanelTitleView @end
 @interface SSTabBar : UIView
 @property(nonatomic,strong) UIView *contentView;
 @end
@@ -99,6 +101,13 @@ static UIView *Find(UIView *root,NSString *identifier) {
 }
 static NSUInteger Count(UIView *root,NSString *identifier) {
     NSUInteger n=[root.accessibilityIdentifier isEqual:identifier];for(UIView *v in root.subviews)n+=Count(v,identifier);return n;
+}
+static BOOL ImageContentEqual(UIImage *actual,UIImage *expected) {
+    if(actual==expected || [actual isEqual:expected])return YES;
+    NSData *a=UIImagePNGRepresentation(actual),*b=UIImagePNGRepresentation(expected);
+    BOOL equal=a.length && b.length && [a isEqual:b];
+    if(!equal)NSLog(@"IMAGE_RESTORE expected=%@ actual=%@ bytes=%lu/%lu",expected,actual,(unsigned long)b.length,(unsigned long)a.length);
+    return equal;
 }
 static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
 @interface HGAAppearanceTests : UIResponder <UIWindowSceneDelegate>
@@ -215,6 +224,13 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
         [panel.view removeFromSuperview];[panel removeFromParentViewController];HGAppearanceSet(@"enabled",@YES,nil);
     }
 
+    FQCShortVideoCommentPanelTitleView *commentSurface=[[FQCShortVideoCommentPanelTitleView alloc] initWithFrame:CGRectMake(20,300,280,52)];
+    commentSurface.backgroundColor=UIColor.whiteColor;[root addSubview:commentSurface];Layout(commentSurface);
+    Check(Find(commentSurface,@"honggo.appearance.material")!=nil,@"known comment surfaces work without a guessed controller class");
+    HGAppearanceSet(@"panels.comment",@NO,nil);
+    Check(Find(commentSurface,@"honggo.appearance.material")==nil && [commentSurface.backgroundColor isEqual:UIColor.whiteColor],@"comment surface restores without changing its parent");
+    HGAppearanceSet(@"panels.comment",@YES,nil);[commentSurface removeFromSuperview];
+
     SSTabBar *bar=self.host.customTabBar;HGAppearanceLayoutDock(bar,self.host);Layout(bar);
     HGAAppearanceDock *dock=(id)Find(bar,@"honggo.appearance.dock");
     Check(dock!=nil && bar.contentView.hidden,@"custom floating dock replaces only the verified native content");
@@ -245,6 +261,13 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     if(like.iconImageView.image!=nativeImage)NSLog(@"FINAL ICON RESTORE native=%@ actual=%@",nativeImage,like.iconImageView.image);
     Check(Count(like,@"honggo.appearance.material")==0,@"reset removes playback materials");
     Check(!bar.contentView.hidden && !Find(bar,@"honggo.appearance.dock"),@"reset restores native tab content");
+    HGAppearanceApply(HGAppearancePreset(@"glass"),nil);
+    like.iconImageView.image=[UIImage systemImageNamed:@"leaf"];
+    UIImage *hostUpdate=like.iconImageView.image;Layout(like);HGAppearanceReset();
+    Check(ImageContentEqual(like.iconImageView.image,hostUpdate),@"a later native image becomes the restoration baseline");
+    HGAppearanceApply(HGAppearancePreset(@"glass"),nil);like.model=nil;Layout(like);
+    Check(ImageContentEqual(like.iconImageView.image,hostUpdate),@"missing host selection state retains the native icon");
+    HGAppearanceReset();
     UIView *unrelated=[[UIView alloc] initWithFrame:CGRectMake(0,0,50,50)];unrelated.backgroundColor=UIColor.purpleColor;[root addSubview:unrelated];
     HGAppearanceApply(HGAppearancePreset(@"glass"),nil);HGAppearanceProcessView(unrelated);
     Check(unrelated.subviews.count==0 && [unrelated.backgroundColor isEqual:UIColor.purpleColor],@"unknown views remain untouched");
