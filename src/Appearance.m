@@ -135,6 +135,9 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
 void HGAppearanceRefresh(void) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();}); return; }
     HGARefreshAssets();
+    HGRecordCapability(@"module.appearance",@{@"module":@"appearance",
+        @"state":HGAppearanceEnabled() ? (HGAHooks.count ? @"partial":@"unavailable") : @"disabled",
+        @"installedHooks":@(HGAHooks.count),@"reason":@"scoped visual adapters; device behavior not verified"});
     if (!HGAppearanceEnabled() || !HGAppearanceFlag(@"fonts.enabled")) for (UIView *text in HGATexts.allObjects) HGARestoreText(text);
     for (UIView *view in HGAManaged.allObjects) HGAppearanceProcessView(view);
     for (UIViewController *controller in HGAControllers.allObjects) HGAppearanceProcessController(controller);

@@ -133,6 +133,20 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Check([like.countLabel.text isEqual:@"123"],@"counts remain host-owned");
     for(NSUInteger i=0;i<5;i++)Layout(like);
     Check(Count(like,@"honggo.appearance.material")==1,@"repeated layout does not stack material views");
+    for(NSUInteger cycle=0;cycle<3;cycle++) {
+        HGAppearanceSet(@"icons.enabled",@NO,nil);
+        Check(like.iconImageView.image==nativeImage,@"repeated icon toggles restore the same native image");
+        if(like.iconImageView.image!=nativeImage)NSLog(@"ICON RESTORE native=%@ actual=%@",nativeImage,like.iconImageView.image);
+        HGAppearanceSet(@"icons.enabled",@YES,nil);Layout(like);
+    }
+    HGAppearanceSet(@"icons.enabled",@NO,nil);
+    like.iconImageView.image=[UIImage systemImageNamed:@"bolt.fill"];
+    UIImage *updatedHostImage=like.iconImageView.image;
+    HGAppearanceSet(@"icons.enabled",@YES,nil);Layout(like);
+    HGAppearanceSet(@"icons.enabled",@NO,nil);
+    Check(like.iconImageView.image==updatedHostImage,@"new host image becomes the next restoration baseline");
+    like.iconImageView.image=nativeImage;
+    HGAppearanceSet(@"icons.enabled",@YES,nil);Layout(like);
     [like sendActionsForControlEvents:UIControlEventTouchUpInside];Check(like.taps==1,@"native playback action executes exactly once");
     UIImage *unliked=like.iconImageView.image;
     like.model.isLiked=YES;Layout(like);
@@ -228,6 +242,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     HGAppearanceReset();Layout(like);Layout(bar);
     Check(CGRectEqualToRect(like.frame,original) && !like.hidden,@"reset restores original playback geometry and visibility");
     Check(like.iconImageView.image==nativeImage,@"reset restores original host image");
+    if(like.iconImageView.image!=nativeImage)NSLog(@"FINAL ICON RESTORE native=%@ actual=%@",nativeImage,like.iconImageView.image);
     Check(Count(like,@"honggo.appearance.material")==0,@"reset removes playback materials");
     Check(!bar.contentView.hidden && !Find(bar,@"honggo.appearance.dock"),@"reset restores native tab content");
     UIView *unrelated=[[UIView alloc] initWithFrame:CGRectMake(0,0,50,50)];unrelated.backgroundColor=UIColor.purpleColor;[root addSubview:unrelated];
