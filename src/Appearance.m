@@ -105,16 +105,24 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     IMP replacement=NULL;
     if (!strcmp(encoding,"v16@0:8")) {
         replacement=imp_implementationWithBlock(^(id object) {
-            if (!controller && selector==@selector(layoutSubviews) && NSThread.isMainThread && !HGAApplying) HGARestoreGeometry(object);
             ((void(*)(id,SEL))original)(object,selector);
+            if(!controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
+                HGAFinishPlayerTransfer(object);
             if (controller) HGAppearanceProcessController(object);
-            else if (selector==@selector(didMoveToWindow) && [(UIView *)object window]) [(UIView *)object setNeedsLayout];
+            else if ((selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)) && [(UIView *)object window]) [(UIView *)object setNeedsLayout];
             else HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v24@0:8@16")) {
         replacement=imp_implementationWithBlock(^(id object,id argument) {
+            BOOL transfer=selector==@selector(willMoveToSuperview:) || selector==@selector(willMoveToWindow:);
+            if(transfer && NSThread.isMainThread) {
+                HGAPreparePlayerTransfer(object);
+                if(HGEnhancedDiagnostics())HGLog(@"appearance.player-transfer",@{
+                    @"class":NSStringFromClass([object class]),@"method":NSStringFromSelector(selector),
+                    @"attached":@(argument!=nil),@"fullscreen":@(HGAppearanceFlag(@"player.fullscreen"))});
+            }
             ((void(*)(id,SEL,id))original)(object,selector,argument);
-            HGAppearanceProcessView(object);
+            if(!transfer)HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v28@0:8@16B24")) {
         replacement=imp_implementationWithBlock(^(id object,id argument,BOOL animated) {
@@ -137,7 +145,9 @@ void HGAppearanceRefresh(void) {
     HGARefreshAssets();
     HGRecordCapability(@"module.appearance",@{@"module":@"appearance",
         @"state":HGAppearanceEnabled() ? (HGAHooks.count ? @"partial":@"unavailable") : @"disabled",
-        @"installedHooks":@(HGAHooks.count),@"reason":@"scoped visual adapters; device behavior not verified"});
+        @"installedHooks":@(HGAHooks.count),@"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),
+        @"episodeGlass":@(HGAppearanceFlag(@"player.episodeGlass")),@"rightGlass":@(HGAppearanceFlag(@"player.rightGlass")),
+        @"dock":@(HGAppearanceDockEnabled()),@"reason":@"scoped visual adapters; device behavior not verified"});
     if (!HGAppearanceEnabled() || !HGAppearanceFlag(@"fonts.enabled")) for (UIView *text in HGATexts.allObjects) HGARestoreText(text);
     for (UIView *view in HGAManaged.allObjects) HGAppearanceProcessView(view);
     for (UIViewController *controller in HGAControllers.allObjects) HGAppearanceProcessController(controller);
@@ -160,6 +170,11 @@ void HGInstallAppearance(void) {
             found++;
             HGAHook(cls,@selector(layoutSubviews),"v16@0:8",NO);
             HGAHook(cls,@selector(didMoveToWindow),"v16@0:8",NO);
+            if([name isEqual:@"TTPlayerView"] || [name isEqual:@"FQVShortVideoPlayerCellView"]) {
+                HGAHook(cls,@selector(willMoveToSuperview:),"v24@0:8@16",NO);
+                HGAHook(cls,@selector(willMoveToWindow:),"v24@0:8@16",NO);
+                HGAHook(cls,@selector(didMoveToSuperview),"v16@0:8",NO);
+            }
             if ([name hasPrefix:@"SSShortVideoRightInteraction"]) {
                 NSArray *names=@[@"setModel:",@"refreshUIWithModel:",@"refreshUIWithModel:animated:",@"setIsCollected:"];
                 const char *types[]={"v24@0:8@16","v24@0:8@16","v28@0:8@16B24","v20@0:8B16"};
@@ -191,6 +206,8 @@ void HGInstallAppearance(void) {
         });
         HGRecordCapability(@"module.appearance",@{@"module":@"appearance",
             @"state":HGAppearanceEnabled() ? (found ? @"partial":@"unavailable") : @"disabled",
-            @"available":@(found),@"reason":@"scoped visual adapters; device behavior not verified"});
+            @"available":@(found),@"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),
+            @"episodeGlass":@(HGAppearanceFlag(@"player.episodeGlass")),@"rightGlass":@(HGAppearanceFlag(@"player.rightGlass")),
+            @"dock":@(HGAppearanceDockEnabled()),@"reason":@"scoped visual adapters; device behavior not verified"});
     }
 }

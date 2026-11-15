@@ -110,6 +110,9 @@ static BOOL ImageContentEqual(UIImage *actual,UIImage *expected) {
     return equal;
 }
 static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
+#include "PlaybackAppearanceIntegration.inc"
+#include "AppearanceTransitionCoordinatorTests.inc"
+#include "DockAppearanceIntegration.inc"
 @interface HGAAppearanceTests : UIResponder <UIWindowSceneDelegate>
 @property(nonatomic,strong) UIWindow *window;
 @property(nonatomic,strong) SSTabBarController *host;
@@ -210,6 +213,8 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Check(CGAffineTransformIsIdentity(render.transform) && CGRectEqualToRect(wide,render.frame),@"landscape video preserves size and placement");
     render.frame=CGRectMake(0,0,300,300);Layout(render);
     Check(CGAffineTransformIsIdentity(render.transform),@"square video remains native sized");
+    RunPlaybackAppearanceChecks(root);
+    RunAppearanceTransitionCoordinatorChecks(self.host);
 
     for(Class cls in @[FQCShortVideoCommentPanelViewController.class,SSVideoSharePanelViewController.class,FQVShortVideoSettingsViewController.class,FQVShortVideoNewSpeedSelectController.class]) {
         UIViewController *panel=[cls new];[self.host addChildViewController:panel];[panel loadViewIfNeeded];
@@ -255,6 +260,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Check(expand.hidden && !Find(dock,@"honggo.appearance.dock.capsule").hidden,@"tapping collapsed dock expands it");
     for(NSUInteger i=0;i<5;i++)Layout(bar);
     Check(Count(bar,@"honggo.appearance.dock")==1,@"dock does not duplicate across repeated host layouts");
+    HGRunDockAppearanceChecks(self.host);
     HGAppearanceReset();Layout(like);Layout(bar);
     Check(CGRectEqualToRect(like.frame,original) && !like.hidden,@"reset restores original playback geometry and visibility");
     Check(like.iconImageView.image==nativeImage,@"reset restores original host image");

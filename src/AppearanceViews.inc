@@ -1,16 +1,60 @@
 // Scoped appearance operations. Values are restored only while they are still
 // owned by Honggo; a later host/third-party update becomes the new baseline.
+@interface HGAAppearanceMaterial : UIVisualEffectView
+@property(nonatomic,copy) NSString *style;
+@property(nonatomic,copy) NSString *materialSignature;
+@property(nonatomic) CGFloat overlayOpacity;
+@property(nonatomic,strong) UIColor *overlayColor;
+- (void)requestMaterialRefresh;
+@end
+@implementation HGAAppearanceMaterial
+- (void)setOverlayColor:(UIColor *)color {
+    if(_overlayColor==color || [_overlayColor isEqual:color])return;
+    _overlayColor=color;self.materialSignature=nil;[self setNeedsLayout];
+}
+- (void)willMoveToWindow:(UIWindow *)window {
+    // A live glass effect must never be carried into a detached scene. Its
+    // replacement is created only after attachment with final, nonzero bounds.
+    if(window!=self.window){self.effect=nil;self.materialSignature=nil;}
+    [super willMoveToWindow:window];
+}
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    if(self.window)[self setNeedsLayout];
+}
+- (NSString *)currentMaterialSignature {
+    return [NSString stringWithFormat:@"%@/%d/%ld/%d/%.3f",self.style,
+        HGNativeGlassConfigured(),(long)self.traitCollection.userInterfaceStyle,
+        UIAccessibilityIsReduceTransparencyEnabled(),self.overlayOpacity];
+}
+- (void)requestMaterialRefresh {
+    if(![[self currentMaterialSignature] isEqual:self.materialSignature])[self setNeedsLayout];
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if(!self.window || CGRectIsEmpty(self.bounds))return;
+    NSString *signature=[self currentMaterialSignature];
+    if([signature isEqual:self.materialSignature])return;
+    self.materialSignature=signature;
+    self.effect=HGAppearanceMaterial(self.style);
+    UIColor *color=self.overlayColor ?: [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
+        self.effect ? self.overlayOpacity : 1];
+    if(![self.contentView.backgroundColor isEqual:color])self.contentView.backgroundColor=color;
+}
+@end
 @interface HGAViewState : NSObject
 @property(nonatomic) CGAffineTransform sourceTransform;
 @property(nonatomic) CGAffineTransform appliedTransform;
 @property(nonatomic) BOOL geometry;
+@property(nonatomic) BOOL transferring;
+@property(nonatomic,weak) UIView *geometrySuperview;
+@property(nonatomic,weak) id<UIViewControllerTransitionCoordinator> transition;
 @property(nonatomic) BOOL sourceHidden;
 @property(nonatomic) BOOL appliedHidden;
 @property(nonatomic) BOOL visibility;
 @property(nonatomic,strong) UIColor *background;
 @property(nonatomic) BOOL clearsBackground;
-@property(nonatomic,strong) UIVisualEffectView *glass;
-@property(nonatomic,copy) NSString *materialSignature;
+@property(nonatomic,strong) HGAAppearanceMaterial *glass;
 @end
 @implementation HGAViewState @end
 static char HGAViewStateKey;
@@ -22,60 +66,81 @@ static HGAViewState *HGAState(UIView *view,BOOL create) {
 static void HGARestoreGeometry(UIView *view) {
     HGAViewState *state=HGAState(view,NO);
     if(!state.geometry)return;
-    if(CGAffineTransformEqualToTransform(view.transform,state.appliedTransform))view.transform=state.sourceTransform;
-    state.geometry=NO;
+    BOOL owned=CGAffineTransformEqualToTransform(view.transform,state.appliedTransform);
+    CGAffineTransform source=state.sourceTransform;
+    // Relinquish ownership before invoking a host setter, which may itself
+    // synchronously request layout while a player is being transferred.
+    state.geometry=NO;state.geometrySuperview=nil;
+    if(owned && !CGAffineTransformEqualToTransform(view.transform,source))view.transform=source;
 }
 static void HGASetGeometry(UIView *view,CGFloat x,CGFloat y,CGFloat scale) {
-    HGARestoreGeometry(view);
-    if(fabs(x)<0.001 && fabs(y)<0.001 && fabs(scale-1)<0.001)return;
+    if(fabs(x)<0.001 && fabs(y)<0.001 && fabs(scale-1)<0.001){HGARestoreGeometry(view);return;}
     if(!isfinite(x)||!isfinite(y)||!isfinite(scale))return;
     HGAViewState *state=HGAState(view,YES);
-    state.sourceTransform=view.transform;
+    if(state.geometry && state.geometrySuperview!=view.superview)HGARestoreGeometry(view);
+    // Reuse the unmodified baseline while we still own the current value.
+    // Restoring and reapplying on every layout invalidates native player layout.
+    if(!state.geometry || !CGAffineTransformEqualToTransform(view.transform,state.appliedTransform))
+        state.sourceTransform=view.transform;
     CGAffineTransform next=CGAffineTransformScale(state.sourceTransform,scale,scale);
     next.tx+=x;next.ty+=y;
-    state.appliedTransform=next;state.geometry=YES;view.transform=next;
+    state.appliedTransform=next;state.geometry=YES;state.geometrySuperview=view.superview;
+    if(!CGAffineTransformEqualToTransform(view.transform,next))view.transform=next;
 }
 static void HGASetHidden(UIView *view,BOOL hide) {
     HGAViewState *state=HGAState(view,hide);
     if(!state)return;
-    if(state.visibility) {
+    if(!hide && state.visibility) {
         if(view.hidden==state.appliedHidden)view.hidden=state.sourceHidden;
         state.visibility=NO;
     }
-    if(hide){state.sourceHidden=view.hidden;state.appliedHidden=YES;state.visibility=YES;view.hidden=YES;}
+    if(hide){
+        if(!state.visibility || view.hidden!=state.appliedHidden)state.sourceHidden=view.hidden;
+        state.appliedHidden=YES;state.visibility=YES;
+        if(!view.hidden)view.hidden=YES;
+    }
 }
 static void HGARemoveGlass(UIView *view) {
     HGAViewState *state=HGAState(view,NO);
     if(!state)return;
-    [state.glass removeFromSuperview];state.glass=nil;state.materialSignature=nil;
+    [state.glass removeFromSuperview];state.glass=nil;
     if(state.clearsBackground && [view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=state.background;
     state.clearsBackground=NO;state.background=nil;
 }
-static void HGAInstallGlass(UIView *view,NSString *style,CGFloat radius,CGFloat opacity) {
-    if(!view.window || CGRectIsEmpty(view.bounds)){HGARemoveGlass(view);return;}
+static void HGAInstallGlassInRect(UIView *view,NSString *style,CGRect frame,CGFloat radius,CGFloat opacity) {
+    if(!view.window || CGRectIsEmpty(frame)){HGARemoveGlass(view);return;}
     HGAViewState *state=HGAState(view,YES);
     if(!state.clearsBackground || ![view.backgroundColor isEqual:UIColor.clearColor])state.background=view.backgroundColor;
-    state.clearsBackground=YES;view.backgroundColor=UIColor.clearColor;
+    state.clearsBackground=YES;
+    if(![view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=UIColor.clearColor;
     if(!state.glass) {
-        state.glass=[[UIVisualEffectView alloc] initWithEffect:nil];
+        state.glass=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
         state.glass.accessibilityIdentifier=@"honggo.appearance.material";
         state.glass.accessibilityElementsHidden=YES;
         state.glass.userInteractionEnabled=NO;
         state.glass.layer.cornerCurve=kCACornerCurveContinuous;
         state.glass.clipsToBounds=YES;
     }
-    UIVisualEffectView *glass=state.glass;
-    NSString *signature=[NSString stringWithFormat:@"%@/%d/%ld/%d",style,HGNativeGlassConfigured(),
-        (long)view.traitCollection.userInterfaceStyle,UIAccessibilityIsReduceTransparencyEnabled()];
-    if(![signature isEqual:state.materialSignature]) {
-        glass.effect=HGAppearanceMaterial(style);state.materialSignature=signature;
+    HGAAppearanceMaterial *glass=state.glass;
+    if(![glass.style isEqual:style] || fabs(glass.overlayOpacity-opacity)>0.001) {
+        glass.style=style;glass.overlayOpacity=opacity;glass.materialSignature=nil;[glass setNeedsLayout];
     }
-    glass.frame=view.bounds;
-    glass.layer.cornerRadius=MIN(radius,MIN(view.bounds.size.width,view.bounds.size.height)/2);
-    glass.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-    glass.contentView.backgroundColor=[UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
-        glass.effect ? opacity : 1];
-    if(glass.superview!=view || view.subviews.firstObject!=glass)[view insertSubview:glass atIndex:0];
+    if(!CGRectEqualToRect(glass.frame,frame))glass.frame=frame;
+    CGFloat corner=MIN(radius,MIN(frame.size.width,frame.size.height)/2);
+    if(fabs(glass.layer.cornerRadius-corner)>0.001)glass.layer.cornerRadius=corner;
+    UIViewAutoresizing mask=CGRectEqualToRect(frame,view.bounds) ?
+        UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight : UIViewAutoresizingNone;
+    if(glass.autoresizingMask!=mask)glass.autoresizingMask=mask;
+    // Insert once. Reordering on every native layout can fight the host's own
+    // background ordering indefinitely while opening the episode detail page.
+    if(glass.superview!=view)[view insertSubview:glass atIndex:0];
+    [glass requestMaterialRefresh];
+}
+static void HGAInstallGlass(UIView *view,NSString *style,CGFloat radius,CGFloat opacity) {
+    HGAInstallGlassInRect(view,style,view.bounds,radius,opacity);
+}
+static void HGASetGlassOverlay(UIView *view,UIColor *color) {
+    HGAState(view,NO).glass.overlayColor=color;
 }
 static NSDictionary<NSString *,NSString *> *HGAViewRoles(void) {
     static NSDictionary *roles;static dispatch_once_t once;
@@ -259,20 +324,69 @@ static void HGAApplyTypography(UIView *root) {
 
 // Preserve native feed stride, content offsets, hit targets and HUD geometry.
 // Only the identified video render is uniformly enlarged inside its own page.
+static BOOL HGAWaitForPlayerTransition(UIView *render,UIView *canvas) {
+    id<UIViewControllerTransitionCoordinator> transition=HGAOwner(canvas).transitionCoordinator;
+    if(!transition)return NO;
+    HGAViewState *state=HGAState(render,YES);
+    if(state.transition!=transition) {
+        state.transition=transition;
+        __weak UIView *weakRender=render;
+        __weak UIView *weakParent=render.superview;
+        __weak id<UIViewControllerTransitionCoordinator> weakTransition=transition;
+        // UIKit may retain a completion even when no animation was queued and
+        // the method returns NO. Attempt once per coordinator in either case.
+        [transition animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+            UIView *view=weakRender;
+            HGAViewState *current=HGAState(view,NO);
+            if(current.transition==weakTransition)current.transition=nil;
+            // Both a completed push and a cancelled interactive transition
+            // return ownership to native layout before filling the new canvas.
+            if(view.window && view.superview==weakParent)[view setNeedsLayout];
+        }];
+    }
+    return YES;
+}
+static void HGAPreparePlayerTransfer(UIView *view) {
+    HGAState(view,YES).transferring=YES;
+    HGARestoreGeometry(view);
+    if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"])
+        for(UIView *child in HGADescendants(view,100))
+            if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"]) {
+                HGAState(child,YES).transferring=YES;HGARestoreGeometry(child);
+            }
+}
+static void HGAFinishPlayerTransfer(UIView *view) {
+    HGAState(view,NO).transferring=NO;
+    if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"])
+        for(UIView *child in HGADescendants(view,100))
+            if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAState(child,NO).transferring=NO;
+}
 static void HGAApplyFullScreen(UIView *render) {
-    HGARestoreGeometry(render);
-    if(!HGAppearanceEnabled() || !HGAppearanceFlag(@"player.fullscreen") || !render.window)return;
+    if(!HGAppearanceEnabled() || !HGAppearanceFlag(@"player.fullscreen") || !render.window || HGAState(render,NO).transferring) {
+        HGARestoreGeometry(render);return;
+    }
     UIView *canvas=render.superview;
     for(NSUInteger i=0;canvas && i<12;i++,canvas=canvas.superview)
         if([NSStringFromClass(canvas.class) isEqual:@"FQVShortVideoPlayerCellView"])break;
+    HGAViewState *state=HGAState(render,NO);
+    CGAffineTransform nativeTransform=state.geometry &&
+        CGAffineTransformEqualToTransform(render.transform,state.appliedTransform) ? state.sourceTransform : render.transform;
     if(!canvas || ![NSStringFromClass(canvas.class) isEqual:@"FQVShortVideoPlayerCellView"] ||
-        !CGAffineTransformIsIdentity(render.transform) || !CGAffineTransformIsIdentity(canvas.transform) ||
-        render.window.bounds.size.width>=render.window.bounds.size.height)return;
+        HGAState(canvas,NO).transferring ||
+        !CGAffineTransformIsIdentity(nativeTransform) ||
+        render.window.bounds.size.width>=render.window.bounds.size.height) {
+        HGARestoreGeometry(render);return;
+    }
+    for(UIView *node=render.superview;node;node=node.superview) {
+        if(!CGAffineTransformIsIdentity(node.transform)){HGARestoreGeometry(render);return;}
+        if(node==canvas)break;
+    }
+    if(HGAWaitForPlayerTransition(render,canvas)){HGARestoreGeometry(render);return;}
     CGSize native=render.bounds.size;
-    if(native.width<120 || native.height<160 || native.width>=native.height*0.85)return;
+    if(native.width<120 || native.height<160 || native.width>=native.height*0.85){HGARestoreGeometry(render);return;}
     CGRect rect=[canvas convertRect:canvas.bounds toView:render.superview];
     CGFloat zoom=MAX(rect.size.width/native.width,rect.size.height/native.height);
-    if(!isfinite(zoom) || zoom<1 || zoom>1.6)return;
+    if(!isfinite(zoom) || zoom<1 || zoom>1.6){HGARestoreGeometry(render);return;}
     HGASetGeometry(render,CGRectGetMidX(rect)-render.center.x,CGRectGetMidY(rect)-render.center.y,zoom);
 }
 static NSDictionary<NSString *,NSString *> *HGAPanelControllers(void) {
@@ -348,14 +462,15 @@ void HGAppearanceProcessView(UIView *view) {
             ([role isEqual:@"channels"] && HGAppearanceFlag(@"player.headerGlass")) ||
             ([role isEqual:@"episodes"] && HGAppearanceFlag(@"player.episodeGlass")));
         if(glass && !view.hidden) {
-            HGAInstallGlass(view,HGAppearanceString(@"player.material"),action?24:20,0.08);
+            CGRect glassFrame=view.bounds;CGFloat radius=20;
             if(action) {
                 UIImageView *icon=HGAFindIcon(view);
                 CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
                 CGFloat side=MAX(36,MIN(view.bounds.size.width,MAX(rect.size.width,rect.size.height)+10));
-                rect=CGRectMake((view.bounds.size.width-side)/2,MAX(0,CGRectGetMidY(rect)-side/2),side,side);
-                HGAState(view,NO).glass.frame=rect;HGAState(view,NO).glass.layer.cornerRadius=side/2;
+                glassFrame=CGRectMake((view.bounds.size.width-side)/2,MAX(0,CGRectGetMidY(rect)-side/2),side,side);
+                radius=side/2;
             }
+            HGAInstallGlassInRect(view,HGAppearanceString(@"player.material"),glassFrame,radius,0.08);
         }
         else HGARemoveGlass(view);
         HGAApplyIcon(view,role);HGAApplyTypography(view);

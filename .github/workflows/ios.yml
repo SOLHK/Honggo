@@ -130,6 +130,7 @@ jobs:
             build/toolchain/BUILD-ENVIRONMENT.json
             build/appearance-tests/*.json
             build/appearance-tests/*.log
+            build/appearance-tests/*.png
           if-no-files-found: warn
 
   iphoneos:
@@ -216,9 +217,10 @@ jobs:
             "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
             "Source commit: ${GITHUB_SHA}" \
             "Built with Xcode 27.2 / iPhoneOS SDK 27.2. Required UIKit regression suites ran on the pinned iOS 27.2 simulator, not a fallback runtime." \
-            "R8 restores the original patch presentation method and host-owned callback timing instead of synthesizing ready(nil). Existing advertisement eligibility gates remain enabled." \
-            "Adds opt-in, privacy-safe lifecycle traces for clean mode, model updates, playback-state notifications and finish interception." \
-            "Candidate for the portrait clean-mode / long-press 2x / auto-next freeze report; the old log does not establish its root cause. Actual playback and patch-ad coverage require device verification." \
+            "R9 fixes repeated appearance geometry/material changes and restores plugin-owned player transforms before native episode-page transfer. Stable layouts no longer undo and reapply the same scale or resize circular glass twice." \
+            "The floating dock now uses consistent white icons, a compact translucent neutral-gray selection pill, and explicit state styling that prevents inherited accent-blue selection." \
+            "Adds transfer/layout regression fixtures and rendered dock color checks, while preserving R8 host-owned playback callbacks and existing advertisement eligibility gates." \
+            "Candidate for portrait full-screen video freezing after tapping Watch complete drama. The R8 log does not establish a unique root cause; actual Hongguo navigation/playback needs device verification." \
             "Retains independent appearance customization and the TG update channel https://t.me/Naloiafeed." \
             "Reference behavior was studied; implementation is written for Honggo without importing NaiwaGuo source or assets." \
             "Actual Hongguo iPhone appearance, playback and ad disappearance remain unverified." \

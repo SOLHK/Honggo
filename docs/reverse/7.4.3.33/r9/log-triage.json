@@ -1,0 +1,112 @@
+{
+  "schema": 1,
+  "scope": "Sanitized aggregate evidence for the R9 episode-entry/layout investigation. No user timestamps, session identifiers, content, raw hierarchy, or original diagnostic is included.",
+  "source_sha256": "4554dd2a198c6ec2adf6c1cbecf9fe22eae53f327e892e23154b534d58702c95",
+  "source_bytes": 851491,
+  "plugin": "Honggo",
+  "reported_plugin_version": "1.1.15-R8",
+  "host": {
+    "executable": "Eggplant",
+    "build": "7.4.3.33",
+    "os_version": "27.3"
+  },
+  "event_count": 1449,
+  "process_session_count": 4,
+  "dropped_records": 0,
+  "capacity_pruned_records": 0,
+  "events_by_type": {
+    "ad.decision": 362,
+    "control.glass": 4,
+    "control.touch": 5,
+    "glass.startup": 4,
+    "hook.installed": 680,
+    "mask.transition": 9,
+    "mine.appear": 9,
+    "patch.presentation": 123,
+    "playback.clean-mode": 2,
+    "playback.finish-gate": 154,
+    "playback.model-updated": 40,
+    "playback.state-updated": 32,
+    "settings.open": 5,
+    "startup.stage": 20
+  },
+  "playback_observers": {
+    "recorded_invocations": 114,
+    "paired_enter_return": 114,
+    "unpaired_invocations": 0,
+    "paired_by_event": {
+      "playback.clean-mode": 1,
+      "playback.finish-gate": 77,
+      "playback.model-updated": 20,
+      "playback.state-updated": 16
+    },
+    "maximum_recorded_enter_return_duration_ms": 0.048,
+    "finish_gate_returns": 77,
+    "finish_gate_intercepted_true": 0,
+    "finish_gate_intercepted_false": 77,
+    "clean_mode_enabled_returns": 1,
+    "clean_mode_disabled_returns": 0,
+    "interpretation": "Every recorded observer invocation returned. These are host notifications, not actual video-frame progress, decoder state, or measured playback rate."
+  },
+  "patch_presentation": {
+    "records": 123,
+    "forwarded_records": 123,
+    "return_or_callback_completion_recorded": false,
+    "interpretation": "The trace confirms the R8 forwarding path was selected; it is emitted before the host call and cannot prove that every native presentation or callback completed."
+  },
+  "latest_runtime_summary": {
+    "abi-mismatch": 0,
+    "unavailable": 1,
+    "partial": 2,
+    "missing-class": 0,
+    "interposed": 0,
+    "missing-method": 0,
+    "installed": 193,
+    "disabled": 0
+  },
+  "glass": {
+    "native_glass_configured": true,
+    "startup_override": true,
+    "reduce_transparency": false,
+    "appearance_preferences_included": false
+  },
+  "scene_evidence": {
+    "mask_scene_count": 3,
+    "mask_scene_reasons": {
+      "appear.settled": 1,
+      "before.leave": 1,
+      "did.appear": 1
+    },
+    "mask_scene_context": "Personal profile page, based on the recorded view classes and role map.",
+    "export_snapshot_context": "Settings-related hierarchy, inferred from settings-open events and view classes.",
+    "frozen_episode_transition_captured": false
+  },
+  "observations": [
+    "The uploaded plugin identity is Honggo R8 even though the user message names FanqkeX.",
+    "Four distinct process startup sequences are present. The diagnostic does not distinguish manual termination, a crash, or an ordinary restart.",
+    "The R8 playback observers show no recorded call left between enter and return, and all recorded finish gates declined interception.",
+    "Some sessions end after pause/state activity, but there is no episode-entry tap or navigation trace establishing the reported action time."
+  ],
+  "code_risks_addressed_separately_from_log_proof": [
+    {
+      "file": "src/AppearanceViews.inc",
+      "risk": "R8 restores and reapplies render transforms during repeated layout, which can invalidate native layout even when the desired result is unchanged."
+    },
+    {
+      "file": "src/AppearanceViews.inc",
+      "risk": "R8 episode material updates repeatedly write geometry and reorder a decoration to subview index zero; circular action material also resizes to owner bounds before shrinking to its final rectangle."
+    },
+    {
+      "file": "src/Appearance.m",
+      "risk": "R8 does not explicitly restore owned render geometry before same-window superview transfer into a native detail container."
+    }
+  ],
+  "uncertainties": [
+    "No thread backtrace, watchdog report, crash report, or actual frozen player hierarchy is supplied.",
+    "No direct watch-all-episodes action, native detail transition, or player transfer event is recorded.",
+    "A tall video and enabled glass do not establish that the independent player.fullscreen setting was enabled; the glass preset leaves it disabled by default.",
+    "Observed playback notifications do not measure frames, network readiness, decoder state, progress, or actual speed.",
+    "The log does not uniquely establish the hang cause. The layout and transfer changes remain a candidate fix until verified in the real host on a device.",
+    "Controlled UIKit transition regressions and successful compilation cannot substitute for real Hongguo device acceptance."
+  ]
+}

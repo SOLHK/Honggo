@@ -6,6 +6,7 @@
 @property(nonatomic,strong) UIColor *hostBackground;
 @property(nonatomic) BOOL backgroundOwned;
 @property(nonatomic,strong) UIView *capsule;
+@property(nonatomic,strong) UIView *selection;
 @property(nonatomic,strong) UIButton *extra;
 @property(nonatomic,strong) UIButton *expand;
 @property(nonatomic,strong) NSMutableDictionary<NSString *,UIButton *> *buttons;
@@ -19,7 +20,43 @@
 static char HGADockKey;
 static NSArray *HGATabIDs(void){return @[@"home",@"theater",@"store",@"mine"];}
 static NSArray *HGATabTitles(void){return @[@"首页",@"剧场",@"商城",@"我的"];}
-static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@"person.crop.circle"];}
+static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@"person"];}
+static UIButton *HGADockButton(void) {
+    UIButton *button=[UIButton buttonWithType:UIButtonTypeCustom];
+    // System buttons promote their selected configuration to the app's accent
+    // color. Selection belongs to our neutral glass pill, not that blue fill.
+    button.automaticallyUpdatesConfiguration=NO;
+    button.configurationUpdateHandler=^(UIButton *control) {
+        control.alpha=control.enabled ? (control.highlighted ? 0.72 : 1) : 0.4;
+    };
+    return button;
+}
+static void HGADockConfigureButton(UIButton *button,NSString *title,UIImage *image,
+    CGFloat iconSize,UIFont *font,UIColor *color) {
+    UIButtonConfiguration *config=[UIButtonConfiguration plainButtonConfiguration];
+    config.automaticallyUpdateForSelection=NO;
+    config.background=[UIBackgroundConfiguration clearConfiguration];
+    config.background.backgroundColorTransformer=^UIColor *(UIColor *incoming){return UIColor.clearColor;};
+    config.baseBackgroundColor=UIColor.clearColor;
+    config.baseForegroundColor=color;
+    config.imageColorTransformer=^UIColor *(UIColor *incoming){return color;};
+    config.title=title;config.image=image;
+    config.preferredSymbolConfigurationForImage=[UIImageSymbolConfiguration
+        configurationWithPointSize:iconSize weight:UIImageSymbolWeightMedium];
+    config.imagePlacement=NSDirectionalRectEdgeTop;
+    config.imagePadding=title.length && image ? 3 : 0;
+    config.contentInsets=NSDirectionalEdgeInsetsMake(4,4,4,4);
+    config.titleLineBreakMode=NSLineBreakByClipping;
+    config.titleTextAttributesTransformer=^NSDictionary *(NSDictionary *attributes){
+        NSMutableDictionary *updated=attributes.mutableCopy;
+        updated[NSFontAttributeName]=font;
+        updated[NSForegroundColorAttributeName]=color;
+        return updated;
+    };
+    button.tintColor=color;
+    button.configuration=config;
+    button.alpha=button.enabled ? (button.highlighted ? 0.72 : 1) : 0.4;
+}
 BOOL HGAppearanceDockEnabled(void){return HGAppearanceEnabled() && HGAppearanceFlag(@"dock.enabled");}
 static NSInteger HGASelectedTab(UIViewController *controller) {
     if([controller isKindOfClass:UITabBarController.class])return [(UITabBarController *)controller selectedIndex];
@@ -40,21 +77,25 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         self.buttons=[NSMutableDictionary dictionary];
         self.capsule=[UIView new];self.capsule.accessibilityIdentifier=@"honggo.appearance.dock.capsule";
         [self addSubview:self.capsule];
+        self.selection=[UIView new];
+        self.selection.accessibilityIdentifier=@"honggo.appearance.dock.selection";
+        self.selection.userInteractionEnabled=NO;self.selection.accessibilityElementsHidden=YES;
+        self.selection.layer.cornerCurve=kCACornerCurveContinuous;
+        [self.capsule addSubview:self.selection];
         for(NSString *key in HGATabIDs()) {
-            UIButton *b=[UIButton buttonWithType:UIButtonTypeSystem];
+            UIButton *b=HGADockButton();
             b.accessibilityIdentifier=[@"honggo.appearance.tab." stringByAppendingString:key];
             b.tag=[HGATabIDs() indexOfObject:key];
             [b addTarget:self action:@selector(tabTapped:) forControlEvents:UIControlEventTouchUpInside];
             [self.capsule addSubview:b];self.buttons[key]=b;
         }
-        self.extra=[UIButton buttonWithType:UIButtonTypeSystem];
+        self.extra=HGADockButton();
         self.extra.accessibilityIdentifier=@"honggo.appearance.dock.extra";
         [self.extra addTarget:self action:@selector(extraTapped:) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:self.extra];
-        self.expand=[UIButton buttonWithType:UIButtonTypeSystem];
+        self.expand=HGADockButton();
         self.expand.accessibilityIdentifier=@"honggo.appearance.dock.expand";
         self.expand.accessibilityLabel=@"展开导航栏";
-        [self.expand setImage:[UIImage systemImageNamed:@"ellipsis"] forState:UIControlStateNormal];
         [self.expand addTarget:self action:@selector(expandTapped:) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:self.expand];
         NSMutableArray *swipes=[NSMutableArray array];
@@ -156,48 +197,72 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     self.extra.hidden=!extra || self.collapsed;
     NSString *style=HGAppearanceString(@"dock.material");
     CGFloat radius=MIN(height/2,HGAppearanceNumber(@"dock.radius"));
+    // A translucent dock can sit over a video even while the host uses its
+    // light theme. Keep this small, plugin-owned surface dark with white glyphs;
+    // solid material continues to follow the host's light/dark appearance.
+    BOOL translucent=![style isEqual:@"solid"];
+    UIUserInterfaceStyle surfaceStyle=translucent ? UIUserInterfaceStyleDark : UIUserInterfaceStyleUnspecified;
+    for(UIView *surface in @[self.capsule,self.extra,self.expand]) {
+        surface.overrideUserInterfaceStyle=surfaceStyle;
+        surface.layer.cornerCurve=kCACornerCurveContinuous;
+    }
     HGAInstallGlass(self.capsule,style,self.collapsed?22:radius,0.08);
     HGAInstallGlass(self.extra,style,circle/2,0.08);
     HGAInstallGlass(self.expand,style,22,0.08);
     self.capsule.hidden=self.collapsed;
     UIColor *tint=HGAppearanceColor(HGAppearanceString(@"dock.tint"),nil);
-    HGAState(self.capsule,NO).glass.contentView.backgroundColor=tint ? [tint colorWithAlphaComponent:0.30] :
-        [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:[style isEqual:@"solid"] || UIAccessibilityIsReduceTransparencyEnabled()?1:0.08];
+    UIColor *surfaceColor=translucent ? [UIColor colorWithWhite:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor;
+    CGFloat surfaceAlpha=[style isEqual:@"solid"] || UIAccessibilityIsReduceTransparencyEnabled()?1:0.12;
+    HGASetGlassOverlay(self.capsule,tint ? [tint colorWithAlphaComponent:0.30] :
+        [surfaceColor colorWithAlphaComponent:surfaceAlpha]);
+    HGASetGlassOverlay(self.extra,[surfaceColor colorWithAlphaComponent:surfaceAlpha]);
+    HGASetGlassOverlay(self.expand,[surfaceColor colorWithAlphaComponent:surfaceAlpha]);
+    self.capsule.layer.cornerRadius=radius;
+    self.capsule.layer.borderWidth=translucent ? 0.5 : 0;
+    self.capsule.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.14].CGColor;
+    BOOL darkSurface=translucent || self.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    self.selection.backgroundColor=[UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.18:0.08];
+    self.selection.hidden=YES;
     NSInteger selected=HGASelectedTab(self.hostController);
+    NSString *content=HGAppearanceString(@"dock.content");
+    CGFloat slotWidth=expanded.size.width/visible.count;
+    CGFloat requestedIcon=HGAppearanceNumber(@"dock.iconSize");
     for(NSString *key in self.buttons) {
         UIButton *b=self.buttons[key];NSUInteger index=[HGATabIDs() indexOfObject:key];
         NSUInteger position=[visible indexOfObject:key];
         b.hidden=position==NSNotFound;
         if(b.hidden)continue;
-        b.frame=CGRectMake(position*expanded.size.width/visible.count,0,expanded.size.width/visible.count,height);
+        b.frame=CGRectMake(position*slotWidth,0,slotWidth,height);
         UIControl *source=[self.targets objectForKey:key];
         BOOL active=selected!=NSNotFound ? selected==(NSInteger)index : source.selected;
-        NSString *content=HGAppearanceString(@"dock.content");
         UIColor *color=HGAppearanceColor(HGAppearanceString(active?@"dock.selected":@"dock.normal"),
-            active?UIColor.labelColor:UIColor.secondaryLabelColor);
-        UIButtonConfiguration *config=[UIButtonConfiguration plainButtonConfiguration];
-        config.title=[content isEqual:@"icon"]?nil:HGATabTitles()[index];
+            translucent ? [UIColor colorWithWhite:1 alpha:active?1:0.88] : (active?UIColor.labelColor:UIColor.secondaryLabelColor));
         NSString *symbol=HGATabSymbols()[index];
         UIImage *image=[UIImage systemImageNamed:active?[symbol stringByAppendingString:@".fill"]:symbol] ?: [UIImage systemImageNamed:symbol];
-        config.image=[content isEqual:@"text"]?nil:image;
-        config.preferredSymbolConfigurationForImage=[UIImageSymbolConfiguration configurationWithPointSize:HGAppearanceNumber(@"dock.iconSize") weight:active?UIImageSymbolWeightSemibold:UIImageSymbolWeightRegular];
-        config.imagePlacement=NSDirectionalRectEdgeTop;config.imagePadding=3;
-        config.baseForegroundColor=color;config.contentInsets=NSDirectionalEdgeInsetsMake(3,0,3,0);
-        config.titleTextAttributesTransformer=^NSDictionary *(NSDictionary *attributes){
-            NSMutableDictionary *updated=attributes.mutableCopy;
-            UIFont *base=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];
-            updated[NSFontAttributeName]=HGAppearanceFlag(@"fonts.enabled") ? HGAConfiguredFont(base) : base;
-            return updated;
-        };
-        b.configuration=config;b.enabled=source.enabled;b.selected=active;
+        NSString *title=[content isEqual:@"icon"]?nil:HGATabTitles()[index];
+        UIFont *font=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];
+        if(HGAppearanceFlag(@"fonts.enabled"))font=HGAConfiguredFont(font);
+        CGFloat iconHeight=title.length ? height-11-font.lineHeight : height*0.48;
+        CGFloat iconSize=MAX(12,MIN(requestedIcon,MIN(iconHeight,slotWidth-16)));
+        b.enabled=source.enabled;b.selected=active;
+        HGADockConfigureButton(b,title,[content isEqual:@"text"]?nil:image,iconSize,font,color);
+        if(active) {
+            CGFloat titleWidth=title.length ? [title sizeWithAttributes:@{NSFontAttributeName:font}].width : 0;
+            CGFloat pillWidth=MIN(slotWidth-8,MAX(height*1.25,titleWidth+24));
+            self.selection.frame=CGRectMake(CGRectGetMidX(b.frame)-pillWidth/2,4,pillWidth,height-8);
+            self.selection.layer.cornerRadius=(height-8)/2;
+            self.selection.hidden=NO;
+        }
         b.accessibilityLabel=HGATabTitles()[index];
         b.accessibilityTraits=UIAccessibilityTraitButton | (active?UIAccessibilityTraitSelected:0);
     }
     NSString *action=HGAppearanceString(@"dock.action");
     NSString *symbol=[action isEqual:@"settings"]?@"slider.horizontal.3":([action isEqual:@"search"]?@"magnifyingglass":HGATabSymbols()[[HGATabIDs() indexOfObject:action]]);
-    [self.extra setImage:[UIImage systemImageNamed:symbol] forState:UIControlStateNormal];
+    UIColor *accessoryColor=HGAppearanceColor(HGAppearanceString(@"dock.normal"),translucent?UIColor.whiteColor:UIColor.labelColor);
+    UIFont *accessoryFont=[UIFont systemFontOfSize:11];
+    HGADockConfigureButton(self.extra,nil,[UIImage systemImageNamed:symbol],MIN(requestedIcon,circle*0.48),accessoryFont,accessoryColor);
+    HGADockConfigureButton(self.expand,nil,[UIImage systemImageNamed:@"ellipsis"],MIN(requestedIcon,22),accessoryFont,accessoryColor);
     self.extra.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[[HGATabIDs() indexOfObject:action]]);
-    self.extra.tintColor=UIColor.labelColor;self.expand.tintColor=UIColor.labelColor;
 }
 - (void)restore {
     for(UIView *view in self.hiddenSources.keyEnumerator)if(view.hidden)view.hidden=[[self.hiddenSources objectForKey:view] boolValue];
