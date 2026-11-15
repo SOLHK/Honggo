@@ -1,0 +1,185 @@
+diff --git a/README.md b/README.md
+index dd6ea7c..8e68c67 100644
+--- a/README.md
++++ b/README.md
+@@ -2,3 +2,3 @@
+ 
+-**1.1.15-R6 外观定制测试版**，适配红果短剧 7.4.3 / 7.4.3.33（Eggplant），arm64，最低编译目标 iOS 15.0.1。
++**1.1.15-R7 外观定制 beta**，适配红果短剧 7.4.3 / 7.4.3.33（Eggplant），arm64，最低编译目标 iOS 15.0.1。
+ 
+@@ -12,5 +12,9 @@
+ 
++TG 更新频道：[Naloiafeed](https://t.me/Naloiafeed)。插件主设置与外观首页均提供入口，支持搜索、打开和复制。
++
++本版 CI 固定使用 Xcode 27.2 与 iOS 27.2 模拟器，找不到指定运行时则停止；不会将其他系统的测试计为 27.2。详见 [R7 验证说明](docs/REPAIR_1.1.15-R7.md)。
++
+ ## 安装与使用
+ 
+-1. 在签名工具中移除旧 Honggo / HongguoGlass 插件，只添加 `Honggo-1.1.15-R6.dylib`，随红果短剧 7.4.3 / 7.4.3.33 重签安装。
++1. 在签名工具中移除旧 Honggo / HongguoGlass 插件，只添加 `Honggo-1.1.15-R7.dylib`，随红果短剧 7.4.3 / 7.4.3.33 重签安装。
+ 2. 打开「我的 → 设置 → Honggo」，确认「隐藏短剧广告、直播和小游戏插播」「隐藏商业与直播领券弹窗」「隐藏播放插播广告」「隐藏启动电商推广」开启，再完全退出重开。沿用旧开关键，已开启的偏好会保留；新安装所有功能默认关闭。玻璃开关与广告规则独立。
+diff --git a/src/AppearanceSettings.inc b/src/AppearanceSettings.inc
+index 1a52ae7..7f23e4f 100644
+--- a/src/AppearanceSettings.inc
++++ b/src/AppearanceSettings.inc
+@@ -1,2 +1,3 @@
+ #import "SettingsTransition.h"
++#import "Community.h"
+ @interface HGAAppearanceController : UITableViewController <UISearchResultsUpdating,UISearchControllerDelegate,PHPickerViewControllerDelegate,UIDocumentPickerDelegate,UIFontPickerViewControllerDelegate,UIColorPickerViewControllerDelegate>
+@@ -75,2 +76,4 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
+     }
++    if(!self.group && HGCommunityMatchesQuery(query))
++        [rows addObject:HGATool(@"@community",@"TG 更新频道 · @Naloiafeed")];
+     self.rows=rows;
+@@ -158,2 +161,3 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
+     NSString *key=row[@"key"],*kind=row[@"kind"];
++    if([key isEqual:@"@community"]){HGShowCommunity(self);return;}
+     if([key hasPrefix:@"@group."]){HGOpenAppearance(self,[key substringFromIndex:7]);return;}
+diff --git a/src/HonggoVersion.h b/src/HonggoVersion.h
+index 600797b..10409f0 100644
+--- a/src/HonggoVersion.h
++++ b/src/HonggoVersion.h
+@@ -4,2 +4,2 @@
+ #define HG_PLUGIN_NAME @"Honggo"
+-#define HG_PLUGIN_VERSION @"1.1.15-R6"
++#define HG_PLUGIN_VERSION @"1.1.15-R7"
+diff --git a/src/SettingsPanel.m b/src/SettingsPanel.m
+index 5bd2449..c126c34 100644
+--- a/src/SettingsPanel.m
++++ b/src/SettingsPanel.m
+@@ -2,2 +2,3 @@
+ #import "Appearance.h"
++#import "Community.h"
+ #import "SettingsTransition.h"
+@@ -91,2 +92,3 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
+ @property(nonatomic) BOOL preferenceOperationInFlight;
++@property(nonatomic) BOOL communityVisible;
+ @property(nonatomic, copy) dispatch_block_t afterSearchDismissal;
+@@ -143,4 +145,5 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
+     self.visibleConfiguration = configuration;
++    self.communityVisible = HGCommunityMatchesQuery(query);
+     UILabel *empty = nil;
+-    if (features.count + diagnostics.count + configuration.count == 0) {
++    if (features.count + diagnostics.count + configuration.count == 0 && !self.communityVisible) {
+         empty = [[UILabel alloc] initWithFrame:self.tableView.bounds];
+@@ -193,5 +196,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
+ }
+-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 3; }
++- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 4; }
+ - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+-    return section == 0 ? self.visibleFeatures.count : section == 1 ? self.visibleDiagnostics.count : self.visibleConfiguration.count;
++    if (section == 3) return self.communityVisible ? 1 : 0;
++    return section == 0 ? self.visibleFeatures.count : section == 1 ? self.visibleDiagnostics.count :
++        section == 2 ? self.visibleConfiguration.count : 0;
+ }
+@@ -199,3 +204,3 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
+     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
+-    return @[@"版本 " HG_PLUGIN_VERSION, @"诊断与兼容", @"配置管理"][section];
++    return @[@"版本 " HG_PLUGIN_VERSION, @"诊断与兼容", @"配置管理", @"更新与频道"][section];
+ }
+@@ -203,2 +208,3 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
+     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
++    if (section == 3) return @"查看插件更新与测试版公告。只有点击打开或复制时才执行操作，不会自动加入频道。";
+     if (section == 1) return @"增强诊断即时生效。复现广告或遮罩后截屏，再回来导出日志；仅记录控件结构，不读取截图像素或页面文字。本次启动保留最近 10 份现场，导出前不要退出应用。";
+@@ -211,2 +217,16 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
+ - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
++    if (indexPath.section == 3) {
++        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
++        cell.textLabel.text = @"TG 更新频道";
++        cell.detailTextLabel.text = @"@Naloiafeed · 打开频道或复制地址";
++        cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
++        cell.detailTextLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
++        cell.textLabel.adjustsFontForContentSizeCategory = YES;
++        cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
++        cell.textLabel.numberOfLines = 0;
++        cell.detailTextLabel.numberOfLines = 0;
++        cell.accessibilityIdentifier = @"honggo.community.channel";
++        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
++        return cell;
++    }
+     if (indexPath.section == 0) {
+@@ -388,2 +408,6 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
+     if (self.preferenceOperationInFlight || indexPath.section == 0) return;
++    if (indexPath.section == 3) {
++        [self performAfterSearchDismissal:^{ HGShowCommunity(self); }];
++        return;
++    }
+     // A result remains identified by its stable action even when only one row matches.
+diff --git a/tests/AppearanceIntegration.m b/tests/AppearanceIntegration.m
+index 20c2e9b..e4b762e 100644
+--- a/tests/AppearanceIntegration.m
++++ b/tests/AppearanceIntegration.m
+@@ -278,2 +278,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
+     Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==4,@"appearance search resolves stable per-control keys");
++    search.searchBar.text=@"TG Naloiafeed";
++    [search.searchResultsUpdater updateSearchResultsForSearchController:search];
++    Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==1,@"appearance search finds the Telegram channel");
++    UITableViewCell *channel=[page.tableView.dataSource tableView:page.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
++    Check([channel.accessibilityIdentifier isEqual:@"honggo.appearance.setting.@community"],@"appearance channel keeps its stable action identity");
+     HGAppearanceReset();
+@@ -282,3 +287,3 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
+     NSUInteger failed=0;for(NSDictionary *c in checks)failed+=![c[@"passed"] boolValue];
+-    NSDictionary *report=@{@"plugin":@"Honggo",@"version":HG_PLUGIN_VERSION,@"status":failed?@"failed":@"passed",@"total":@(checks.count),@"failed":@(failed),@"checks":checks,@"scope":@"production visual code with controlled UIKit hosts; not Hongguo device acceptance"};
++    NSDictionary *report=@{@"plugin":@"Honggo",@"simulatorOS":UIDevice.currentDevice.systemVersion,@"version":HG_PLUGIN_VERSION,@"status":failed?@"failed":@"passed",@"total":@(checks.count),@"failed":@(failed),@"checks":checks,@"scope":@"production visual code with controlled UIKit hosts; not Hongguo device acceptance"};
+     NSURL *directory=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
+diff --git a/tests/SettingsIntegration.m b/tests/SettingsIntegration.m
+index 70b65e5..73e1016 100644
+--- a/tests/SettingsIntegration.m
++++ b/tests/SettingsIntegration.m
+@@ -1 +1,2 @@
++#import "Community.h"
+ // Real UIKit integration checks with a controlled host, not the Hongguo IPA.
+@@ -416,2 +417,16 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
+ 
++    [self check:[settings.tableView numberOfRowsInSection:3] == 1 &&
++        [[self settingsCell:settings section:3 row:0].accessibilityIdentifier isEqual:@"honggo.community.channel"]
++        name:@"Telegram channel is visible without enabling any feature"];
++    [self check:[HGCommunityURLString() isEqual:@"https://t.me/Naloiafeed"]
++        name:@"channel destination matches the owner supplied HTTPS address exactly"];
++    for (NSString *query in @[@"TG", @"频道", @"nAlOiAfEeD", @"telegram 更新"]) {
++        [self filterSettings:settings text:query];
++        [self check:[settings.tableView numberOfRowsInSection:3] == 1 &&
++            [settings.tableView numberOfRowsInSection:0] == 0 &&
++            [[self settingsCell:settings section:3 row:0].accessibilityIdentifier isEqual:@"honggo.community.channel"]
++            name:@"channel search uses a stable identity without modifying feature rows"];
++    }
++    [self check:!HGCommunityMatchesQuery(@"unrelated-channel-123")
++        name:@"unmatched channel searches cannot expose a stale result"];
+     [self filterSettings:settings text:@"信息流"];
+@@ -477,3 +492,3 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
+ - (void)runSearchAction:(NSUInteger)index settings:(HGSettingsController *)settings completion:(dispatch_block_t)completion {
+-    NSArray<NSString *> *queries = @[@"兼容", @"reset", @"restore import", @"backup export"];
++    NSArray<NSString *> *queries = @[@"兼容", @"reset", @"restore import", @"backup export", @"TG Naloiafeed"];
+     NSArray<NSString *> *names = @[@"active search opens compatibility after search dismissal",
+@@ -481,3 +496,4 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
+         @"active search opens the JSON picker after search dismissal",
+-        @"active search exports configuration to the native share sheet"];
++        @"active search exports configuration to the native share sheet",
++        @"active search opens the Telegram menu only after search dismissal"];
+     if (index >= queries.count) {
+@@ -504,3 +520,3 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
+         if (!active) { completion(); return; }
+-        NSInteger section = index == 0 ? 1 : 2;
++        NSInteger section = index == 0 ? 1 : index == 4 ? 3 : 2;
+         if ([settings.tableView numberOfRowsInSection:section] != 1) {
+@@ -518,3 +534,3 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
+             UIViewController *presented = settings.presentedViewController;
+-            Class expected = index == 1 ? UIAlertController.class :
++            Class expected = (index == 1 || index == 4) ? UIAlertController.class :
+                 index == 2 ? UIDocumentPickerViewController.class : UIActivityViewController.class;
+@@ -554,2 +570,11 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
+                         name:@"reset requires a concrete confirmation before changing switches"];
++                } else if (index == 4) {
++                    UIAlertController *menu = (UIAlertController *)settings.presentedViewController;
++                    NSMutableSet *titles = [NSMutableSet set];
++                    for (UIAlertAction *action in menu.actions) [titles addObject:action.title];
++                    [self check:[menu.message isEqual:HGCommunityURLString()] &&
++                        [titles containsObject:@"打开频道"] && [titles containsObject:@"复制地址"] &&
++                        [titles containsObject:@"取消"] && menu.actions.count == 3
++                        name:@"channel menu shows the exact destination and explicit open copy cancel choices"];
++                    [self capture:@"settings-community-simulator.png"];
+                 } else if (index == 2) {
+@@ -572,2 +597,3 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
+     NSDictionary *report = @{@"plugin": HG_PLUGIN_NAME, @"version": HG_PLUGIN_VERSION, @"scope": @"real UIKit with a simulated host; not a Hongguo device test",
++        @"simulatorOS": UIDevice.currentDevice.systemVersion,
+         @"status": failed == 0 ? @"passed" : @"failed", @"failed": @(failed),
