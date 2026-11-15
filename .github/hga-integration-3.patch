@@ -1,0 +1,284 @@
+diff --git a/tests/AppearancePreferencesTests.m b/tests/AppearancePreferencesTests.m
+new file mode 100644
+index 0000000..2cfadb7
+--- /dev/null
++++ b/tests/AppearancePreferencesTests.m
+@@ -0,0 +1,58 @@
++#import "AppearancePreferences.h"
++#import <CoreFoundation/CoreFoundation.h>
++#include <math.h>
++static NSUInteger checks,failures;
++static void Check(BOOL passed,NSString *name){checks++;if(!passed)failures++;NSLog(@"%@ %@",passed?@"PASS":@"FAIL",name);}
++int main(void) {@autoreleasepool {
++    HGAppearanceReset();
++    [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
++    NSMutableSet *keys=[NSMutableSet set];
++    BOOL unique=YES,defaults=YES;
++    for(NSDictionary *entry in HGAppearanceCatalog()) {
++        unique &= ![keys containsObject:entry[@"key"]];[keys addObject:entry[@"key"]];
++        if([entry[@"kind"] isEqual:@"bool"])defaults &= !HGAppearanceFlag(entry[@"key"]);
++    }
++    Check(unique && keys.count>100,@"every visual option has one stable key");
++    Check(defaults && !HGAppearanceEnabled(),@"all appearance switches default off");
++    Check(HGAppearanceNumber(@"layout.like.scale")==1,@"layout default scale is identity");
++    Check(HGAppearanceNumber(@"layout.like.x")==0,@"layout default offset is zero");
++    Check(!HGAppearanceSet(@"unknown",@YES,nil),@"unknown setting rejected");
++    Check(!HGAppearanceSet(@"enabled",@1,nil),@"number cannot masquerade as boolean");
++    Check(!HGAppearanceSet(@"dock.height",@YES,nil),@"boolean cannot masquerade as dimension");
++    Check(!HGAppearanceSet(@"dock.height",@43,nil),@"undersized touch height rejected");
++    Check(!HGAppearanceSet(@"dock.height",@81,nil),@"oversized dimension rejected");
++    Check(!HGAppearanceSet(@"layout.like.x",@(NAN),nil),@"NaN rejected");
++    Check(!HGAppearanceSet(@"layout.like.scale",@(INFINITY),nil),@"infinity rejected");
++    Check(!HGAppearanceSet(@"dock.material",@"unrecognized",nil),@"unknown material rejected");
++    Check(HGAppearanceSet(@"dock.tint",@"#123ABC",nil),@"hex color accepted");
++    Check(!HGAppearanceSet(@"dock.tint",@"red",nil),@"nonhex color rejected");
++    Check(HGAppearanceSet(@"icons.like.normal.symbol",@"heart.circle.fill",nil),@"SF Symbol syntax accepted");
++    Check(!HGAppearanceSet(@"icons.like.normal.asset",@"../../secret.png",nil),@"image path traversal rejected");
++    Check(!HGAppearanceSet(@"fonts.asset",@"file:///etc/passwd",nil),@"font URI rejected");
++    Check(!HGAppearanceSet(@"fonts.asset",@"a.ttf/../b",nil),@"font path traversal rejected");
++    Check(HGAppearanceSet(@"fonts.name",@"HelveticaNeue-Bold",nil),@"font name accepted");
++    NSDictionary *before=HGAppearanceValues();
++    Check(!HGAppearanceApply(@{@"enabled":@YES,@"layout.like.x":@999},nil) && [before isEqual:HGAppearanceValues()],@"one invalid field rejects the whole update");
++    Check(!HGAppearanceApply(@{@"dock.hide.home":@YES,@"dock.hide.theater":@YES,@"dock.hide.store":@YES,@"dock.hide.mine":@YES},nil),@"at least one navigation item remains");
++    Check(HGAppearanceApply(@{@"layout.like.x":@20},nil) && [HGAppearanceString(@"fonts.name") isEqual:@"HelveticaNeue-Bold"],@"partial restore preserves omitted settings");
++    NSData *data=HGAppearanceExport(nil);NSDictionary *parsed=HGAppearanceParse(data,nil);
++    Check([parsed isEqual:HGAppearanceValues()],@"versioned appearance JSON round trips");
++    NSString *text=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
++    Check([text rangeOfString:@"host.fixture"].location==NSNotFound,@"backup excludes host preferences");
++    Check(!HGAppearanceParse([@"{}" dataUsingEncoding:NSUTF8StringEncoding],nil),@"missing schema rejected");
++    Check(!HGAppearanceParse([@"[]" dataUsingEncoding:NSUTF8StringEncoding],nil),@"array wrapper rejected");
++    Check(!HGAppearanceParse([@"{" dataUsingEncoding:NSUTF8StringEncoding],nil),@"malformed JSON rejected");
++    Check(!HGAppearanceParse([NSData data],nil),@"empty JSON rejected");
++    Check(!HGAppearanceParse([NSMutableData dataWithLength:128*1024+1],nil),@"oversized JSON rejected");
++    NSDictionary *root=@{@"format":@"Honggo.appearance",@"schema":@YES,@"values":@{@"enabled":@YES}};
++    Check(!HGAppearanceParse([NSJSONSerialization dataWithJSONObject:root options:0 error:nil],nil),@"boolean schema rejected");
++    Check(HGAppearanceApply(HGAppearancePreset(@"glass"),nil),@"glass preset validates");
++    Check(HGAppearanceEnabled() && HGAppearanceFlag(@"dock.enabled") && HGAppearanceFlag(@"icons.enabled") && HGAppearanceFlag(@"panels.speed"),@"glass preset activates visible modules");
++    Check(HGAppearanceNeedsGlass(),@"startup knows the visual preset requests glass");
++    Check(HGAppearanceApply(HGAppearancePreset(@"focus"),nil) && HGAppearanceFlag(@"dock.autoCollapse") && HGAppearanceFlag(@"layout.tags.hidden"),@"focus preset supplies collapse and clean layout");
++    HGAppearanceReset();
++    Check(!HGAppearanceEnabled() && !HGAppearanceNeedsGlass(),@"reset stops the new appearance path");
++    Check([[NSUserDefaults.standardUserDefaults stringForKey:@"host.fixture"] isEqual:@"preserve"],@"reset preserves unrelated host settings");
++    NSLog(@"Appearance preferences: %lu checks, %lu failures",(unsigned long)checks,(unsigned long)failures);
++    return failures?1:0;
++}}
+diff --git a/tools/build-ios.sh b/tools/build-ios.sh
+index ae67242..780a8b8 100644
+--- a/tools/build-ios.sh
++++ b/tools/build-ios.sh
+@@ -23,9 +23,9 @@ xcrun --sdk iphoneos clang \
+     -O2 -fobjc-arc -fblocks -fvisibility=hidden -Wall -Werror \
+     -dynamiclib -Wl,-install_name,@rpath/Honggo.dylib -Wl,-no_adhoc_codesign \
+     "-Wl,-current_version,$macho_version" -Wl,-compatibility_version,1.0.0 \
+-    -framework Foundation -framework CoreFoundation -framework UIKit -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
++    -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
+     "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
+-    "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" \
++    "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/AppearancePreferences.m" "$source_root/src/Appearance.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" \
+     "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
+     "$source_root/src/AdSceneDiagnostics.m" -o "$output"
+ 
+diff --git a/tools/test-ad-scene-ios.sh b/tools/test-ad-scene-ios.sh
+index f374658..756e10d 100644
+--- a/tools/test-ad-scene-ios.sh
++++ b/tools/test-ad-scene-ios.sh
+@@ -18,7 +18,7 @@ architecture=$(uname -m)
+ xcrun --sdk iphonesimulator clang \
+     -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
+     -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
+-    -framework Foundation -framework UIKit -framework QuartzCore -framework CoreGraphics -lobjc \
++    -framework Foundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework QuartzCore -framework CoreGraphics -lobjc \
+     "$source_root/src/AdSceneDiagnostics.m" "$source_root/tests/AdSceneIntegration.m" \
+     -o "$app/HGAdSceneTests" 2>&1 | tee "$work/build.log"
+ 
+diff --git a/tools/test-ads-ios.sh b/tools/test-ads-ios.sh
+index 7b7b76f..14ee2e2 100644
+--- a/tools/test-ads-ios.sh
++++ b/tools/test-ads-ios.sh
+@@ -18,8 +18,8 @@ architecture=$(uname -m)
+ xcrun --sdk iphonesimulator clang \
+     -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
+     -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
+-    -framework Foundation -framework CoreFoundation -framework UIKit -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
+-    "$source_root/src/Ads.m" "$source_root/src/Honggo.m" "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" "$source_root/src/AdSceneDiagnostics.m" "$source_root/tests/AdsIntegration.m" \
++    -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
++    "$source_root/src/Ads.m" "$source_root/src/Honggo.m" "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/AppearancePreferences.m" "$source_root/src/Appearance.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" "$source_root/src/AdSceneDiagnostics.m" "$source_root/tests/AdsIntegration.m" \
+     -o "$app/HGAdsTests" 2>&1 | tee "$work/build.log"
+ 
+ python3 - "$app/Info.plist" "$bundle_id" <<'PY'
+diff --git a/tools/test-appearance-ios.sh b/tools/test-appearance-ios.sh
+new file mode 100644
+index 0000000..efc767b
+--- /dev/null
++++ b/tools/test-appearance-ios.sh
+@@ -0,0 +1,109 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++# Exercise real production appearance adapters on controlled UIKit host fixtures.
++source_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
++work="$source_root/build/appearance-tests"
++app="$work/HGAppearanceTests.app"
++bundle_id=org.honggo.appearance.tests
++mkdir -p "$app"
++if ! command -v xcrun >/dev/null 2>&1; then
++    printf 'Appearance compatibility UIKit integration requires macOS with Xcode and an iOS simulator runtime.\n' >&2
++    exit 1
++fi
++sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
++architecture=$(uname -m)
++
++xcrun --sdk iphonesimulator clang \
++    -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
++    -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
++    -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
++    "$source_root"/src/*.m "$source_root/tests/AppearanceIntegration.m" \
++    -o "$app/HGAppearanceTests" 2>&1 | tee "$work/build.log"
++
++python3 - "$app/Info.plist" "$bundle_id" <<'PY'
++import plistlib
++import sys
++from pathlib import Path
++
++Path(sys.argv[1]).write_bytes(plistlib.dumps({
++    "CFBundleIdentifier": sys.argv[2],
++    "CFBundleName": "Honggo Appearance Compatibility Tests",
++    "CFBundleExecutable": "HGAppearanceTests",
++    "CFBundlePackageType": "APPL",
++    "CFBundleVersion": "1",
++    "CFBundleShortVersionString": "1.0",
++    "CFBundleSupportedPlatforms": ["iPhoneSimulator"],
++    "LSRequiresIPhoneOS": True,
++    "MinimumOSVersion": "15.0",
++    "UIDeviceFamily": [1, 2],
++    "UILaunchScreen": {},
++    "UIApplicationSceneManifest": {"UIApplicationSupportsMultipleScenes": False},
++    "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"],
++}))
++PY
++codesign --force --sign - "$app"
++xcrun simctl list --json > "$work/simulators.json"
++selection=$(python3 - "$work/simulators.json" <<'PY'
++import json
++import re
++import sys
++
++inventory = json.load(open(sys.argv[1]))
++ios = [(tuple(map(int, re.findall(r"\d+", runtime.split(".iOS-")[-1]))), runtime, entries)
++       for runtime, entries in inventory["devices"].items() if ".iOS-" in runtime]
++for _, runtime, entries in sorted(ios, reverse=True):
++    phones = [entry for entry in entries
++              if entry.get("isAvailable") and entry["name"].startswith("iPhone")]
++    if not phones:
++        continue
++    device_type = phones[0].get("deviceTypeIdentifier")
++    if not device_type:
++        device_type = next(item["identifier"] for item in inventory["devicetypes"]
++                           if item["name"] == phones[0]["name"])
++    print(device_type, runtime)
++    break
++else:
++    raise SystemExit("No available iPhone simulator runtime is installed")
++PY
++)
++read -r device_type runtime_id <<< "$selection"
++device_id=$(xcrun simctl create "HonggoAppearance-$$" "$device_type" "$runtime_id")
++cleanup() {
++    xcrun simctl terminate "$device_id" "$bundle_id" >/dev/null 2>&1 || true
++    xcrun simctl shutdown "$device_id" >/dev/null 2>&1 || true
++    xcrun simctl delete "$device_id" >/dev/null 2>&1 || true
++}
++trap cleanup EXIT
++xcrun simctl boot "$device_id"
++xcrun simctl bootstatus "$device_id" -b
++xcrun simctl install "$device_id" "$app"
++data_directory=$(xcrun simctl get_app_container "$device_id" "$bundle_id" data)
++rm -f -- "$data_directory/Documents/appearance-results.json"
++xcrun simctl launch "$device_id" "$bundle_id" 2>&1 | tee "$work/launch.log"
++for ((attempt=0; attempt<45; attempt++)); do
++    if [ -f "$data_directory/Documents/appearance-results.json" ]; then
++        break
++    fi
++    sleep 1
++done
++xcrun simctl spawn "$device_id" log show --style compact --last 2m \
++    --predicate 'process == "HGAppearanceTests"' > "$work/simulator.log" 2>&1 || true
++if [ ! -f "$data_directory/Documents/appearance-results.json" ]; then
++    cat "$work/simulator.log"
++    printf 'Appearance compatibility integration app did not write a result within 45 seconds.\n' >&2
++    exit 1
++fi
++cp "$data_directory/Documents/appearance-results.json" "$work/appearance-results.json"
++python3 - "$work/appearance-results.json" <<'PY'
++import json
++import sys
++
++report = json.load(open(sys.argv[1]))
++print(json.dumps(report, indent=2, ensure_ascii=False))
++checks = report.get("checks", [])
++if report.get("status") != "passed" or report.get("failed") != 0 or \
++        report.get("total", 0) < 50 or len(checks) != report.get("total") or \
++        any(check.get("passed") is not True for check in checks):
++    raise SystemExit("Appearance compatibility UIKit integration checks failed")
++PY
+diff --git a/tools/test-appearance-preferences.sh b/tools/test-appearance-preferences.sh
+new file mode 100644
+index 0000000..40a1f99
+--- /dev/null
++++ b/tools/test-appearance-preferences.sh
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++set -euo pipefail
++source_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
++work="$source_root/build/appearance-tests"
++mkdir -p "$work"
++xcrun clang -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
++  -framework Foundation -framework CoreFoundation \
++  "$source_root/src/AppearancePreferences.m" "$source_root/tests/AppearancePreferencesTests.m" \
++  -o "$work/preferences"
++"$work/preferences" 2>&1 | tee "$work/preferences.log"
+diff --git a/tools/test-runtime-ios.sh b/tools/test-runtime-ios.sh
+index 3f4fa0f..55f27bb 100644
+--- a/tools/test-runtime-ios.sh
++++ b/tools/test-runtime-ios.sh
+@@ -18,7 +18,7 @@ architecture=$(uname -m)
+ xcrun --sdk iphonesimulator clang \
+     -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
+     -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
+-    -framework Foundation -framework CoreFoundation -framework UIKit -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
++    -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
+     "$source_root"/src/*.m "$source_root/tests/RuntimeIntegration.m" \
+     -o "$app/HGRuntimeTests" 2>&1 | tee "$work/build.log"
+ 
+diff --git a/tools/test-settings-ios.sh b/tools/test-settings-ios.sh
+index d5b42e6..d41c8c1 100644
+--- a/tools/test-settings-ios.sh
++++ b/tools/test-settings-ios.sh
+@@ -14,9 +14,9 @@ architecture=$(uname -m)
+ xcrun --sdk iphonesimulator clang \
+     -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
+     -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
+-    -framework Foundation -framework CoreFoundation -framework UIKit -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
++    -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
+     "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
+-    "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" \
++    "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/AppearancePreferences.m" "$source_root/src/Appearance.m" "$source_root/src/RuntimeSupport.m" "$source_root/src/TabBar.m" \
+     "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
+     "$source_root/src/AdSceneDiagnostics.m" \
+     "$source_root/tests/SettingsIntegration.m" -o "$app/HGSettingsTests"
+diff --git a/tools/test-tabbar-ios.sh b/tools/test-tabbar-ios.sh
+index 476af29..6cf485f 100644
+--- a/tools/test-tabbar-ios.sh
++++ b/tools/test-tabbar-ios.sh
+@@ -31,9 +31,9 @@ build_variant() {
+     xcrun --sdk iphonesimulator clang \
+         -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
+         -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
+-        -framework Foundation -framework CoreFoundation -framework UIKit -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
++        -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
+         "$source_root/src/Ads.m" "$source_root/src/Honggo.m" \
+-        "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/RuntimeSupport.m" "$tabbar_source" \
++        "$source_root/src/Settings.m" "$source_root/src/SettingsPanel.m" "$source_root/src/Preferences.m" "$source_root/src/AppearancePreferences.m" "$source_root/src/Appearance.m" "$source_root/src/RuntimeSupport.m" "$tabbar_source" \
+         "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
+         "$source_root/src/AdSceneDiagnostics.m" \
+         "$source_root/tests/ControlsIntegration.m" \

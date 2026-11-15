@@ -1,0 +1,214 @@
+diff --git a/.github/workflows/ios.yml b/.github/workflows/ios.yml
+index fbd0c56..eae090a 100644
+--- a/.github/workflows/ios.yml
++++ b/.github/workflows/ios.yml
+@@ -95,9 +95,29 @@ jobs:
+             build/ads-tests/*.log
+           if-no-files-found: warn
+ 
++  appearance:
++    runs-on: macos-26
++    timeout-minutes: 12
++    steps:
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
++        with:
++          persist-credentials: false
++      - name: Validate appearance preference boundaries
++        run: bash tools/test-appearance-preferences.sh
++      - name: Validate visual adapters and restoration in UIKit
++        run: bash tools/test-appearance-ios.sh
++      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
++        if: always()
++        with:
++          name: Honggo-appearance-simulator-evidence
++          path: |
++            build/appearance-tests/*.json
++            build/appearance-tests/*.log
++          if-no-files-found: warn
++
+   iphoneos:
+     # Require UI, diagnostics, and ad-filter behavior checks before packaging.
+-    needs: [tabbar, settings, adscene]
++    needs: [tabbar, settings, adscene, appearance]
+     runs-on: macos-26
+     timeout-minutes: 5
+     steps:
+@@ -127,7 +147,7 @@ jobs:
+   publish_test:
+     name: Publish verified test dylib
+     if: github.ref == 'refs/heads/test'
+-    needs: [tabbar, settings, adscene, iphoneos]
++    needs: [tabbar, settings, adscene, appearance, iphoneos]
+     runs-on: ubuntu-latest
+     permissions:
+       actions: read
+@@ -175,8 +195,8 @@ jobs:
+           printf '%s\n' \
+             "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
+             "Source commit: ${GITHUB_SHA}" \
+-            "macOS/iPhoneOS build, settings search, scoped preference restore, runtime boundaries, tab-bar, diagnostics and ad-filter regression checks passed." \
+-            "Adds settings search, local switch backup/restore and runtime compatibility reporting, with independent ad installation and guarded getters." \
++            "macOS/iPhoneOS build, appearance adapters, settings, preferences, runtime, tab-bar, diagnostics and ad-filter regression checks passed." \
++            "Adds independent customizable dock, collapse gestures, playback layout and glass, panel materials, state-aware icons, local image/font imports and typography settings." \
+             "Reference behavior was studied; implementation is written for Honggo without importing NaiwaGuo source or assets." \
+             "Actual Hongguo iPhone appearance, playback and ad disappearance remain unverified." \
+             "R-numbered builds are tests; the suffix is removed only for a stable release on main." \
+diff --git a/README.md b/README.md
+index 3ac4ac7..4dccae5 100644
+--- a/README.md
++++ b/README.md
+@@ -1,17 +1,21 @@
+ # Honggo
+ 
+-R4 新增设置搜索、功能配置备份/恢复和本次启动兼容状态；广告规则独立安装，底栏入口缺失不再阻止广告过滤。方法安装与动态对象读取补齐边界检查和重复安装保护。[R4 改动与验证](docs/REPAIR_1.1.15-R4.md) · [NaiwaGuo 功能研究与独立实现](docs/REFERENCE_STUDY_NAIWAGUO.md)
++**1.1.15-R5 外观定制测试版**，适配红果短剧 7.4.3 / 7.4.3.33（Eggplant），arm64，最低编译目标 iOS 15.0.1。
+ 
+-**1.1.15-R4 兼容与设置增强测试版。** 支持红果短剧 7.4.3 / 7.4.3.33（Eggplant），arm64，最低 iOS 15.0.1。
++进入「我的 → 设置 → Honggo → 左上角『外观』」，应用「玻璃外观」预设并完全退出重开，即可启用新增外观模块。默认不擅自开启，也不会修改原来的去广告选择。
+ 
+-保留已有底栏、按钮、设置、现场诊断和 R3 广告规则；本轮不扩大广告拦截位置。参考学习 NaiwaGuo 的产品功能，由 Honggo 自身数据结构和系统 API 独立实现，没有引入该项目的源码或素材。仅提供 dylib。**真实红果 iPhone 的显示、播放与广告消失效果仍需验收；入口检查通过不等于全部广告已消除。** [R3 修复与证据](docs/REPAIR_1.1.15-R3.md) · [7.4.3.33 广告逆向档案](docs/AD_AUDIT_7.4.3.33.md)
++新增自定义悬浮底栏与圆按钮、收缩展开、播放控件玻璃/隐藏/位移/缩放、竖屏画面填满、四类弹出面板玻璃、自选图标与 SF Symbols、字体导入和字号。各功能独立开关；设置支持搜索、预设、外观参数备份/恢复及恢复默认。
++
++**真实红果 iPhone 效果仍需验收。** 未匹配接口保留宿主行为；尺寸受可用点击空间限制，字体与玻璃不覆盖所有自绘界面。作者和剧集信息按容器整体调整；横屏/方形视频不放大。外观备份不打包图片或字体。
++
++[R5 使用与实现边界](docs/REPAIR_1.1.15-R5.md) · [参考功能研究](docs/REFERENCE_STUDY_NAIWAGUO.md) · [R4 设置与兼容基础](docs/REPAIR_1.1.15-R4.md)
+ 
+ ## 安装与使用
+ 
+-1. 在签名工具中移除旧 Honggo / HongguoGlass 插件，只添加 `Honggo-1.1.15-R4.dylib`，随红果短剧 7.4.3 / 7.4.3.33 重签安装。
++1. 在签名工具中移除旧 Honggo / HongguoGlass 插件，只添加 `Honggo-1.1.15-R5.dylib`，随红果短剧 7.4.3 / 7.4.3.33 重签安装。
+ 2. 打开「我的 → 设置 → Honggo」，确认「隐藏短剧广告、直播和小游戏插播」「隐藏商业与直播领券弹窗」「隐藏播放插播广告」「隐藏启动电商推广」开启，再完全退出重开。沿用旧开关键，已开启的偏好会保留；新安装所有功能默认关闭。玻璃开关与广告规则独立。
+ 3. iOS 26+ 的此版本在宿主身份校验通过后、插件首次使用 UIKit 前，向本进程的 `NSArgumentDomain` 设置 `com.apple.SwiftUI.IgnoreSolariumOptOut=true`，请求启用系统玻璃。无需先改主 App 的 `UIDesignRequiresCompatibility`；此路径的 iOS 27.3 真机渲染仍待验收。底栏效果使用 `UIGlassEffect` Regular，旧系统继续使用 UIKit 模糊。
+-4. 「原生液态玻璃按钮」独立控制已适配的宿主按钮。任一玻璃开关打开都会请求新的系统设计，这可能影响其他系统控件。关闭两个玻璃开关并重启后，插件不再设置该进程参数；移除插件也不会留下这个参数。若宿主 Info.plist 本来就开启新设计，插件不会撤销宿主配置。
++4. 「原生液态玻璃按钮」独立控制已适配的宿主按钮。任一玻璃开关打开都会请求新的系统设计，这可能影响其他系统控件。关闭两个旧玻璃开关及新外观定制并重启后，插件不再设置该进程参数；移除插件也不会留下这个参数。若宿主 Info.plist 本来就开启新设计，插件不会撤销宿主配置。
+ 5. 先测试“我的”页从顶部到历史列表中段、底部再返回顶部，以及四个底栏标签的点击。最后一项内容结束后的正常留白仍会存在。若仍有遮罩，打开增强诊断、复现后导出日志；新的 `glass.startup`、`nestedCoordinator`、`frameInRoot` 和 `bottomEdgeHidden` 字段用于区分启动配置、内层裁切和系统边缘效果。
+ 
+ 保留原有设置菜单、导航栏入口和双指长按底栏入口。广告开关修改后完全退出再重开。测试时检查连续切集、前后滑动、主动进入直播、返回播放器及弹窗遮罩是否正常。
+@@ -74,6 +78,8 @@ bash tools/test-ad-scene-ios.sh
+ bash tools/test-ads-ios.sh
+ bash tools/test-preferences.sh
+ bash tools/test-runtime-ios.sh
++bash tools/test-appearance-preferences.sh
++bash tools/test-appearance-ios.sh
+ ```
+ 
+ - `tools/test-settings-ios.sh` 需要 macOS、Xcode 和已安装的 iOS Simulator runtime。它使用真实 UIKit 与模拟的宿主设置控制器验证菜单注入、重复进入、原有页头保留、菜单点击和开关存储；结果不等于红果短剧真机验收。GitHub Actions 会执行版本递增校验、设备 dylib 编译、UIKit 设置入口与底栏回归，以及 IPA 工具测试。模拟器报告、截图与日志作为独立验证附件上传。
+diff --git a/docs/REFERENCE_STUDY_NAIWAGUO.md b/docs/REFERENCE_STUDY_NAIWAGUO.md
+index 831ec34..eaaf6de 100644
+--- a/docs/REFERENCE_STUDY_NAIWAGUO.md
++++ b/docs/REFERENCE_STUDY_NAIWAGUO.md
+@@ -35,6 +35,10 @@
+ 
+ 本轮没有把参考项目全部视觉功能加入 Honggo，也没有新增参考项目的音频旁路、全局字体替换或私有底栏收缩实现。版本保持测试后缀 `1.1.15-R4`；具体文件和验证结果以本轮修复记录及 CI 产物为准。
+ 
++## 1.1.15-R5 外观实现
++
++R5 已独立加入上述八类外观功能的实现和专用原生设置，并保留 R4 的设置、广告与诊断基础。详见 [R5 实现范围与限制](REPAIR_1.1.15-R5.md)。这不是将参考项目全部细节逐行重做：头像底栏、音频旁路、FLEX、作者赞赏/群入口不在本轮八类外观功能中；信息布局采用已确认容器整体调整，字体与材质仅作用于已适配界面。运行时接口匹配和受控宿主测试仍不能替代红果真机验收。
++
+ ## 兼容策略与待验证边界
+ 
+ 参考项目既有公共 UIKit 材质路径，也使用私有底栏结构和主 Bundle 兼容状态覆盖；它的宿主接口说明不能证明未来版本继续兼容。[宿主适配说明][adapter]记载了这些依赖。因此，不能把其源码当作通用稳定性的证据，或只凭系统版本号就启用全部功能。
+diff --git a/docs/REPAIR_1.1.15-R5.md b/docs/REPAIR_1.1.15-R5.md
+new file mode 100644
+index 0000000..c2f59c7
+--- /dev/null
++++ b/docs/REPAIR_1.1.15-R5.md
+@@ -0,0 +1,52 @@
++# Honggo 1.1.15-R5：外观定制测试版
++
++## 使用入口
++
++在「我的 → 设置 → Honggo」左上角点击「外观」。首次选择「应用『玻璃外观』预设」，确认后完全退出红果再打开。新安装默认关闭新外观；升级不会擅自改变用户已有的去广告开关。
++
++原生玻璃需要系统提供 UIGlassEffect，且宿主启动时启用新的设计路径。即时开启时若启动条件未满足，会使用系统磨砂；重启后重新检查。既有进程参数并不是 Apple 对第三方注入插件的兼容承诺。
++
++## 已实现范围
++
++| 类别 | 本版实现 |
++| --- | --- |
++| 浮动底栏 | 普通/清透玻璃、磨砂/纯色；宽度比例、高度、圆角、上移距离、图标大小；选中、未选中和底色；文字/图标/图文；逐项隐藏且至少保留一项；触感反馈。 |
++| 收缩展开 | 底栏上滑收缩、下滑或点击展开；可跟随播放器滑动；左/中/右位置；减少动态效果时取消动画，VoiceOver 时保持展开。 |
++| 独立圆按钮 | Honggo 外观设置、搜索或四个原生导航页面；搜索只调用已确认且签名正确的可见首页入口。 |
++| 播放控件 | 头像、收藏、评论、点赞、分享、更多、频道、信息、分类、进度、弹幕、全集、声明共 13 类的隐藏、水平/垂直偏移、缩放；右侧、顶部和全集玻璃独立开关。 |
++| 播放画面 | 只在已识别的竖屏渲染区域内均匀放大以填满播放画布；不改翻页距离、HUD、播放状态、系统状态栏。横屏和方形保持原样。 |
++| 弹出面板 | 评论、分享、长按/更多、倍速四组开关，独立材质与底色透明度。 |
++| 动作图标 | 线性/实心/圆形/方形预设；SF Symbols 名称输入；系统相册选择；普通/选中图标；点赞与收藏读取宿主真实状态。 |
++| 字体 | 已安装字体选择，TTF/OTF/TTC 文件导入，原生文字缩放与一键恢复。 |
++| 配置 | 两套可见预设、设置搜索、外观参数 JSON 导出/恢复、恢复全部默认值。旧 16 个功能开关保持原键与顺序。 |
++
++## 独立实现与兼容边界
++
++产品行为参考 NaiwaGuo 0.1.1 的说明和宿主接口记录。Honggo 的新源码、设置模型、状态恢复、导航映射和测试均独立编写，没有导入 NaiwaGuo 源码文件、代码片段、字体、图片、赞赏或社群素材。相同的宿主类与 selector 是适配所需接口名称，不代表引用对方实现。
++
++本版仍限定 Eggplant 7.4.3.33 / 红果 7.4.3。未获得新的原始 IPA，新增视图适配采用已有接口记录并在运行时检查类、方法签名与视图关系。参考项目的适配说明不能替代目标版本的真实设备验证。
++
++为保护宿主使用，以下限制是本版的明确边界：
++
++- 宿主底栏无法完整映射原始 UIControl 事件，或可用空间不足以保留 44 点点击区域时，保留原导航。配置尺寸受宿主空间限制，不强行拉伸整个根视图。
++- 本版底栏使用系统 SF Symbols，不读取用户头像，也没有修改宿主标签的业务含义。
++- 作者、标题与描述在「作者与剧集信息」中按已确认的容器整体调整，未按文本内容猜测拆分。未适配的其他控件保持原样。
++- 竖屏填满判断依据已识别渲染视图几何，不是重新解码媒体；不宣称已经扩展所有宿主嵌套容器到整个屏幕。
++- 面板只清理其内部已识别的普通大面积背景，不隐藏 DanceUI/Compose 绘制层或修改全局 UIKit/CALayer。部分自绘背景可能仍然不透明，需要真机现场确认。
++- 字体作用于已适配播放页、面板和新底栏原生文字，不替换视频内字幕、网页或自绘文字；密码、编辑中的输入和图标字体保持原样。字体导入上限 50 MiB，图片输入上限 12 MiB，图标本地归一为不超过 256 像素的 PNG。
++- 外观参数备份不打包字体或图片；跨设备恢复后须重新选择资源。原有功能备份仍只处理原来的 16 个开关，外观有独立导出入口。
++- 状态报告表示接口安装情况，不表示功能在每个广告、面板或设备上都已验收。
++
++## 工程组织
++
++`AppearancePreferences.m`：严格类型、数值范围、字段白名单及原子配置写入。
++
++`Appearance.m` 与四个 `.inc`：仅对已知宿主目标安装经过签名核对的 hook；材质、布局、图标、字体、底栏和原生设置。没有全局 UIView/UILabel 修改，没有播放状态修改，没有网络上传或广告奖励伪造。
++
++插件拥有的视觉属性在关闭、复用或宿主改变时恢复；无法确定归属的值不强行覆盖。导航只转发已映射的原始控件事件；点赞和收藏不以点击次数推断状态。
++
++## 验证
++
++新增 Foundation 参数测试和真实 UIKit 下的受控宿主测试。构建使用 Xcode 的 iPhoneOS/Simulator SDK；编译失败、行为测试失败均阻止测试版发布。
++
++真实红果 App 的切集、页面复用、横竖屏、面板背景、字体覆盖及 iOS 27.3 玻璃效果尚未真机验收。以 GitHub Actions 对应提交的实际结果和发布校验文件为准，不能将受控宿主测试写成真机效果。
+diff --git a/src/Appearance.m b/src/Appearance.m
+index b350188..850efb5 100644
+--- a/src/Appearance.m
++++ b/src/Appearance.m
+@@ -107,7 +107,9 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
+         replacement=imp_implementationWithBlock(^(id object) {
+             if (!controller && selector==@selector(layoutSubviews) && NSThread.isMainThread && !HGAApplying) HGARestoreGeometry(object);
+             ((void(*)(id,SEL))original)(object,selector);
+-            if (controller) HGAppearanceProcessController(object); else HGAppearanceProcessView(object);
++            if (controller) HGAppearanceProcessController(object);
++            else if (selector==@selector(didMoveToWindow) && [(UIView *)object window]) [(UIView *)object setNeedsLayout];
++            else HGAppearanceProcessView(object);
+         });
+     } else if (!strcmp(encoding,"v24@0:8@16")) {
+         replacement=imp_implementationWithBlock(^(id object,id argument) {
+diff --git a/src/AppearanceDock.inc b/src/AppearanceDock.inc
+index d134c87..2faeaeb 100644
+--- a/src/AppearanceDock.inc
++++ b/src/AppearanceDock.inc
+@@ -108,6 +108,14 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
+             HGRecordCapability(@"appearance.dock.navigation",@{@"module":@"appearance",@"state":@"unavailable",@"reason":@"native tab actions could not be mapped; original navigation retained"});
+             return;
+         }
++        NSUInteger visibleCount=0;
++        for(NSString *key in HGATabIDs()) if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))visibleCount++;
++        CGFloat extraWidth=HGAppearanceFlag(@"dock.extra") ? MIN(HGAppearanceNumber(@"dock.extraSize"),bar.bounds.size.height)+8 : 0;
++        if(bar.bounds.size.width-8 < visibleCount*44+extraWidth) {
++            [self restore];
++            HGRecordCapability(@"appearance.dock.navigation",@{@"module":@"appearance",@"state":@"unavailable",@"reason":@"insufficient space for accessible tab targets; native navigation retained"});
++            return;
++        }
+         if(self.superview!=bar)[bar addSubview:self];
+         if(!CGRectEqualToRect(self.frame,bar.bounds))self.frame=bar.bounds;
+         if(!self.backgroundOwned || ![bar.backgroundColor isEqual:UIColor.clearColor])self.hostBackground=bar.backgroundColor;
+@@ -176,7 +184,10 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
+         config.imagePlacement=NSDirectionalRectEdgeTop;config.imagePadding=3;
+         config.baseForegroundColor=color;config.contentInsets=NSDirectionalEdgeInsetsMake(3,0,3,0);
+         config.titleTextAttributesTransformer=^NSDictionary *(NSDictionary *attributes){
+-            NSMutableDictionary *updated=attributes.mutableCopy;updated[NSFontAttributeName]=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];return updated;
++            NSMutableDictionary *updated=attributes.mutableCopy;
++            UIFont *base=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];
++            updated[NSFontAttributeName]=HGAppearanceFlag(@"fonts.enabled") ? HGAConfiguredFont(base) : base;
++            return updated;
+         };
+         b.configuration=config;b.enabled=source.enabled;b.selected=active;
+         b.accessibilityLabel=HGATabTitles()[index];

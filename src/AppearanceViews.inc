@@ -1,0 +1,365 @@
+// Scoped appearance operations. Values are restored only while they are still
+// owned by Honggo; a later host/third-party update becomes the new baseline.
+@interface HGAViewState : NSObject
+@property(nonatomic) CGAffineTransform sourceTransform;
+@property(nonatomic) CGAffineTransform appliedTransform;
+@property(nonatomic) BOOL geometry;
+@property(nonatomic) BOOL sourceHidden;
+@property(nonatomic) BOOL appliedHidden;
+@property(nonatomic) BOOL visibility;
+@property(nonatomic,strong) UIColor *background;
+@property(nonatomic) BOOL clearsBackground;
+@property(nonatomic,strong) UIVisualEffectView *glass;
+@property(nonatomic,copy) NSString *materialSignature;
+@end
+@implementation HGAViewState @end
+static char HGAViewStateKey;
+static HGAViewState *HGAState(UIView *view,BOOL create) {
+    HGAViewState *state=objc_getAssociatedObject(view,&HGAViewStateKey);
+    if(!state && create){state=[HGAViewState new];objc_setAssociatedObject(view,&HGAViewStateKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
+    return state;
+}
+static void HGARestoreGeometry(UIView *view) {
+    HGAViewState *state=HGAState(view,NO);
+    if(!state.geometry)return;
+    if(CGAffineTransformEqualToTransform(view.transform,state.appliedTransform))view.transform=state.sourceTransform;
+    state.geometry=NO;
+}
+static void HGASetGeometry(UIView *view,CGFloat x,CGFloat y,CGFloat scale) {
+    HGARestoreGeometry(view);
+    if(fabs(x)<0.001 && fabs(y)<0.001 && fabs(scale-1)<0.001)return;
+    if(!isfinite(x)||!isfinite(y)||!isfinite(scale))return;
+    HGAViewState *state=HGAState(view,YES);
+    state.sourceTransform=view.transform;
+    CGAffineTransform next=CGAffineTransformScale(state.sourceTransform,scale,scale);
+    next.tx+=x;next.ty+=y;
+    state.appliedTransform=next;state.geometry=YES;view.transform=next;
+}
+static void HGASetHidden(UIView *view,BOOL hide) {
+    HGAViewState *state=HGAState(view,hide);
+    if(!state)return;
+    if(state.visibility) {
+        if(view.hidden==state.appliedHidden)view.hidden=state.sourceHidden;
+        state.visibility=NO;
+    }
+    if(hide){state.sourceHidden=view.hidden;state.appliedHidden=YES;state.visibility=YES;view.hidden=YES;}
+}
+static void HGARemoveGlass(UIView *view) {
+    HGAViewState *state=HGAState(view,NO);
+    if(!state)return;
+    [state.glass removeFromSuperview];state.glass=nil;state.materialSignature=nil;
+    if(state.clearsBackground && [view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=state.background;
+    state.clearsBackground=NO;state.background=nil;
+}
+static void HGAInstallGlass(UIView *view,NSString *style,CGFloat radius,CGFloat opacity) {
+    if(!view.window || CGRectIsEmpty(view.bounds)){HGARemoveGlass(view);return;}
+    HGAViewState *state=HGAState(view,YES);
+    if(!state.clearsBackground || ![view.backgroundColor isEqual:UIColor.clearColor])state.background=view.backgroundColor;
+    state.clearsBackground=YES;view.backgroundColor=UIColor.clearColor;
+    if(!state.glass) {
+        state.glass=[[UIVisualEffectView alloc] initWithEffect:nil];
+        state.glass.accessibilityIdentifier=@"honggo.appearance.material";
+        state.glass.accessibilityElementsHidden=YES;
+        state.glass.userInteractionEnabled=NO;
+        state.glass.layer.cornerCurve=kCACornerCurveContinuous;
+        state.glass.clipsToBounds=YES;
+    }
+    UIVisualEffectView *glass=state.glass;
+    NSString *signature=[NSString stringWithFormat:@"%@/%d/%ld/%d",style,HGNativeGlassConfigured(),
+        (long)view.traitCollection.userInterfaceStyle,UIAccessibilityIsReduceTransparencyEnabled()];
+    if(![signature isEqual:state.materialSignature]) {
+        glass.effect=HGAppearanceMaterial(style);state.materialSignature=signature;
+    }
+    glass.frame=view.bounds;
+    glass.layer.cornerRadius=MIN(radius,MIN(view.bounds.size.width,view.bounds.size.height)/2);
+    glass.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    glass.contentView.backgroundColor=[UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
+        glass.effect ? opacity : 1];
+    if(glass.superview!=view || view.subviews.firstObject!=glass)[view insertSubview:glass atIndex:0];
+}
+static NSDictionary<NSString *,NSString *> *HGAViewRoles(void) {
+    static NSDictionary *roles;static dispatch_once_t once;
+    dispatch_once(&once,^{roles=@{
+        @"SSShortVideoRightInteractionAvatarView":@"avatar",
+        @"SSShortVideoRightInteractionCollectView":@"collect",
+        @"SSShortVideoRightInteractionCommentView":@"comment",
+        @"SSShortVideoRightInteractionLikeView":@"like",
+        @"SSShortVideoRightInteractionShareView":@"share",
+        @"SSShortVideoRightInteractionMoreView":@"more",
+        @"SSVideoSeriesFeedHeaderView":@"channels",
+        @"SSShortVideoOutterSeriesInfoView":@"info",
+        @"SSShortVideoDerivateInfoView":@"info",
+        @"SSShortVideoDerivateLeftContainerView":@"info",
+        @"SSShortVideoOutterSeriesLeftContainerView":@"info",
+        @"FQVTagListView":@"tags",
+        @"FQVShortVideoProgressView":@"progress",
+        @"SSShortVideoDanmakuLeftAboveView":@"danmaku",
+        @"FQCShortVideoDanmakuEntranceView":@"danmaku",
+        @"SSShortVideoBottomDistributionTextView":@"episodes",
+        @"SSShortVideoBottomDistributionView":@"episodes",
+        @"SSShortVideoAiUsageView":@"notice"
+    };});return roles;
+}
+static NSString *HGARole(UIView *view) {
+    for(Class cls=object_getClass(view);cls && cls!=UIView.class;cls=class_getSuperclass(cls)) {
+        NSString *role=HGAViewRoles()[NSStringFromClass(cls)];if(role)return role;
+    }return nil;
+}
+static BOOL HGAHasRoleAncestor(UIView *view,NSString *role) {
+    UIView *parent=view.superview;
+    for(NSUInteger i=0;parent && i<12;i++,parent=parent.superview)
+        if([HGARole(parent) isEqual:role])return YES;
+    return NO;
+}
+
+@interface HGAIconState : NSObject
+@property(nonatomic,weak) UIImageView *imageView;
+@property(nonatomic,strong) UIImage *source;
+@property(nonatomic,strong) UIImage *applied;
+@property(nonatomic,strong) UIColor *tint;
+@property(nonatomic,strong) UIColor *appliedTint;
+@end
+@implementation HGAIconState @end
+static char HGAIconKey;
+static void HGARestoreIcon(UIView *root) {
+    HGAIconState *s=objc_getAssociatedObject(root,&HGAIconKey);
+    HGARestoreGeometry(s.imageView);
+    if(s.imageView.image==s.applied)s.imageView.image=s.source;
+    if(s.appliedTint && [s.imageView.tintColor isEqual:s.appliedTint])s.imageView.tintColor=s.tint;
+    objc_setAssociatedObject(root,&HGAIconKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static UIImageView *HGAFindIcon(UIView *root) {
+    const char *names[]={"iconImageView","imageView","iconView"};
+    for(NSUInteger i=0;i<3;i++) {
+        UIView *view=HGAViewGetter(root,names[i],root);
+        if([view isKindOfClass:UIImageView.class] && ![(UIImageView *)view isAnimating])return (id)view;
+    }
+    // Restrict fallback to one unambiguous icon in this known action owner.
+    UIImageView *result=nil;
+    for(UIView *view in HGADescendants(root,36)) {
+        if(![view isKindOfClass:UIImageView.class] || [(UIImageView *)view isAnimating])continue;
+        CGFloat w=view.bounds.size.width,h=view.bounds.size.height;
+        if(w<16 || h<16 || w>80 || h>80 || w/h<0.65 || w/h>1.6)continue;
+        if(result)return nil;result=(id)view;
+    }return result;
+}
+static void HGAApplyIcon(UIView *root,NSString *role) {
+    if(![@[@"like",@"collect",@"comment",@"share"] containsObject:role])return;
+    if(!HGAppearanceEnabled() || !HGAppearanceFlag(@"icons.enabled") || !root.window) {HGARestoreIcon(root);return;}
+    BOOL selected=NO;
+    if([role isEqual:@"like"] || [role isEqual:@"collect"]) {
+        NSString *getter=[role isEqual:@"like"]?@"isLiked":@"isCollected";
+        if(!HGABoolGetter(root,getter,&selected) &&
+            !HGABoolGetter(HGReadObjectGetter(root,"model"),getter,&selected)) {
+            HGARestoreIcon(root);
+            HGRecordCapability([@"appearance.icon." stringByAppendingString:role],
+                @{@"module":@"appearance",@"state":@"unavailable",@"reason":@"verified host selection getter unavailable; native image retained"});
+            return;
+        }
+    }
+    UIImageView *icon=HGAFindIcon(root);
+    HGAIconState *state=objc_getAssociatedObject(root,&HGAIconKey);
+    if(state.imageView!=icon){HGARestoreIcon(root);state=nil;}
+    UIImage *image=HGAIcon(role,selected);
+    if(!icon || !image){HGARestoreIcon(root);return;}
+    if(!state){state=[HGAIconState new];state.imageView=icon;state.source=icon.image;state.tint=icon.tintColor;
+        objc_setAssociatedObject(root,&HGAIconKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
+    else if(icon.image!=state.applied)state.source=icon.image;
+    state.applied=image;icon.image=image;
+    if(selected) {
+        if(!state.appliedTint || ![icon.tintColor isEqual:state.appliedTint])state.tint=icon.tintColor;
+        state.appliedTint=[role isEqual:@"like"]?UIColor.systemPinkColor:UIColor.systemYellowColor;
+        icon.tintColor=state.appliedTint;
+    }else if(state.appliedTint) {
+        if([icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.tint;
+        state.appliedTint=nil;
+    }
+    // Adjust only the image's rendering scale, not the touch owner or its count.
+    CGFloat side=MIN(icon.bounds.size.width,icon.bounds.size.height);
+    if(side>0)HGASetGeometry(icon,0,0,MIN(1.5,HGAppearanceNumber(@"icons.size")/side));
+}
+
+@interface HGATextState : NSObject
+@property(nonatomic,strong) UIFont *source;
+@property(nonatomic,strong) UIFont *applied;
+@property(nonatomic,copy) NSAttributedString *richSource;
+@property(nonatomic,copy) NSAttributedString *richApplied;
+@end
+@implementation HGATextState @end
+static char HGATextKey;
+static NSHashTable<UIView *> *HGATexts;
+static UIFont *HGAGetFont(UIView *view) {
+    if([view isKindOfClass:UILabel.class])return [(UILabel *)view font];
+    if([view isKindOfClass:UITextView.class])return [(UITextView *)view font];
+    if([view isKindOfClass:UITextField.class])return [(UITextField *)view font];
+    return nil;
+}
+static NSAttributedString *HGAGetRichText(UIView *view) {
+    if([view isKindOfClass:UILabel.class])return [(UILabel *)view attributedText];
+    if([view isKindOfClass:UITextView.class])return [(UITextView *)view attributedText];
+    if([view isKindOfClass:UITextField.class])return [(UITextField *)view attributedText];
+    return nil;
+}
+static void HGAWriteFont(UIView *view,UIFont *font) {
+    if([view isKindOfClass:UILabel.class])[(UILabel *)view setFont:font];
+    else if([view isKindOfClass:UITextView.class])[(UITextView *)view setFont:font];
+    else if([view isKindOfClass:UITextField.class])[(UITextField *)view setFont:font];
+}
+static void HGAWriteRichText(UIView *view,NSAttributedString *text) {
+    if([view isKindOfClass:UILabel.class])[(UILabel *)view setAttributedText:text];
+    else if([view isKindOfClass:UITextView.class])[(UITextView *)view setAttributedText:text];
+    else if([view isKindOfClass:UITextField.class])[(UITextField *)view setAttributedText:text];
+}
+static UIFont *HGAConfiguredFont(UIFont *source) {
+    if(!source)return nil;
+    NSString *name=source.fontName.lowercaseString;
+    if([name containsString:@"icon"] || [name containsString:@"symbol"] || [name containsString:@"emoji"] || [name containsString:@"awesome"])return source;
+    CGFloat size=MAX(8,MIN(72,source.pointSize*HGAppearanceNumber(@"fonts.scale")));
+    NSString *selected=HGAppearanceString(@"fonts.name");
+    UIFont *font=selected.length ? [UIFont fontWithName:selected size:size] : nil;
+    return font ?: [source fontWithSize:size];
+}
+static void HGARestoreText(UIView *view) {
+    HGATextState *s=objc_getAssociatedObject(view,&HGATextKey);if(!s)return;
+    if(s.richApplied && [HGAGetRichText(view) isEqual:s.richApplied]) HGAWriteRichText(view,s.richSource);
+    else if(!s.richApplied && [HGAGetFont(view) isEqual:s.applied])HGAWriteFont(view,s.source);
+    objc_setAssociatedObject(view,&HGATextKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static void HGAApplyTypography(UIView *root) {
+    BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(@"fonts.enabled") && root.window;
+    for(UIView *view in HGADescendants(root,180)) {
+        UIFont *font=HGAGetFont(view);if(!font)continue;
+        if([view isKindOfClass:UITextField.class] && ([(UITextField *)view isSecureTextEntry] || view.isFirstResponder))continue;
+        if([view isKindOfClass:UITextView.class] && ([(UITextView *)view isEditable] || view.isFirstResponder))continue;
+        if(!enabled){HGARestoreText(view);continue;}
+        HGATextState *s=objc_getAssociatedObject(view,&HGATextKey);
+        NSAttributedString *rich=HGAGetRichText(view);
+        if(s && rich && ![rich isEqual:s.richApplied]) {s.richSource=rich;s.source=font;}
+        else if(s && !rich && ![font isEqual:s.applied])s.source=font;
+        if(!s){s=[HGATextState new];s.source=font;s.richSource=rich;
+            objc_setAssociatedObject(view,&HGATextKey,s,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
+        if(!HGATexts)HGATexts=[NSHashTable weakObjectsHashTable];[HGATexts addObject:view];
+        if(rich.length && s.richSource.length) {
+            NSMutableAttributedString *copy=[s.richSource mutableCopy];
+            [s.richSource enumerateAttribute:NSFontAttributeName inRange:NSMakeRange(0,s.richSource.length) options:0
+                usingBlock:^(id value,NSRange range,BOOL *stop) {
+                    if([value isKindOfClass:UIFont.class]) [copy addAttribute:NSFontAttributeName value:HGAConfiguredFont(value) range:range];
+                }];
+            s.richApplied=copy;
+            if(![rich isEqual:copy])HGAWriteRichText(view,copy);
+        }else {
+            s.richSource=nil;s.richApplied=nil;s.applied=HGAConfiguredFont(s.source);
+            if(![font isEqual:s.applied])HGAWriteFont(view,s.applied);
+        }
+    }
+}
+
+// Preserve native feed stride, content offsets, hit targets and HUD geometry.
+// Only the identified video render is uniformly enlarged inside its own page.
+static void HGAApplyFullScreen(UIView *render) {
+    HGARestoreGeometry(render);
+    if(!HGAppearanceEnabled() || !HGAppearanceFlag(@"player.fullscreen") || !render.window)return;
+    UIView *canvas=render.superview;
+    for(NSUInteger i=0;canvas && i<12;i++,canvas=canvas.superview)
+        if([NSStringFromClass(canvas.class) isEqual:@"FQVShortVideoPlayerCellView"])break;
+    if(!canvas || ![NSStringFromClass(canvas.class) isEqual:@"FQVShortVideoPlayerCellView"] ||
+        !CGAffineTransformIsIdentity(render.transform) || !CGAffineTransformIsIdentity(canvas.transform) ||
+        render.window.bounds.size.width>=render.window.bounds.size.height)return;
+    CGSize native=render.bounds.size;
+    if(native.width<120 || native.height<160 || native.width>=native.height*0.85)return;
+    CGRect rect=[canvas convertRect:canvas.bounds toView:render.superview];
+    CGFloat zoom=MAX(rect.size.width/native.width,rect.size.height/native.height);
+    if(!isfinite(zoom) || zoom<1 || zoom>1.6)return;
+    HGASetGeometry(render,CGRectGetMidX(rect)-render.center.x,CGRectGetMidY(rect)-render.center.y,zoom);
+}
+static NSDictionary<NSString *,NSString *> *HGAPanelControllers(void) {
+    return @{@"SSShortVideoCommentPanelViewController":@"comment",
+        @"FQCShortVideoCommentPanelViewController":@"comment",
+        @"FQVShortVideoCommentPanelViewController":@"comment",
+        @"FQVShortVideoSettingsViewController":@"longpress",
+        @"FQVShortVideoNewSpeedSelectController":@"speed",
+        @"SSUGKmpSharePanelContainerViewController":@"share",
+        @"SSVideoSharePanelViewController":@"share",
+        @"SSShortVideoSharePanelViewController":@"share",
+        @"SSSharePanelViewController":@"share",
+        @"UGKmpSharePanelContainerViewController":@"share"};
+}
+static char HGAPanelCoversKey;
+static void HGAApplyPanel(UIView *root,NSString *kind) {
+    BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag([@"panels." stringByAppendingString:kind]) && root.window;
+    NSMapTable<UIView *,UIColor *> *covers=objc_getAssociatedObject(root,&HGAPanelCoversKey);
+    if(!enabled) {
+        HGARemoveGlass(root);
+        for(UIView *cover in covers.keyEnumerator) if([cover.backgroundColor isEqual:UIColor.clearColor])cover.backgroundColor=[covers objectForKey:cover];
+        objc_setAssociatedObject(root,&HGAPanelCoversKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    if(!covers){covers=[NSMapTable weakToStrongObjectsMapTable];objc_setAssociatedObject(root,&HGAPanelCoversKey,covers,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
+    HGAInstallGlass(root,HGAppearanceString(@"panels.material"),24,HGAppearanceNumber(@"panels.opacity"));
+    // Clear only broad, plain background carriers within this exact panel.
+    // Images, drawing surfaces, text fields and their rendering layers stay intact.
+    for(UIView *v in HGADescendants(root,160)) {
+        if(v==root || HGAOwnView(v) || CGRectGetWidth(v.bounds)<CGRectGetWidth(root.bounds)*0.8)continue;
+        BOOL plain=v.class==UIView.class || v.class==UITableView.class || v.class==UICollectionView.class;
+        if(!plain || !v.backgroundColor)continue;
+        CGFloat r=0,g=0,b=0,a=0;
+        if([[v.backgroundColor resolvedColorWithTraitCollection:v.traitCollection] getRed:&r green:&g blue:&b alpha:&a] &&
+            a>0.8 && MAX(r,MAX(g,b))-MIN(r,MIN(g,b))<0.08) {
+            [covers setObject:v.backgroundColor forKey:v];v.backgroundColor=UIColor.clearColor;
+        }
+    }
+}
+void HGAppearanceProcessView(UIView *view) {
+    if(!NSThread.isMainThread || HGAApplying || ![view isKindOfClass:UIView.class] || HGAOwnView(view))return;
+    HGAApplying=YES;
+    @try {
+        HGARegisterView(view);
+        NSString *name=NSStringFromClass(view.class),*role=HGARole(view);
+        if([name isEqual:@"SSTabBar"]){HGARefreshDock(view);return;}
+        if([name isEqual:@"FQVCollectionView"] && [view isKindOfClass:UIScrollView.class]) {HGAObserveFeed((id)view);return;}
+        if([name isEqual:@"TTPlayerView"]){HGAApplyFullScreen(view);return;}
+        if([name isEqual:@"FQVShortVideoPlayerCellView"]){
+            for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
+            HGAApplyTypography(view);return;
+        }
+        if(!role)return;
+        BOOL enabled=HGAppearanceEnabled() && view.window;
+        BOOL outer=!HGAHasRoleAncestor(view,role);
+        NSString *prefix=[@"layout." stringByAppendingString:role];
+        HGASetHidden(view,enabled && outer && HGAppearanceFlag([prefix stringByAppendingString:@".hidden"]));
+        HGASetGeometry(view,enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".x"]):0,
+            enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".y"]):0,
+            enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".scale"]):1);
+        BOOL action=[@[@"avatar",@"collect",@"comment",@"like",@"share",@"more"] containsObject:role];
+        BOOL glass=enabled && outer && ((action && HGAppearanceFlag(@"player.rightGlass")) ||
+            ([role isEqual:@"channels"] && HGAppearanceFlag(@"player.headerGlass")) ||
+            ([role isEqual:@"episodes"] && HGAppearanceFlag(@"player.episodeGlass")));
+        if(glass && !view.hidden) {
+            HGAInstallGlass(view,HGAppearanceString(@"player.material"),action?24:20,0.08);
+            if(action) {
+                UIImageView *icon=HGAFindIcon(view);
+                CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
+                CGFloat side=MAX(36,MIN(view.bounds.size.width,MAX(rect.size.width,rect.size.height)+10));
+                rect=CGRectMake((view.bounds.size.width-side)/2,MAX(0,CGRectGetMidY(rect)-side/2),side,side);
+                HGAState(view,NO).glass.frame=rect;HGAState(view,NO).glass.layer.cornerRadius=side/2;
+            }
+        }
+        else HGARemoveGlass(view);
+        HGAApplyIcon(view,role);HGAApplyTypography(view);
+    }@finally {HGAApplying=NO;}
+}
+void HGAppearanceProcessController(UIViewController *controller) {
+    if(!NSThread.isMainThread || HGAApplying || ![controller isKindOfClass:UIViewController.class] || !controller.isViewLoaded)return;
+    HGAApplying=YES;
+    @try {
+        if(!HGAControllers)HGAControllers=[NSHashTable weakObjectsHashTable];[HGAControllers addObject:controller];
+        NSString *name=NSStringFromClass(controller.class);
+        if([name isEqual:@"SSTabBarController"]) {
+            UIView *bar=HGAViewGetter(controller,"customTabBar",controller.view);
+            if(bar)HGAppearanceLayoutDock(bar,controller);
+            return;
+        }
+        NSString *kind=HGAPanelControllers()[name];
+        if(kind){HGAApplyPanel(controller.view,kind);HGAApplyTypography(controller.view);}
+    }@finally {HGAApplying=NO;}
+}
