@@ -7,10 +7,14 @@ on:
 permissions:
   contents: read
 
+env:
+  DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+  HG_SIMULATOR_OS: "27.2"
+
 jobs:
   tabbar:
-    runs-on: macos-26
-    timeout-minutes: 15
+    runs-on: xcode-27
+    timeout-minutes: 20
     outputs:
       version: ${{ steps.version.outputs.value }}
     steps:
@@ -18,6 +22,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Require Xcode 27.2 and iOS 27.2 runtime
+        run: bash tools/verify-ios-toolchain.sh
       - name: Verify plugin version
         id: version
         env:
@@ -37,15 +43,19 @@ jobs:
             build/tabbar-tests/**/*-results.json
             build/tabbar-tests/**/*-simulator.png
             build/tabbar-tests/**/simulator.log
+            build/tabbar-tests/simulator-target.json
+            build/toolchain/BUILD-ENVIRONMENT.json
           if-no-files-found: warn
 
   settings:
-    runs-on: macos-26
-    timeout-minutes: 15
+    runs-on: xcode-27
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Require Xcode 27.2 and iOS 27.2 runtime
+        run: bash tools/verify-ios-toolchain.sh
       - name: Check settings in UIKit with a simulated host
         run: bash tools/test-settings-ios.sh
       - name: Check bounded diagnostics on real Foundation
@@ -62,6 +72,8 @@ jobs:
         with:
           name: Honggo-settings-simulator-evidence
           path: |
+            build/toolchain/BUILD-ENVIRONMENT.json
+            build/settings-tests/simulator-target.json
             build/settings-tests/settings-results.json
             build/settings-tests/simulator.log
             build/settings-tests/*-simulator.png
@@ -73,12 +85,14 @@ jobs:
 
   adscene:
     name: Check screenshot diagnostics in UIKit
-    runs-on: macos-26
-    timeout-minutes: 12
+    runs-on: xcode-27
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Require Xcode 27.2 and iOS 27.2 runtime
+        run: bash tools/verify-ios-toolchain.sh
       - name: Check player and popup scene capture without UI mutation
         run: bash tools/test-ad-scene-ios.sh
       - name: Check ad filtering and disabled behavior
@@ -88,6 +102,7 @@ jobs:
         with:
           name: Honggo-adscene-simulator-evidence
           path: |
+            build/toolchain/BUILD-ENVIRONMENT.json
             build/ad-scene-tests/*.json
             build/ad-scene-tests/*.log
             build/ads-tests/*.json
@@ -95,12 +110,14 @@ jobs:
           if-no-files-found: warn
 
   appearance:
-    runs-on: macos-26
-    timeout-minutes: 12
+    runs-on: xcode-27
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Require Xcode 27.2 and iOS 27.2 runtime
+        run: bash tools/verify-ios-toolchain.sh
       - name: Validate appearance preference boundaries
         run: bash tools/test-appearance-preferences.sh
       - name: Validate visual adapters and restoration in UIKit
@@ -110,18 +127,21 @@ jobs:
         with:
           name: Honggo-appearance-simulator-evidence
           path: |
+            build/toolchain/BUILD-ENVIRONMENT.json
             build/appearance-tests/*.json
             build/appearance-tests/*.log
           if-no-files-found: warn
 
   iphoneos:
     needs: [tabbar, settings, adscene, appearance]
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Require Xcode 27.2 and iOS 27.2 runtime
+        run: bash tools/verify-ios-toolchain.sh
       - name: Build and inspect device dylib
         env:
           PLUGIN_VERSION: ${{ needs.tabbar.outputs.version }}
@@ -130,8 +150,9 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-version
           bash tools/build-ios.sh
           git rev-parse HEAD > build/source-commit.txt
+          cp build/toolchain/BUILD-ENVIRONMENT.json build/BUILD-ENVIRONMENT.json
           printf '%s\n' "$PLUGIN_VERSION" > build/VERSION
-          (cd build && shasum -a 256 "Honggo-$PLUGIN_VERSION.dylib" > SHA256SUMS.txt)
+          (cd build && shasum -a 256 "Honggo-$PLUGIN_VERSION.dylib" BUILD-ENVIRONMENT.json > SHA256SUMS.txt)
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: Honggo-${{ needs.tabbar.outputs.version }}
@@ -140,6 +161,7 @@ jobs:
             build/VERSION
             build/source-commit.txt
             build/SHA256SUMS.txt
+            build/BUILD-ENVIRONMENT.json
           if-no-files-found: error
 
   publish_test:
@@ -193,8 +215,8 @@ jobs:
           printf '%s\n' \
             "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
             "Source commit: ${GITHUB_SHA}" \
-            "macOS/iPhoneOS build, appearance adapters, settings, preferences, runtime, tab-bar, diagnostics and ad-filter regression checks passed." \
-            "Adds independent customizable dock, collapse gestures, playback layout and glass, panel materials, state-aware icons, local image/font imports and typography settings." \
+            "Built with Xcode 27.2 / iPhoneOS SDK 27.2. Required UIKit regression suites ran on the pinned iOS 27.2 simulator, not a fallback runtime." \
+            "Includes independent dock, playback, panels, icons and font customization. Adds the TG update channel https://t.me/Naloiafeed in main and appearance settings, with open/copy actions and search." \
             "Reference behavior was studied; implementation is written for Honggo without importing NaiwaGuo source or assets." \
             "Actual Hongguo iPhone appearance, playback and ad disappearance remain unverified." \
             "R-numbered builds are tests; the suffix is removed only for a stable release on main." \
@@ -203,8 +225,8 @@ jobs:
             > release-notes.md
           gh release create "$tag" \
             "release/Honggo-${PLUGIN_VERSION}.dylib" \
-            "release/SHA256SUMS.txt" "release/VERSION" "release/source-commit.txt" \
+            "release/SHA256SUMS.txt" "release/VERSION" "release/source-commit.txt" "release/BUILD-ENVIRONMENT.json" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --verify-tag \
-            --title "Honggo ${PLUGIN_VERSION} (test)" \
+            --title "Honggo ${PLUGIN_VERSION} beta · iOS 27.2" \
             --prerelease --notes-file release-notes.md
