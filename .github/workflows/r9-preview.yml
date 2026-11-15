@@ -1,0 +1,46 @@
+name: R9 visual verification
+
+on:
+  push:
+    branches: [work/r9-preview-verification]
+
+permissions:
+  contents: read
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+  HG_SIMULATOR_OS: "27.2"
+  RELEASE_COMMIT: e0043fc233f16334f2955c1f60f8f498315462fd
+
+jobs:
+  appearance:
+    runs-on: xcode-27
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify identical R9 implementation
+        run: git diff --exit-code "$RELEASE_COMMIT" HEAD -- src
+      - name: Require Xcode 27.2 and iOS 27.2 runtime
+        run: bash tools/verify-ios-toolchain.sh
+      - name: Verify appearance after presentation settles
+        run: bash tools/test-appearance-ios.sh
+      - name: Record source identity
+        if: always()
+        run: |
+          mkdir -p build/appearance-tests
+          git rev-parse HEAD > build/appearance-tests/verification-commit.txt
+          printf '%s\n' "$RELEASE_COMMIT" > build/appearance-tests/release-commit.txt
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        if: always()
+        with:
+          name: Honggo-R9-preview-verification
+          path: |
+            build/appearance-tests/*.json
+            build/appearance-tests/*.log
+            build/appearance-tests/*.png
+            build/appearance-tests/*-commit.txt
+            build/toolchain/BUILD-ENVIRONMENT.json
+          if-no-files-found: error

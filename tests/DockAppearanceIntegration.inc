@@ -45,6 +45,43 @@ static BOOL HGADockNeutralTranslucent(UIColor *color,UITraitCollection *traits) 
     return [[color resolvedColorWithTraitCollection:traits] getRed:&r green:&g blue:&b alpha:&a] &&
         fabs(r-g)<0.001 && fabs(r-b)<0.001 && a>0 && a<1;
 }
+static BOOL HGADockRectMatches(CGRect actual,CGRect expected) {
+    return fabs(actual.origin.x-expected.origin.x)<0.5 && fabs(actual.origin.y-expected.origin.y)<0.5 &&
+        fabs(actual.size.width-expected.size.width)<0.5 && fabs(actual.size.height-expected.size.height)<0.5;
+}
+static BOOL HGADockPresentationMatches(UIView *view) {
+    CALayer *present=view.layer.presentationLayer;
+    return present && HGADockRectMatches(present.frame,view.layer.frame) &&
+        HGADockRectMatches(present.bounds,view.layer.bounds) && present.hidden==view.layer.hidden &&
+        fabs(present.opacity-view.layer.opacity)<0.01;
+}
+static BOOL HGAWaitForDockPresentation(UIView *dock) {
+    if(!dock.window)return NO;
+    NSMutableArray<UIView *> *views=[NSMutableArray arrayWithObject:dock];
+    for(NSString *identifier in @[@"honggo.appearance.dock.capsule",@"honggo.appearance.dock.selection",
+        @"honggo.appearance.tab.home",@"honggo.appearance.tab.theater",@"honggo.appearance.dock.extra"]) {
+        UIView *view=Find(dock,identifier);if(!view)return NO;[views addObject:view];
+    }
+    // The preceding expansion check exercises a real 0.22 s cross-dissolve.
+    // Model layers change immediately; a window snapshot can still contain the
+    // old collapsed presentation. Drive frames, without sleeping the UI thread,
+    // and require agreement on two successive frames within a bounded deadline.
+    CFTimeInterval start=CACurrentMediaTime(),deadline=start+1.25;
+    NSUInteger stableFrames=0;
+    do {
+        [dock.window layoutIfNeeded];[CATransaction flush];
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode,1.0/60.0,false);
+        BOOL matches=YES;for(UIView *view in views)matches&=HGADockPresentationMatches(view);
+        if(CACurrentMediaTime()-start>=0.30 && matches && dock.layer.animationKeys.count==0)stableFrames++;
+        else stableFrames=0;
+        if(stableFrames>=2)break;
+    }while(CACurrentMediaTime()<deadline);
+    for(UIView *view in views)NSLog(@"DOCK_PREVIEW %@ model=%@ presentation=%@ hidden=%d/%d opacity=%.3f/%.3f",
+        view.accessibilityIdentifier,NSStringFromCGRect(view.layer.frame),NSStringFromCGRect(view.layer.presentationLayer.frame),
+        view.layer.hidden,view.layer.presentationLayer.hidden,view.layer.opacity,view.layer.presentationLayer.opacity);
+    NSLog(@"DOCK_PREVIEW settled=%d elapsed=%.3f",stableFrames>=2,CACurrentMediaTime()-start);
+    return stableFrames>=2;
+}
 static BOOL HGASaveDockPreview(SSTabBarController *host,UIView *dock) {
     UIWindow *window=dock.window;if(!window)return NO;
     UIView *backdrop=[[UIView alloc] initWithFrame:CGRectInset(host.customTabBar.frame,-12,-12)];
@@ -54,6 +91,9 @@ static BOOL HGASaveDockPreview(SSTabBarController *host,UIView *dock) {
     [backdrop.layer addSublayer:gradient];
     [host.view insertSubview:backdrop belowSubview:host.customTabBar];
     Layout(host.customTabBar);Layout(dock);
+    BOOL settled=HGAWaitForDockPresentation(dock);
+    Check(settled,@"dock snapshot waits for expanded model and presentation frames to agree");
+    if(!settled){[backdrop removeFromSuperview];return NO;}
     UIGraphicsImageRendererFormat *format=[UIGraphicsImageRendererFormat defaultFormat];
     format.scale=2;format.opaque=YES;format.preferredRange=UIGraphicsImageRendererFormatRangeStandard;
     UIGraphicsImageRenderer *fullRenderer=[[UIGraphicsImageRenderer alloc] initWithSize:window.bounds.size format:format];
