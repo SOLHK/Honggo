@@ -6,6 +6,8 @@
 NSString *const HGAppearanceDidChangeNotification = @"Honggo.Appearance.changed";
 static NSString *const HGAStore = @"Honggo.Appearance.v1";
 static NSString *const HGAR15GeometryMigration = @"Honggo.Appearance.r15GeometryMigrated";
+static NSString *const HGADockWidthMigration = @"Honggo.Appearance.dockWidthMigrated";
+static const double HGADockDefaultWidth = 0.905;
 static NSDictionary *HGACachedValues;
 static NSObject *HGALock(void) { static NSObject *lock; static dispatch_once_t once;
     dispatch_once(&once, ^{ lock = [NSObject new];
@@ -36,7 +38,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"dock.enabled",@"dock",@"使用可定制悬浮底栏");
         choice(@"dock.material",@"dock",@"底栏材质",@[@"regular",@"clear",@"blur",@"solid"],@[@"普通液态玻璃",@"清透液态玻璃",@"系统磨砂",@"纯色"]);
         choice(@"dock.content",@"dock",@"底栏显示",@[@"both",@"text",@"icon"],@[@"图标和文字",@"仅文字",@"仅图标"]);
-        number(@"dock.width",@"dock",@"底栏宽度比例",0.94,0.55,1);
+        number(@"dock.width",@"dock",@"底栏宽度比例",HGADockDefaultWidth,0.55,1);
         number(@"dock.height",@"dock",@"底栏高度",62,44,80);
         number(@"dock.lift",@"dock",@"底栏上移距离",0,0,24);
         number(@"dock.radius",@"dock",@"底栏圆角",31,8,40);
@@ -135,6 +137,15 @@ NSDictionary *HGAppearanceValues(void) {
                 stored=updated;
             }
             [NSUserDefaults.standardUserDefaults setBool:YES forKey:HGAR15GeometryMigration];
+        }
+        if(![NSUserDefaults.standardUserDefaults boolForKey:HGADockWidthMigration]) {
+            if([stored[@"dock.width"] isEqual:@0.94]) {
+                NSMutableDictionary *updated=[stored mutableCopy];
+                updated[@"dock.width"]=@(HGADockDefaultWidth);
+                [NSUserDefaults.standardUserDefaults setObject:updated forKey:HGAStore];
+                stored=updated;
+            }
+            [NSUserDefaults.standardUserDefaults setBool:YES forKey:HGADockWidthMigration];
         }
         NSMutableDictionary *values=[NSMutableDictionary dictionary];
         for(NSDictionary *def in HGAppearanceCatalog()) { id value=stored[def[@"key"]];

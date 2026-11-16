@@ -135,10 +135,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             BOOL wasApplying=HGAApplying;
             if(recycling)HGAApplying=YES;
             @try {
-                if(recycling) {
-                    HGVideoBackdropPrepareRendererTransfer(object);
-                    HGAResetPlayerFillState(object);
-                }
+                if(recycling)HGAResetPlayerFillState(object);
                 ((void(*)(id,SEL))original)(object,selector);
             } @finally {if(recycling)HGAApplying=wasApplying;}
             if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
@@ -162,15 +159,11 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             @try {
                 if(guarded && transfer) {
                     HGAPreparePlayerTransfer(object,selector);
-                    HGVideoBackdropPrepareRendererTransfer(object);
                     HGATracePlayerTransfer(object,selector,argument,invocation,@"prepared");
                 }
                 if(guarded && episodeMove)HGAApplyEpisodeCorners(object,NO,0);
                 if(guarded && (episodeMove || bottomMove))HGARestoreBottomLayoutForView(object);
-                if(guarded && modelChange) {
-                    HGVideoBackdropPrepareRendererTransfer(object);
-                    HGAPlayerModelWillChange(object,argument);
-                }
+                if(guarded && modelChange)HGAPlayerModelWillChange(object,argument);
                 ((void(*)(id,SEL,id))original)(object,selector,argument);
                 completed=YES;
             } @finally {

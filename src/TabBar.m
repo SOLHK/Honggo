@@ -922,18 +922,11 @@ static void HGRefreshTabBar(UIViewController *controller) {
         [state refresh];
     }
 }
-void HGRefreshVideoBackdropForView(UIView *view) {
+void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
     if (!NSThread.isMainThread) return;
-    Class feedClass = NSClassFromString(@"FQVCollectionView");
-    UIScrollView *feed = nil;
-    for (UIView *node = view; node; node = node.superview)
-        if (feedClass && [node isKindOfClass:feedClass] && [node isKindOfClass:UIScrollView.class]) {
-            feed = (UIScrollView *)node; break;
-        }
-    if (!feed) return;
     if (HGVideoBackdropRefreshForFeed(feed) || !HGAppearanceDockEnabled() || !feed.window) return;
-    // The first player can attach after the tab controller's layout. Bootstrap
-    // from its real containment chain; later layouts use the feed's weak link.
+    // The feed can attach after the tab controller's first layout. Find the
+    // owning bar once and use the feed's weak link on later layouts.
     UIResponder *responder = feed.nextResponder;
     while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
     for (UIViewController *controller = (UIViewController *)responder; controller; controller = controller.parentViewController) {

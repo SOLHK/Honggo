@@ -1,38 +1,11 @@
-// Video pages deliberately retain their native paging stride. The R14 scene
-// has a 440x866 FQVCollectionView inside a 440x956 controller: resizing that
-// collection, its cells, or its player can change the host's episode handoff.
-//
-// Only plugin-owned views are installed here. One read-only UIKit portal
-// reflects an edge of the observed TTPlayerView into the uncovered strip.
-// The portal is composed directly: a background-extension
-// effect must not sample another portal, which lost live Metal content in the
-// compositor regression. No snapshots, pixel readback, polling timer, native
-// reparenting, playback calls, or changes to the portrait video ratio are used.
-// The native feed keeps its letterbox. Only the strip below it receives video.
-//
-// The portal selectors are used by Telegram's UIKitRuntimeUtils/UIKitUtils.m;
-// every selector below is checked against the running Objective-C ABI first.
-// https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m
-// Its PortalView reload also reinserts the portal at its existing sibling index
-// after changing the source, reconnecting the already-mounted compositor view.
-// https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/Display/Source/PortalView.swift
+// The vertical feed's native height is also its paging stride. The full-screen
+// window can clip the top, sides and newly exposed bottom while a realized cell
+// straddles the feed edge. Let UIKit draw that overflow in place.
 
 @interface HGVideoBackdrop : NSObject
 - (void)refreshWithBranches:(NSArray<UIView *> *)branches root:(UIView *)root
                        bar:(UIView *)bar active:(BOOL)active;
 - (void)restore;
-@end
-
-#if defined(__IPHONE_26_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_26_0
-
-@protocol HGVideoPortalAPI <NSObject>
-@property(nonatomic, weak) UIView *sourceView;
-@property(nonatomic) BOOL hidesSourceView;
-@property(nonatomic) BOOL matchesPosition;
-@property(nonatomic) BOOL matchesTransform;
-@property(nonatomic) BOOL matchesAlpha;
-@property(nonatomic) BOOL allowsHitTesting;
-@property(nonatomic) BOOL forwardsClientHitTestingToSourceView;
 @end
 
 @interface HGVideoBackdropLink : NSObject
@@ -42,51 +15,17 @@
 static char HGVideoBackdropLinkKey;
 
 @interface HGVideoBackdrop ()
-@property(nonatomic, weak) UIScrollView *feed;
-@property(nonatomic, weak) UIView *parent;
+@property(nonatomic, weak) UICollectionView *feed;
 @property(nonatomic, weak) UIView *root;
 @property(nonatomic, weak) UIView *bar;
 @property(nonatomic, weak) UIViewController *owner;
-@property(nonatomic, weak) UIView *renderer;
-@property(nonatomic, strong) UIView *extension;
-@property(nonatomic, strong) UIView *canvas;
-@property(nonatomic, strong) UIView<HGVideoPortalAPI> *portal;
-@property(nonatomic) BOOL mutating;
-@property(nonatomic, copy) NSString *lastStatus;
+@property(nonatomic) BOOL ownsClipping;
+@property(nonatomic) BOOL refreshing;
 - (void)refreshFeed;
-- (void)prepareRendererTransfer:(UIView *)view;
 @end
 
-static BOOL HGVideoBackdropSignature(Class type, const char *name, char result, char argument) {
-    Method method = class_getInstanceMethod(type, sel_registerName(name));
-    if (!method) return NO;
-    const char *encoding = method_getTypeEncoding(method);
-    if (!encoding) return NO;
-    NSMethodSignature *signature = [NSMethodSignature signatureWithObjCTypes:encoding];
-    if (!signature || signature.numberOfArguments != (argument ? 3u : 2u) ||
-        signature.methodReturnType[0] != result) return NO;
-    if (!argument) return YES;
-    const char *actual = [signature getArgumentTypeAtIndex:2];
-    // Objective-C BOOL is encoded as B on modern iOS; tolerate the older
-    // signed-char BOOL ABI too, never an integer/object/forwarding-only setter.
-    return actual && (actual[0] == argument || (argument == 'B' && actual[0] == 'c'));
-}
-
-static Class HGVideoBackdropPortalClass(void) {
-    Class type = NSClassFromString(@"_UIPortalView");
-    if (!type || ![type isSubclassOfClass:UIView.class] ||
-        !HGVideoBackdropSignature(type, "sourceView", '@', 0) ||
-        !HGVideoBackdropSignature(type, "setSourceView:", 'v', '@')) return Nil;
-    const char *setters[] = {"setHidesSourceView:", "setMatchesPosition:",
-        "setMatchesTransform:", "setMatchesAlpha:", "setAllowsHitTesting:",
-        "setForwardsClientHitTestingToSourceView:"};
-    for (NSUInteger i = 0; i < sizeof(setters) / sizeof(setters[0]); i++)
-        if (!HGVideoBackdropSignature(type, setters[i], 'v', 'B')) return Nil;
-    return type;
-}
-
 static BOOL HGVideoBackdropVisible(UIView *view, UIView *root) {
-    if (!view || view.window != root.window || !view.window) return NO;
+    if (!view.window) return NO;
     for (UIView *node = view; node; node = node.superview) {
         if (node.hidden || node.alpha < 0.99 ||
             !CGAffineTransformIsIdentity(node.transform) ||
@@ -99,10 +38,10 @@ static BOOL HGVideoBackdropVisible(UIView *view, UIView *root) {
 static UIViewController *HGVideoBackdropOwner(UIView *view) {
     Class expected = NSClassFromString(@"FQVShortVideoListViewController");
     if (!expected) return nil;
-    UIResponder *responder = view.nextResponder;
-    for (NSUInteger i = 0; responder && i < 24; i++, responder = responder.nextResponder)
+    for (UIResponder *responder = view.nextResponder; responder; responder = responder.nextResponder) {
         if ([responder isKindOfClass:UIViewController.class])
             return [responder isKindOfClass:expected] ? (UIViewController *)responder : nil;
+    }
     return nil;
 }
 
@@ -113,296 +52,169 @@ static BOOL HGVideoBackdropHasTransition(UIViewController *owner) {
     return NO;
 }
 
-static BOOL HGVideoBackdropFeedGeometry(UIScrollView *feed, UIView *parent, UIView *root, UIView *bar) {
-    if (!feed || !parent || !root || !bar || feed.superview != parent ||
-        parent.window != root.window || bar.window != root.window ||
-        !HGVideoBackdropVisible(feed, root) || !HGVideoBackdropVisible(bar, root) ||
-        !CGPointEqualToPoint(parent.bounds.origin, CGPointZero) ||
-        root.bounds.size.height <= root.bounds.size.width ||
-        parent.bounds.size.height <= parent.bounds.size.width) return NO;
+static BOOL HGVideoBackdropFullWindow(UIView *view, UIWindow *window) {
+    CGRect rect = [view convertRect:view.bounds toView:window];
+    CGRect bounds = window.bounds;
+    return fabs(CGRectGetMinX(rect) - CGRectGetMinX(bounds)) <= 0.01 &&
+        fabs(CGRectGetMaxX(rect) - CGRectGetMaxX(bounds)) <= 0.01 &&
+        fabs(CGRectGetMinY(rect) - CGRectGetMinY(bounds)) <= 0.01 &&
+        fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 0.01;
+}
+
+static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController *owner,
+                                        UIView *root, UIView *bar) {
+    UIView *parent = feed.superview;
+    UIWindow *window = root.window;
+    if (!window || !parent || owner.viewIfLoaded != parent ||
+        window.bounds.size.height <= window.bounds.size.width || feed.layer.mask ||
+        !HGVideoBackdropVisible(feed, window) || !HGVideoBackdropVisible(bar, root) ||
+        !HGVideoBackdropFullWindow(parent, window) || !HGVideoBackdropFullWindow(root, window) ||
+        HGVideoBackdropHasTransition(owner)) return NO;
     CGRect frame = feed.frame, full = parent.bounds;
+    CGRect barInWindow = [bar convertRect:bar.bounds toView:window];
     CGFloat uncovered = CGRectGetMaxY(full) - CGRectGetMaxY(frame);
-    CGRect parentInRoot = [parent convertRect:parent.bounds toView:root];
-    CGRect barInRoot = [bar convertRect:bar.bounds toView:root];
-    return isfinite(uncovered) && uncovered >= 20 && uncovered <= 160 &&
-        fabs(frame.origin.x) <= 0.75 && fabs(frame.origin.y) <= 0.75 &&
-        fabs(frame.size.width - full.size.width) <= 0.75 &&
-        fabs(CGRectGetMinX(parentInRoot) - CGRectGetMinX(root.bounds)) <= 0.75 &&
-        fabs(CGRectGetMaxX(parentInRoot) - CGRectGetMaxX(root.bounds)) <= 0.75 &&
-        fabs(CGRectGetMaxY(parentInRoot) - CGRectGetMaxY(root.bounds)) <= 0.75 &&
-        CGRectGetMinY(barInRoot) >= CGRectGetMaxY(parentInRoot) - 180 &&
-        CGRectGetMaxY(barInRoot) <= CGRectGetMaxY(parentInRoot) + 2;
+    return uncovered >= 20 && uncovered <= 160 &&
+        fabs(CGRectGetMinX(frame) - CGRectGetMinX(full)) <= 0.01 &&
+        fabs(CGRectGetMinY(frame) - CGRectGetMinY(full)) <= 0.01 &&
+        fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(full)) <= 0.01 &&
+        CGRectGetMinY(barInWindow) >= CGRectGetMaxY(window.bounds) - 180 &&
+        CGRectGetMaxY(barInWindow) <= CGRectGetMaxY(window.bounds) + 0.75;
 }
 
-static UIView *HGVideoBackdropCanvasForRenderer(UIView *renderer, UIScrollView *feed) {
-    Class type = NSClassFromString(@"FQVShortVideoPlayerCellView");
-    for (UIView *node = renderer.superview; node && node != feed; node = node.superview)
-        if (type && [node isKindOfClass:type]) return node;
-    return nil;
-}
-
-static BOOL HGVideoBackdropKnownRenderer(UIView *renderer, UIScrollView *feed) {
-    Class metal = NSClassFromString(@"TTMetalView");
-    if (!metal || HGAppearancePlayerIsTransferring(renderer) ||
-        renderer.subviews.count != 1 || renderer.layer.sublayers.count != 1 ||
-        renderer.layer.mask || !CATransform3DIsIdentity(renderer.layer.sublayerTransform) ||
-        !HGVideoBackdropVisible(renderer, feed)) return NO;
-    UIView *surface = renderer.subviews.firstObject;
-    CGFloat pixel = 1 / MAX(1, renderer.traitCollection.displayScale) + 0.01;
-    return [surface isKindOfClass:metal] && !surface.hidden && surface.alpha >= 0.99 &&
-        surface.layer == renderer.layer.sublayers.firstObject &&
-        CGRectGetWidth(renderer.bounds) >= 100 && CGRectGetHeight(renderer.bounds) >= 80 &&
-        fabs(CGRectGetMinX(surface.frame) - CGRectGetMinX(renderer.bounds)) <= pixel &&
-        fabs(CGRectGetMinY(surface.frame) - CGRectGetMinY(renderer.bounds)) <= pixel &&
-        fabs(CGRectGetMaxX(surface.frame) - CGRectGetMaxX(renderer.bounds)) <= pixel &&
-        fabs(CGRectGetMaxY(surface.frame) - CGRectGetMaxY(renderer.bounds)) <= pixel;
-}
-
-static UIView *HGVideoBackdropRenderer(UIScrollView *feed) {
-    Class renderClass = NSClassFromString(@"TTPlayerView");
-    if (!renderClass) return nil;
-    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:feed];
-    UIView *best = nil;
-    CGFloat bestScore = -1;
+static BOOL HGVideoBackdropCrossesBottom(UICollectionView *feed) {
     CGRect viewport = feed.bounds;
-    for (NSUInteger i = 0; i < queue.count && i < 256; i++) {
-        UIView *view = queue[i];
-        if (view.hidden || view.alpha < 0.99) continue;
-        if ([view isKindOfClass:renderClass]) {
-            if (!HGVideoBackdropKnownRenderer(view, feed)) continue;
-            UIView *canvas = HGVideoBackdropCanvasForRenderer(view, feed);
-            if (!canvas) continue;
-            CGRect page = [canvas convertRect:canvas.bounds toView:feed];
-            CGRect visible = CGRectIntersection(page, viewport);
-            if (CGRectIsNull(visible) || CGRectIsEmpty(visible)) continue;
-            // An incoming cell can reach the edge before its centered wide
-            // video enters the viewport. Keep sampling a visible video until
-            // the incoming page actually has one on screen.
-            CGRect video = [view convertRect:view.bounds toView:feed];
-            if (CGRectIsEmpty(CGRectIntersection(video, viewport))) continue;
-            // During a native vertical swipe the page touching the lower edge
-            // supplies that edge's background. No paging offset is modified.
-            BOOL touchesBottom = CGRectGetMinY(page) < CGRectGetMaxY(viewport) - 0.75 &&
-                CGRectGetMaxY(page) >= CGRectGetMaxY(viewport) - 0.75;
-            CGFloat score = visible.size.width * visible.size.height;
-            if (touchesBottom) score += viewport.size.width * viewport.size.height;
-            if (score > bestScore) { best = view; bestScore = score; }
-            continue;
-        }
-        if ([view isKindOfClass:UIVisualEffectView.class] || [view isKindOfClass:UILabel.class] ||
-            [view isKindOfClass:UIImageView.class]) continue;
-        for (UIView *child in view.subviews) {
-            if (queue.count >= 256) break;
-            [queue addObject:child];
-        }
+    CGFloat top = CGRectGetMinY(viewport);
+    CGFloat bottom = CGRectGetMaxY(viewport);
+    UIEdgeInsets insets = feed.adjustedContentInset;
+    // Pull-to-refresh can move the first cell across the edge without a page
+    // entering. Let the host keep its clip outside the regular scroll range.
+    if (top < -insets.top - 0.75 || bottom > feed.contentSize.height + insets.bottom + 0.75)
+        return NO;
+    for (UICollectionViewCell *cell in feed.visibleCells) {
+        if (cell.superview != feed || !HGVideoBackdropVisible(cell, feed)) continue;
+        CGRect frame = [cell convertRect:cell.bounds toView:feed];
+        if (CGRectGetMinY(frame) > top + 0.75 && CGRectGetMinY(frame) < bottom - 0.75 &&
+            CGRectGetMaxY(frame) > bottom + 0.75 &&
+            fabs(CGRectGetMinX(frame) - CGRectGetMinX(viewport)) <= 0.75 &&
+            fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(viewport)) <= 0.75) return YES;
     }
-    return best;
-}
-
-static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *feed) {
-    // Read only already-visible UIKit backing colors. Content-model getters,
-    // poster images and the host's playback configuration are never inspected.
-    for (UIView *node = renderer; node && node != feed; node = node.superview) {
-        UIColor *color = node.backgroundColor;
-        if (color && CGColorGetAlpha(color.CGColor) >= 0.99) return color;
-    }
-    return UIColor.blackColor;
+    return NO;
 }
 
 @implementation HGVideoBackdrop
 - (void)dealloc {
-    _portal.sourceView = nil;
-    [_extension removeFromSuperview];
+    if (_ownsClipping) _feed.clipsToBounds = YES;
 }
-- (void)recordStatus:(NSString *)status {
-    if ([self.lastStatus isEqual:status]) return;
-    self.lastStatus = status;
-    HGRecordCapability(@"appearance.dock.video-backdrop", @{@"module":@"appearance",
-        @"state":[status isEqual:@"live-reflected-edge"] ? @"installed" : @"partial",
-        @"reason":status, @"nativeGeometryPreserved":@YES, @"nativeHierarchyPreserved":@YES,
-        @"snapshotPolling":@NO});
+
+- (void)restoreClipping {
+    BOOL owned = self.ownsClipping;
+    self.ownsClipping = NO;
+    if (owned && !self.feed.clipsToBounds) self.feed.clipsToBounds = YES;
 }
-- (void)removeBackdrop {
-    UIScrollView *feed = self.feed;
-    UIView<HGVideoPortalAPI> *portal = self.portal;
-    UIView *extension = self.extension;
-    self.feed = nil; self.parent = nil; self.root = nil; self.bar = nil; self.owner = nil;
-    self.renderer = nil; self.portal = nil; self.canvas = nil; self.extension = nil;
+
+- (void)removeFeed {
+    UICollectionView *feed = self.feed;
     HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
-    if (link.owner == self) objc_setAssociatedObject(feed, &HGVideoBackdropLinkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    portal.sourceView = nil;
-    [extension removeFromSuperview];
+    if (link.owner == self)
+        objc_setAssociatedObject(feed, &HGVideoBackdropLinkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [self restoreClipping];
+    self.feed = nil; self.root = nil; self.bar = nil; self.owner = nil;
 }
+
 - (void)restore {
-    if (self.mutating) return;
-    self.mutating = YES;
-    @try { [self removeBackdrop]; }
-    @finally { self.mutating = NO; }
+    if (self.refreshing) return;
+    self.refreshing = YES;
+    [self removeFeed];
+    self.refreshing = NO;
 }
-- (void)updateOwnedBackdrop {
-    UIScrollView *feed = self.feed;
-    UIView *parent = self.parent;
-    if (!HGVideoBackdropFeedGeometry(feed, parent, self.root, self.bar) ||
-        self.owner.viewIfLoaded != parent || HGVideoBackdropHasTransition(self.owner) ||
-        self.extension.superview != parent || self.canvas.superview != self.extension ||
-        self.portal.superview != self.canvas) {
-        [self removeBackdrop]; return;
+
+- (void)updateFeed {
+    UICollectionView *feed = self.feed;
+    if (!HGVideoBackdropFeedGeometry(feed, self.owner, self.root, self.bar)) {
+        [self removeFeed];
+        return;
     }
-    UIView *renderer = HGVideoBackdropRenderer(feed);
-    if (!renderer) {
-        self.portal.sourceView = nil; self.renderer = nil; self.extension.hidden = YES;
-        [self recordStatus:@"waiting-for-known-video-surface"]; return;
+
+    // A prefetched next cell can already exist at the exact edge while idle.
+    // Only a visible cell with a portion on both sides may draw below the feed.
+    if (!HGVideoBackdropCrossesBottom(feed)) {
+        [self restoreClipping];
+        return;
     }
-    [CATransaction begin]; [CATransaction setDisableActions:YES];
-    CGFloat edge = CGRectGetMaxY(feed.frame);
-    CGRect strip = CGRectMake(CGRectGetMinX(feed.frame), edge, CGRectGetWidth(feed.frame),
-        CGRectGetMaxY(parent.bounds) - edge);
-    if (!CGRectEqualToRect(self.extension.frame, strip)) self.extension.frame = strip;
-    // Composite the mirror after its native source branch. Its clipped bounds
-    // begin at the feed's bottom edge, so no video/HUD pixels are covered.
-    // Restore only this plugin sibling if the host has reordered its feed;
-    // all native siblings retain their relative order and geometry.
-    NSUInteger feedIndex = [parent.subviews indexOfObjectIdenticalTo:feed];
-    NSUInteger backdropIndex = [parent.subviews indexOfObjectIdenticalTo:self.extension];
-    if (feedIndex != NSNotFound && backdropIndex != NSNotFound && backdropIndex != feedIndex + 1)
-        [parent insertSubview:self.extension aboveSubview:feed];
-    if (!CGRectEqualToRect(self.canvas.frame, self.extension.bounds))
-        self.canvas.frame = self.extension.bounds;
-    CGRect source = [renderer convertRect:renderer.bounds toView:parent];
-    // A centered wide video may end far above the feed edge. In that geometry
-    // the naive reflection never intersects the strip and exposes its plain
-    // backing color. Reflect from the last available row of that video instead.
-    // For a video already crossing the feed edge, sample at the edge itself.
-    CGFloat sampleEdge = edge;
-    if (CGRectGetWidth(source) > CGRectGetHeight(source))
-        sampleEdge = MIN(edge, CGRectGetMaxY(source));
-    // Never write frame on this transformed portal; only its bounds and center.
-    CGPoint center = CGPointMake(CGRectGetMidX(source) - CGRectGetMinX(strip),
-        sampleEdge - CGRectGetMidY(source));
-    if (!CGRectEqualToRect(self.portal.bounds, renderer.bounds)) self.portal.bounds = renderer.bounds;
-    if (!CGPointEqualToPoint(self.portal.center, center)) self.portal.center = center;
-    CGAffineTransform reflection = CGAffineTransformMakeScale(1, -1);
-    if (!CGAffineTransformEqualToTransform(self.portal.transform, reflection))
-        self.portal.transform = reflection;
-    UIColor *color = HGVideoBackdropLetterboxColor(renderer, feed);
-    if (![self.canvas.backgroundColor isEqual:color]) self.canvas.backgroundColor = color;
-    if (self.renderer != renderer || self.portal.sourceView != renderer) {
-        self.portal.sourceView = renderer; self.renderer = renderer;
-        // Match the source-reload lifecycle used by Telegram's PortalView.
-        // Only the plugin portal is reinserted, into its existing parent/index;
-        // the source player, its layer and the native paging tree never move.
-        NSUInteger index = [self.canvas.subviews indexOfObjectIdenticalTo:self.portal];
-        if (index != NSNotFound) [self.canvas insertSubview:self.portal atIndex:index];
-        // didMove/layout inside UIKit may synchronize geometry while attaching.
-        // Restore our bounds/center/transform without writing a transformed frame.
-        if (!CGRectEqualToRect(self.portal.bounds, renderer.bounds)) self.portal.bounds = renderer.bounds;
-        if (!CGPointEqualToPoint(self.portal.center, center)) self.portal.center = center;
-        if (!CGAffineTransformEqualToTransform(self.portal.transform, reflection))
-            self.portal.transform = reflection;
+
+    if (feed.clipsToBounds) {
+        self.ownsClipping = YES;
+        feed.clipsToBounds = NO;
     }
-    self.extension.hidden = NO;
-    [CATransaction commit];
-    [self recordStatus:@"live-reflected-edge"];
 }
+
 - (void)refreshFeed {
-    if (self.mutating) return;
-    self.mutating = YES;
-    @try { [self updateOwnedBackdrop]; }
-    @finally { self.mutating = NO; }
+    if (self.refreshing) return;
+    self.refreshing = YES;
+    [self updateFeed];
+    self.refreshing = NO;
 }
-- (void)prepareRendererTransfer:(UIView *)view {
-    if (self.mutating || !self.renderer ||
-        (self.renderer != view && ![self.renderer isDescendantOfView:view])) return;
-    self.mutating = YES;
-    @try {
-        self.portal.sourceView = nil; self.renderer = nil; self.extension.hidden = YES;
-    } @finally { self.mutating = NO; }
-}
+
 - (void)refreshWithBranches:(NSArray<UIView *> *)branches root:(UIView *)root
                        bar:(UIView *)bar active:(BOOL)active {
-    if (self.mutating) return;
-    self.mutating = YES;
-    @try {
-        if (!active || !root.window || bar.window != root.window ||
-            root.bounds.size.height <= root.bounds.size.width) {
-            [self removeBackdrop]; return;
+    if (self.refreshing) return;
+    if (!active || !root.window || !HGVideoBackdropVisible(bar, root)) {
+        [self restore];
+        return;
+    }
+
+    Class feedClass = NSClassFromString(@"FQVCollectionView");
+    UICollectionView *candidate = nil;
+    UIViewController *owner = nil;
+    NSMutableArray<UIView *> *queue = [branches mutableCopy];
+    for (NSUInteger i = 0; feedClass && i < queue.count && i < 192; i++) {
+        UIView *view = queue[i];
+        if (!HGVideoBackdropVisible(view, root) ||
+            CGRectIsEmpty(CGRectIntersection([view convertRect:view.bounds toView:root], root.bounds))) continue;
+        if ([view isKindOfClass:feedClass] && [view isKindOfClass:UICollectionView.class]) {
+            UICollectionView *feed = (UICollectionView *)view;
+            UIViewController *controller = HGVideoBackdropOwner(feed);
+            if (!HGVideoBackdropFeedGeometry(feed, controller, root, bar)) continue;
+            if (candidate && candidate != feed) {
+                [self restore];
+                return;
+            }
+            candidate = feed; owner = controller;
+            continue;
         }
-        if (@available(iOS 26.0, *)) {
-            Class portalClass = HGVideoBackdropPortalClass();
-            if (!portalClass) {
-                [self removeBackdrop]; [self recordStatus:@"portal-runtime-abi-unavailable"]; return;
-            }
-            Class feedClass = NSClassFromString(@"FQVCollectionView");
-            if (!feedClass) { [self removeBackdrop]; return; }
-            NSMutableArray<UIView *> *queue = [branches mutableCopy];
-            UIScrollView *candidate = nil;
-            UIViewController *owner = nil;
-            for (NSUInteger i = 0; i < queue.count && i < 192; i++) {
-                UIView *view = queue[i];
-                if (view == self.extension || !HGVideoBackdropVisible(view, root) ||
-                    CGRectIsEmpty(CGRectIntersection([view convertRect:view.bounds toView:root], root.bounds))) continue;
-                if ([view isKindOfClass:feedClass] && [view isKindOfClass:UIScrollView.class]) {
-                    UIScrollView *feed = (UIScrollView *)view;
-                    UIViewController *controller = HGVideoBackdropOwner(feed);
-                    if (!controller || controller.viewIfLoaded != feed.superview ||
-                        HGVideoBackdropHasTransition(controller) ||
-                        !HGVideoBackdropFeedGeometry(feed, feed.superview, root, bar)) continue;
-                    if (candidate && candidate != feed) { [self removeBackdrop]; return; }
-                    candidate = feed; owner = controller;
-                    continue;
-                }
-                if ([view isKindOfClass:UIVisualEffectView.class] || [view isKindOfClass:UIControl.class] ||
-                    [view isKindOfClass:UILabel.class] || [view isKindOfClass:UIImageView.class] ||
-                    [view isKindOfClass:UITableViewCell.class] || [view isKindOfClass:UICollectionViewCell.class]) continue;
-                for (UIView *child in view.subviews) {
-                    if (queue.count >= 192) break;
-                    [queue addObject:child];
-                }
-            }
-            if (!candidate) { [self removeBackdrop]; return; }
-            if (candidate != self.feed) {
-                [self removeBackdrop];
-                // Attach only at a settled page. Later native scrolling merely
-                // updates our mirror position/source through the feed's layout.
-                if (candidate.dragging || candidate.decelerating || !HGVideoBackdropRenderer(candidate)) return;
-                HGVideoBackdropLink *existing = objc_getAssociatedObject(candidate, &HGVideoBackdropLinkKey);
-                if (existing.owner && existing.owner != self) return;
-                UIView *parent = candidate.superview;
-                UIView<HGVideoPortalAPI> *portal = [[portalClass alloc] initWithFrame:CGRectZero];
-                if (!portal) { [self recordStatus:@"portal-initialization-unavailable"]; return; }
-                portal.hidesSourceView = NO;
-                portal.matchesPosition = NO; portal.matchesTransform = NO; portal.matchesAlpha = YES;
-                portal.allowsHitTesting = NO; portal.forwardsClientHitTestingToSourceView = NO;
-                portal.userInteractionEnabled = NO; portal.accessibilityElementsHidden = YES;
-                portal.accessibilityIdentifier = @"honggo.video.backdrop.portal";
-                CGFloat edge = CGRectGetMaxY(candidate.frame);
-                CGRect strip = CGRectMake(CGRectGetMinX(candidate.frame), edge, CGRectGetWidth(candidate.frame),
-                    CGRectGetMaxY(parent.bounds) - edge);
-                UIView *extension = [[UIView alloc] initWithFrame:strip];
-                extension.userInteractionEnabled = NO; extension.accessibilityElementsHidden = YES;
-                extension.accessibilityIdentifier = @"honggo.video.backdrop";
-                extension.backgroundColor = UIColor.clearColor; extension.opaque = NO;
-                extension.clipsToBounds = YES;
-                UIView *canvas = [[UIView alloc] initWithFrame:extension.bounds];
-                canvas.userInteractionEnabled = NO; canvas.accessibilityElementsHidden = YES;
-                canvas.accessibilityIdentifier = @"honggo.video.backdrop.canvas";
-                canvas.clipsToBounds = YES; canvas.backgroundColor = UIColor.blackColor;
-                [canvas addSubview:portal];
-                [extension addSubview:canvas];
-                self.feed = candidate; self.parent = parent; self.owner = owner;
-                self.root = root; self.bar = bar;
-                self.portal = portal; self.canvas = canvas; self.extension = extension;
-                HGVideoBackdropLink *link = [HGVideoBackdropLink new]; link.owner = self;
-                objc_setAssociatedObject(candidate, &HGVideoBackdropLinkKey, link, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                [parent insertSubview:extension aboveSubview:candidate];
-            } else {
-                self.root = root; self.bar = bar; self.owner = owner;
-            }
-            [self updateOwnedBackdrop];
-        } else {
-            [self removeBackdrop]; [self recordStatus:@"requires-ios-26-video-backdrop"];
+        if ([view isKindOfClass:UIVisualEffectView.class] || [view isKindOfClass:UIControl.class] ||
+            [view isKindOfClass:UILabel.class] || [view isKindOfClass:UIImageView.class] ||
+            [view isKindOfClass:UITableViewCell.class] || [view isKindOfClass:UICollectionViewCell.class]) continue;
+        for (UIView *child in view.subviews) {
+            if (queue.count >= 192) break;
+            [queue addObject:child];
         }
-    } @finally { self.mutating = NO; }
+    }
+    if (!candidate) {
+        [self restore];
+        return;
+    }
+
+    self.refreshing = YES;
+    if (self.feed != candidate) {
+        [self removeFeed];
+        HGVideoBackdropLink *link = objc_getAssociatedObject(candidate, &HGVideoBackdropLinkKey);
+        if (link.owner) {
+            self.refreshing = NO;
+            return;
+        }
+        self.feed = candidate;
+        link = [HGVideoBackdropLink new];
+        link.owner = self;
+        objc_setAssociatedObject(candidate, &HGVideoBackdropLinkKey, link, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        HGRecordCapability(@"appearance.dock.video-backdrop", @{
+            @"module": @"appearance", @"state": @"installed", @"reason": @"native-feed-overflow",
+            @"nativeGeometryPreserved": @YES, @"nativeHierarchyPreserved": @YES, @"mirrorsFrames": @NO
+        });
+    }
+    self.root = root; self.bar = bar; self.owner = owner;
+    [self updateFeed];
+    self.refreshing = NO;
 }
 @end
 
@@ -410,27 +222,7 @@ BOOL HGVideoBackdropRefreshForFeed(UIScrollView *feed) {
     HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
     HGVideoBackdrop *owner = link.owner;
     if (!owner) return NO;
-    if (!HGAppearanceDockEnabled()) [owner restore];
-    else [owner refreshFeed];
+    if (HGAppearanceDockEnabled()) [owner refreshFeed];
+    else [owner restore];
     return YES;
 }
-void HGVideoBackdropPrepareRendererTransfer(UIView *view) {
-    Class feedClass = NSClassFromString(@"FQVCollectionView");
-    for (UIView *node = view; node; node = node.superview) {
-        if (feedClass && [node isKindOfClass:feedClass]) {
-            HGVideoBackdropLink *link = objc_getAssociatedObject(node, &HGVideoBackdropLinkKey);
-            [link.owner prepareRendererTransfer:view];
-            return;
-        }
-    }
-}
-
-#else
-@implementation HGVideoBackdrop
-- (void)refreshWithBranches:(NSArray<UIView *> *)branches root:(UIView *)root
-                       bar:(UIView *)bar active:(BOOL)active { }
-- (void)restore { }
-@end
-BOOL HGVideoBackdropRefreshForFeed(UIScrollView *feed) { return NO; }
-void HGVideoBackdropPrepareRendererTransfer(UIView *view) { }
-#endif

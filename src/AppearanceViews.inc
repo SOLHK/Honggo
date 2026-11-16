@@ -425,14 +425,14 @@ void HGAppearanceProcessView(UIView *view) {
         NSString *name=NSStringFromClass(view.class),*role=HGARole(view);
         if([name isEqual:@"SSTabBar"]){HGARefreshDock(view);return;}
         if([name isEqual:@"FQVCollectionView"] && [view isKindOfClass:UIScrollView.class]) {
-            HGAObserveFeed((id)view);HGRefreshVideoBackdropForView(view);return;
+            HGAObserveFeed((id)view);HGRefreshVideoBackdropForFeed((id)view);return;
         }
         if([name isEqual:@"TTPlayerView"]){
-            HGAApplyFullScreen(view);HGRefreshVideoBackdropForView(view);return;
+            HGAApplyFullScreen(view);return;
         }
         if([name isEqual:@"FQVShortVideoPlayerCellView"]){
             for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
-            HGAApplyTypography(view);HGRefreshVideoBackdropForView(view);return;
+            HGAApplyTypography(view);return;
         }
         if([HGACommentSurfaces() containsObject:name]) {
             HGAApplyPanel(view,@"comment");HGAApplyTypography(view);return;

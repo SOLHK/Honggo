@@ -34,11 +34,6 @@ static UIView *HGAPlayerCanvas(UIView *view) {
         if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"])return view;
     return nil;
 }
-BOOL HGAppearancePlayerIsTransferring(UIView *view) {
-    UIView *canvas=HGAPlayerCanvas(view);
-    return HGAPlayerState(view,NO).transferFlags!=0 ||
-        HGAPlayerState(canvas,NO).transferFlags!=0;
-}
 static void HGAPlayerFillStatus(UIView *render,NSString *status,CGFloat zoom) {
     HGAPlayerFillState *state=HGAPlayerState(render,YES);
     if([state.lastStatus isEqual:status])return;

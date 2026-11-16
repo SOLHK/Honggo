@@ -45,6 +45,18 @@ static BOOL HGADockNeutralTranslucent(UIColor *color,UITraitCollection *traits) 
     return [[color resolvedColorWithTraitCollection:traits] getRed:&r green:&g blue:&b alpha:&a] &&
         fabs(r-g)<0.001 && fabs(r-b)<0.001 && a>0 && a<1;
 }
+static CGFloat HGADockCompositorLuminance(UIImage *snapshot,CGPoint point) {
+    CGRect pixels=CGRectIntegral(CGRectMake(point.x*snapshot.scale-2,point.y*snapshot.scale-2,4,4));
+    CGImageRef sample=CGImageCreateWithImageInRect(snapshot.CGImage,pixels);
+    if(!sample)return -1;
+    uint8_t pixel[4]={};
+    CGColorSpaceRef space=CGColorSpaceCreateDeviceRGB();
+    CGContextRef context=CGBitmapContextCreate(pixel,1,1,8,4,space,kCGImageAlphaPremultipliedLast|kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(space);
+    if(context){CGContextDrawImage(context,CGRectMake(0,0,1,1),sample);CGContextRelease(context);}
+    CGImageRelease(sample);
+    return context ? (pixel[0]+pixel[1]+pixel[2])/(3.0*255) : -1;
+}
 static BOOL HGADockRectMatches(CGRect actual,CGRect expected) {
     return fabs(actual.origin.x-expected.origin.x)<0.5 && fabs(actual.origin.y-expected.origin.y)<0.5 &&
         fabs(actual.size.width-expected.size.width)<0.5 && fabs(actual.size.height-expected.size.height)<0.5;
@@ -143,6 +155,16 @@ static BOOL HGASaveDockPreview(SSTabBarController *host,UIView *dock) {
     }];
     CGRect crop=CGRectIntersection(window.bounds,[dock convertRect:CGRectInset(dock.bounds,-8,-8) toView:window]);
     if(!captured || !full.CGImage || CGRectIsEmpty(crop)) {[backdrop removeFromSuperview];return NO;}
+    if(!UIAccessibilityIsReduceTransparencyEnabled()) {
+        UIView *selection=Find(dock,@"honggo.appearance.dock.selection");
+        UIView *capsule=Find(dock,@"honggo.appearance.dock.capsule");
+        CGPoint selectedPoint=[selection convertPoint:CGPointMake(CGRectGetMidX(selection.bounds)-25,CGRectGetMidY(selection.bounds)) toView:window];
+        CGPoint glassPoint=[capsule convertPoint:CGPointMake(CGRectGetMaxX(selection.frame)+14,CGRectGetMidY(selection.frame)) toView:window];
+        CGFloat selectedTone=HGADockCompositorLuminance(full,selectedPoint);
+        CGFloat glassTone=HGADockCompositorLuminance(full,glassPoint);
+        Check(selectedTone>0.09 && selectedTone+0.025<glassTone,
+            @"selected cutout stays darker than glass while retaining the live backdrop");
+    }
     UIButton *profile=(id)Find(dock,@"honggo.appearance.dock.extra");
     Check(HGADockCompositorGlyphIsCrisp(full,profile,window),
         @"window compositor keeps the independent profile glyph bright and sharp above glass");
@@ -352,7 +374,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     roomyBar.origin.y=host.view.bounds.size.height-84;
     host.customTabBar.frame=roomyBar;
     HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.material":@"regular",
-        @"dock.content":@"icon",@"dock.height":@62,@"dock.width":@0.94,@"dock.radius":@31,
+        @"dock.content":@"icon",@"dock.height":@62,@"dock.width":@0.905,@"dock.radius":@31,
         @"dock.iconSize":@26,@"dock.extra":@YES,@"dock.extraSize":@62,@"dock.action":@"mine",
         @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@YES,@"dock.hide.mine":@YES,
         @"dock.selected":@"",@"dock.normal":@"",@"dock.tint":@""},nil);
@@ -369,12 +391,18 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     Check(fabs(capsule.bounds.size.height-62)<0.01 && fabs(extra.bounds.size.width-62)<0.01 &&
         fabs(extra.bounds.size.height-62)<0.01 && fabs(CGRectGetMidY(capsule.frame)-CGRectGetMidY(extra.frame))<0.01 &&
         fabs(capsule.layer.cornerRadius-31)<0.01 && fabs(extraMaterial.layer.cornerRadius-31)<0.01,
-        @"R15 capsule and independent action are equally thick with aligned circular ends");
+        @"capsule and independent action are equally thick with aligned circular ends");
+    Check(fabs(CGRectGetMinX(extra.frame)-CGRectGetMaxX(capsule.frame)-12)<0.01 &&
+        fabs(CGRectGetWidth(CGRectUnion(capsule.frame,extra.frame))/dock.bounds.size.width-0.905)<0.001,
+        @"reference-width dock uses symmetric margins and a twelve-point accessory gap");
+    BOOL reduceTransparency=UIAccessibilityIsReduceTransparencyEnabled();
     Check(selection && !selection.hidden && !selection.userInteractionEnabled &&
-        HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection),
-        @"selected dock pill is neutral translucent gray and cannot intercept navigation");
+        HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection) &&
+        (reduceTransparency ? capsuleMaterial.maskView==nil : capsuleMaterial.maskView!=nil &&
+            [selection.backgroundColor isEqual:[UIColor colorWithWhite:0 alpha:0.12]]),
+        @"selected dock pill has a dark live-background cutout that cannot intercept navigation");
     Check(CGRectGetMinY(selection.frame)>=3 && CGRectGetMaxY(selection.frame)<=capsule.bounds.size.height-3 &&
-        selection.bounds.size.width<=capsule.bounds.size.height*1.4 && home.bounds.size.width>=44,
+        selection.bounds.size.width<=capsule.bounds.size.height*1.53 && home.bounds.size.width>=44,
         @"two-tab dock keeps a compact inset selection pill and full accessible touch targets");
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
         host.overrideUserInterfaceStyle==UIUserInterfaceStyleLight,
@@ -395,6 +423,10 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"tab and independent profile glyphs render white on a dark surface");
     Check(normal.blue==0 && accessory.blue==0,
         @"rendered selected tab and independent button contain no inherited blue accent");
+    CGFloat activeOpacity=CGColorGetAlpha(home.configuration.baseForegroundColor.CGColor);
+    CGFloat inactiveOpacity=CGColorGetAlpha(theater.configuration.baseForegroundColor.CGColor);
+    Check(inactiveOpacity>0.50 && inactiveOpacity<activeOpacity && activeOpacity>0.90,
+        @"unselected navigation glyphs stay neutral and quieter than the selected tab");
     Check(MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height)<36 &&
         MAX(extra.imageView.bounds.size.width,extra.imageView.bounds.size.height)<36,
         @"R15 default icons fit the thicker dock and equally sized independent action");
@@ -404,10 +436,12 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"pressed selection stays neutral after a UIKit configuration update");
     home.highlighted=NO;
     Check(HGASaveDockPreview(host,dock),@"controlled UIKit dock preview renders to PNG for visual review");
+    UIView *firstMask=capsuleMaterial.maskView;
     host.selectedIndex=1;HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
     Check(!home.selected && theater.selected &&
-        fabs(CGRectGetMidX(selection.frame)-CGRectGetMidX(theater.frame))<0.01,
-        @"gray selection follows the host's current tab without covering other items");
+        fabs(CGRectGetMidX(selection.frame)-CGRectGetMidX(theater.frame))<0.01 &&
+        (reduceTransparency || (capsuleMaterial.maskView && capsuleMaterial.maskView!=firstMask)),
+        @"dark selection and glass cutout follow the host's selected tab");
     HGADockPixelCounts switched=HGADockPixels(theater);
     Check(switched.blue==0 && switched.brightNeutral>8,
         @"newly selected theater renders white after the selected state changes");
@@ -418,8 +452,8 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection),
         @"explicit user glyph colors are preserved while selection background remains neutral");
     HGAppearanceApply(@{@"dock.material":@"solid",@"dock.selected":@""},nil);Layout(dock);
-    Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight,
-        @"solid dock continues to respect the host light appearance");
+    Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && !capsuleMaterial.maskView,
+        @"solid dock respects the host light appearance with continuous solid fill");
     host.selectedIndex=savedIndex;host.overrideUserInterfaceStyle=savedStyle;host.view.tintColor=savedTint;
     host.customTabBar.frame=savedBarFrame;
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);

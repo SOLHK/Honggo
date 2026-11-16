@@ -45,8 +45,27 @@ static void CheckR15GeometryMigration(void) {
         HGAppearanceNumber(@"dock.extraSize")==62 && HGAppearanceNumber(@"icons.size")==28 &&
         !HGAppearanceEnabled(),@"a fresh R15 install gets the new dimensions with appearance still opt-in");
 }
+static void CheckDockWidthMigration(void) {
+    NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
+    NSString *key=@"Honggo.Appearance.dockWidthMigrated";
+    [defaults removeObjectForKey:key];
+    SeedR14Appearance(@{@"dock.width":@0.94,@"dock.height":@70});
+    Check(fabs(HGAppearanceNumber(@"dock.width")-0.905)<0.0001 &&
+        HGAppearanceNumber(@"dock.height")==70 && [defaults boolForKey:key],
+        @"previous stock dock width migrates once with custom height intact");
+    HGAppearanceSet(@"dock.width",@0.94,nil);
+    [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:defaults];
+    Check(HGAppearanceNumber(@"dock.width")==0.94,
+        @"choosing 94 percent after the dock width migration is preserved");
+    [defaults removeObjectForKey:key];
+    SeedR14Appearance(@{@"dock.width":@0.88});
+    Check(HGAppearanceNumber(@"dock.width")==0.88,@"existing custom dock width is preserved");
+    Check([HGAppearancePreset(@"glass")[@"dock.width"] isEqual:@0.905],
+        @"glass preset uses the reference dock width");
+}
 int main(void) {@autoreleasepool {
     CheckR15GeometryMigration();
+    CheckDockWidthMigration();
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];

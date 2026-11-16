@@ -119,7 +119,7 @@ capture_failed=0
 while ((SECONDS < run_deadline)); do
     # The Metal regression requests live compositor images. UIGraphics/layer
     # snapshots can omit CAMetalLayer and cannot validate a video backdrop.
-    for phase in red blue wide; do
+    for phase in wide swipe; do
         prefix="video-backdrop-${phase}"
         if [ -f "$data_directory/Documents/${prefix}-ready.json" ] && \
            [ ! -f "$data_directory/Documents/${prefix}-captured" ]; then

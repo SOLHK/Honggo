@@ -16,11 +16,13 @@
 @property(nonatomic) BOOL rendering;
 @property(nonatomic) BOOL restoring;
 @property(nonatomic) CGRect lastOccupiedRect;
+@property(nonatomic) CGRect maskedSelection;
 - (void)refresh;
 - (void)restore;
 - (void)setCollapsed:(BOOL)value animated:(BOOL)animated;
 @end
 static char HGADockKey;
+static const CGFloat HGADockAccessoryGap=12;
 static CGRect HGADockRectInView(UIView *coordinateView) {
     if(!HGAppearanceDockEnabled() || !coordinateView.window)return CGRectNull;
     CGRect result=CGRectNull;
@@ -169,7 +171,8 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         }
         NSUInteger visibleCount=0;
         for(NSString *key in HGATabIDs()) if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))visibleCount++;
-        CGFloat extraWidth=HGAppearanceFlag(@"dock.extra") ? MIN(HGAppearanceNumber(@"dock.extraSize"),bar.bounds.size.height)+8 : 0;
+        CGFloat extraWidth=HGAppearanceFlag(@"dock.extra") ?
+            MIN(HGAppearanceNumber(@"dock.extraSize"),bar.bounds.size.height)+HGADockAccessoryGap : 0;
         if(bar.bounds.size.width-8 < visibleCount*44+extraWidth) {
             [self restore];
             HGRecordCapability(@"appearance.dock.navigation",@{@"module":@"appearance",@"state":@"unavailable",@"reason":@"insufficient space for accessible tab targets; native navigation retained"});
@@ -194,6 +197,32 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         HGRecordCapability(@"appearance.dock.navigation",@{@"module":@"appearance",@"state":@"installed",@"reason":@"native control actions mapped; host retains navigation decisions"});
     }@finally{self.rendering=NO;}
 }
+- (void)updateSelectionMask:(BOOL)enabled {
+    HGAAppearanceMaterial *material=HGAState(self.capsule,NO).glass;
+    if(!material)return;
+    if(!enabled){
+        if(material.maskView)material.maskView=nil;
+        return;
+    }
+    CGRect hole=self.selection.frame;
+    if(CGRectEqualToRect(self.maskedSelection,hole) && CGRectEqualToRect(material.maskView.bounds,material.bounds))return;
+    // Keep the moving background visible inside the selection. UIKit forwards a mask
+    // set directly on the effect view to its internal surfaces.
+    UIBezierPath *shape=[UIBezierPath bezierPathWithRect:material.bounds];
+    [shape appendPath:[UIBezierPath bezierPathWithRoundedRect:hole cornerRadius:self.selection.layer.cornerRadius]];
+    shape.usesEvenOddFillRule=YES;
+    UIGraphicsImageRendererFormat *format=[UIGraphicsImageRendererFormat defaultFormat];
+    format.opaque=NO;
+    UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:material.bounds.size format:format];
+    UIImage *image=[renderer imageWithActions:^(UIGraphicsImageRendererContext *context){
+        [UIColor.whiteColor setFill];
+        [shape fill];
+    }];
+    UIImageView *mask=[[UIImageView alloc] initWithImage:image];
+    mask.frame=material.bounds;
+    self.maskedSelection=hole;
+    material.maskView=mask;
+}
 - (void)renderGeometry {
     CGFloat width=self.bounds.size.width,availableHeight=self.bounds.size.height;
     if(width<180 || availableHeight<44)return;
@@ -202,7 +231,7 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     BOOL extra=HGAppearanceFlag(@"dock.extra");
     CGFloat circle=MIN(HGAppearanceNumber(@"dock.extraSize"),availableHeight);
     CGFloat height=MIN(HGAppearanceNumber(@"dock.height"),availableHeight);
-    CGFloat reserve=extra ? circle+8 : 0;
+    CGFloat reserve=extra ? circle+HGADockAccessoryGap : 0;
     CGFloat total=MIN(width-8,MAX(visible.count*44+reserve,HGAppearanceNumber(@"dock.width")*width));
     CGFloat safeBottom=MIN(self.hostBar.safeAreaInsets.bottom,MAX(0,availableHeight-height));
     CGFloat y=MAX(0,availableHeight-safeBottom-height-HGAppearanceNumber(@"dock.lift"));
@@ -243,23 +272,28 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     self.capsule.layer.cornerRadius=radius;
     self.capsule.layer.borderWidth=translucent ? 0.5 : 0;
     self.capsule.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.14].CGColor;
-    BOOL darkSurface=translucent || self.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-    self.selection.backgroundColor=[UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.18:0.08];
+    BOOL cutout=translucent && !UIAccessibilityIsReduceTransparencyEnabled();
+    BOOL darkSurface=self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    self.selection.backgroundColor=cutout ? [UIColor colorWithWhite:0 alpha:0.12] :
+        [UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.18:0.08];
     self.selection.hidden=YES;
     NSInteger selected=HGASelectedTab(self.hostController);
     NSString *content=HGAppearanceString(@"dock.content");
-    CGFloat slotWidth=expanded.size.width/visible.count;
+    CGFloat slotInset=MIN(14,MAX(0,(expanded.size.width-44*visible.count)/2));
+    CGFloat slotWidth=(expanded.size.width-2*slotInset)/visible.count;
+    CGFloat unselectedOpacity=self.traitCollection.accessibilityContrast==UIAccessibilityContrastHigh ? 0.88 : 0.55;
     CGFloat requestedIcon=HGAppearanceNumber(@"dock.iconSize");
     for(NSString *key in self.buttons) {
         UIButton *b=self.buttons[key];NSUInteger index=[HGATabIDs() indexOfObject:key];
         NSUInteger position=[visible indexOfObject:key];
         b.hidden=position==NSNotFound;
         if(b.hidden)continue;
-        b.frame=CGRectMake(position*slotWidth,0,slotWidth,height);
+        b.frame=CGRectMake(slotInset+position*slotWidth,0,slotWidth,height);
         UIControl *source=[self.targets objectForKey:key];
         BOOL active=selected!=NSNotFound ? selected==(NSInteger)index : source.selected;
         UIColor *color=HGAppearanceColor(HGAppearanceString(active?@"dock.selected":@"dock.normal"),
-            translucent ? [UIColor colorWithWhite:1 alpha:active?1:0.88] : (active?UIColor.labelColor:UIColor.secondaryLabelColor));
+            translucent ? [UIColor colorWithWhite:1 alpha:active?0.92:unselectedOpacity] :
+                (active?UIColor.labelColor:UIColor.secondaryLabelColor));
         NSString *symbol=HGATabSymbols()[index];
         UIImage *image=[UIImage systemImageNamed:active?[symbol stringByAppendingString:@".fill"]:symbol] ?: [UIImage systemImageNamed:symbol];
         NSString *title=[content isEqual:@"icon"]?nil:HGATabTitles()[index];
@@ -271,14 +305,17 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         HGADockConfigureButton(b,title,[content isEqual:@"text"]?nil:image,iconSize,font,color);
         if(active) {
             CGFloat titleWidth=title.length ? [title sizeWithAttributes:@{NSFontAttributeName:font}].width : 0;
-            CGFloat pillWidth=MIN(slotWidth-8,MAX(height*1.25,titleWidth+24));
-            self.selection.frame=CGRectMake(CGRectGetMidX(b.frame)-pillWidth/2,4,pillWidth,height-8);
-            self.selection.layer.cornerRadius=(height-8)/2;
+            CGFloat center=CGRectGetMidX(b.frame);
+            CGFloat maximumWidth=2*(MIN(center,expanded.size.width-center)-4);
+            CGFloat pillWidth=MIN(maximumWidth,MIN(slotWidth+20,MAX(height*1.52,titleWidth+24)));
+            self.selection.frame=CGRectMake(center-pillWidth/2,4,pillWidth,height-8);
+            self.selection.layer.cornerRadius=MIN(pillWidth,height-8)/2;
             self.selection.hidden=NO;
         }
         b.accessibilityLabel=HGATabTitles()[index];
         b.accessibilityTraits=UIAccessibilityTraitButton | (active?UIAccessibilityTraitSelected:0);
     }
+    [self updateSelectionMask:cutout && !self.collapsed && !self.selection.hidden];
     NSString *action=HGAppearanceString(@"dock.action");
     NSString *symbol=[action isEqual:@"settings"]?@"slider.horizontal.3":([action isEqual:@"search"]?@"magnifyingglass":HGATabSymbols()[[HGATabIDs() indexOfObject:action]]);
     UIColor *accessoryColor=HGAppearanceColor(HGAppearanceString(@"dock.normal"),translucent?UIColor.whiteColor:UIColor.labelColor);
