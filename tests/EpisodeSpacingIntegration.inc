@@ -241,7 +241,10 @@ static void RunEpisodeSpacingChecks(UIView *root) {
             fabs(CGRectGetMaxY(info.frame)-CGRectGetMinY(wrapper.frame))<0.01,
             @"episode spacing moves adjacent metadata and right actions together without a new overlap");
         Check(CGRectEqualToRect(progress.frame,nativeProgress) && CGRectEqualToRect(track.frame,nativeTrack) &&
-            CGRectEqualToRect(entry.frame,nativeEntry) && CGAffineTransformIsIdentity(wrapper.transform),
+            fabs(entry.frame.origin.y-nativeEntry.origin.y)<0.01 &&
+            fabs(entry.frame.size.height-nativeEntry.size.height)<0.01 &&
+            fabs(CGRectGetMidX(entry.frame)-CGRectGetMidX(nativeEntry))<0.01 &&
+            CGAffineTransformIsIdentity(wrapper.transform),
             @"episode spacing preserves native slider geometry, child frames and wrapper transform");
         Check([control hitTest:CGPointMake(220,831) withEvent:nil]==open &&
             [control hitTest:CGPointMake(220,863) withEvent:nil]==progress,

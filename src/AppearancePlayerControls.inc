@@ -66,6 +66,63 @@ static void HGAPlayerControlGlass(UIView *target,BOOL enabled,BOOL sheet) {
     if(sheet) HGAInstallGlass(target,HGAppearanceString(@"panels.material"),radius,0.04);
     else HGAInstallPlaybackGlass(target,HGAppearanceString(@"player.material"),target.bounds,radius,nil);
 }
+
+@interface HGADanmakuLegacyInk : NSObject
+@property(nonatomic,weak) UIImageView *view;
+@property(nonatomic,strong) UIImage *original;
+@property(nonatomic,strong) UIImage *foreground;
+@end
+@implementation HGADanmakuLegacyInk @end
+static char HGADanmakuLegacyInkKey;
+
+static UIImage *HGADanmakuForegroundImage(UIImage *image) {
+    CGImageRef source=image.CGImage;
+    if(!source)return nil;
+    size_t width=CGImageGetWidth(source),height=CGImageGetHeight(source);
+    if(!width || !height || width>256 || height>256)return nil;
+    CGColorSpaceRef space=CGColorSpaceCreateDeviceRGB();
+    CGContextRef context=CGBitmapContextCreate(NULL,width,height,8,width*4,space,
+        kCGBitmapByteOrder32Big|kCGImageAlphaPremultipliedLast);
+    CGColorSpaceRelease(space);
+    if(!context)return nil;
+    CGContextDrawImage(context,CGRectMake(0,0,width,height),source);
+    UInt8 *pixels=CGBitmapContextGetData(context);
+    // The host's compact gray-and-alpha artwork contains a dark plate baked
+    // into its pixels. Its white mark is the foreground of our new glass.
+    for(size_t i=0;i<width*height;i++) {
+        UInt8 *pixel=pixels+4*i;
+        unsigned value=MAX(pixel[0],MAX(pixel[1],pixel[2]));
+        UInt8 alpha=value>48 ? (UInt8)((value-48)*255/207) : 0;
+        pixel[0]=pixel[1]=pixel[2]=pixel[3]=alpha;
+    }
+    CGImageRef foreground=CGBitmapContextCreateImage(context);
+    UIImage *result=foreground ? [[UIImage imageWithCGImage:foreground scale:image.scale orientation:image.imageOrientation]
+        imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal] : nil;
+    if(foreground)CGImageRelease(foreground);
+    CGContextRelease(context);
+    return result;
+}
+
+static void HGAApplyDanmakuLegacyInk(UIView *root,BOOL enabled) {
+    HGADanmakuLegacyInk *state=objc_getAssociatedObject(root,&HGADanmakuLegacyInkKey);
+    UIImageView *icon=(id)(enabled ? HGAViewGetter(root,"iconView",root) : nil);
+    UIImage *legacy=enabled ? HGReadObjectGetter(root,"legacyImage") : nil;
+    if(![legacy isKindOfClass:UIImage.class] || ![icon isKindOfClass:UIImageView.class])icon=nil;
+    if(state && (state.view!=icon || ![state.original isEqual:legacy])) {
+        if(state.view.image==state.foreground)state.view.image=state.original;
+        objc_setAssociatedObject(root,&HGADanmakuLegacyInkKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        state=nil;
+    }
+    if(!icon || ![icon.image isEqual:legacy])return;
+    if(!state) {
+        UIImage *foreground=HGADanmakuForegroundImage(legacy);
+        if(!foreground)return;
+        state=[HGADanmakuLegacyInk new];
+        state.view=icon;state.original=icon.image;state.foreground=foreground;
+        objc_setAssociatedObject(root,&HGADanmakuLegacyInkKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    icon.image=state.foreground;
+}
 @interface HGAPlayerChromeState : NSObject
 @property(nonatomic,strong) NSHashTable<UIView *> *targets;
 @property(nonatomic,strong) NSHashTable<UIView *> *paints;
@@ -87,10 +144,14 @@ static HGAPlayerChromeState *HGAPlayerChromeTargets(id owner,NSArray<UIView *> *
     return state;
 }
 static void HGAApplyPlayerControls(UIView *root) {
+    NSString *name=NSStringFromClass(root.class);
+    BOOL danmaku=[name isEqual:@"FQCShortVideoDanmakuEntranceView"];
     BOOL sheet=HGAEpisodeControl(root);
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(sheet?@"panels.episodes":@"player.controlsGlass") && root.window;
     if(!enabled) {
-        HGAPlayerChromeTargets(root,nil,nil);HGAApplyEpisodeCollectInk(root,NO);return;
+        HGAPlayerChromeTargets(root,nil,nil);HGAApplyEpisodeCollectInk(root,NO);
+        if(danmaku)HGAApplyDanmakuLegacyInk(root,NO);
+        return;
     }
     NSMutableArray *targets=[NSMutableArray array],*paints=[NSMutableArray array];
     for(Class cls=object_getClass(root);cls && cls!=UIView.class;cls=class_getSuperclass(cls)) {
@@ -99,11 +160,16 @@ static void HGAApplyPlayerControls(UIView *root) {
             if(target)[targets addObject:target];
         }
     }
-    if([NSStringFromClass(root.class) isEqual:@"FQCShortVideoDanmakuEntranceView"]) {
-        UIView *target=HGAViewGetter(root,"capsuleView",root) ?: HGAViewGetter(root,"clickView",root);
-        if(target)[targets addObject:target];
+    if(danmaku) {
+        UIView *capsule=HGAViewGetter(root,"capsuleView",root);
+        // updateStyleVisibility keeps capsuleView mounted and hides it in
+        // compact mode. clickView returns the actual native toggle button.
+        UIView *target=HGAVisible(capsule) ? capsule : HGAViewGetter(root,"clickView",root);
+        BOOL visible=HGAVisible(target);
+        if(visible)[targets addObject:target];
+        HGAApplyDanmakuLegacyInk(root,visible && target!=capsule);
     }
-    if([NSStringFromClass(root.class) isEqual:@"SSShortVideoDanmakuLeftAboveView"]) {
+    if([name isEqual:@"SSShortVideoDanmakuLeftAboveView"]) {
         UIView *entrance=HGAViewGetter(root,"danmakuEntranceView",root);
         if(entrance)HGAApplyPlayerControls(entrance);
         else {UIView *target=HGAViewGetter(root,"clickView",root);if(target)[targets addObject:target];}
@@ -111,7 +177,7 @@ static void HGAApplyPlayerControls(UIView *root) {
     // The collect button's orange paint is a separate gradient view, not its
     // tappable container. Hide only that named paint carrier, retaining the
     // foreground and the host's selected-state label/icon updates.
-    if([NSStringFromClass(root.class) isEqual:@"SSShortVideoEpisodePanelCollectView"]) {
+    if([name isEqual:@"SSShortVideoEpisodePanelCollectView"]) {
         HGAApplyEpisodeCollectInk(root,enabled);
         for(NSString *getter in @[@"bgView",@"shareBgView"]) {
             UIView *paint=HGAViewGetter(root,getter.UTF8String,root);
@@ -120,7 +186,7 @@ static void HGAApplyPlayerControls(UIView *root) {
     }
     HGAPlayerChromeTargets(root,targets,paints);
     for(UIView *target in targets)HGAPlayerControlGlass(target,YES,sheet);
-    if([NSStringFromClass(root.class) isEqual:@"SSShortVideoEpisodesViewItemCell"]) {
+    if([name isEqual:@"SSShortVideoEpisodesViewItemCell"]) {
         // The host's custom setIsSelected: paints bgView independently of
         // UICollectionViewCell.selected. Preserve that authored state as tint.
         for(UIView *target in targets)HGASetGlassOverlay(target,

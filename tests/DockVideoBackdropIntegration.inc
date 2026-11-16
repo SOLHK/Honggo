@@ -12,6 +12,14 @@
 @implementation FQVShortVideoListViewController @end
 @interface FQVPlayer : UIView @end
 @implementation FQVPlayer @end
+@interface FQVShortVideoGradientLayerView : UIView @end
+@implementation FQVShortVideoGradientLayerView
++ (Class)layerClass { return CAGradientLayer.class; }
+@end
+@interface HGBackdropGradientControl : FQVShortVideoVPlayerControlView
+@property(nonatomic,strong) FQVShortVideoGradientLayerView *bottomGradientView;
+@end
+@implementation HGBackdropGradientControl @end
 
 @interface FQVShortVideoPlayerCellView (HGBackdropPaletteFixture)
 - (void)refreshBgColor;
@@ -231,6 +239,14 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         CGRect dockSample=CGRectMake(width*0.35,feedHeight+14,width*0.3,12);
         cell.renderer.clipsToBounds=YES;cell.player.clipsToBounds=YES;cell.canvas.clipsToBounds=YES;
         cell.canvas.backgroundColor=UIColor.blackColor;
+        HGBackdropGradientControl *hud=[[HGBackdropGradientControl alloc] initWithFrame:cell.canvas.bounds];
+        hud.bottomGradientView=[[FQVShortVideoGradientLayerView alloc] initWithFrame:CGRectMake(0,feedHeight-280,width,280)];
+        hud.userInteractionEnabled=NO;[hud addSubview:hud.bottomGradientView];[cell.canvas addSubview:hud];
+        CAGradientLayer *gradient=(CAGradientLayer *)hud.bottomGradientView.layer;
+        NSArray *stockGradient=@[(__bridge id)UIColor.clearColor.CGColor,
+            (__bridge id)[UIColor colorWithWhite:0 alpha:0.2].CGColor];
+        gradient.colors=stockGradient;gradient.locations=@[@0,@1];
+        gradient.startPoint=CGPointMake(0.5,0);gradient.endPoint=CGPointMake(0.5,1);
         CGRect portraitFrame=cell.renderer.frame;
         NSArray *portraitGeometry=HGBackdropNativeSnapshot(@[page.view,feed,cell,cell.contentView,cell.canvas,
             cell.videoWrapper,cell.player,cell.metal]);
@@ -246,6 +262,8 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         HGBackdropRGB dockPortrait=HGBackdropAverageColor(portrait,window,dockSample);
         HGBackdropRGB leftEdge=HGBackdropAverageColor(portrait,window,CGRectMake(2,feedHeight-10,6,6));
         HGBackdropRGB rightEdge=HGBackdropAverageColor(portrait,window,CGRectMake(width-8,feedHeight-10,6,6));
+        HGBackdropRGB beforeSeam=HGBackdropAverageColor(portrait,window,CGRectMake(width*0.35,feedHeight-3,width*0.3,2));
+        HGBackdropRGB afterSeam=HGBackdropAverageColor(portrait,window,CGRectMake(width*0.35,feedHeight+1,width*0.3,2));
         Check(portraitPresented && nativePortrait.valid && nativePortrait.red>MAX(nativePortrait.green,nativePortrait.blue)+0.35 &&
             dockPortrait.valid && dockPortrait.red>MAX(dockPortrait.green,dockPortrait.blue)+0.35 &&
             HGBackdropNativeUnchanged(portraitGeometry),
@@ -254,6 +272,10 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             leftEdge.valid && leftEdge.red>MAX(leftEdge.green,leftEdge.blue)+0.35 &&
             rightEdge.valid && rightEdge.red>MAX(rightEdge.green,rightEdge.blue)+0.35,
             @"only the two original corner images release the black seams over the extended Metal video");
+        Check(gradient.colors.count==3 && fabs([gradient.locations[1] doubleValue]-(1-16.0/280))<0.001 &&
+            CGColorGetAlpha((__bridge CGColorRef)gradient.colors.lastObject)==0 &&
+            beforeSeam.valid && afterSeam.valid && fabs(beforeSeam.red-afterSeam.red)<0.06,
+            @"the native HUD gradient fades out at the joined video edge without a brightness step");
 
         // Exercise the actual player willMoveToSuperview hook: the native
         // renderer must see its original compositor before it is borrowed.
@@ -263,7 +285,8 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             restoredBeforeTransfer=CATransform3DIsIdentity(movingCell.renderer.layer.sublayerTransform) &&
                 movingCell.renderer.clipsToBounds && movingCell.player.clipsToBounds &&
                 movingCell.canvas.clipsToBounds && feed.clipsToBounds &&
-                leftCorner.alpha==1 && rightCorner.alpha==1;
+                leftCorner.alpha==1 && rightCorner.alpha==1 &&
+                [gradient.colors isEqualToArray:stockGradient] && [gradient.locations isEqualToArray:@[@0,@1]];
         };
         UIView *temporary=[[UIView alloc] initWithFrame:cell.player.bounds];
         [cell.player addSubview:temporary];
@@ -271,6 +294,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         cell.renderer.nativeWillMoveObserver=nil;
         [cell.player addSubview:cell.renderer];
         [temporary removeFromSuperview];
+        [hud removeFromSuperview];
         Check(restoredBeforeTransfer,@"native handoff sees original renderer and clipping before any reparenting");
 
         cell.videoHeight=width*9/16;Layout(cell);Layout(cell.renderer);
@@ -287,7 +311,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             nativeMatte.valid && nativeMatte.red>nativeMatte.blue+0.1 && dockWide.valid &&
             fabs(nativeMatte.red-dockWide.red)<0.03 && fabs(nativeMatte.green-dockWide.green)<0.03 &&
             fabs(nativeMatte.blue-dockWide.blue)<0.03 &&
-            feed.clipsToBounds && HGBackdropNativeUnchanged(geometry),
+            feed.clipsToBounds && leftCorner.alpha==0 && rightCorner.alpha==0 && HGBackdropNativeUnchanged(geometry),
             @"a centered wide video keeps its real RGB matte continuous past the feed edge into the dock strip");
 
         UIView *underlay=Find(page.view,@"honggo.video.matte");
@@ -306,7 +330,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         BOOL restoredMatte=!underlay.hidden;
         cell.canvas.backgroundColor=nil;
         Layout(feed);
-        Check(translucentHidden && restoredMatte && underlay.hidden,
+        Check(translucentHidden && restoredMatte && underlay.hidden && leftCorner.alpha==1 && rightCorner.alpha==1,
             @"a translucent or absent native color cannot leave the previous matte in the dock strip");
 
         // Reveal the next real page with 52 points inside the original viewport.

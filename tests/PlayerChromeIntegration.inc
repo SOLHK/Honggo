@@ -21,7 +21,73 @@
 @end
 @implementation SSShortVideoEpisodePanelCollectView @end
 
+@interface FQCShortVideoDanmakuEntranceView : UIView
+@property(nonatomic,strong) UIView *capsuleView;
+@property(nonatomic,strong) UIButton *clickView;
+@property(nonatomic,strong) UIImageView *iconView;
+@property(nonatomic,strong) UIImage *legacyImage;
+- (void)refreshIcon;
+@end
+@implementation FQCShortVideoDanmakuEntranceView
+- (void)refreshIcon {self.iconView.image=self.legacyImage;}
+@end
+
+static void RunDanmakuChromeChecks(UIView *root) {
+    NSDictionary *saved=HGAppearanceValues();
+    HGAppearanceApply(@{@"enabled":@YES,@"player.controlsGlass":@YES},nil);
+
+    FQCShortVideoDanmakuEntranceView *entrance=[[FQCShortVideoDanmakuEntranceView alloc] initWithFrame:CGRectMake(20,180,90,32)];
+    entrance.capsuleView=[[UIView alloc] initWithFrame:entrance.bounds];
+    entrance.capsuleView.hidden=YES;
+    [entrance addSubview:entrance.capsuleView];
+    entrance.clickView=[UIButton buttonWithType:UIButtonTypeCustom];
+    entrance.clickView.frame=CGRectMake(0,0,32,32);
+    HGAEpisodeTapFixture *action=[HGAEpisodeTapFixture new];
+    [entrance.clickView addTarget:action action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
+    [entrance addSubview:entrance.clickView];
+    UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(32,32)];
+    entrance.legacyImage=[renderer imageWithActions:^(UIGraphicsImageRendererContext *context){
+        [[UIColor colorWithWhite:23.0/255 alpha:1] setFill];
+        [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0,0,32,32) cornerRadius:8] fill];
+        [UIColor.whiteColor setFill];UIRectFill(CGRectMake(12,10,7,12));
+    }];
+    entrance.iconView=[[UIImageView alloc] initWithImage:entrance.legacyImage];
+    [entrance.clickView addSubview:entrance.iconView];
+    [root addSubview:entrance];
+    HGAppearanceProcessView(entrance);
+    UIImage *foreground=entrance.iconView.image;
+    Check(!Find(entrance.capsuleView,@"honggo.appearance.material") &&
+        Find(entrance.clickView,@"honggo.appearance.material").superview==entrance.clickView &&
+        HGAActionPixelAlpha(entrance.legacyImage,5,10)>240 &&
+        HGAActionPixelAlpha(foreground,5,10)==0 && HGAActionPixelAlpha(foreground,16,16)>240,
+        @"compact danmaku targets the visible button and replaces only its known baked dark plate");
+    [entrance refreshIcon];
+    Check(entrance.iconView.image==foreground && Count(entrance,@"honggo.appearance.material")==1,
+        @"danmaku refresh reuses the foreground extraction and one glass surface");
+
+    entrance.capsuleView.hidden=NO;
+    UIImage *combined=[UIImage systemImageNamed:@"checkmark.circle.fill"];
+    entrance.iconView.image=combined;
+    HGAppearanceProcessView(entrance);
+    Check(Find(entrance.capsuleView,@"honggo.appearance.material") &&
+        !Find(entrance.clickView,@"honggo.appearance.material") && entrance.iconView.image==combined,
+        @"combined danmaku moves glass to the capsule and keeps its native state image");
+
+    entrance.capsuleView.hidden=YES;
+    entrance.iconView.image=entrance.legacyImage;
+    HGAppearanceProcessView(entrance);
+    [entrance.clickView sendActionsForControlEvents:UIControlEventTouchUpInside];
+    HGAppearanceSet(@"player.controlsGlass",@NO,nil);
+    HGAppearanceProcessView(entrance);
+    Check(!Find(entrance,@"honggo.appearance.material") && entrance.iconView.image==entrance.legacyImage &&
+        action.taps==1 && CGRectEqualToRect(entrance.clickView.frame,CGRectMake(0,0,32,32)),
+        @"disabling danmaku glass restores the original art and preserves its native action and frame");
+    [entrance removeFromSuperview];
+    HGAppearanceApply(saved,nil);
+}
+
 static void RunPlayerChromeChecks(SSTabBarController *host) {
+    RunDanmakuChromeChecks(host.view);
     NSDictionary *saved=HGAppearanceValues();
     HGAppearanceApply(@{@"enabled":@YES,@"player.controlsGlass":@YES,@"panels.episodes":@YES,@"panels.material":@"blur"},nil);
     HGAEpisodeTapFixture *action=[HGAEpisodeTapFixture new];

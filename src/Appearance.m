@@ -184,6 +184,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGATracePlayerTransfer(object,selector,argument,invocation,@"prepared");
                 }
                 if(guarded && episodeMove)HGAApplyEpisodeCorners(object,NO,0);
+                if(guarded && episodeWrapper && bottomMove)HGAEpisodeWrapperWillMove(object);
                 if(guarded && (episodeMove || bottomMove))HGARestoreBottomLayoutForView(object);
                 if(guarded && modelChange)HGAPlayerModelWillChange(object,argument);
                 ((void(*)(id,SEL,id))original)(object,selector,argument);
@@ -269,6 +270,8 @@ void HGInstallAppearance(void) {
             }
             if([name isEqual:@"FQVShortVideoPlayerCellView"])
                 HGAHook(cls,sel_registerName("refreshBgColor"),"v16@0:8",NO);
+            if([name isEqual:@"FQCShortVideoDanmakuEntranceView"])
+                HGAHook(cls,sel_registerName("refreshIcon"),"v16@0:8",NO);
             if([name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 for(NSString *selectorName in @[@"setModel:",@"resetToRecycle"]) {
                     SEL selector=NSSelectorFromString(selectorName);

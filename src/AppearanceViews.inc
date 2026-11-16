@@ -55,7 +55,6 @@
 @property(nonatomic,strong) UIColor *background;
 @property(nonatomic) BOOL clearsBackground;
 @property(nonatomic,strong) HGAAppearanceMaterial *glass;
-@property(nonatomic,strong) UIVisualEffectView *diffuser;
 @end
 @implementation HGAViewState @end
 static char HGAViewStateKey;
@@ -105,7 +104,6 @@ static void HGARemoveGlass(UIView *view) {
     HGAViewState *state=HGAState(view,NO);
     if(!state)return;
     [state.glass removeFromSuperview];state.glass=nil;
-    [state.diffuser removeFromSuperview];state.diffuser=nil;
     if(state.clearsBackground && [view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=state.background;
     state.clearsBackground=NO;state.background=nil;
 }
@@ -426,6 +424,7 @@ static void HGAApplyPanel(UIView *root,NSString *kind) {
 }
 #include "AppearancePlayerControls.inc"
 #include "AppearancePageChrome.inc"
+#include "AppearanceChromeGeometry.inc"
 
 void HGAppearanceProcessView(UIView *view) {
     if(!NSThread.isMainThread || HGAApplying || ![view isKindOfClass:UIView.class] || HGAOwnView(view))return;
@@ -463,7 +462,9 @@ void HGAppearanceProcessView(UIView *view) {
         BOOL glass=enabled && outer && ((action && HGAppearanceFlag(@"player.rightGlass")) ||
             ([role isEqual:@"channels"] && !headerShowsFinder && HGAppearanceFlag(@"player.headerGlass")) ||
             ([role isEqual:@"episodes"] && HGAppearanceFlag(@"player.episodeGlass")));
+        if(header)HGAApplyHeaderInsets(view,glass && !view.hidden,headerShowsFinder,HGAExpandedDockWidthForHeader(view));
         BOOL episode=[role isEqual:@"episodes"];
+        if(episode && outer)HGAApplyEpisodeInset(view,glass && !view.hidden);
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
         if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
         HGAApplyIcon(view,role);

@@ -37,6 +37,26 @@ static void RunEpisodeGlassChecks(UIView *root) {
     HGAppearanceApply(@{@"enabled":@YES,@"player.episodeGlass":@YES,
         @"layout.episodes.hidden":@NO,@"layout.episodes.x":@0,
         @"layout.episodes.y":@0,@"layout.episodes.scale":@1},nil);
+    CGFloat screenWidth=root.window.bounds.size.width;
+    FQVShortVideoBaseInsertView *wideWrapper=[[FQVShortVideoBaseInsertView alloc] initWithFrame:CGRectMake(0,170,screenWidth,44)];
+    wideWrapper.backgroundColor=UIColor.grayColor;
+    SSShortVideoBottomDistributionView *wideEntry=[[SSShortVideoBottomDistributionView alloc] initWithFrame:wideWrapper.bounds];
+    SSShortVideoDistributionContentView *wideContent=[[SSShortVideoDistributionContentView alloc] initWithFrame:wideEntry.bounds];
+    wideContent.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    CGRect nativeWideFrame=wideEntry.frame;
+    [wideEntry addSubview:wideContent];[wideWrapper addSubview:wideEntry];[root addSubview:wideWrapper];
+    Layout(wideEntry);
+    Check(CGRectGetMinX(wideEntry.frame)>=12 && CGRectGetMaxX(wideEntry.frame)<=screenWidth-12 &&
+        CGRectEqualToRect(wideContent.bounds,wideEntry.bounds) && CGAffineTransformIsIdentity(wideEntry.transform),
+        @"edge-to-edge episode entry gains side margins through native layout width without scaling text");
+    CGRect insetWideFrame=wideEntry.frame;
+    for(NSUInteger i=0;i<5;i++)Layout(wideEntry);
+    Check(CGRectEqualToRect(wideEntry.frame,insetWideFrame) && [wideWrapper.backgroundColor isEqual:UIColor.clearColor],
+        @"episode margin is stable across layouts and leaves no original full-width backing");
+    HGAppearanceSet(@"player.episodeGlass",@NO,nil);
+    Check(CGRectEqualToRect(wideEntry.frame,nativeWideFrame) && [wideWrapper.backgroundColor isEqual:UIColor.grayColor],
+        @"disabling episode glass restores the authored full-width entry and backing");
+    [wideWrapper removeFromSuperview];HGAppearanceSet(@"player.episodeGlass",@YES,nil);
     CGRect frame=CGRectMake(0,0,300,44);
     FQVShortVideoBaseInsertView *wrapper=[[FQVShortVideoBaseInsertView alloc] initWithFrame:CGRectMake(10,220,300,44)];
     wrapper.backgroundColor=UIColor.darkGrayColor;

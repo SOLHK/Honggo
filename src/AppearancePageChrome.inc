@@ -34,8 +34,35 @@ static void HGAApplyPageChrome(UIView *target,BOOL enabled) {
     if([target isKindOfClass:UICollectionViewCell.class])target=((UICollectionViewCell *)target).contentView;
     if(enabled && HGAVisible(target)) {
         CGFloat radius=MIN(CGRectGetHeight(target.bounds)/2,24);
-        HGAInstallGlass(target,HGAppearanceString(@"player.material"),radius,0.10);
+        BOOL dark=target.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+        BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
+        HGAInstallGlass(target,HGAppearanceString(@"player.material"),radius,0);
+        HGASetGlassOverlay(target,[UIColor colorWithWhite:reduced ? (dark ? 0.25 : 0.91) : (dark ? 0.85 : 0.45)
+            alpha:reduced ? 1 : (dark ? 0.12 : 0.16)]);
     } else if(target)HGARemoveGlass(target);
+}
+
+static char HGAPageChromeCoversKey;
+static void HGASetPageChromeCover(UIView *container,const char *getter,BOOL hide) {
+    NSMapTable<NSString *,UIView *> *covers=objc_getAssociatedObject(container,&HGAPageChromeCoversKey);
+    if(!hide && !covers)return;
+    NSString *key=@(getter);
+    UIView *previous=[covers objectForKey:key];
+    UIView *cover=hide ? HGAViewGetter(container,getter,container) : nil;
+    if(cover==container || ![cover isKindOfClass:UIImageView.class])cover=nil;
+    if(previous && previous!=cover)HGASetHidden(previous,NO);
+    if(cover) {
+        if(!covers) {
+            covers=[NSMapTable strongToWeakObjectsMapTable];
+            objc_setAssociatedObject(container,&HGAPageChromeCoversKey,covers,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        [covers setObject:cover forKey:key];
+        HGASetHidden(cover,YES);
+    } else {
+        [covers removeObjectForKey:key];
+        if(covers && !covers.count)
+            objc_setAssociatedObject(container,&HGAPageChromeCoversKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
 }
 
 static char HGAPageChromeTargetsKey;
@@ -73,7 +100,7 @@ static BOOL HGAApplyHeaderChrome(UIView *header,BOOL enabled) {
     UIView *row=HGAViewGetter(header,"findDramaSearchRowViewV731",header);
     UIView *searchOwner=HGAViewGetter(header,"searchViewContainer",row ?: header) ?: search;
     UIView *searchField=HGAViewGetter(searchOwner,"searchView",searchOwner);
-    UIView *field=HGAViewGetter(searchOwner,"searchBgView",searchField) ?: searchField;
+    UIView *field=HGAViewGetter(searchOwner,"searchBgView",searchOwner) ?: searchField;
     UIView *recognition=HGAViewGetter(searchOwner,"imageSearchContainer",searchOwner);
     UIView *assistant=HGAViewGetter(header,"findDramaAIEntranceViewV731",header);
     NSMutableArray *targets=[NSMutableArray array];
@@ -85,8 +112,8 @@ static BOOL HGAApplyHeaderChrome(UIView *header,BOOL enabled) {
 }
 
 static BOOL HGAIsFinderController(UIViewController *controller) {
-    NSString *name=NSStringFromClass(controller.class);
-    return [name isEqual:@"FQTheaterViewController"] || [name isEqual:@"SSBookStoreNewViewController"];
+    return [controller isKindOfClass:NSClassFromString(@"FQTheaterViewController")] ||
+        [controller isKindOfClass:NSClassFromString(@"SSBookStoreNewViewController")];
 }
 
 static BOOL HGAIsFinderView(UIView *view) {
@@ -172,9 +199,10 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
         HGAApplyPageChromeTargets(view,enabled && HGAppearanceFlag(@"player.mineGlass") && search ? @[search] : nil);
     } else if([name isEqual:@"SSVideoFilterPanelEntranceView"]) {
         BOOL mine=enabled && HGAppearanceFlag(@"player.mineGlass") && HGAAncestorNamed(view,@"SSMyUser637TabsView");
+        HGASetPageChromeCover(view,"backgroundView",mine);
         NSMutableArray *targets=[NSMutableArray array];
         if(mine) {
-            [targets addObject:HGAViewGetter(view,"backgroundView",view) ?: view];
+            [targets addObject:view];
             for(UIView *sibling in view.superview.subviews) {
                 if(![NSStringFromClass(sibling.class) isEqual:@"FQReaderSaaSBaseButton"] ||
                     ![sibling isKindOfClass:UIButton.class])continue;
@@ -189,10 +217,8 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
         NSString *title=filter ? @"筛选" : HGAPageChromeLabel(view,"nameLabel");
         BOOL finder=enabled && HGAppearanceFlag(@"player.finderGlass") &&
             [@[@"筛选",@"排行榜",@"新剧",@"预约"] containsObject:title ?: @""] && HGAIsFinderView(view);
-        if(filter) {
-            UIView *background=HGAViewGetter(view,"backgroundView",view) ?: view;
-            HGAApplyPageChromeTargets(view,finder ? @[background] : nil);
-        } else HGAApplyPageChrome(view,finder);
+        HGASetPageChromeCover(view,filter ? "backgroundView" : "bgImgView",finder);
+        HGAApplyPageChrome(view,finder);
     }
 }
 
@@ -202,9 +228,10 @@ static void HGAApplyFinderChrome(UIViewController *controller) {
         HGAApplyPageChromeTargets(root,nil);
         return;
     }
-    BOOL theater=[NSStringFromClass(controller.class) isEqual:@"FQTheaterViewController"];
+    BOOL theater=[controller isKindOfClass:NSClassFromString(@"FQTheaterViewController")];
     UIView *search=HGAViewGetter(controller,"searchView",root) ?: HGAViewGetter(controller,"searchButtonView",root);
-    UIView *field=HGAViewGetter(controller,"searchBgView",search) ?: search;
+    // The search background and its cue/gesture view are siblings in the host.
+    UIView *field=HGAViewGetter(controller,"searchBgView",root) ?: search;
     UIView *recognition=HGAViewGetter(controller,"imageSearchContainer",root) ?:
         HGAViewGetter(controller,"normalImageSearchView",root);
     UIView *assistant=HGAViewGetter(controller,theater ? "aiSearchEntranceView" : "searchAiButtonView",root);

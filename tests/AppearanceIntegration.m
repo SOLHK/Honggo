@@ -155,8 +155,8 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
 #include "DockAppearanceIntegration.inc"
 #include "EpisodeGlassIntegration.inc"
 #include "EpisodeSpacingIntegration.inc"
-#include "PlayerChromeIntegration.inc"
 #include "ActionShareAppearanceIntegration.inc"
+#include "PlayerChromeIntegration.inc"
 #include "DockVideoBackdropIntegration.inc"
 #include "AppearancePageChromeIntegration.inc"
 @interface HGAAppearanceTests : UIResponder <UIWindowSceneDelegate>
@@ -254,17 +254,11 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Check(dockMaterial.alpha==1 && !dockMaterial.maskView &&
         (reducedTransparency ? !dockMaterial.effect : [dockMaterial.effect isKindOfClass:expectedEffect]),
         @"playback dock keeps native glass unmasked at full effect-view opacity");
-    UIVisualEffectView *diffuser=(id)Find(capsule,@"honggo.appearance.dock.diffuser");
-    if(HGNativeGlassConfigured() && !reducedTransparency) {
-        Check(diffuser && [diffuser.effect isKindOfClass:UIBlurEffect.class] && diffuser.alpha==1 &&
-            !diffuser.userInteractionEnabled && CGRectEqualToRect(diffuser.frame,dockMaterial.frame) &&
-            [capsule.subviews indexOfObject:diffuser]<[capsule.subviews indexOfObject:dockMaterial],
-            @"dock diffuses source edges inside each lens without a full-width cover");
-        UIVisualEffect *existingEffect=dockMaterial.effect;
-        for(NSUInteger pass=0;pass<3;pass++){HGAppearanceLayoutDock(self.host.customTabBar,self.host);Layout(dockMaterial);}
-        Check(Find(capsule,@"honggo.appearance.dock.diffuser")==diffuser && dockMaterial.effect==existingEffect,
-            @"stable dock layouts reuse both effect views instead of restarting glass while scrolling");
-    } else Check(!diffuser,@"non-glass and reduced-transparency modes do not stack materials");
+    Check(!Find(capsule,@"honggo.appearance.dock.diffuser") && Count(capsule,@"honggo.appearance.material")==1,
+        @"dock uses one native glass layer instead of stacking tinted system materials");
+    UIVisualEffect *existingEffect=dockMaterial.effect;
+    for(NSUInteger pass=0;pass<3;pass++){HGAppearanceLayoutDock(self.host.customTabBar,self.host);Layout(dockMaterial);}
+    Check(dockMaterial.effect==existingEffect,@"stable dock layouts keep the same native glass effect");
     RunEpisodeGlassChecks(root);
     RunEpisodeSpacingChecks(root);
     RunPlayerChromeChecks(self.host);

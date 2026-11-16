@@ -24,6 +24,11 @@ static char HGVideoBackdropLinkKey;
 @property(nonatomic) CATransform3D portraitTransform;
 @property(nonatomic, strong) NSMutableSet<UIView *> *portraitClips;
 @property(nonatomic, strong) NSMapTable<UIImageView *, NSNumber *> *cornerAlpha;
+@property(nonatomic, weak) CAGradientLayer *bottomGradient;
+@property(nonatomic, copy) NSArray *sourceGradientColors;
+@property(nonatomic, copy) NSArray<NSNumber *> *sourceGradientLocations;
+@property(nonatomic, copy) NSArray *appliedGradientColors;
+@property(nonatomic, copy) NSArray<NSNumber *> *appliedGradientLocations;
 @property(nonatomic) BOOL ownsClipping;
 @property(nonatomic) BOOL refreshing;
 - (void)refreshFeed;
@@ -187,12 +192,77 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
     return nil;
 }
 
+static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UICollectionView *feed) {
+    Class controlsClass = NSClassFromString(@"FQVShortVideoVPlayerControlView");
+    Class gradientClass = NSClassFromString(@"FQVShortVideoGradientLayerView");
+    CGRect viewport = feed.bounds;
+    for (UIView *control in canvas.subviews) {
+        if (![control isKindOfClass:controlsClass]) continue;
+        for (UIView *view in control.subviews) {
+            if (![view isKindOfClass:gradientClass] || !HGVideoBackdropVisible(view,feed)) continue;
+            CGRect frame = [view convertRect:view.bounds toView:feed];
+            CGRect expected = CGRectMake(CGRectGetMinX(viewport),CGRectGetMaxY(viewport)-frame.size.height,
+                viewport.size.width,frame.size.height);
+            if (!HGVideoBackdropSameRect(frame,expected,0.75) ||
+                view != HGReadObjectGetter(control,"bottomGradientView") ||
+                ![view.layer isKindOfClass:CAGradientLayer.class]) continue;
+            return (CAGradientLayer *)view.layer;
+        }
+    }
+    return nil;
+}
+
 @implementation HGVideoBackdrop
 - (void)dealloc {
     [self restorePortrait];
+    [self restoreBottomGradient];
     if (_ownsClipping) _feed.clipsToBounds = YES;
     [self restoreCornerImages];
     [_underlay removeFromSuperview];
+}
+
+- (void)restoreBottomGradient {
+    CAGradientLayer *layer = self.bottomGradient;
+    if ([layer.colors isEqualToArray:self.appliedGradientColors] &&
+        [layer.locations isEqualToArray:self.appliedGradientLocations]) {
+        [CATransaction begin]; [CATransaction setDisableActions:YES];
+        layer.colors = self.sourceGradientColors;
+        layer.locations = self.sourceGradientLocations;
+        [CATransaction commit];
+    }
+    self.bottomGradient = nil;
+    self.sourceGradientColors = nil; self.sourceGradientLocations = nil;
+    self.appliedGradientColors = nil; self.appliedGradientLocations = nil;
+}
+
+- (void)updateBottomGradient:(CAGradientLayer *)layer {
+    if (layer && layer == self.bottomGradient &&
+        [layer.colors isEqualToArray:self.appliedGradientColors] &&
+        [layer.locations isEqualToArray:self.appliedGradientLocations]) return;
+    [self restoreBottomGradient];
+    // The host uses two black stops across a vertical axial gradient. Keep
+    // its authored shading through the HUD and fade only its last 16 points
+    // to zero before the otherwise abrupt edge over the live video.
+    if (!layer || layer.colors.count != 2 || ![layer.locations isEqualToArray:@[@0,@1]] ||
+        ![layer.type isEqual:kCAGradientLayerAxial] ||
+        !CGPointEqualToPoint(layer.startPoint,CGPointMake(0.5,0)) ||
+        !CGPointEqualToPoint(layer.endPoint,CGPointMake(0.5,1)) ||
+        CGRectGetHeight(layer.bounds) <= 32) return;
+    CGColorRef start = (__bridge CGColorRef)layer.colors.firstObject;
+    CGColorRef end = (__bridge CGColorRef)layer.colors.lastObject;
+    if (CGColorGetAlpha(start) != 0 || CGColorGetAlpha(end) <= 0) return;
+    CGFloat fadeAt = 1 - 16 / CGRectGetHeight(layer.bounds);
+    CGColorRef fade = CGColorCreateCopyWithAlpha(end,CGColorGetAlpha(end)*fadeAt);
+    if (!fade) return;
+    self.bottomGradient = layer;
+    self.sourceGradientColors = layer.colors;
+    self.sourceGradientLocations = layer.locations;
+    self.appliedGradientColors = @[(__bridge id)start,CFBridgingRelease(fade),(__bridge id)start];
+    self.appliedGradientLocations = @[@0,@(fadeAt),@1];
+    [CATransaction begin]; [CATransaction setDisableActions:YES];
+    layer.colors = self.appliedGradientColors;
+    layer.locations = self.appliedGradientLocations;
+    [CATransaction commit];
 }
 
 - (void)restoreCornerImages {
@@ -204,7 +274,8 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
 - (void)updateCornerImages {
     // The host mounts a pair of 12pt corner images as siblings of its feed
     // (FQVShortVideoListVCUIComponent setupCornerRadiusImageView). They stay
-    // at the old bottom edge when the live renderer extends underneath it.
+    // at the old bottom edge even when a live renderer or matching matte
+    // now continues through the dock strip.
     CGRect frame = self.feed.frame;
     CGRect leftFrame = CGRectMake(CGRectGetMinX(frame), CGRectGetMaxY(frame)-12, 12, 12);
     CGRect rightFrame = CGRectOffset(leftFrame, CGRectGetWidth(frame)-12, 0);
@@ -289,6 +360,7 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
         objc_setAssociatedObject(feed, &HGVideoBackdropLinkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [self restorePortrait];
     [self restoreClipping];
+    [self restoreBottomGradient];
     [self restoreCornerImages];
     [self.underlay removeFromSuperview];
     self.underlay = nil;
@@ -340,17 +412,20 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
     UIView *canvas = HGVideoBackdropCanvas(cell, feed);
     UIView *renderer = HGVideoBackdropPortraitRenderer(canvas, feed, cellFrame);
     BOOL fillsPortrait = [self extendPortrait:renderer];
-    [self updateUnderlay:fillsPortrait ? nil : HGVideoBackdropMatte(canvas)];
+    UIColor *matte = fillsPortrait ? nil : HGVideoBackdropMatte(canvas);
+    [self updateUnderlay:matte];
+    [self updateBottomGradient:fillsPortrait ? HGVideoBackdropBottomGradient(canvas,feed) : nil];
 
     // A prefetched next cell can already exist at the exact edge while idle.
     // Only a visible cell with a portion on both sides may draw below the feed.
-    if (!fillsPortrait && (!cell || !HGVideoBackdropCrossesBottom(feed, cellFrame))) {
+    BOOL overflows = fillsPortrait || (cell && HGVideoBackdropCrossesBottom(feed, cellFrame));
+    if (overflows || matte) [self updateCornerImages];
+    else [self restoreCornerImages];
+    if (!overflows) {
         [self restoreClipping];
-        [self restoreCornerImages];
         return;
     }
 
-    [self updateCornerImages];
     if (feed.clipsToBounds) {
         self.ownsClipping = YES;
         feed.clipsToBounds = NO;
@@ -362,6 +437,7 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
     if (!renderer || (renderer != view && ![renderer isDescendantOfView:view])) return;
     [self restorePortrait];
     [self restoreClipping];
+    [self restoreBottomGradient];
     [self restoreCornerImages];
 }
 

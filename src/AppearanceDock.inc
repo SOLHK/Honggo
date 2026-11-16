@@ -150,30 +150,8 @@ static UIUserInterfaceStyle HGADockPageStyle(UIViewController *controller,UIView
 static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat radius,UIColor *fill) {
     HGAInstallGlass(surface,style,radius,0);
     HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
-    HGAViewState *state=HGAState(surface,NO);
-    // Diffuse moving poster/text edges before native glass refracts them.
-    // Both effects are local to the capsule, at alpha 1. No full-width cover,
-    // snapshots, parent masks, or effect replacement on scroll frames.
-    BOOL diffuse=HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
-        ([@"regular" isEqual:style] || [@"clear" isEqual:style]);
-    if(@available(iOS 26.0,*)) {} else {diffuse=NO;}
-    if(diffuse) {
-        if(!state.diffuser) {
-            state.diffuser=[[UIVisualEffectView alloc] initWithEffect:
-                [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial]];
-            state.diffuser.accessibilityIdentifier=@"honggo.appearance.dock.diffuser";
-            state.diffuser.userInteractionEnabled=NO;
-            state.diffuser.accessibilityElementsHidden=YES;
-            state.diffuser.layer.cornerCurve=kCACornerCurveContinuous;
-            state.diffuser.clipsToBounds=YES;
-            [surface insertSubview:state.diffuser belowSubview:glass];
-        }
-        state.diffuser.frame=surface.bounds;
-        state.diffuser.layer.cornerRadius=MIN(radius,MIN(surface.bounds.size.width,surface.bounds.size.height)/2);
-        state.diffuser.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-    } else {
-        [state.diffuser removeFromSuperview];state.diffuser=nil;
-    }
+    // Native regular glass already diffuses its backdrop. A second system
+    // material below it made light pages opaque and white in R21.
     glass.userInteractionEnabled=YES;
     glass.accessibilityElementsHidden=NO;
     glass.overlayColor=fill;

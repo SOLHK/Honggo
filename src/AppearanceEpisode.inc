@@ -1,6 +1,38 @@
 // The episode entry has a native content view inside an insert wrapper. A
 // rounded material alone leaves their rectangular fills visible at its corners.
-// Decorate only this observed component; never move its controls or its frame.
+// Decorate only this observed component; preserve native control proportions.
+@interface HGAEpisodeInsetState : NSObject
+@property(nonatomic) CGRect sourceBounds;
+@property(nonatomic) CGRect appliedBounds;
+@property(nonatomic,weak) UIView *parent;
+@end
+@implementation HGAEpisodeInsetState @end
+static char HGAEpisodeInsetKey;
+static void HGARestoreEpisodeInset(UIView *entry) {
+    HGAEpisodeInsetState *state=objc_getAssociatedObject(entry,&HGAEpisodeInsetKey);
+    if(!state)return;
+    if(CGRectEqualToRect(entry.bounds,state.appliedBounds))entry.bounds=state.sourceBounds;
+    objc_setAssociatedObject(entry,&HGAEpisodeInsetKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static void HGAApplyEpisodeInset(UIView *entry,BOOL enabled) {
+    HGAEpisodeInsetState *state=objc_getAssociatedObject(entry,&HGAEpisodeInsetKey);
+    if(state && state.parent!=entry.superview){HGARestoreEpisodeInset(entry);state=nil;}
+    CGRect source=state && CGRectEqualToRect(entry.bounds,state.appliedBounds) ? state.sourceBounds : entry.bounds;
+    CGFloat width=source.size.width;
+    // Only the edge-to-edge distribution entry needs outer breathing room.
+    // Change its layout width, not its transform, so native text/icons keep
+    // their proportions and the host recalculates truncation and arrow position.
+    if(!enabled || !entry.window || !CGAffineTransformIsIdentity(entry.transform) ||
+        entry.window.bounds.size.width>=entry.window.bounds.size.height ||
+        width<entry.window.bounds.size.width*0.88 || width>entry.window.bounds.size.width+1 || source.size.height>80) {
+        HGARestoreEpisodeInset(entry);return;
+    }
+    if(!state){state=[HGAEpisodeInsetState new];objc_setAssociatedObject(entry,&HGAEpisodeInsetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
+    state.sourceBounds=source;state.parent=entry.superview;
+    CGFloat inset=MAX(12,MIN(20,width*0.03));
+    CGRect bounds=source;bounds.size.width-=inset*2;state.appliedBounds=bounds;
+    if(!CGRectEqualToRect(entry.bounds,bounds)){entry.bounds=bounds;[entry setNeedsLayout];}
+}
 @interface HGAEpisodeSurfaceState : NSObject
 @property(nonatomic,weak) UIView *view;
 @property(nonatomic,weak) UIView *owner;
@@ -56,6 +88,15 @@ static BOOL HGAEpisodeSameSurface(UIView *candidate,UIView *entry) {
     if(!candidate || !CGAffineTransformIsIdentity(candidate.transform) ||
         !CGAffineTransformIsIdentity(entry.transform))return NO;
     CGRect rect=[candidate convertRect:candidate.bounds toView:entry];
+    HGAEpisodeInsetState *inset=objc_getAssociatedObject(entry,&HGAEpisodeInsetKey);
+    if(inset && fabs(rect.size.width-inset.sourceBounds.size.width)<0.5 &&
+        fabs(rect.origin.y-entry.bounds.origin.y)<0.5 && fabs(rect.size.height-entry.bounds.size.height)<0.5) {
+        CGFloat margin=(inset.sourceBounds.size.width-entry.bounds.size.width)/2;
+        // The verified single-child wrapper retains native width. A native
+        // content child may still be waiting for its next width layout pass.
+        if(fabs(rect.origin.x-entry.bounds.origin.x+margin)<0.5 ||
+            fabs(rect.origin.x-entry.bounds.origin.x)<0.5)return YES;
+    }
     return fabs(rect.origin.x-entry.bounds.origin.x)<0.5 &&
         fabs(rect.origin.y-entry.bounds.origin.y)<0.5 &&
         fabs(rect.size.width-entry.bounds.size.width)<0.5 &&
@@ -72,6 +113,7 @@ static void HGAEpisodeWrapperChanged(UIView *wrapper) {
     }
 }
 static void HGAApplyEpisodeCorners(UIView *entry,BOOL enabled,CGFloat radius) {
+    if(!enabled)HGARestoreEpisodeInset(entry);
     NSArray<HGAEpisodeSurfaceState *> *previous=objc_getAssociatedObject(entry,&HGAEpisodeSurfacesKey);
     NSMutableArray<UIView *> *surfaces=[NSMutableArray array];
     if(enabled && entry.window && !CGRectIsEmpty(entry.bounds)) {
@@ -106,4 +148,12 @@ static void HGAApplyEpisodeCorners(UIView *entry,BOOL enabled,CGFloat radius) {
         [current addObject:state];
     }
     objc_setAssociatedObject(entry,&HGAEpisodeSurfacesKey,current,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static void HGAEpisodeWrapperWillMove(UIView *wrapper) {
+    if(wrapper.subviews.count!=1)return;
+    UIView *entry=wrapper.subviews.firstObject;
+    if(!objc_getAssociatedObject(entry,&HGAEpisodeInsetKey))return;
+    HGAApplyEpisodeCorners(entry,NO,0);
+    HGARemoveGlass(entry);
+    [entry setNeedsLayout];
 }
