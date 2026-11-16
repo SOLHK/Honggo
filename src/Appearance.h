@@ -9,6 +9,7 @@ BOOL HGAppearanceDockEnabled(void);
 void HGAppearanceLayoutDock(UIView *bar, UIViewController *controller);
 void HGAppearanceRestoreDock(UIView *bar);
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed);
+void HGVideoBackdropNativeColorDidChange(UIView *canvas);
 void HGOpenAppearance(UIViewController *presenter, NSString *group);
 UIVisualEffect *HGAppearanceMaterial(NSString *style);
 UIColor *HGAppearanceColor(NSString *hex, UIColor *fallback);

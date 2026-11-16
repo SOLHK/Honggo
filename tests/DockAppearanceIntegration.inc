@@ -2,6 +2,15 @@
 // checks render real UIKit button layers and exercise their state changes.
 #import <QuartzCore/QuartzCore.h>
 
+@interface HGADockThemeFixture : NSObject
+@property(nonatomic,strong) UIColor *selectedImageColor;
+@end
+@implementation HGADockThemeFixture @end
+static char HGADockThemeFixtureKey;
+@implementation SSTabBar (HGADockThemeFixture)
+- (HGADockThemeFixture *)appearanceStyle { return objc_getAssociatedObject(self,&HGADockThemeFixtureKey); }
+@end
+
 typedef struct {
     NSUInteger blue;
     NSUInteger brightNeutral;
@@ -44,6 +53,11 @@ static BOOL HGADockNeutralTranslucent(UIColor *color,UITraitCollection *traits) 
     CGFloat r=0,g=0,b=0,a=0;
     return [[color resolvedColorWithTraitCollection:traits] getRed:&r green:&g blue:&b alpha:&a] &&
         fabs(r-g)<0.001 && fabs(r-b)<0.001 && a>0 && a<1;
+}
+static BOOL HGADockUsesDarkGlyph(UIButton *button) {
+    CGFloat r,g,b,a;
+    return [button.configuration.baseForegroundColor getRed:&r green:&g blue:&b alpha:&a] &&
+        r<0.10 && g<0.10 && b<0.10 && a>0.75;
 }
 static CGFloat HGADockCompositorLuminance(UIImage *snapshot,CGPoint point) {
     CGRect pixels=CGRectIntegral(CGRectMake(point.x*snapshot.scale-2,point.y*snapshot.scale-2,4,4));
@@ -368,6 +382,9 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
     host.view.tintColor=UIColor.systemBlueColor;
     host.selectedIndex=0;
+    HGADockThemeFixture *theme=[HGADockThemeFixture new];
+    theme.selectedImageColor=UIColor.whiteColor;
+    objc_setAssociatedObject(host.customTabBar,&HGADockThemeFixtureKey,theme,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     // The real R14 capture has an 84pt native tab-bar host. The original 60pt
     // fixture would clamp a 62pt request and hide whether the new size works.
     CGRect roomyBar=savedBarFrame;roomyBar.size.height=84;
@@ -451,9 +468,35 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     Check(fabs(r-38/255.0)<0.001 && fabs(g-179/255.0)<0.001 &&
         HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection),
         @"explicit user glyph colors are preserved while selection background remains neutral");
+    // Model the host switching from dark playback into a light catalogue page
+    // even while the app's trait differs from its per-tab appearance.
+    host.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
+    theme.selectedImageColor=UIColor.blackColor;
+    HGAppearanceSet(@"dock.selected",@"",nil);
+    HGAppearanceLayoutDock(host.customTabBar,host);Layout(capsuleMaterial);Layout(extraMaterial);
+    UIColor *lightFill=[UIColor colorWithWhite:1 alpha:reduceTransparency?1:0.10];
+    Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && !capsuleMaterial.maskView &&
+        extra.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight &&
+        [capsuleMaterial.contentView.backgroundColor isEqual:lightFill] &&
+        [extraMaterial.contentView.backgroundColor isEqual:lightFill] &&
+        (reduceTransparency ? !capsuleMaterial.effect : [capsuleMaterial.effect isKindOfClass:UIBlurEffect.class]),
+        @"light catalogue uses thin material and a light tint across both dock shapes");
+    Check(HGADockUsesDarkGlyph(home) && HGADockUsesDarkGlyph(theater) && HGADockUsesDarkGlyph(extra),
+        @"light catalogue keeps selected unselected and independent glyphs readable");
+    HGAppearanceSet(@"dock.material",@"clear",nil);Layout(capsuleMaterial);
+    Check(reduceTransparency || !HGNativeGlassConfigured() ||
+        [capsuleMaterial.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")],
+        @"explicit clear glass remains available on light pages");
+    theme.selectedImageColor=UIColor.whiteColor;
+    HGAppearanceSet(@"dock.material",@"regular",nil);Layout(capsuleMaterial);
+    Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
+        (reduceTransparency || capsuleMaterial.maskView) && !HGADockUsesDarkGlyph(theater),
+        @"returning to dark playback restores native glass contrast and selection");
+    host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
     HGAppearanceApply(@{@"dock.material":@"solid",@"dock.selected":@""},nil);Layout(dock);
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && !capsuleMaterial.maskView,
         @"solid dock respects the host light appearance with continuous solid fill");
+    objc_setAssociatedObject(host.customTabBar,&HGADockThemeFixtureKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     host.selectedIndex=savedIndex;host.overrideUserInterfaceStyle=savedStyle;host.view.tintColor=savedTint;
     host.customTabBar.frame=savedBarFrame;
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);

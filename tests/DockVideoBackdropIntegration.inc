@@ -11,6 +11,13 @@
 @interface FQVShortVideoListViewController : UIViewController @end
 @implementation FQVShortVideoListViewController @end
 
+@interface FQVShortVideoPlayerCellView (HGBackdropPaletteFixture)
+- (void)refreshBgColor;
+@end
+@implementation FQVShortVideoPlayerCellView (HGBackdropPaletteFixture)
+- (void)refreshBgColor { self.backgroundColor=[UIColor colorWithRed:0.24 green:0.29 blue:0.32 alpha:1]; }
+@end
+
 @interface HGBackdropMetalFixture : TTMetalView
 @property(nonatomic,strong) id<MTLDevice> device;
 @property(nonatomic,strong) id<MTLCommandQueue> commands;
@@ -208,18 +215,42 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             @"video backdrop fixture uses a real Metal device and CAMetalLayer on a native middle feed page");
         if(!cell || !cell.metal.device)return;
         cell.videoHeight=width*9/16;Layout(cell);Layout(cell.renderer);
+        cell.canvas.backgroundColor=[UIColor colorWithRed:0.28 green:0.18 blue:0.13 alpha:1];
         NSArray *geometry=HGBackdropNativeSnapshot(@[page.view,feed,cell,cell.contentView,cell.canvas,cell.renderer,cell.metal]);
         CGRect videoSample=CGRectMake(width*0.35,feedHeight*0.45,width*0.3,24);
+        CGRect matteSample=CGRectMake(width*0.35,feedHeight-54,width*0.3,12);
         CGRect dockSample=CGRectMake(width*0.35,feedHeight+14,width*0.3,12);
         BOOL greenPresented=[cell.metal presentRed:0.08 green:0.84 blue:0.12];
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
         UIImage *wide=HGBackdropCompositorCapture(@"wide",window,videoSample,dockSample);
         HGBackdropRGB nativeWide=HGBackdropAverageColor(wide,window,videoSample);
+        HGBackdropRGB nativeMatte=HGBackdropAverageColor(wide,window,matteSample);
         HGBackdropRGB dockWide=HGBackdropAverageColor(wide,window,dockSample);
         Check(greenPresented && nativeWide.valid && nativeWide.green>MAX(nativeWide.red,nativeWide.blue)+0.35 &&
-            dockWide.valid && MAX(dockWide.red,MAX(dockWide.green,dockWide.blue))<0.08 &&
+            nativeMatte.valid && nativeMatte.red>nativeMatte.blue+0.1 && dockWide.valid &&
+            fabs(nativeMatte.red-dockWide.red)<0.03 && fabs(nativeMatte.green-dockWide.green)<0.03 &&
+            fabs(nativeMatte.blue-dockWide.blue)<0.03 &&
             feed.clipsToBounds && HGBackdropNativeUnchanged(geometry),
-            @"a settled wide video stays centered and the dock sees only the native dark background");
+            @"a centered wide video keeps its real RGB matte continuous past the feed edge into the dock strip");
+
+        UIView *underlay=Find(page.view,@"honggo.video.matte");
+        Check(underlay.superview==page.view && !underlay.userInteractionEnabled &&
+            CGRectEqualToRect(underlay.frame,CGRectMake(0,feedHeight,width,90)) &&
+            [page.view.subviews indexOfObjectIdenticalTo:underlay]<[page.view.subviews indexOfObjectIdenticalTo:feed],
+            @"the matte occupies only the reserved strip behind native video and never receives touches");
+        [cell.canvas refreshBgColor];
+        Check(!underlay.hidden && [underlay.backgroundColor isEqual:cell.canvas.backgroundColor] &&
+            HGBackdropNativeUnchanged(geometry),
+            @"a native palette change updates the strip immediately on the same settled cell");
+        cell.canvas.backgroundColor=[UIColor colorWithWhite:0.5 alpha:0.4];
+        Layout(feed);
+        BOOL translucentHidden=underlay.hidden;
+        [cell.canvas refreshBgColor];
+        BOOL restoredMatte=!underlay.hidden;
+        cell.canvas.backgroundColor=nil;
+        Layout(feed);
+        Check(translucentHidden && restoredMatte && underlay.hidden,
+            @"a translucent or absent native color cannot leave the previous matte in the dock strip");
 
         // Reveal the next real page with 52 points inside the original viewport.
         // A native HUD band at row 66 must appear 14 points below its edge.
@@ -231,10 +262,12 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         UIView *marker=[[UIView alloc] initWithFrame:CGRectMake(0,66,width,14)];
         marker.backgroundColor=UIColor.yellowColor;
         [incoming.canvas addSubview:marker];
+        [incoming.canvas refreshBgColor];
         BOOL bluePresented=[incoming.metal presentRed:0.05 green:0.08 blue:0.92];
         NSArray *swipeGeometry=HGBackdropNativeSnapshot(@[page.view,feed,incoming,incoming.contentView,
             incoming.canvas,incoming.renderer,incoming.metal,marker]);
-        Check(!feed.clipsToBounds && HGBackdropNativeUnchanged(swipeGeometry),
+        Check(!feed.clipsToBounds && !underlay.hidden && [underlay.backgroundColor isEqual:incoming.canvas.backgroundColor] &&
+            HGBackdropNativeUnchanged(swipeGeometry),
             @"a crossing native page draws below the collection without changing its frames offset or paging stride");
         CGRect incomingSample=CGRectMake(width*0.35,feedHeight-13,width*0.3,9);
         UIImage *swipe=HGBackdropCompositorCapture(@"swipe",window,incomingSample,dockSample);
@@ -248,7 +281,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             @"compositor shows the upright incoming native HUD at its actual position over the live Metal frame");
 
         [manager refreshWithBranches:branches root:container.view bar:bar active:NO];
-        Check(feed.clipsToBounds && HGBackdropNativeUnchanged(swipeGeometry),
+        Check(feed.clipsToBounds && !underlay.superview && HGBackdropNativeUnchanged(swipeGeometry),
             @"disabling floating navigation restores feed clipping without repagination");
         CAShapeLayer *hostMask=[CAShapeLayer layer];
         hostMask.frame=feed.bounds;

@@ -17,6 +17,7 @@ static BOOL HGAApplying;
 static NSHashTable<UIView *> *HGAManaged;
 static NSHashTable<UIViewController *> *HGAControllers;
 static NSHashTable<UIView *> *HGABars;
+static NSString *const HGADockThinMaterial=@"thin";
 static void HGARefreshAssets(void);
 static void HGAApplyTypography(UIView *root);
 static void HGAObserveFeed(UIScrollView *feed);
@@ -36,6 +37,7 @@ UIColor *HGAppearanceColor(NSString *hex, UIColor *fallback) {
 }
 UIVisualEffect *HGAppearanceMaterial(NSString *style) {
     if (UIAccessibilityIsReduceTransparencyEnabled() || [style isEqual:@"solid"]) return nil;
+    if ([style isEqual:HGADockThinMaterial]) return [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial];
     if (@available(iOS 26.0, *)) {
         if (![style isEqual:@"blur"] && HGNativeGlassConfigured()) {
             UIGlassEffect *glass = [UIGlassEffect effectWithStyle:
@@ -122,6 +124,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     __block IMP original=actual && !strcmp(actual,encoding)?method_getImplementation(method):NULL;
     NSString *className=NSStringFromClass(cls);
     BOOL playerCanvas=[className isEqual:@"FQVShortVideoPlayerCellView"];
+    BOOL paletteChange=playerCanvas && selector==sel_registerName("refreshBgColor");
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL episode=[HGAViewRoles()[className] isEqual:@"episodes"];
     BOOL episodeWrapper=[className isEqual:@"FQVShortVideoBaseInsertView"];
@@ -138,6 +141,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 if(recycling)HGAResetPlayerFillState(object);
                 ((void(*)(id,SEL))original)(object,selector);
             } @finally {if(recycling)HGAApplying=wasApplying;}
+            if(paletteChange) {
+                HGVideoBackdropNativeColorDidChange(object);
+                return;
+            }
             if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
                 HGAFinishPlayerTransfer(object,selector);
             if(episodeWrapper)HGAEpisodeWrapperChanged(object);
@@ -229,6 +236,8 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,@selector(willMoveToWindow:),"v24@0:8@16",NO);
                 HGAHook(cls,@selector(didMoveToSuperview),"v16@0:8",NO);
             }
+            if([name isEqual:@"FQVShortVideoPlayerCellView"])
+                HGAHook(cls,sel_registerName("refreshBgColor"),"v16@0:8",NO);
             if([name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 for(NSString *selectorName in @[@"setModel:",@"resetToRecycle"]) {
                     SEL selector=NSSelectorFromString(selectorName);

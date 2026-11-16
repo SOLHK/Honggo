@@ -51,7 +51,7 @@ static UIButton *HGADockButton(void) {
     return button;
 }
 static void HGADockConfigureButton(UIButton *button,NSString *title,UIImage *image,
-    CGFloat iconSize,UIFont *font,UIColor *color) {
+    CGFloat iconSize,UIFont *font,UIColor *color,BOOL outline) {
     UIButtonConfiguration *config=[UIButtonConfiguration plainButtonConfiguration];
     config.automaticallyUpdateForSelection=NO;
     config.background=[UIBackgroundConfiguration clearConfiguration];
@@ -75,6 +75,12 @@ static void HGADockConfigureButton(UIButton *button,NSString *title,UIImage *ima
     button.tintColor=color;
     button.configuration=config;
     button.alpha=button.enabled ? (button.highlighted ? 0.72 : 1) : 0.4;
+    // The page can scroll a dark card under a dark glyph on otherwise light content.
+    CALayer *imageLayer=button.imageView.layer,*titleLayer=button.titleLabel.layer;
+    imageLayer.shadowColor=titleLayer.shadowColor=UIColor.whiteColor.CGColor;
+    imageLayer.shadowOffset=titleLayer.shadowOffset=CGSizeZero;
+    imageLayer.shadowRadius=titleLayer.shadowRadius=0.65;
+    imageLayer.shadowOpacity=titleLayer.shadowOpacity=outline ? 0.80 : 0;
 }
 BOOL HGAppearanceDockEnabled(void){return HGAppearanceEnabled() && HGAppearanceFlag(@"dock.enabled");}
 static NSInteger HGASelectedTab(UIViewController *controller) {
@@ -86,6 +92,38 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         NSUInteger index=((NSUInteger(*)(id,SEL))objc_msgSend)(controller,sel);
         if(index<4)return index;
     }return NSNotFound;
+}
+static UIUserInterfaceStyle HGADockColorStyle(id value,UITraitCollection *traits,BOOL foreground) {
+    if(![value isKindOfClass:UIColor.class])return UIUserInterfaceStyleUnspecified;
+    UIColor *color=[(UIColor *)value resolvedColorWithTraitCollection:traits];
+    CGFloat r,g,b,a;
+    if(![color getRed:&r green:&g blue:&b alpha:&a] || a<0.85)return UIUserInterfaceStyleUnspecified;
+    CGFloat brightness=0.2126*r+0.7152*g+0.0722*b;
+    if(brightness>0.72)return foreground ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+    if(brightness<0.30)return foreground ? UIUserInterfaceStyleLight : UIUserInterfaceStyleDark;
+    return UIUserInterfaceStyleUnspecified;
+}
+static UIUserInterfaceStyle HGADockPageStyle(UIViewController *controller,UIView *bar,NSInteger selected) {
+    id appearance=HGReadObjectGetter(bar,"appearanceStyle");
+    UIUserInterfaceStyle style=HGADockColorStyle(HGReadObjectGetter(appearance,"selectedImageColor"),bar.traitCollection,YES);
+    if(style==UIUserInterfaceStyleUnspecified)
+        style=HGADockColorStyle(HGReadObjectGetter(appearance,"backgroundColor"),bar.traitCollection,NO);
+    if(style!=UIUserInterfaceStyleUnspecified)return style;
+
+    UIViewController *page=[controller isKindOfClass:UITabBarController.class] ?
+        [(UITabBarController *)controller selectedViewController] : nil;
+    if([page isKindOfClass:UINavigationController.class])
+        page=[(UINavigationController *)page visibleViewController];
+    UIView *content=page.viewIfLoaded;
+    if(content.window==bar.window && HGAVisible(content)) {
+        style=HGADockColorStyle(content.backgroundColor,content.traitCollection,NO);
+        if(style!=UIUserInterfaceStyleUnspecified)return style;
+        UIStatusBarStyle status=page.preferredStatusBarStyle;
+        if(status==UIStatusBarStyleLightContent)return UIUserInterfaceStyleDark;
+        if(status==UIStatusBarStyleDarkContent)return UIUserInterfaceStyleLight;
+        return content.traitCollection.userInterfaceStyle;
+    }
+    return selected==0 ? UIUserInterfaceStyleDark : bar.traitCollection.userInterfaceStyle;
 }
 @implementation HGAAppearanceDock
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -247,19 +285,25 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     self.extra.hidden=!extra || self.collapsed;
     NSString *style=HGAppearanceString(@"dock.material");
     CGFloat radius=MIN(height/2,HGAppearanceNumber(@"dock.radius"));
-    // A translucent dock can sit over a video even while the host uses its
-    // light theme. Keep this small, plugin-owned surface dark with white glyphs;
-    // solid material continues to follow the host's light/dark appearance.
     BOOL translucent=![style isEqual:@"solid"];
-    UIUserInterfaceStyle surfaceStyle=translucent ? UIUserInterfaceStyleDark : UIUserInterfaceStyleUnspecified;
+    NSInteger selected=HGASelectedTab(self.hostController);
+    UIUserInterfaceStyle surfaceStyle=translucent ? HGADockPageStyle(self.hostController,self.hostBar,selected) :
+        UIUserInterfaceStyleUnspecified;
+    BOOL light=translucent && surfaceStyle==UIUserInterfaceStyleLight;
+    // Thin material keeps the edges of poster rows visible as they pass under the light dock.
+    NSString *material=light && [style isEqual:@"regular"] ? HGADockThinMaterial : style;
     for(UIView *surface in @[self.capsule,self.extra,self.expand]) {
         surface.overrideUserInterfaceStyle=surfaceStyle;
         surface.layer.cornerCurve=kCACornerCurveContinuous;
     }
     UIColor *tint=HGAppearanceColor(HGAppearanceString(@"dock.tint"),nil);
-    HGAInstallPlaybackGlass(self.capsule,style,self.capsule.bounds,self.collapsed?22:radius,tint);
-    HGAInstallPlaybackGlass(self.extra,style,self.extra.bounds,circle/2,tint);
-    HGAInstallPlaybackGlass(self.expand,style,self.expand.bounds,22,tint);
+    BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
+    UIColor *base=tint ?: (translucent ? [UIColor colorWithWhite:light?1:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor);
+    UIColor *fill=[base colorWithAlphaComponent:!translucent || reduced ? 1 : (tint ? 0.30 : (light ? 0.10 : 0.12))];
+    HGAInstallGlass(self.capsule,material,self.collapsed?22:radius,0);
+    HGAInstallGlass(self.extra,material,circle/2,0);
+    HGAInstallGlass(self.expand,material,22,0);
+    for(UIView *surface in @[self.capsule,self.extra,self.expand])HGASetGlassOverlay(surface,fill);
     // UIKit may reorder a UIButton's configuration content after our background
     // was inserted. These two buttons belong entirely to Honggo: keep their
     // material behind every normal content layer so it cannot blur the glyph.
@@ -271,17 +315,16 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     self.capsule.hidden=self.collapsed;
     self.capsule.layer.cornerRadius=radius;
     self.capsule.layer.borderWidth=translucent ? 0.5 : 0;
-    self.capsule.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.14].CGColor;
-    BOOL cutout=translucent && !UIAccessibilityIsReduceTransparencyEnabled();
+    self.capsule.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
+    BOOL cutout=translucent && !light && !reduced;
     BOOL darkSurface=self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
     self.selection.backgroundColor=cutout ? [UIColor colorWithWhite:0 alpha:0.12] :
-        [UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.18:0.08];
+        [UIColor colorWithWhite:darkSurface?1:0 alpha:light?0.12:(darkSurface?0.18:0.08)];
     self.selection.hidden=YES;
-    NSInteger selected=HGASelectedTab(self.hostController);
     NSString *content=HGAppearanceString(@"dock.content");
     CGFloat slotInset=MIN(14,MAX(0,(expanded.size.width-44*visible.count)/2));
     CGFloat slotWidth=(expanded.size.width-2*slotInset)/visible.count;
-    CGFloat unselectedOpacity=self.traitCollection.accessibilityContrast==UIAccessibilityContrastHigh ? 0.88 : 0.55;
+    CGFloat unselectedOpacity=self.traitCollection.accessibilityContrast==UIAccessibilityContrastHigh ? 0.90 : (light?0.78:0.55);
     CGFloat requestedIcon=HGAppearanceNumber(@"dock.iconSize");
     for(NSString *key in self.buttons) {
         UIButton *b=self.buttons[key];NSUInteger index=[HGATabIDs() indexOfObject:key];
@@ -291,9 +334,10 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         b.frame=CGRectMake(slotInset+position*slotWidth,0,slotWidth,height);
         UIControl *source=[self.targets objectForKey:key];
         BOOL active=selected!=NSNotFound ? selected==(NSInteger)index : source.selected;
-        UIColor *color=HGAppearanceColor(HGAppearanceString(active?@"dock.selected":@"dock.normal"),
-            translucent ? [UIColor colorWithWhite:1 alpha:active?0.92:unselectedOpacity] :
-                (active?UIColor.labelColor:UIColor.secondaryLabelColor));
+        UIColor *customColor=HGAppearanceColor(HGAppearanceString(active?@"dock.selected":@"dock.normal"),nil);
+        UIColor *color=customColor ?: (translucent ?
+            [UIColor colorWithWhite:light?0:1 alpha:active?0.92:unselectedOpacity] :
+            (active?UIColor.labelColor:UIColor.secondaryLabelColor));
         NSString *symbol=HGATabSymbols()[index];
         UIImage *image=[UIImage systemImageNamed:active?[symbol stringByAppendingString:@".fill"]:symbol] ?: [UIImage systemImageNamed:symbol];
         NSString *title=[content isEqual:@"icon"]?nil:HGATabTitles()[index];
@@ -302,7 +346,7 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         CGFloat iconHeight=title.length ? height-11-font.lineHeight : height*0.48;
         CGFloat iconSize=MAX(12,MIN(requestedIcon,MIN(iconHeight,slotWidth-16)));
         b.enabled=source.enabled;b.selected=active;
-        HGADockConfigureButton(b,title,[content isEqual:@"text"]?nil:image,iconSize,font,color);
+        HGADockConfigureButton(b,title,[content isEqual:@"text"]?nil:image,iconSize,font,color,light && !customColor);
         if(active) {
             CGFloat titleWidth=title.length ? [title sizeWithAttributes:@{NSFontAttributeName:font}].width : 0;
             CGFloat center=CGRectGetMidX(b.frame);
@@ -318,10 +362,11 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     [self updateSelectionMask:cutout && !self.collapsed && !self.selection.hidden];
     NSString *action=HGAppearanceString(@"dock.action");
     NSString *symbol=[action isEqual:@"settings"]?@"slider.horizontal.3":([action isEqual:@"search"]?@"magnifyingglass":HGATabSymbols()[[HGATabIDs() indexOfObject:action]]);
-    UIColor *accessoryColor=HGAppearanceColor(HGAppearanceString(@"dock.normal"),translucent?UIColor.whiteColor:UIColor.labelColor);
+    UIColor *customColor=HGAppearanceColor(HGAppearanceString(@"dock.normal"),nil);
+    UIColor *accessoryColor=customColor ?: (translucent ? (light?UIColor.blackColor:UIColor.whiteColor) : UIColor.labelColor);
     UIFont *accessoryFont=[UIFont systemFontOfSize:11];
-    HGADockConfigureButton(self.extra,nil,[UIImage systemImageNamed:symbol],MIN(requestedIcon,circle*0.48),accessoryFont,accessoryColor);
-    HGADockConfigureButton(self.expand,nil,[UIImage systemImageNamed:@"ellipsis"],MIN(requestedIcon,22),accessoryFont,accessoryColor);
+    HGADockConfigureButton(self.extra,nil,[UIImage systemImageNamed:symbol],MIN(requestedIcon,circle*0.48),accessoryFont,accessoryColor,light && !customColor);
+    HGADockConfigureButton(self.expand,nil,[UIImage systemImageNamed:@"ellipsis"],MIN(requestedIcon,22),accessoryFont,accessoryColor,light && !customColor);
     self.extra.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[[HGATabIDs() indexOfObject:action]]);
     CGRect occupied=self.collapsed?compact:(extra?CGRectUnion(expanded,self.extra.frame):expanded);
     occupied=[self convertRect:occupied toView:self.window];

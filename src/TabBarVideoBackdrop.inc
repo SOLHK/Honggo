@@ -19,6 +19,7 @@ static char HGVideoBackdropLinkKey;
 @property(nonatomic, weak) UIView *root;
 @property(nonatomic, weak) UIView *bar;
 @property(nonatomic, weak) UIViewController *owner;
+@property(nonatomic, strong) UIView *underlay;
 @property(nonatomic) BOOL ownsClipping;
 @property(nonatomic) BOOL refreshing;
 - (void)refreshFeed;
@@ -81,7 +82,23 @@ static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController
         CGRectGetMaxY(barInWindow) <= CGRectGetMaxY(window.bounds) + 0.75;
 }
 
-static BOOL HGVideoBackdropCrossesBottom(UICollectionView *feed) {
+static UICollectionViewCell *HGVideoBackdropCellAtBottom(UICollectionView *feed, CGRect *edgeFrame) {
+    CGRect viewport = feed.bounds;
+    CGFloat bottom = CGRectGetMaxY(viewport);
+    for (UICollectionViewCell *cell in feed.visibleCells) {
+        if (cell.superview != feed || !HGVideoBackdropVisible(cell, feed)) continue;
+        CGRect frame = [cell convertRect:cell.bounds toView:feed];
+        if (CGRectGetMinY(frame) < bottom - 0.75 && CGRectGetMaxY(frame) >= bottom - 0.75 &&
+            fabs(CGRectGetMinX(frame) - CGRectGetMinX(viewport)) <= 0.75 &&
+            fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(viewport)) <= 0.75) {
+            *edgeFrame = frame;
+            return cell;
+        }
+    }
+    return nil;
+}
+
+static BOOL HGVideoBackdropCrossesBottom(UICollectionView *feed, CGRect cellFrame) {
     CGRect viewport = feed.bounds;
     CGFloat top = CGRectGetMinY(viewport);
     CGFloat bottom = CGRectGetMaxY(viewport);
@@ -90,20 +107,31 @@ static BOOL HGVideoBackdropCrossesBottom(UICollectionView *feed) {
     // entering. Let the host keep its clip outside the regular scroll range.
     if (top < -insets.top - 0.75 || bottom > feed.contentSize.height + insets.bottom + 0.75)
         return NO;
-    for (UICollectionViewCell *cell in feed.visibleCells) {
-        if (cell.superview != feed || !HGVideoBackdropVisible(cell, feed)) continue;
-        CGRect frame = [cell convertRect:cell.bounds toView:feed];
-        if (CGRectGetMinY(frame) > top + 0.75 && CGRectGetMinY(frame) < bottom - 0.75 &&
-            CGRectGetMaxY(frame) > bottom + 0.75 &&
-            fabs(CGRectGetMinX(frame) - CGRectGetMinX(viewport)) <= 0.75 &&
-            fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(viewport)) <= 0.75) return YES;
+    return CGRectGetMinY(cellFrame) > top + 0.75 && CGRectGetMaxY(cellFrame) > bottom + 0.75;
+}
+
+static UIColor *HGVideoBackdropMatte(UICollectionViewCell *cell, UICollectionView *feed) {
+    Class canvasClass = NSClassFromString(@"FQVShortVideoPlayerCellView");
+    CGRect viewport = feed.bounds;
+    CGFloat bottom = CGRectGetMaxY(viewport);
+    for (UIView *canvas in cell.contentView.subviews) {
+        if (![canvas isKindOfClass:canvasClass] || !HGVideoBackdropVisible(canvas, cell)) continue;
+        CGRect frame = [canvas convertRect:canvas.bounds toView:feed];
+        if (CGRectGetMinY(frame) >= bottom - 0.75 || CGRectGetMaxY(frame) < bottom - 0.75 ||
+            fabs(CGRectGetMinX(frame) - CGRectGetMinX(viewport)) > 0.75 ||
+            fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(viewport)) > 0.75) continue;
+        // The host's refreshBgColor resolves its per-video palette on this view.
+        UIColor *color = [canvas.backgroundColor resolvedColorWithTraitCollection:canvas.traitCollection];
+        CGFloat alpha = 0;
+        if ([color getRed:NULL green:NULL blue:NULL alpha:&alpha] && alpha >= 0.99) return color;
     }
-    return NO;
+    return nil;
 }
 
 @implementation HGVideoBackdrop
 - (void)dealloc {
     if (_ownsClipping) _feed.clipsToBounds = YES;
+    [_underlay removeFromSuperview];
 }
 
 - (void)restoreClipping {
@@ -118,7 +146,35 @@ static BOOL HGVideoBackdropCrossesBottom(UICollectionView *feed) {
     if (link.owner == self)
         objc_setAssociatedObject(feed, &HGVideoBackdropLinkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [self restoreClipping];
+    [self.underlay removeFromSuperview];
+    self.underlay = nil;
     self.feed = nil; self.root = nil; self.bar = nil; self.owner = nil;
+}
+
+- (void)updateUnderlay:(UIColor *)color {
+    UIView *parent = self.feed.superview;
+    UIView *underlay = self.underlay;
+    if (!color) {
+        underlay.hidden = YES;
+        return;
+    }
+    if (!underlay) {
+        underlay = [UIView new];
+        underlay.accessibilityIdentifier = @"honggo.video.matte";
+        underlay.accessibilityElementsHidden = YES;
+        underlay.userInteractionEnabled = NO;
+        self.underlay = underlay;
+    }
+    CGRect frame = self.feed.frame;
+    CGFloat edge = CGRectGetMaxY(frame);
+    CGRect strip = CGRectMake(CGRectGetMinX(frame), edge, CGRectGetWidth(frame),
+        CGRectGetMaxY(parent.bounds) - edge);
+    if (!CGRectEqualToRect(underlay.frame, strip)) underlay.frame = strip;
+    if (![underlay.backgroundColor isEqual:color]) underlay.backgroundColor = color;
+    NSUInteger index = [parent.subviews indexOfObjectIdenticalTo:underlay];
+    NSUInteger feedIndex = [parent.subviews indexOfObjectIdenticalTo:self.feed];
+    if (index == NSNotFound || index >= feedIndex) [parent insertSubview:underlay belowSubview:self.feed];
+    underlay.hidden = NO;
 }
 
 - (void)restore {
@@ -135,9 +191,13 @@ static BOOL HGVideoBackdropCrossesBottom(UICollectionView *feed) {
         return;
     }
 
+    CGRect cellFrame = CGRectNull;
+    UICollectionViewCell *cell = HGVideoBackdropCellAtBottom(feed, &cellFrame);
+    [self updateUnderlay:HGVideoBackdropMatte(cell, feed)];
+
     // A prefetched next cell can already exist at the exact edge while idle.
     // Only a visible cell with a portion on both sides may draw below the feed.
-    if (!HGVideoBackdropCrossesBottom(feed)) {
+    if (!cell || !HGVideoBackdropCrossesBottom(feed, cellFrame)) {
         [self restoreClipping];
         return;
     }
@@ -225,4 +285,15 @@ BOOL HGVideoBackdropRefreshForFeed(UIScrollView *feed) {
     if (HGAppearanceDockEnabled()) [owner refreshFeed];
     else [owner restore];
     return YES;
+}
+
+void HGVideoBackdropNativeColorDidChange(UIView *canvas) {
+    if (!NSThread.isMainThread) return;
+    Class feedClass = NSClassFromString(@"FQVCollectionView");
+    for (UIView *view = canvas.superview; view; view = view.superview) {
+        if ([view isKindOfClass:feedClass] && [view isKindOfClass:UICollectionView.class]) {
+            HGVideoBackdropRefreshForFeed((UIScrollView *)view);
+            return;
+        }
+    }
 }
