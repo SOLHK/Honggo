@@ -14,6 +14,10 @@
 @property(nonatomic,strong) UIButton *expandButton;
 @property(nonatomic,strong) NSMutableDictionary<NSString *,UIButton *> *buttons;
 @property(nonatomic,strong) NSArray<UISwipeGestureRecognizer *> *swipes;
+@property(nonatomic,strong) UIPanGestureRecognizer *selectionPan;
+@property(nonatomic,strong) HGAAppearanceMaterial *dragLens;
+@property(nonatomic) BOOL selectionDragging;
+@property(nonatomic) CGFloat selectionDragX;
 @property(nonatomic) BOOL collapsed;
 @property(nonatomic) BOOL rendering;
 @property(nonatomic) BOOL restoring;
@@ -21,6 +25,7 @@
 - (void)refresh;
 - (void)restore;
 - (void)setCollapsed:(BOOL)value animated:(BOOL)animated;
+- (void)dragSelection:(UIPanGestureRecognizer *)gesture;
 @end
 static char HGADockKey;
 static const CGFloat HGADockAccessoryGap=12;
@@ -157,6 +162,10 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
     glass.overlayColor=fill;
     return glass.contentView ?: surface;
 }
+static CGRect HGADockSelectionFrame(CGFloat center,CGFloat width,CGFloat height,CGFloat preferredWidth) {
+    CGFloat halfWidth=MIN(preferredWidth/2,MIN(center,width-center)-4);
+    return CGRectMake(center-halfWidth,4,halfWidth*2,height-8);
+}
 @implementation HGAAppearanceDock
 - (instancetype)initWithFrame:(CGRect)frame {
     if((self=[super initWithFrame:frame])) {
@@ -179,6 +188,10 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
             [b addTarget:self action:@selector(tabTapped:) forControlEvents:UIControlEventTouchUpInside];
             [self.capsule addSubview:b];self.buttons[key]=b;
         }
+        self.selectionPan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragSelection:)];
+        self.selectionPan.delegate=self;
+        self.selectionPan.maximumNumberOfTouches=1;
+        [self.capsule addGestureRecognizer:self.selectionPan];
         self.extra=[UIView new];
         self.extraButton=HGADockButton();
         self.extraButton.accessibilityIdentifier=@"honggo.appearance.dock.extra";
@@ -201,7 +214,18 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
         self.swipes=swipes;
     }return self;
 }
-- (BOOL)gestureRecognizer:(UIGestureRecognizer *)g shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other{return YES;}
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
+    if(gesture!=self.selectionPan)return YES;
+    CGPoint velocity=[self.selectionPan velocityInView:self.capsule];
+    if(fabs(velocity.x)<=fabs(velocity.y))return NO;
+    NSUInteger count=0;
+    for(UIButton *button in self.buttons.allValues)
+        if(!button.hidden && button.enabled && ++count==2)return YES;
+    return NO;
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    return gesture!=self.selectionPan && other!=self.selectionPan;
+}
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     for(UIView *hit=[super hitTest:point withEvent:event];hit && hit!=self;hit=hit.superview)
         if([hit isKindOfClass:UIButton.class])return [(UIButton *)hit isEnabled] ? hit : nil;
@@ -326,15 +350,18 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
     self.extraButton.hidden=self.extra.hidden;
     self.expandButton.hidden=self.expand.hidden;
     self.capsule.hidden=self.collapsed;
+    self.selectionPan.enabled=!self.collapsed && !UIAccessibilityIsVoiceOverRunning();
     self.capsule.layer.cornerRadius=radius;
     self.capsule.layer.borderWidth=translucent && !classicBlur ? 0.5 : 0;
     self.capsule.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
     BOOL darkSurface=self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-    self.selection.backgroundColor=classicBlur && !reduced ?
-        [UIColor colorWithWhite:light?0:1 alpha:light?0.08:0.12] : (translucent && !reduced ?
-        [UIColor colorWithWhite:0 alpha:(light?0.12:0.30)] :
-        [UIColor colorWithWhite:darkSurface?1:0 alpha:(darkSurface?0.18:0.08)]);
-    self.selection.hidden=YES;
+    if(!self.dragLens) {
+        self.selection.backgroundColor=classicBlur && !reduced ?
+            [UIColor colorWithWhite:light?0:1 alpha:light?0.08:0.12] : (translucent && !reduced ?
+            [UIColor colorWithWhite:0 alpha:(light?0.12:0.30)] :
+            [UIColor colorWithWhite:darkSurface?1:0 alpha:(darkSurface?0.18:0.08)]);
+    }
+    CGRect selectedFrame=CGRectNull;
     NSString *content=HGAppearanceString(@"dock.content");
     CGFloat slotInset=MIN(14,MAX(0,(expanded.size.width-44*visible.count)/2));
     CGFloat slotWidth=(expanded.size.width-2*slotInset)/visible.count;
@@ -363,15 +390,16 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
         HGADockConfigureButton(b,title,[content isEqual:@"text"]?nil:image,iconSize,font,color);
         if(active) {
             CGFloat titleWidth=title.length ? [title sizeWithAttributes:@{NSFontAttributeName:font}].width : 0;
-            CGFloat center=CGRectGetMidX(b.frame);
-            CGFloat maximumWidth=2*(MIN(center,expanded.size.width-center)-4);
-            CGFloat pillWidth=MIN(maximumWidth,MIN(slotWidth+20,MAX(height*1.52,titleWidth+24)));
-            self.selection.frame=CGRectMake(center-pillWidth/2,4,pillWidth,height-8);
-            self.selection.layer.cornerRadius=MIN(pillWidth,height-8)/2;
-            self.selection.hidden=NO;
+            CGFloat preferredWidth=MIN(slotWidth+20,MAX(height*1.52,titleWidth+24));
+            selectedFrame=HGADockSelectionFrame(CGRectGetMidX(b.frame),expanded.size.width,height,preferredWidth);
         }
         b.accessibilityLabel=HGATabTitles()[index];
         b.accessibilityTraits=UIAccessibilityTraitButton | (active?UIAccessibilityTraitSelected:0);
+    }
+    if(self.selectionDragging && !self.collapsed)[self positionDragSelection:self.selectionDragX];
+    else {
+        self.selection.hidden=CGRectIsNull(selectedFrame);
+        if(!self.selection.hidden)[self placeSelection:selectedFrame];
     }
     NSString *action=HGAppearanceString(@"dock.action");
     NSString *symbol=[action isEqual:@"settings"]?@"slider.horizontal.3":([action isEqual:@"search"]?@"magnifyingglass":HGATabSymbols()[[HGATabIDs() indexOfObject:action]]);
@@ -411,6 +439,7 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
         BOOL backgroundOwned=self.backgroundOwned,opaque=self.hostOpaque;
         UIColor *background=self.hostBackground;
         self.backgroundOwned=NO;self.collapsed=NO;
+        [self clearSelectionDrag];
         self.lastOccupiedRect=CGRectNull;
         for(NSArray *entry in restorations) {
             UIView *view=entry[0];
@@ -435,6 +464,70 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
     UIControlEvents event=(target.allControlEvents & UIControlEventTouchUpInside)?UIControlEventTouchUpInside:UIControlEventPrimaryActionTriggered;
     [target sendActionsForControlEvents:event];[self feedback];
     dispatch_async(dispatch_get_main_queue(),^{[self refresh];});
+}
+- (void)placeSelection:(CGRect)frame {
+    self.selection.frame=frame;
+    CGFloat radius=MIN(frame.size.width,frame.size.height)/2;
+    self.selection.layer.cornerRadius=radius;
+    self.dragLens.frame=self.selection.bounds;
+    self.dragLens.layer.cornerRadius=radius;
+}
+- (UIButton *)positionDragSelection:(CGFloat)x {
+    CGFloat first=CGFLOAT_MAX,last=-CGFLOAT_MAX,distance=CGFLOAT_MAX;
+    UIButton *destination=nil;
+    for(NSString *key in HGATabIDs()) {
+        UIButton *button=self.buttons[key];
+        if(button.hidden || !button.enabled)continue;
+        CGFloat center=CGRectGetMidX(button.frame);
+        first=MIN(first,center);last=MAX(last,center);
+        if(fabs(center-x)<distance){destination=button;distance=fabs(center-x);}
+    }
+    self.selection.hidden=!destination;
+    if(destination) {
+        self.selectionDragX=x;
+        CGFloat height=self.capsule.bounds.size.height;
+        CGFloat preferredWidth=MIN(destination.bounds.size.width+20,height*1.52);
+        [self placeSelection:HGADockSelectionFrame(MIN(last,MAX(first,x)),self.capsule.bounds.size.width,height,preferredWidth)];
+    }
+    return destination;
+}
+- (void)clearSelectionDrag {
+    self.selectionDragging=NO;
+    [self.dragLens removeFromSuperview];
+    self.dragLens=nil;
+}
+- (void)dragSelection:(UIPanGestureRecognizer *)gesture {
+    CGFloat position=[gesture locationInView:self.capsule].x;
+    if(gesture.state==UIGestureRecognizerStateBegan) {
+        self.selectionDragging=YES;
+        [self.selection.layer removeAllAnimations];
+        [self positionDragSelection:position];
+        NSString *style=HGAppearanceString(@"dock.material");
+        if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
+            ([style isEqual:@"regular"] || [style isEqual:@"clear"])) {
+            HGAAppearanceMaterial *lens=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
+            lens.accessibilityIdentifier=@"honggo.appearance.dock.drag-lens";
+            lens.style=@"clear";lens.interactiveGlass=YES;lens.overlayColor=UIColor.clearColor;
+            lens.frame=self.selection.bounds;lens.layer.cornerRadius=self.selection.layer.cornerRadius;
+            lens.layer.cornerCurve=kCACornerCurveContinuous;lens.clipsToBounds=YES;
+            lens.userInteractionEnabled=NO;lens.accessibilityElementsHidden=YES;
+            self.dragLens=lens;
+            self.selection.backgroundColor=UIColor.clearColor;
+            [self.selection addSubview:lens];
+        }
+    }else if(self.selectionDragging) {
+        if(gesture.state==UIGestureRecognizerStateChanged){[self positionDragSelection:position];return;}
+        if(gesture.state==UIGestureRecognizerStateEnded) {
+            UIButton *destination=[self positionDragSelection:position];
+            if(destination && !destination.selected)[self tabTapped:destination];
+        }
+        [self clearSelectionDrag];
+        if(!self.superview || self.collapsed)return;
+        if(UIAccessibilityIsReduceMotionEnabled())[self renderGeometry];
+        else [UIView animateWithDuration:0.22 delay:0
+            options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
+            animations:^{[self renderGeometry];} completion:nil];
+    }
 }
 - (void)extraTapped:(UIButton *)sender {
     NSString *action=HGAppearanceString(@"dock.action");
@@ -463,6 +556,7 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
     if(!HGAppearanceFlag(@"dock.collapse") || UIAccessibilityIsVoiceOverRunning())value=NO;
     if(self.collapsed==value)return;
     [self layoutIfNeeded];self.collapsed=value;
+    if(value)[self clearSelectionDrag];
     // Public UIKit animation; no private platter/visual-provider dependency.
     if(animated && !UIAccessibilityIsReduceMotionEnabled()) {
         [UIView transitionWithView:self duration:0.22 options:UIViewAnimationOptionTransitionCrossDissolve|UIViewAnimationOptionAllowUserInteraction

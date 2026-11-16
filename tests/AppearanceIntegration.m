@@ -140,6 +140,7 @@
 @end
 @interface HGAAppearanceDock : UIView
 - (void)setCollapsed:(BOOL)value animated:(BOOL)animated;
+- (void)dragSelection:(UIPanGestureRecognizer *)gesture;
 @end
 static NSMutableArray *checks;
 static void Check(BOOL passed,NSString *name){[checks addObject:@{@"name":name,@"passed":@(passed)}];NSLog(@"%@ %@",passed?@"PASS":@"FAIL",name);}

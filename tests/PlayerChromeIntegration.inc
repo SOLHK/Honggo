@@ -1,7 +1,15 @@
 @interface FQVShortVideoVPlayerControlView : UIView
 @property(nonatomic,strong) UIButton *fullscreenBtn;
+@property(nonatomic) NSUInteger nativeClipPasses;
+- (void)handleOutterFeedClipBounds:(BOOL)clip;
 @end
-@implementation FQVShortVideoVPlayerControlView @end
+@implementation FQVShortVideoVPlayerControlView
+- (void)handleOutterFeedClipBounds:(BOOL)clip {
+    self.nativeClipPasses++;
+    for(UIView *view=self.superview;view && ![view.nextResponder isKindOfClass:UIViewController.class];view=view.superview)
+        view.clipsToBounds=clip;
+}
+@end
 
 @interface SSShortVideoBottomInsertView : UIView
 @property(nonatomic,strong) UIView *cleanSwitchView;

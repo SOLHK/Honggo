@@ -22,10 +22,16 @@ static NSArray<NSString *> *HGALandscapeChromeClasses(void) {
     return HGALandscapeTargetGetters().allKeys;
 }
 
+// The native share and more centers are 44pt apart. A common 36pt
+// diameter leaves an 8pt gap within the original navigation hit region.
+static const CGFloat HGALandscapeButtonDiameter=36;
+
 @interface HGALandscapeSurface : NSObject
 @property(nonatomic,strong) HGAAppearanceMaterial *glass;
 @property(nonatomic,strong) UIColor *sourceBackground;
 @property(nonatomic,weak) UIView *coveredPaint;
+@property(nonatomic,weak) UILabel *counter;
+@property(nonatomic,weak) UIView *counterIcon;
 @property(nonatomic) BOOL clearsBackground;
 @property(nonatomic) BOOL unclipped;
 @property(nonatomic) BOOL clearedOpaque;
@@ -41,6 +47,8 @@ static void HGARestoreLandscapeSurface(UIView *target,HGALandscapeSurface *state
     if(state.unclipped)target.clipsToBounds=YES;
     if(state.clearedOpaque)target.opaque=YES;
     HGASetHidden(state.coveredPaint,NO);
+    HGARestoreGeometry(state.counter);
+    HGARestoreGeometry(state.counterIcon);
     [state.glass removeFromSuperview];
 }
 
@@ -85,7 +93,7 @@ static void HGAPlaceLandscapeSurface(UIView *target,CGRect frame,BOOL inside,HGA
     [glass requestMaterialRefresh];
 }
 
-static CGRect HGALandscapeSurfaceFrame(UIView *target,UIView *labelView,CGFloat horizontalPadding,BOOL inside) {
+static CGRect HGALandscapeSurfaceFrame(UIView *target,UIView *labelView,BOOL round,BOOL inside) {
     UIView *parent=inside ? target : target.superview;
     CGRect frame=inside ? target.bounds : [target convertRect:target.bounds toView:parent];
     if(labelView && !labelView.hidden && !CGRectIsEmpty(labelView.bounds)) {
@@ -95,11 +103,33 @@ static CGRect HGALandscapeSurfaceFrame(UIView *target,UIView *labelView,CGFloat 
             CGRect used=[label textRectForBounds:label.bounds limitedToNumberOfLines:label.numberOfLines];
             text=[label convertRect:used toView:parent];
         }
-        frame=CGRectInset(CGRectUnion(frame,text),-horizontalPadding,0);
+        frame=CGRectInset(CGRectUnion(frame,text),-10,0);
     }
-    CGFloat width=MAX(40,CGRectGetWidth(frame));
-    CGRect padded=CGRectMake(CGRectGetMidX(frame)-width/2,CGRectGetMidY(frame)-20,width,40);
+    CGFloat height=round ? HGALandscapeButtonDiameter : 40;
+    CGFloat width=round ? height : MAX(height,CGRectGetWidth(frame));
+    CGRect padded=CGRectMake(CGRectGetMidX(frame)-width/2,CGRectGetMidY(frame)-height/2,width,height);
     return !inside && parent.clipsToBounds ? CGRectIntersection(padded,parent.bounds) : padded;
+}
+
+static void HGAPlaceLandscapeCounter(UIView *target,UILabel *counter,UIView *icon,HGALandscapeSurface *state) {
+    CGRect ink=counter ? [counter textRectForBounds:counter.bounds limitedToNumberOfLines:counter.numberOfLines] : CGRectZero;
+    if(counter.superview!=target || icon.superview!=target || counter.hidden ||
+        CGRectIsEmpty(ink) || CGRectIsEmpty(icon.bounds)) {
+        counter=nil;icon=nil;
+    }
+    if(state.counter!=counter)HGARestoreGeometry(state.counter);
+    if(state.counterIcon!=icon)HGARestoreGeometry(state.counterIcon);
+    state.counter=counter;state.counterIcon=icon;
+    if(!counter)return;
+    CGFloat midX=CGRectGetMidX(target.bounds),midY=CGRectGetMidY(target.bounds);
+    CGFloat iconScale=MIN(1,20/MAX(CGRectGetWidth(icon.bounds),CGRectGetHeight(icon.bounds)));
+    // Center the original glyph above its count. Align the text's ink instead
+    // of the original label frame, which is offset over the icon's corner.
+    HGASetGeometry(icon,midX-icon.center.x,midY-7.5-icon.center.y,iconScale);
+    CGFloat textScale=MIN(1,MIN(24/CGRectGetWidth(ink),10/CGRectGetHeight(ink)));
+    CGFloat inkX=(CGRectGetMidX(ink)-CGRectGetMidX(counter.bounds))*textScale;
+    CGFloat inkY=(CGRectGetMidY(ink)-CGRectGetMidY(counter.bounds))*textScale;
+    HGASetGeometry(counter,midX-counter.center.x-inkX,midY+8.5-counter.center.y-inkY,textScale);
 }
 
 static void HGALandscapeApplyView(UIView *root) {
@@ -145,23 +175,24 @@ static void HGALandscapeApplyView(UIView *root) {
     }
 
     NSMutableArray<UIView *> *targets=[NSMutableArray array];
-    NSMapTable<UIView *,UIView *> *countLabels=biz ? [NSMapTable strongToStrongObjectsMapTable] : nil;
-    NSDictionary<NSString *,NSString *> *labelGetters=biz ? @{@"likeBtnView":@"likeCountLabel",
-        @"commentBtnView":@"commentCountLabel",@"starBtnView":@"starCountLabel"} : nil;
-    UIView *back=nil,*title=nil;
+    NSMapTable<UIView *,NSArray<UIView *> *> *counters=biz ? [NSMapTable strongToStrongObjectsMapTable] : nil;
+    NSDictionary<NSString *,NSArray<NSString *> *> *countGetters=biz ? @{@"likeBtnView":@[@"likeCountLabel",@"likeIcon"],
+        @"commentBtnView":@[@"commentCountLabel",@"commentIcon"],@"starBtnView":@[@"starCountLabel",@"starIcon"]} : nil;
+    UIView *back=nil,*title=nil,*next=nil;
     UIView *input=nil,*inputPaint=nil;
     for(NSString *getter in getters[kind]) {
         UIView *target=HGAViewGetter(root,getter.UTF8String,root);
         if(!target || CGRectIsEmpty(target.bounds))continue;
         [targets addObject:target];
-        NSString *labelGetter=labelGetters[getter];
-        if(labelGetter) {
-            UIView *label=HGAViewGetter(root,labelGetter.UTF8String,target);
-            if(label)[countLabels setObject:label forKey:target];
+        NSArray<NSString *> *counterGetters=countGetters[getter];
+        if(counterGetters) {
+            UIView *label=HGAViewGetter(root,counterGetters[0].UTF8String,target);
+            UIView *icon=HGAViewGetter(root,counterGetters[1].UTF8String,target);
+            if([label isKindOfClass:UILabel.class] && icon)[counters setObject:@[label,icon] forKey:target];
         } else if(biz && [getter isEqual:@"danmakuInputView"]) {
             input=target;
             inputPaint=HGAViewGetter(root,"danmakuInputBGView",input);
-        }
+        } else if(info && [getter isEqual:@"nextBtn"])next=target;
     }
     if(info) {
         back=HGAViewGetter(root,"navBackImageView",root);
@@ -198,10 +229,14 @@ static void HGALandscapeApplyView(UIView *root) {
     [CATransaction setDisableActions:YES];
     for(UIView *target in targets) {
         if(!target.superview)continue;
-        BOOL inside=adjustment || (target!=back && !target.clipsToBounds &&
+        NSArray<UIView *> *counter=[counters objectForKey:target];
+        BOOL inside=adjustment || target==input || counter || (target!=back && !target.clipsToBounds &&
             ![target isKindOfClass:UIImageView.class] && ![target isKindOfClass:UILabel.class]);
-        UIView *label=target==back ? title : [countLabels objectForKey:target];
-        CGRect frame=HGALandscapeSurfaceFrame(target,label,target==back ? 10 : 2,inside);
+        BOOL round=target!=back && target!=next && target!=input && !inflow;
+        CGRect frame=HGALandscapeSurfaceFrame(target,target==back ? title : nil,round,inside);
+        // Give the switch breathing room without shifting the host's input
+        // target, placeholder or draft publish button.
+        if(target==input)frame=CGRectInset(frame,MIN(6,MAX(0,(CGRectGetWidth(frame)-44)/2)),0);
         HGALandscapeSurface *state=[states objectForKey:target];
         if(CGRectIsEmpty(frame)) {
             HGARestoreLandscapeSurface(target,state);
@@ -214,6 +249,7 @@ static void HGALandscapeApplyView(UIView *root) {
             state.coveredPaint=inputPaint;
             if(inputPaint)HGASetHidden(inputPaint,YES);
         }
+        if(counter || state.counter)HGAPlaceLandscapeCounter(target,(UILabel *)counter.firstObject,counter.lastObject,state);
         HGAPlaceLandscapeSurface(target,frame,inside,state);
     }
     [CATransaction commit];

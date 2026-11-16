@@ -5,6 +5,7 @@
 @property(nonatomic,copy) NSString *materialSignature;
 @property(nonatomic) CGFloat overlayOpacity;
 @property(nonatomic,strong) UIColor *overlayColor;
+@property(nonatomic) BOOL interactiveGlass;
 - (void)requestMaterialRefresh;
 @end
 @implementation HGAAppearanceMaterial
@@ -36,7 +37,12 @@
     NSString *signature=[self currentMaterialSignature];
     if([signature isEqual:self.materialSignature])return;
     self.materialSignature=signature;
-    self.effect=HGAppearanceMaterial(self.style);
+    UIVisualEffect *effect=HGAppearanceMaterial(self.style);
+    if(@available(iOS 26.0,*)) {
+        if(self.interactiveGlass && [effect isKindOfClass:UIGlassEffect.class])
+            ((UIGlassEffect *)effect).interactive=YES;
+    }
+    self.effect=effect;
     UIColor *color=self.overlayColor ?: [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
         self.effect ? self.overlayOpacity : 1];
     if(![self.contentView.backgroundColor isEqual:color])self.contentView.backgroundColor=color;

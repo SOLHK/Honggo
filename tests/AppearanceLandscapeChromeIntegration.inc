@@ -61,11 +61,18 @@
 @property(nonatomic,strong) UIImageView *danmakuBtnView;
 @property(nonatomic,strong) UIView *danmakuInputView;
 @property(nonatomic,strong) UIView *danmakuInputBGView;
-@property(nonatomic,strong) UILabel *likeCountLabel;
+@property(nonatomic,readonly) UIImageView *likeIcon;
+@property(nonatomic,readonly) UILabel *likeCountLabel;
 @property(nonatomic) BOOL fixtureSwitchHidden;
 - (void)refreshUI;
 @end
 @implementation SSShortVideoLandscapeBizInteractionView
+- (UIImageView *)likeIcon { return (id)[self.likeBtnView viewWithTag:1]; }
+- (UIImageView *)commentIcon { return (id)[self.commentBtnView viewWithTag:1]; }
+- (UIImageView *)starIcon { return (id)[self.starBtnView viewWithTag:1]; }
+- (UILabel *)likeCountLabel { return (id)[self.likeBtnView viewWithTag:2]; }
+- (UILabel *)commentCountLabel { return (id)[self.commentBtnView viewWithTag:2]; }
+- (UILabel *)starCountLabel { return (id)[self.starBtnView viewWithTag:2]; }
 - (void)refreshUI { self.danmakuBtnView.hidden=self.fixtureSwitchHidden; }
 @end
 
@@ -75,6 +82,22 @@ static UIButton *HGALandscapeFixtureButton(UIView *parent,CGRect frame,NSString 
     [button setTitle:title forState:UIControlStateNormal];
     [parent addSubview:button];
     return button;
+}
+
+static UIView *HGALandscapeFixtureCount(UIView *parent,CGFloat x,NSString *symbol,NSString *count,CGFloat width) {
+    UIView *target=[[UIView alloc] initWithFrame:CGRectMake(x,0,32,32)];
+    UIImageView *icon=[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbol]];
+    icon.tag=1;icon.frame=target.bounds;
+    [target addSubview:icon];
+    UILabel *label=[[UILabel alloc] initWithFrame:CGRectMake(20,16,width,14)];
+    label.tag=2;label.font=[UIFont systemFontOfSize:11];label.text=count;
+    [target addSubview:label];
+    [parent addSubview:target];
+    return target;
+}
+
+static BOOL HGALandscapeFixtureIsCircle(UIView *glass) {
+    return glass && CGRectGetWidth(glass.bounds)==36 && CGRectGetHeight(glass.bounds)==36 && glass.layer.cornerRadius==18;
 }
 
 static void RunLandscapeChromeChecks(SSTabBarController *host) {
@@ -98,22 +121,22 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     info.titleL=[[UILabel alloc] initWithFrame:CGRectMake(56,13,425,26)];
     info.titleL.text=@"谁让这个文盲修仙的：第3集完整标题";
     [top addSubview:info.titleL];
-    info.moreBtn=HGALandscapeFixtureButton(top,CGRectMake(742,10,52,32),@"更多");
     UIButton *next=HGALandscapeFixtureButton(info,CGRectMake(688,191,86,32),@"下一集");
     info.nextBtn=next;
     HGAEpisodeTapFixture *action=[HGAEpisodeTapFixture new];
     [next addTarget:action action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
 
-    FQVShortVideoLandscapeNavBar *navigation=[[FQVShortVideoLandscapeNavBar alloc] initWithFrame:CGRectMake(652,6,82,52)];
+    FQVShortVideoLandscapeNavBar *navigation=[[FQVShortVideoLandscapeNavBar alloc] initWithFrame:CGRectMake(718,6,68,36)];
     info.navBar=navigation;
     [top addSubview:navigation];
     SSShortVideoShareLandscapeNavBarItem *shareItem=[SSShortVideoShareLandscapeNavBarItem new];
     shareItem.isShow=YES;
     UIImage *shareImage=[UIImage systemImageNamed:@"arrowshape.turn.up.right"];
     shareItem.shareIconV=[[UIImageView alloc] initWithImage:shareImage];
-    shareItem.shareIconV.frame=CGRectMake(13,10,24,24);
+    shareItem.shareIconV.frame=CGRectMake(0,6,24,24);
     [navigation addSubview:shareItem.shareIconV];
     navigation.itemList=@[shareItem];
+    info.moreBtn=HGALandscapeFixtureButton(navigation,CGRectMake(44,6,24,24),@"⋮");
 
     controls.screenLockBtn=HGALandscapeFixtureButton(controls,CGRectMake(22,145,30,30),@"锁");
     controls.screenLockBtn.clipsToBounds=YES;
@@ -136,25 +159,22 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     bottomGroup.alpha=0;
     controls.fixtureFooter=bottomGroup;
     [info insertSubview:bottomGroup belowSubview:top];
-    SSShortVideoLandscapeBizInteractionView *interactions=[[SSShortVideoLandscapeBizInteractionView alloc] initWithFrame:CGRectMake(34,308,514,44)];
+    SSShortVideoLandscapeBizInteractionView *interactions=[[SSShortVideoLandscapeBizInteractionView alloc] initWithFrame:CGRectMake(34,312,406,32)];
     info.bottomLeftView=interactions;
     [bottomGroup addSubview:interactions];
-    interactions.likeBtnView=HGALandscapeFixtureButton(interactions,CGRectMake(0,6,32,32),@"赞");
-    interactions.likeCountLabel=[[UILabel alloc] initWithFrame:CGRectMake(20,14,30,16)];
-    interactions.likeCountLabel.text=@"4.7万";
-    [interactions.likeBtnView addSubview:interactions.likeCountLabel];
-    interactions.commentBtnView=HGALandscapeFixtureButton(interactions,CGRectMake(67,6,57,32),@"评论");
-    interactions.starBtnView=HGALandscapeFixtureButton(interactions,CGRectMake(134,6,57,32),@"收藏");
+    interactions.likeBtnView=HGALandscapeFixtureCount(interactions,0,@"heart.fill",@"4.7万",25);
+    interactions.commentBtnView=HGALandscapeFixtureCount(interactions,56,@"bubble.fill",@"768",18);
+    interactions.starBtnView=HGALandscapeFixtureCount(interactions,112,@"star.fill",@"61.8万",29);
     UIImage *danmaku=[UIImage systemImageNamed:@"text.bubble"];
     interactions.danmakuBtnView=[[UIImageView alloc] initWithImage:danmaku];
-    interactions.danmakuBtnView.frame=CGRectMake(211,7,30,30);
+    interactions.danmakuBtnView.frame=CGRectMake(168,0,32,32);
     [interactions addSubview:interactions.danmakuBtnView];
-    interactions.danmakuInputView=[[UIView alloc] initWithFrame:CGRectMake(261,6,200,32)];
+    interactions.danmakuInputView=[[UIView alloc] initWithFrame:CGRectMake(204,0,146,32)];
     UIVisualEffectView *nativeInputPaint=[[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleRegular]];
     nativeInputPaint.frame=interactions.danmakuInputView.bounds;
     interactions.danmakuInputBGView=nativeInputPaint;
     [interactions.danmakuInputView addSubview:nativeInputPaint];
-    UILabel *placeholder=[[UILabel alloc] initWithFrame:interactions.danmakuInputView.bounds];
+    UILabel *placeholder=[[UILabel alloc] initWithFrame:CGRectInset(interactions.danmakuInputView.bounds,12,0)];
     placeholder.text=@"发条友善的弹幕吧";
     [interactions.danmakuInputView addSubview:placeholder];
     [interactions addSubview:interactions.danmakuInputView];
@@ -163,7 +183,7 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     UIStackView *stack=[[UIStackView alloc] initWithFrame:bottom.bounds];
     stack.spacing=8;stack.distribution=UIStackViewDistributionFillEqually;
     bottom.playRateBtn=HGALandscapeFixtureButton(stack,CGRectZero,@"倍速");
-    bottom.resolutionBtn=HGALandscapeFixtureButton(stack,CGRectZero,@"清晰度");
+    bottom.resolutionBtn=HGALandscapeFixtureButton(stack,CGRectZero,@"720P");
     bottom.seriesBtn=HGALandscapeFixtureButton(stack,CGRectZero,@"选集");
     for(UIView *item in @[bottom.playRateBtn,bottom.resolutionBtn,bottom.seriesBtn]) [stack addArrangedSubview:item];
     [bottom addSubview:stack];
@@ -172,7 +192,8 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     UISlider *progress=[[UISlider alloc] initWithFrame:CGRectMake(43,267,734,34)];
     [page addSubview:progress];
 
-    CGRect nextFrame=next.frame,progressFrame=progress.frame;
+    CGRect nextFrame=next.frame,progressFrame=progress.frame,originalInputFrame=interactions.danmakuInputView.frame;
+    CGRect originalCountFrame=interactions.likeCountLabel.frame,originalIconFrame=interactions.likeIcon.frame;
     Layout(stack);
     [controls showControlWithoutScreenLock];
     Check(bottomGroup.alpha==0 && volume.alpha==1 && Count(bottomGroup,identifier)==8 &&
@@ -186,7 +207,7 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     CGRect titleRect=[info.titleL textRectForBounds:info.titleL.bounds limitedToNumberOfLines:info.titleL.numberOfLines];
     titleRect=[info.titleL convertRect:titleRect toView:top];
     Check(Count(page,identifier)==15 && Count(bottom,identifier)==3 && Count(interactions,identifier)==5 &&
-        Count(navigation,identifier)==1 && Count(progress,identifier)==0 && Count(inflow,identifier)==1,
+        Count(navigation,identifier)==2 && Count(progress,identifier)==0 && Count(inflow,identifier)==1,
         @"landscape glass covers the original navigation, side and business controls without styling the scrubber");
     Check(backGlass.superview==top && !backGlass.userInteractionEnabled && CGRectGetHeight(backGlass.bounds)==40 &&
         CGRectContainsRect(backGlass.frame,titleRect) &&
@@ -198,12 +219,29 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     Check(Find(top,identifier)==backGlass && CGRectGetWidth(backGlass.frame)>previousTitleWidth,
         @"landscape title glass updates from the host's episode model without a second surface");
     UIView *likeGlass=Find(interactions.likeBtnView,identifier);
-    Check(CGRectContainsRect(likeGlass.frame,interactions.likeCountLabel.frame) &&
-        Find(interactions.danmakuInputView,identifier).superview==interactions.danmakuInputView &&
-        nativeInputPaint.hidden && !placeholder.hidden,
-        @"landscape glass covers the native counter bounds and replaces the input blur under its placeholder");
+    UILabel *count=interactions.likeCountLabel;
+    CGRect countInk=[count textRectForBounds:count.bounds limitedToNumberOfLines:count.numberOfLines];
+    countInk=[count convertRect:countInk toView:interactions.likeBtnView];
+    Check(CGRectContainsRect(likeGlass.frame,countInk) &&
+        fabs(CGRectGetMidX(countInk)-CGRectGetMidX(likeGlass.frame))<0.1 &&
+        CGRectGetMinY(countInk)>=CGRectGetMaxY(interactions.likeIcon.frame) && [count.text isEqual:@"4.7万"],
+        @"the original landscape count fits centered below its glyph in the round backing");
     NSUInteger switchIndex=[interactions.subviews indexOfObjectIdenticalTo:interactions.danmakuBtnView];
     UIView *switchGlass=switchIndex>0 && switchIndex!=NSNotFound ? interactions.subviews[switchIndex-1] : nil;
+    UIView *inputGlass=Find(interactions.danmakuInputView,identifier);
+    UIView *shareGlass=Find(navigation,identifier),*moreGlass=Find(info.moreBtn,identifier);
+    CGRect moreRect=[moreGlass convertRect:moreGlass.bounds toView:navigation];
+    CGRect inputRect=[inputGlass convertRect:inputGlass.bounds toView:interactions];
+    Check(inputGlass.superview==interactions.danmakuInputView && nativeInputPaint.hidden && !placeholder.hidden &&
+        CGRectEqualToRect(interactions.danmakuInputView.frame,originalInputFrame) &&
+        CGRectGetMinX(inputRect)-CGRectGetMaxX(switchGlass.frame)>=8 &&
+        CGRectGetMinX(moreRect)-CGRectGetMaxX(shareGlass.frame)>=8,
+        @"the share and more circles and the danmaku switch and input have an 8-point gap within native hit geometry");
+    BOOL equalCircles=HGALandscapeFixtureIsCircle(switchGlass) && HGALandscapeFixtureIsCircle(shareGlass);
+    for(UIView *button in @[interactions.likeBtnView,interactions.commentBtnView,interactions.starBtnView,
+        info.moreBtn,controls.screenLockBtn,volume,bottom.playRateBtn,bottom.resolutionBtn,bottom.seriesBtn])
+        equalCircles &= HGALandscapeFixtureIsCircle(Find(button,identifier));
+    Check(equalCircles,@"the landscape navigation, actions and playback options share a round 36-point material");
     interactions.fixtureSwitchHidden=YES;
     [interactions refreshUI];
     BOOL followedHide=[switchGlass.accessibilityIdentifier isEqual:identifier] && switchGlass.hidden;
@@ -227,8 +265,10 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     Check(!Find(page,identifier) && [next.backgroundColor isEqual:UIColor.darkGrayColor] && action.taps==2 &&
         stack.arrangedSubviews.count==3 && volume.clipsToBounds && volume.opaque && !nativeInputPaint.hidden &&
         [volume.backgroundColor isEqual:UIColor.systemTealColor] &&
+        CGRectEqualToRect(interactions.likeCountLabel.frame,originalCountFrame) &&
+        CGRectEqualToRect(interactions.likeIcon.frame,originalIconFrame) &&
         controls.screenLockBtn.clipsToBounds && [inflow.backgroundColor isEqual:UIColor.darkGrayColor],
-        @"turning off landscape glass restores original paint and retains the native stack and action");
+        @"turning off landscape glass restores original foreground geometry, paint, native stack and actions");
     window.hidden=YES;
     HGAppearanceApply(saved,nil);
 }

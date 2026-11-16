@@ -432,6 +432,67 @@ static void HGRunExpandedDockGeometryChecks(SSTabBarController *host) {
     HGAppearanceApply(saved,nil);
 }
 
+@interface HGADockPanFixture : UIPanGestureRecognizer
+@property(nonatomic) CGPoint fixtureLocation;
+@property(nonatomic) UIGestureRecognizerState fixtureState;
+@end
+@implementation HGADockPanFixture
+- (CGPoint)locationInView:(UIView *)view {return self.fixtureLocation;}
+- (UIGestureRecognizerState)state {return self.fixtureState;}
+@end
+
+static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock,UIView *capsule,
+    UIView *selection,UIButton *home,UIButton *theater) {
+    NSUInteger taps=host.nativeTaps;
+    host.selectedIndex=0;
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    UIPanGestureRecognizer *installed=nil;
+    for(UIGestureRecognizer *gesture in capsule.gestureRecognizers)
+        if([gesture isKindOfClass:UIPanGestureRecognizer.class])installed=(id)gesture;
+    Check(installed && installed.cancelsTouchesInView && installed.maximumNumberOfTouches==1,
+        @"tab drag is scoped to the capsule and cancels the original button touch when recognized");
+
+    CGFloat homeX=CGRectGetMidX(home.frame),theaterX=CGRectGetMidX(theater.frame);
+    CGFloat middle=(homeX+theaterX)/2;
+    HGADockPanFixture *pan=[HGADockPanFixture new];
+    pan.fixtureLocation=CGPointMake(homeX,20);pan.fixtureState=UIGestureRecognizerStateBegan;
+    [dock dragSelection:pan];
+    pan.fixtureLocation=CGPointMake(middle,20);pan.fixtureState=UIGestureRecognizerStateChanged;
+    [dock dragSelection:pan];
+    Check(!selection.hidden && fabs(CGRectGetMidX(selection.frame)-middle)<0.01 && host.nativeTaps==taps,
+        @"selection follows an intermediate drag position without opening a tab during the drag");
+    UIVisualEffectView *lens=(id)Find(selection,@"honggo.appearance.dock.drag-lens");
+    if(@available(iOS 26.0,*)) {
+        if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled()) {
+            Layout(lens);
+            Check([lens.effect isKindOfClass:UIGlassEffect.class] && ((UIGlassEffect *)lens.effect).interactive,
+                @"Liquid Glass drag installs an interactive native refraction lens beneath the glyphs");
+        }else Check(!lens,@"dock drag omits the refraction lens when native transparency is unavailable");
+    }
+    pan.fixtureState=UIGestureRecognizerStateCancelled;
+    [dock dragSelection:pan];
+    Check(host.nativeTaps==taps && host.selectedIndex==0 && fabs(CGRectGetMidX(selection.frame)-homeX)<0.01 &&
+        !Find(selection,@"honggo.appearance.dock.drag-lens"),@"cancelled drag returns to the original tab and clears the lens");
+
+    pan.fixtureLocation=CGPointMake(homeX,20);pan.fixtureState=UIGestureRecognizerStateBegan;
+    [dock dragSelection:pan];
+    pan.fixtureLocation=CGPointMake(capsule.bounds.size.width+15,20);pan.fixtureState=UIGestureRecognizerStateChanged;
+    [dock dragSelection:pan];
+    Check(fabs(CGRectGetMidX(selection.frame)-theaterX)<0.01,
+        @"drag clamps to the last visible tab when other native tabs are hidden");
+    pan.fixtureState=UIGestureRecognizerStateEnded;[dock dragSelection:pan];
+    Check(host.nativeTaps==taps+1 && host.selectedIndex==1 && theater.selected &&
+        !Find(selection,@"honggo.appearance.dock.drag-lens"),@"drag release forwards one original action to the destination tab");
+
+    HGAppearanceSet(@"dock.material",@"blur",nil);
+    pan.fixtureLocation=CGPointMake(middle,20);pan.fixtureState=UIGestureRecognizerStateBegan;
+    [dock dragSelection:pan];
+    Check(!Find(selection,@"honggo.appearance.dock.drag-lens") && fabs(CGRectGetMidX(selection.frame)-middle)<0.01,
+        @"classic blur keeps its material while supporting the same drag interaction");
+    pan.fixtureState=UIGestureRecognizerStateCancelled;[dock dragSelection:pan];
+    HGAppearanceSet(@"dock.material",@"regular",nil);
+}
+
 static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGRunDockRestoreReentryChecks(host);
     HGRunDockSurfaceChecks(host);
@@ -584,6 +645,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
     [extra sendActionsForControlEvents:UIControlEventTouchUpInside];
     Check(host.nativeTaps==taps+3 && host.selectedIndex==3,@"dock and accessory each forward one native navigation action");
+    HGRunDockDragChecks(host,(id)dock,capsule,selection,home,theater);
     host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
     HGAppearanceApply(@{@"dock.material":@"solid",@"dock.selected":@""},nil);Layout(dock);
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && !capsuleMaterial.maskView,

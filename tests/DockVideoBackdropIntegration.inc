@@ -242,6 +242,9 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         HGBackdropGradientControl *hud=[[HGBackdropGradientControl alloc] initWithFrame:cell.canvas.bounds];
         hud.bottomGradientView=[[FQVShortVideoGradientLayerView alloc] initWithFrame:CGRectMake(0,feedHeight-280,width,280)];
         hud.userInteractionEnabled=NO;[hud addSubview:hud.bottomGradientView];[cell.canvas addSubview:hud];
+        [hud handleOutterFeedClipBounds:YES];
+        Check(hud.nativeClipPasses==1 && feed.clipsToBounds && cell.canvas.clipsToBounds,
+            @"the seek close keeps original clipping when no dock backdrop is attached");
         CAGradientLayer *gradient=(CAGradientLayer *)hud.bottomGradientView.layer;
         NSArray *stockGradient=@[(__bridge id)UIColor.clearColor.CGColor,
             (__bridge id)[UIColor colorWithWhite:0 alpha:0.2].CGColor];
@@ -257,6 +260,12 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             fabs(fill.m11-height/feedHeight)<0.001 && fabs(fill.m22-fill.m11)<0.001 && fabs(fill.m42-45)<0.001 &&
             CGRectEqualToRect(cell.renderer.frame,portraitFrame) && HGBackdropNativeUnchanged(portraitGeometry),
             @"a settled portrait renderer reaches the window with uniform magnification and native pager and HUD geometry");
+        [hud handleOutterFeedClipBounds:NO];
+        BOOL previewUnclipped=!feed.clipsToBounds && !cell.canvas.clipsToBounds;
+        [hud handleOutterFeedClipBounds:YES];
+        Check(hud.nativeClipPasses==3 && previewUnclipped && !feed.clipsToBounds && !cell.canvas.clipsToBounds &&
+            CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fill) && HGBackdropNativeUnchanged(portraitGeometry),
+            @"native seek preview and completion preserve the live portrait backdrop and pager geometry");
         UIImage *portrait=HGBackdropCompositorCapture(@"portrait",window,videoSample,dockSample);
         HGBackdropRGB nativePortrait=HGBackdropAverageColor(portrait,window,videoSample);
         HGBackdropRGB dockPortrait=HGBackdropAverageColor(portrait,window,dockSample);

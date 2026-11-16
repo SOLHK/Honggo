@@ -135,6 +135,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL scrollComponent=[className isEqual:@"FQVShortVideoListVCScrollComponent"];
     BOOL playerNavigation=[className isEqual:@"FQVShortVideoListVCNavBarComponent"];
+    BOOL scrubClipping=[className isEqual:@"FQVShortVideoVPlayerControlView"] &&
+        selector==sel_registerName("handleOutterFeedClipBounds:");
     BOOL episode=[HGAViewRoles()[className] isEqual:@"episodes"];
     BOOL episodeWrapper=[className isEqual:@"FQVShortVideoBaseInsertView"];
     BOOL bottomParticipant=episodeWrapper || [HGABottomControlClasses() containsObject:className] ||
@@ -221,7 +223,11 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     } else if (!strcmp(encoding,"v20@0:8B16")) {
         replacement=imp_implementationWithBlock(^(id object,BOOL value) {
             ((void(*)(id,SEL,BOOL))original)(object,selector,value);
-            HGAppearanceProcessView(object);
+            if (scrubClipping) {
+                // Ending a seek reclips the control's feed ancestors. Reapply
+                // the active dock extension after the original clipping pass.
+                if(value)HGRefreshVideoBackdropForPlayer(object);
+            } else HGAppearanceProcessView(object);
         });
     }
     if (!replacement) return;
@@ -277,6 +283,8 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName("showControlWithoutScreenLock"),"v16@0:8",NO);
                 HGAHook(cls,sel_registerName("showControlWithoutAnimation"),"v16@0:8",NO);
             }
+            if([name isEqual:@"FQVShortVideoVPlayerControlView"])
+                HGAHook(cls,sel_registerName("handleOutterFeedClipBounds:"),"v20@0:8B16",NO);
             if([name isEqual:@"SSShortVideoBottomDistributionView"])
                 HGAHook(cls,sel_registerName("renderWithModel:"),"v24@0:8@16",NO);
             if([name isEqual:@"SSShortVideoLandscapeBizInteractionView"])
