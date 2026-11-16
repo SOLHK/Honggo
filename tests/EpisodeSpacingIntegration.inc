@@ -22,9 +22,159 @@
 @implementation FQVShortVideoProgressView @end
 @interface SSShortVideoDerivateInfoView : UIView @end
 @implementation SSShortVideoDerivateInfoView @end
+// This independent class is the exact HUD identity in the user's R14 scene.
+// It must not inherit the legacy test HUD, which concealed the missing adapter.
+@interface FQVShortVideoVPlayerOutterMultiSeriesControlView : UIView @end
+@implementation FQVShortVideoVPlayerOutterMultiSeriesControlView
+- (void)layoutSubviews {[super layoutSubviews];}
+@end
+@interface SSShortVideoRightInteractionView : UIView @end
+@implementation SSShortVideoRightInteractionView @end
+@interface SSShortVideoAboveLeftContainerView : UIView @end
+@implementation SSShortVideoAboveLeftContainerView @end
+@interface SSShortVideoOutterSeriesLeftContainerView : UIView @end
+@implementation SSShortVideoOutterSeriesLeftContainerView @end
+
+static void RunOutterEpisodeSpacingChecks(UIView *root) {
+    NSDictionary *prior=HGAppearanceValues();
+    NSMutableDictionary<NSValue *,NSNumber *> *barVisibility=[NSMutableDictionary dictionary];
+    for(UIView *child in root.subviews)if([child isKindOfClass:SSTabBar.class]) {
+        barVisibility[[NSValue valueWithNonretainedObject:child]]=@(child.hidden);child.hidden=YES;
+    }
+    HGAppearanceSet(@"dock.enabled",@NO,nil);
+    UIView *screen=[[UIView alloc] initWithFrame:CGRectMake(0,0,440,956)];
+    FQVShortVideoPlayerCellView *canvas=[[FQVShortVideoPlayerCellView alloc] initWithFrame:CGRectMake(0,0,440,866)];
+    TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:canvas.bounds];
+    FQVShortVideoVPlayerOutterMultiSeriesControlView *control=
+        [[FQVShortVideoVPlayerOutterMultiSeriesControlView alloc] initWithFrame:canvas.bounds];
+    SSShortVideoOutterSeriesInfoView *info=[[SSShortVideoOutterSeriesInfoView alloc]
+        initWithFrame:CGRectMake(0,0,440,822)];
+    SSShortVideoAboveLeftContainerView *above=[[SSShortVideoAboveLeftContainerView alloc]
+        initWithFrame:CGRectMake(16,658,312,32)];
+    SSShortVideoRightInteractionView *right=[[SSShortVideoRightInteractionView alloc]
+        initWithFrame:CGRectMake(382,522,46,284)];
+    SSShortVideoOutterSeriesLeftContainerView *left=[[SSShortVideoOutterSeriesLeftContainerView alloc]
+        initWithFrame:CGRectMake(16,702,312,80)];
+    FQVShortVideoBaseInsertView *notice=[[FQVShortVideoBaseInsertView alloc]
+        initWithFrame:CGRectMake(16,782,312,24)];
+    [notice addSubview:[[UILabel alloc] initWithFrame:notice.bounds]];
+    UIView *paymentOverlay=[[UIView alloc] initWithFrame:canvas.bounds];
+    paymentOverlay.userInteractionEnabled=NO;
+    [info addSubview:paymentOverlay];[info addSubview:above];[info addSubview:right];
+    [info addSubview:left];[info addSubview:notice];
+    FQVShortVideoBaseInsertView *wrapper=[[FQVShortVideoBaseInsertView alloc]
+        initWithFrame:CGRectMake(0,822,440,44)];
+    SSShortVideoBottomDistributionView *entry=[[SSShortVideoBottomDistributionView alloc] initWithFrame:wrapper.bounds];
+    UIControl *open=[[UIControl alloc] initWithFrame:entry.bounds];
+    HGAEpisodeTapFixture *action=[HGAEpisodeTapFixture new];
+    [open addTarget:action action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
+    [entry addSubview:open];[wrapper addSubview:entry];
+    FQVShortVideoProgressView *progress=[[FQVShortVideoProgressView alloc] initWithFrame:CGRectMake(0,841,440,30)];
+    UIView *track=[[UIView alloc] initWithFrame:CGRectMake(16,22,408,2)];
+    track.userInteractionEnabled=NO;[progress addSubview:track];
+    // Match the real scene's sibling order: the native episode wrapper is
+    // above the progress owner's tall invisible touch strip. Keep that native
+    // order so its complete visible capsule remains tappable after spacing.
+    [control addSubview:progress];[control addSubview:info];[control addSubview:wrapper];
+    [canvas addSubview:render];[canvas addSubview:control];[screen addSubview:canvas];
+    CGRect nativeInfo=info.frame,nativeProgress=progress.frame,nativeTrack=track.frame,
+        nativeCanvas=canvas.frame,nativeRender=render.frame,nativeRight=right.frame,
+        nativeAbove=above.frame,nativeLeft=left.frame,nativeNotice=notice.frame;
+    [root addSubview:screen];Layout(control);Layout(entry);
+    @try {
+        CGRect rail=[track convertRect:track.bounds toView:control];
+        Check(fabs(CGRectGetMinY(rail)-CGRectGetMaxY(wrapper.frame)-8)<0.01 &&
+            fabs(wrapper.frame.origin.y-811)<0.01,
+            @"the real R14 multi-series HUD receives its missing eleven-point episode correction");
+        Check(CGRectEqualToRect(info.frame,nativeInfo) && CGRectEqualToRect(paymentOverlay.frame,nativeCanvas) &&
+            fabs(right.frame.origin.y-(nativeRight.origin.y-11))<0.01 &&
+            fabs(left.frame.origin.y-(nativeLeft.origin.y-11))<0.01 &&
+            fabs(above.frame.origin.y-(nativeAbove.origin.y-11))<0.01 &&
+            fabs(notice.frame.origin.y-(nativeNotice.origin.y-11))<0.01,
+            @"only known bottom metadata and right actions move while the full information and payment HUD stays native");
+        SSTabBar *bar=[[SSTabBar alloc] initWithFrame:CGRectMake(0,872,440,84)];
+        NSArray *titles=@[@"首页",@"剧场",@"商城",@"我的"];
+        for(NSUInteger i=0;i<titles.count;i++) {
+            UIControl *button=[[UIControl alloc] initWithFrame:CGRectMake(i*110,0,110,62)];
+            UILabel *label=[[UILabel alloc] initWithFrame:button.bounds];label.text=titles[i];
+            [button addSubview:label];
+            [button addTarget:action action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
+            [bar.contentView addSubview:button];
+        }
+        [screen addSubview:bar];
+        HGAppearanceApply(@{@"dock.enabled":@YES,@"dock.extra":@YES,@"dock.height":@62,
+            @"dock.extraSize":@62,@"dock.lift":@0,@"dock.width":@0.94,
+            @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@NO,@"dock.hide.mine":@NO},nil);
+        HGAppearanceLayoutDock(bar,nil);Layout(control);
+        UIView *capsule=Find(bar,@"honggo.appearance.dock.capsule");
+        CGRect dock=[capsule convertRect:capsule.bounds toView:control];
+        rail=[track convertRect:track.bounds toView:control];
+        Check(capsule && fabs(CGRectGetMinY(dock)-CGRectGetMaxY(rail)-10)<0.01 &&
+            fabs(CGRectGetMinY(rail)-CGRectGetMaxY(wrapper.frame)-8)<0.01,
+            @"the visible sixty-two-point dock leaves ten points below the rail and eight above it");
+        Check(CGSizeEqualToSize(progress.bounds.size,nativeProgress.size) &&
+            CGRectEqualToRect(track.frame,nativeTrack) && CGRectEqualToRect(canvas.frame,nativeCanvas) &&
+            CGRectEqualToRect(render.frame,nativeRender) && CGRectEqualToRect(info.frame,nativeInfo),
+            @"dock clearance preserves scrubbing size, track drawing, video geometry and full HUD geometry");
+        CGPoint episodePoint=[open convertPoint:CGPointMake(220,22) toView:control];
+        CGPoint episodeBottomPoint=[open convertPoint:CGPointMake(220,43) toView:control];
+        CGPoint railPoint=CGPointMake(CGRectGetMidX(rail),CGRectGetMidY(rail));
+        Check([control hitTest:episodePoint withEvent:nil]==open &&
+            [control hitTest:episodeBottomPoint withEvent:nil]==open &&
+            [control hitTest:railPoint withEvent:nil]==progress,
+            @"the whole visible episode capsule including its lower edge wins native taps while the rail still scrubs");
+        [open sendActionsForControlEvents:UIControlEventTouchUpInside];
+        Check(action.taps==1,@"the real-HUD episode entry retains its single native action");
+        CGPoint beforeProgress=progress.center,beforeEntry=wrapper.center;
+        bar.frame=CGRectOffset(bar.frame,0,-8);HGAppearanceLayoutDock(bar,nil);Layout(control);
+        Check(fabs(progress.center.y-beforeProgress.y+8)<0.01 &&
+            fabs(wrapper.center.y-beforeEntry.y+8)<0.01,
+            @"moving the dock up moves the rail, entry and metadata as one bounded clearance adjustment");
+        CGPoint adjustedProgress=progress.center,adjustedEntry=wrapper.center,adjustedRight=right.center;
+        for(NSUInteger i=0;i<8;i++){Layout(control);Layout(info);Layout(entry);Layout(progress);}
+        Check(CGPointEqualToPoint(progress.center,adjustedProgress) &&
+            CGPointEqualToPoint(wrapper.center,adjustedEntry) && CGPointEqualToPoint(right.center,adjustedRight),
+            @"real-HUD and child layouts do not compound dock and episode offsets");
+        right.frame=CGRectOffset(nativeRight,0,-4);Layout(info);Layout(control);Layout(info);
+        Check(fabs(right.center.y-adjustedRight.y+4)<0.01,
+            @"a later absolute native action-group layout receives one fresh offset without retaining the old offset");
+        right.frame=nativeRight;Layout(info);
+        for(NSNumber *offset in @[@24,@-24,@400,@-400]) {
+            canvas.frame=CGRectOffset(nativeCanvas,0,offset.doubleValue);Layout(control);
+            Check(CGRectEqualToRect(progress.frame,nativeProgress) && fabs(wrapper.frame.origin.y-811)<0.01,
+                @"an entering or leaving native paging cell retains only its local episode gap without dock anchoring");
+        }
+        canvas.frame=nativeCanvas;Layout(control);
+        Check(CGPointEqualToPoint(progress.center,adjustedProgress) &&
+            CGPointEqualToPoint(wrapper.center,adjustedEntry) && CGPointEqualToPoint(right.center,adjustedRight),
+            @"settling the native paging cell restores one dock clearance adjustment");
+        bar.hidden=YES;Layout(control);
+        Check(CGRectEqualToRect(progress.frame,nativeProgress) && fabs(wrapper.frame.origin.y-811)<0.01 &&
+            fabs(right.frame.origin.y-(nativeRight.origin.y-11))<0.01,
+            @"hiding the dock releases its clearance while preserving the small episode-to-rail gap");
+        bar.hidden=NO;HGAppearanceLayoutDock(bar,nil);Layout(control);
+        HGAppearanceSet(@"player.separateProgress",@"hide",nil);
+        Check(CGRectEqualToRect(progress.frame,nativeProgress) && fabs(wrapper.frame.origin.y-822)<0.01 &&
+            CGRectEqualToRect(right.frame,nativeRight) && CGRectEqualToRect(above.frame,nativeAbove) &&
+            CGRectEqualToRect(left.frame,nativeLeft) && CGRectEqualToRect(notice.frame,nativeNotice),
+            @"disabling automatic spacing restores every native HUD position including right actions");
+        HGAppearanceSet(@"player.separateProgress",@"show",nil);Layout(control);
+        [control removeFromSuperview];
+        Check(CGRectEqualToRect(progress.frame,nativeProgress) && fabs(wrapper.frame.origin.y-822)<0.01 &&
+            CGRectEqualToRect(right.frame,nativeRight),
+            @"transferring the actual multi-series HUD restores its positions before native reparenting");
+    } @finally {
+        [screen removeFromSuperview];HGAppearanceApply(prior,nil);
+        for(NSValue *key in barVisibility) {
+            UIView *bar=key.nonretainedObjectValue;bar.hidden=[barVisibility[key] boolValue];
+        }
+    }
+}
 
 static void RunEpisodeSpacingChecks(UIView *root) {
+    BOOL priorDock=HGAppearanceFlag(@"dock.enabled");
     HGAppearanceApply(@{@"enabled":@YES,@"player.separateProgress":@"show",
+        @"dock.enabled":@NO,
         @"player.episodeGlass":@YES,@"layout.episodes.hidden":@NO,
         @"layout.progress.hidden":@NO,@"layout.info.hidden":@NO,@"layout.episodes.x":@0,@"layout.episodes.y":@0,
         @"layout.episodes.scale":@1,@"layout.progress.x":@0,@"layout.progress.y":@0,
@@ -174,8 +324,10 @@ static void RunEpisodeSpacingChecks(UIView *root) {
         [standard removeFromSuperview];Layout(entry);
         Check(CGPointEqualToPoint(wrapper.center,nativeWrapperCenter),
             @"detaching a nested native HUD clears the owned episode lift");
+        RunOutterEpisodeSpacingChecks(root);
     } @finally {
         [screen removeFromSuperview];
-        HGAppearanceApply(@{@"enabled":@YES,@"player.separateProgress":@"show",@"layout.episodes.y":@0},nil);
+        HGAppearanceApply(@{@"enabled":@YES,@"player.separateProgress":@"show",@"layout.episodes.y":@0,
+            @"dock.enabled":@(priorDock)},nil);
     }
 }

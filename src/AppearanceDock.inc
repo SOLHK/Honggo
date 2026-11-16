@@ -15,11 +15,26 @@
 @property(nonatomic) BOOL collapsed;
 @property(nonatomic) BOOL rendering;
 @property(nonatomic) BOOL restoring;
+@property(nonatomic) CGRect lastOccupiedRect;
 - (void)refresh;
 - (void)restore;
 - (void)setCollapsed:(BOOL)value animated:(BOOL)animated;
 @end
 static char HGADockKey;
+static CGRect HGADockRectInView(UIView *coordinateView) {
+    if(!HGAppearanceDockEnabled() || !coordinateView.window)return CGRectNull;
+    CGRect result=CGRectNull;
+    for(UIView *bar in HGABars.allObjects) {
+        HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
+        if(dock.window!=coordinateView.window || !HGAVisible(dock))continue;
+        for(UIView *surface in @[dock.capsule,dock.extra,dock.expand]) {
+            if(!HGAVisible(surface))continue;
+            CGRect rect=[surface convertRect:surface.bounds toView:coordinateView];
+            result=CGRectIsNull(result)?rect:CGRectUnion(result,rect);
+        }
+    }
+    return result;
+}
 static NSArray *HGATabIDs(void){return @[@"home",@"theater",@"store",@"mine"];}
 static NSArray *HGATabTitles(void){return @[@"首页",@"剧场",@"商城",@"我的"];}
 static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@"person"];}
@@ -74,6 +89,7 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
 - (instancetype)initWithFrame:(CGRect)frame {
     if((self=[super initWithFrame:frame])) {
         self.accessibilityIdentifier=@"honggo.appearance.dock";
+        self.lastOccupiedRect=CGRectNull;
         self.targets=[NSMapTable strongToWeakObjectsMapTable];
         self.hiddenSources=[NSMapTable weakToStrongObjectsMapTable];
         self.buttons=[NSMutableDictionary dictionary];
@@ -276,9 +292,19 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
     HGADockConfigureButton(self.extra,nil,[UIImage systemImageNamed:symbol],MIN(requestedIcon,circle*0.48),accessoryFont,accessoryColor);
     HGADockConfigureButton(self.expand,nil,[UIImage systemImageNamed:@"ellipsis"],MIN(requestedIcon,22),accessoryFont,accessoryColor);
     self.extra.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[[HGATabIDs() indexOfObject:action]]);
+    CGRect occupied=self.collapsed?compact:(extra?CGRectUnion(expanded,self.extra.frame):expanded);
+    occupied=[self convertRect:occupied toView:self.window];
+    if(!CGRectEqualToRect(self.lastOccupiedRect,occupied)) {
+        self.lastOccupiedRect=occupied;
+        // Let the native HUD finish its own layout before reconciling the new
+        // capsule edge. Never reenter a player layout from a tab-bar setter.
+        for(UIView *view in HGAManaged.allObjects)
+            if(view.window==self.window && HGAIsBottomControl(view))[view setNeedsLayout];
+    }
 }
 - (void)restore {
     if(self.restoring)return;
+    UIWindow *previousWindow=self.window;
     BOOL wasRendering=self.rendering;
     self.restoring=YES;self.rendering=YES;
     @try {
@@ -296,6 +322,7 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         BOOL backgroundOwned=self.backgroundOwned,opaque=self.hostOpaque;
         UIColor *background=self.hostBackground;
         self.backgroundOwned=NO;self.collapsed=NO;
+        self.lastOccupiedRect=CGRectNull;
         for(NSArray *entry in restorations) {
             UIView *view=entry[0];
             if(view.hidden)view.hidden=[entry[1] boolValue];
@@ -303,6 +330,8 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         if(backgroundOwned && [bar.backgroundColor isEqual:UIColor.clearColor])bar.backgroundColor=background;
         if(backgroundOwned && !bar.opaque)bar.opaque=opaque;
         [self removeFromSuperview];
+        if(previousWindow)for(UIView *view in HGAManaged.allObjects)
+            if(view.window==previousWindow && HGAIsBottomControl(view))[view setNeedsLayout];
     } @finally {
         self.rendering=wasRendering;self.restoring=NO;
     }

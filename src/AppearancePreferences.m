@@ -5,6 +5,7 @@
 
 NSString *const HGAppearanceDidChangeNotification = @"Honggo.Appearance.changed";
 static NSString *const HGAStore = @"Honggo.Appearance.v1";
+static NSString *const HGAR15GeometryMigration = @"Honggo.Appearance.r15GeometryMigrated";
 static NSDictionary *HGACachedValues;
 static NSObject *HGALock(void) { static NSObject *lock; static dispatch_once_t once;
     dispatch_once(&once, ^{ lock = [NSObject new];
@@ -36,10 +37,10 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         choice(@"dock.material",@"dock",@"底栏材质",@[@"regular",@"clear",@"blur",@"solid"],@[@"普通液态玻璃",@"清透液态玻璃",@"系统磨砂",@"纯色"]);
         choice(@"dock.content",@"dock",@"底栏显示",@[@"both",@"text",@"icon"],@[@"图标和文字",@"仅文字",@"仅图标"]);
         number(@"dock.width",@"dock",@"底栏宽度比例",0.94,0.55,1);
-        number(@"dock.height",@"dock",@"底栏高度",52,44,80);
+        number(@"dock.height",@"dock",@"底栏高度",62,44,80);
         number(@"dock.lift",@"dock",@"底栏上移距离",0,0,24);
-        number(@"dock.radius",@"dock",@"底栏圆角",26,8,40);
-        number(@"dock.iconSize",@"dock",@"底栏图标大小",21,16,30);
+        number(@"dock.radius",@"dock",@"底栏圆角",31,8,40);
+        number(@"dock.iconSize",@"dock",@"底栏图标大小",26,16,30);
         for (NSString *field in @[@"tint",@"selected",@"normal"]) {
             NSString *title = [@{@"tint":@"底栏底色",@"selected":@"选中颜色",@"normal":@"未选中颜色"} objectForKey:field];
             [a addObject:HGADef([@"dock." stringByAppendingString:field],@"dock",title,@"color",@"",nil)];
@@ -49,7 +50,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"dock.autoCollapse",@"dock",@"跟随播放器滑动收缩");
         choice(@"dock.anchor",@"dock",@"收缩位置",@[@"right",@"left",@"center"],@[@"右侧",@"左侧",@"中间"]);
         flag(@"dock.extra",@"dock",@"显示独立圆形按钮");
-        number(@"dock.extraSize",@"dock",@"独立按钮直径",48,44,64);
+        number(@"dock.extraSize",@"dock",@"独立按钮直径",62,44,64);
         choice(@"dock.action",@"dock",@"独立按钮操作",@[@"settings",@"search",@"home",@"theater",@"store",@"mine"],@[@"Honggo 设置",@"搜索",@"首页",@"剧场",@"商城",@"我的"]);
         NSArray *tabIDs = @[@"home",@"theater",@"store",@"mine"];
         NSArray *tabNames = @[@"首页",@"剧场",@"商城",@"我的"];
@@ -76,7 +77,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         number(@"panels.opacity",@"panels",@"面板底色不透明度",0.28,0.08,0.85);
         flag(@"icons.enabled",@"icons",@"使用自定义动作图标");
         choice(@"icons.preset",@"icons",@"图标预设",@[@"outline",@"filled",@"circle",@"square"],@[@"线性",@"实心",@"圆形",@"方形"]);
-        number(@"icons.size",@"icons",@"动作图标大小",26,20,48);
+        number(@"icons.size",@"icons",@"动作图标大小",28,20,48);
         for (NSString *role in @[@"like",@"collect",@"comment",@"share"]) {
             NSString *title = [HGAppearanceRoleTitles() objectAtIndex:[HGAppearanceRoles() indexOfObject:role]];
             for (NSString *state in @[@"normal",@"selected"]) {
@@ -117,6 +118,24 @@ NSDictionary *HGAppearanceValues(void) {
     @synchronized(HGALock()) {
         if (HGACachedValues) return HGACachedValues;
         NSDictionary *stored=[NSUserDefaults.standardUserDefaults dictionaryForKey:HGAStore];
+        // Earlier presets persisted every default. Migrate their stock geometry
+        // once so installing R15 actually changes the existing thin dock. Values
+        // customized away from the old defaults remain the user's settings.
+        if(![NSUserDefaults.standardUserDefaults boolForKey:HGAR15GeometryMigration]) {
+            NSMutableDictionary *updated=[stored mutableCopy];
+            NSDictionary *stock=@{@"dock.height":@[@52,@62],@"dock.radius":@[@26,@31],
+                @"dock.iconSize":@[@21,@26],@"dock.extraSize":@[@48,@62],@"icons.size":@[@26,@28]};
+            BOOL stockHeight=[stored[@"dock.height"] isEqual:@52];
+            for(NSString *key in stock) {
+                if([key isEqual:@"dock.radius"] && !stockHeight)continue;
+                if([stored[key] isEqual:stock[key][0]])updated[key]=stock[key][1];
+            }
+            if(updated && ![updated isEqual:stored]) {
+                [NSUserDefaults.standardUserDefaults setObject:updated forKey:HGAStore];
+                stored=updated;
+            }
+            [NSUserDefaults.standardUserDefaults setBool:YES forKey:HGAR15GeometryMigration];
+        }
         NSMutableDictionary *values=[NSMutableDictionary dictionary];
         for(NSDictionary *def in HGAppearanceCatalog()) { id value=stored[def[@"key"]];
             values[def[@"key"]]=HGAValid(def,value)?value:def[@"default"]; }

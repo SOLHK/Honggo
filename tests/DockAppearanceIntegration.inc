@@ -340,14 +340,20 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGRunDockSurfaceChecks(host);
     NSDictionary *saved=HGAppearanceValues();
     NSUInteger savedIndex=host.selectedIndex;
+    CGRect savedBarFrame=host.customTabBar.frame;
     UIUserInterfaceStyle savedStyle=host.overrideUserInterfaceStyle;
     UIColor *savedTint=host.view.tintColor;
     host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
     host.view.tintColor=UIColor.systemBlueColor;
     host.selectedIndex=0;
+    // The real R14 capture has an 84pt native tab-bar host. The original 60pt
+    // fixture would clamp a 62pt request and hide whether the new size works.
+    CGRect roomyBar=savedBarFrame;roomyBar.size.height=84;
+    roomyBar.origin.y=host.view.bounds.size.height-84;
+    host.customTabBar.frame=roomyBar;
     HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.material":@"regular",
-        @"dock.content":@"icon",@"dock.height":@52,@"dock.width":@0.94,@"dock.radius":@26,
-        @"dock.iconSize":@30,@"dock.extra":@YES,@"dock.extraSize":@48,@"dock.action":@"mine",
+        @"dock.content":@"icon",@"dock.height":@62,@"dock.width":@0.94,@"dock.radius":@31,
+        @"dock.iconSize":@26,@"dock.extra":@YES,@"dock.extraSize":@62,@"dock.action":@"mine",
         @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@YES,@"dock.hide.mine":@YES,
         @"dock.selected":@"",@"dock.normal":@"",@"dock.tint":@""},nil);
     HGAppearanceLayoutDock(host.customTabBar,host);
@@ -358,6 +364,11 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     UIButton *theater=(id)Find(dock,@"honggo.appearance.tab.theater");
     UIButton *extra=(id)Find(dock,@"honggo.appearance.dock.extra");
     Layout(dock);Layout(home);Layout(extra);
+    UIView *extraMaterial=Find(extra,@"honggo.appearance.material");
+    Check(fabs(capsule.bounds.size.height-62)<0.01 && fabs(extra.bounds.size.width-62)<0.01 &&
+        fabs(extra.bounds.size.height-62)<0.01 && fabs(CGRectGetMidY(capsule.frame)-CGRectGetMidY(extra.frame))<0.01 &&
+        fabs(capsule.layer.cornerRadius-31)<0.01 && fabs(extraMaterial.layer.cornerRadius-31)<0.01,
+        @"R15 capsule and independent action are equally thick with aligned circular ends");
     Check(selection && !selection.hidden && !selection.userInteractionEnabled &&
         HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection),
         @"selected dock pill is neutral translucent gray and cannot intercept navigation");
@@ -376,7 +387,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"rendered selected tab and independent button contain no inherited blue accent");
     Check(MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height)<36 &&
         MAX(extra.imageView.bounds.size.width,extra.imageView.bounds.size.height)<36,
-        @"maximum icon preference still fits the compact dock and accessory proportions");
+        @"R15 default icons fit the thicker dock and equally sized independent action");
     home.highlighted=YES;[home setNeedsUpdateConfiguration];Layout(home);
     HGADockPixelCounts pressed=HGADockPixels(home);
     Check(pressed.blue==0 && HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection),
@@ -400,5 +411,6 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight,
         @"solid dock continues to respect the host light appearance");
     host.selectedIndex=savedIndex;host.overrideUserInterfaceStyle=savedStyle;host.view.tintColor=savedTint;
+    host.customTabBar.frame=savedBarFrame;
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
 }

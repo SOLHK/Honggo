@@ -104,8 +104,9 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             CGRectEqualToRect(comment.frame,touchFrame) && CGRectEqualToRect(comment.countLabel.frame,countFrame),
             @"SF symbol proportions improve without resizing the native action or count");
         UIView *material=Find(comment,@"honggo.appearance.material");
-        Check(material && material.bounds.size.width<=40.01 && !material.userInteractionEnabled,
-            @"right actions use compact unobtrusive material with unchanged native hit handling");
+        Check(material && material.bounds.size.width<=40.01 && !material.userInteractionEnabled &&
+            (UIAccessibilityIsReduceTransparencyEnabled() || material.alpha<=0.33),
+            @"right actions use quiet compact material with unchanged native hit handling");
         [comment sendActionsForControlEvents:UIControlEventTouchUpInside];
         Check(comment.taps==1,@"redrawn right action still delivers one original tap");
         for(NSUInteger i=0;i<8;i++)Layout(comment);
@@ -118,6 +119,32 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             ImageContentEqual(comment.iconImageView.image,nativeImage),
             @"disabling redrawn icons restores native tint content mode symbol configuration and image");
     }@finally {[comment removeFromSuperview];HGAppearanceSet(@"icons.enabled",@YES,nil);}
+
+    // A real action image view can be rectangular even when its hit owner is
+    // square. Verify that its long edge cannot balloon into the count/dock.
+    SSShortVideoRightInteractionShareView *share=[[SSShortVideoRightInteractionShareView alloc] initWithFrame:CGRectMake(76,100,46,62)];
+    share.iconImageView.frame=CGRectMake(14,2,18,36);
+    CGRect shareTouch=share.frame,shareCount=share.countLabel.frame;
+    [root addSubview:share];Layout(share);
+    @try {
+        CGRect iconRect=[share.iconImageView convertRect:share.iconImageView.bounds toView:share];
+        Check(MAX(iconRect.size.width,iconRect.size.height)<=26.01 &&
+            CGRectEqualToRect(share.frame,shareTouch) && CGRectEqualToRect(share.countLabel.frame,shareCount),
+            @"tall native action icon fits the requested longest edge without moving count or hit owner");
+        CGAffineTransform first=share.iconImageView.transform;
+        for(NSUInteger i=0;i<8;i++)Layout(share);
+        Check(CGAffineTransformEqualToTransform(first,share.iconImageView.transform),
+            @"rectangular right-action icon scale stays stable across native reuse");
+        HGAppearanceSet(@"icons.size",@48,nil);Layout(share);
+        iconRect=[share.iconImageView convertRect:share.iconImageView.bounds toView:share];
+        Check(MAX(iconRect.size.width,iconRect.size.height)<=38.01,
+            @"large custom action size remains inside its native rail width");
+        HGAppearanceSet(@"icons.enabled",@NO,nil);
+        Check(CGAffineTransformIsIdentity(share.iconImageView.transform),
+            @"disabling rectangular icon styling restores the native image transform");
+    }@finally {
+        [share removeFromSuperview];HGAppearanceApply(@{@"icons.enabled":@YES,@"icons.size":@26},nil);
+    }
     Check(HGASaveActionPreview(root),@"controlled UIKit right-action preview renders to PNG for visual review");
 
     FQVShortVideoSettingsViewController_hmd_subfix_ *panel=[FQVShortVideoSettingsViewController_hmd_subfix_ new];

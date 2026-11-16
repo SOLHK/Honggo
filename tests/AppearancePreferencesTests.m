@@ -3,7 +3,50 @@
 #include <math.h>
 static NSUInteger checks,failures;
 static void Check(BOOL passed,NSString *name){checks++;if(!passed)failures++;NSLog(@"%@ %@",passed?@"PASS":@"FAIL",name);}
+static void SeedR14Appearance(NSDictionary *values) {
+    NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
+    [defaults removeObjectForKey:@"Honggo.Appearance.r15GeometryMigrated"];
+    if(values)[defaults setObject:values forKey:@"Honggo.Appearance.v1"];
+    else [defaults removeObjectForKey:@"Honggo.Appearance.v1"];
+    [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:defaults];
+}
+static void CheckR15GeometryMigration(void) {
+    NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
+    SeedR14Appearance(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.height":@52,@"dock.radius":@26,
+        @"dock.iconSize":@21,@"dock.extraSize":@48,@"icons.size":@26,@"dock.width":@0.88,
+        @"layout.episodes.y":@-7,@"icons.collect.normal.symbol":@"bookmark"});
+    NSDictionary *migrated=HGAppearanceValues();
+    Check([migrated[@"dock.height"] isEqual:@62] && [migrated[@"dock.radius"] isEqual:@31] &&
+        [migrated[@"dock.iconSize"] isEqual:@26] && [migrated[@"dock.extraSize"] isEqual:@62] &&
+        [migrated[@"icons.size"] isEqual:@28],
+        @"installing R15 migrates persisted R14 stock geometry to a balanced thicker dock");
+    Check([defaults boolForKey:@"Honggo.Appearance.r15GeometryMigrated"] &&
+        [[[defaults dictionaryForKey:@"Honggo.Appearance.v1"] objectForKey:@"dock.height"] isEqual:@62] &&
+        [migrated[@"dock.width"] isEqual:@0.88] && [migrated[@"layout.episodes.y"] isEqual:@-7] &&
+        [migrated[@"icons.collect.normal.symbol"] isEqual:@"bookmark"] && [migrated[@"enabled"] boolValue],
+        @"geometry migration persists once while retaining unrelated custom appearance settings");
+    HGAppearanceApply(@{@"dock.height":@52,@"dock.radius":@26,@"dock.iconSize":@21,
+        @"dock.extraSize":@48,@"icons.size":@26},nil);
+    [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:defaults];
+    Check(HGAppearanceNumber(@"dock.height")==52 && HGAppearanceNumber(@"dock.radius")==26 &&
+        HGAppearanceNumber(@"dock.iconSize")==21 && HGAppearanceNumber(@"dock.extraSize")==48 &&
+        HGAppearanceNumber(@"icons.size")==26,
+        @"a user choosing former stock dimensions after migration keeps those choices on reload");
+
+    SeedR14Appearance(@{@"dock.height":@70,@"dock.radius":@26,@"dock.iconSize":@23,
+        @"dock.extraSize":@56,@"icons.size":@30});
+    Check(HGAppearanceNumber(@"dock.height")==70 && HGAppearanceNumber(@"dock.radius")==26 &&
+        HGAppearanceNumber(@"dock.iconSize")==23 && HGAppearanceNumber(@"dock.extraSize")==56 &&
+        HGAppearanceNumber(@"icons.size")==30,
+        @"nondefault user geometry and a radius paired with custom height remain unchanged");
+
+    SeedR14Appearance(nil);
+    Check(HGAppearanceNumber(@"dock.height")==62 && HGAppearanceNumber(@"dock.radius")==31 &&
+        HGAppearanceNumber(@"dock.extraSize")==62 && HGAppearanceNumber(@"icons.size")==28 &&
+        !HGAppearanceEnabled(),@"a fresh R15 install gets the new dimensions with appearance still opt-in");
+}
 int main(void) {@autoreleasepool {
+    CheckR15GeometryMigration();
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];

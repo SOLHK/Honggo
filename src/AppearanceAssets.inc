@@ -110,7 +110,9 @@ static UIImage *HGAIcon(NSString *role,BOOL selected) {
     NSString *symbol=HGAppearanceString([slot stringByAppendingString:@".symbol"]);
     if(symbol.length) image=[UIImage systemImageNamed:symbol];
     if(image)return image;
-    NSString *base=@{@"like":@"heart",@"collect":@"bookmark",@"comment":@"text.bubble",@"share":@"square.and.arrow.up"}[role];
+    // Use a balanced, rounder action family. The old tall bookmark and boxed
+    // text/share symbols looked much heavier than the heart on the 46pt rail.
+    NSString *base=@{@"like":@"heart",@"collect":@"star",@"comment":@"ellipsis.bubble",@"share":@"arrowshape.turn.up.right"}[role];
     if(!base)return nil;
     NSString *preset=HGAppearanceString(@"icons.preset");
     NSString *name=base;
@@ -118,5 +120,5 @@ static UIImage *HGAIcon(NSString *role,BOOL selected) {
     else if([preset isEqual:@"square"])name=[base stringByAppendingString:@".square"];
     if(selected || [preset isEqual:@"filled"])name=[name stringByAppendingString:@".fill"];
     image=[UIImage systemImageNamed:name] ?: [UIImage systemImageNamed:selected?[base stringByAppendingString:@".fill"]:base];
-    return [image imageWithConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:HGAppearanceNumber(@"icons.size") weight:UIImageSymbolWeightMedium]];
+    return [image imageWithConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:HGAppearanceNumber(@"icons.size") weight:UIImageSymbolWeightRegular]];
 }

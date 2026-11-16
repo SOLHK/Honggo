@@ -1,7 +1,7 @@
-// R14: leave a small visual gap above the progress rail, not the much taller
-// invisible scrubbing container. The captured 44-point entry at y=822 only
-// needs 13 points of lift above the rail at y=861. Preserve the native slider,
-// video canvas, constraints and actions, and never lift more than 16 points.
+// Space the measured native rail and episode entry above the visible dock.
+// The 7.4.3.33 feed uses VPlayerOutterMultiSeriesControlView, not the legacy
+// ShortVideoControlView. Keep the playback canvas, native page stride and all
+// control sizes intact; only bounded HUD positions belong to this adapter.
 @interface HGABottomPosition : NSObject
 @property(nonatomic,weak) UIView *view;
 @property(nonatomic,weak) UIView *parent;
@@ -13,15 +13,19 @@
 @interface HGABottomLayoutState : NSObject
 @property(nonatomic,strong) HGABottomPosition *entry;
 @property(nonatomic,strong) HGABottomPosition *info;
+@property(nonatomic,strong) HGABottomPosition *progress;
+@property(nonatomic,strong) NSArray<HGABottomPosition *> *groups;
 @property(nonatomic) CGFloat lastLift;
+@property(nonatomic) CGFloat lastProgressLift;
 @end
 @implementation HGABottomLayoutState @end
 static char HGABottomLayoutKey;
 
 static NSArray<NSString *> *HGABottomControlClasses(void) {
-    // Both native HUD owners are already recognized by the player adapter.
-    // Their episode/progress geometry must still pass the checks below.
-    return @[@"FQVShortVideoDerivativeVideoControlView",@"FQVShortVideoControlView"];
+    // Exact observed host identities; do not hook their common UIKit base.
+    // The outer multi-series owner is present in the supplied R14 scene.
+    return @[@"FQVShortVideoDerivativeVideoControlView",@"FQVShortVideoControlView",
+        @"FQVShortVideoVPlayerOutterMultiSeriesControlView"];
 }
 static BOOL HGAIsBottomControl(UIView *view) {
     for(Class cls=object_getClass(view);cls && cls!=UIView.class;cls=class_getSuperclass(cls))
@@ -43,7 +47,9 @@ static void HGARestoreBottomPosition(HGABottomPosition *position) {
 }
 static void HGARestoreBottomState(HGABottomLayoutState *state) {
     HGARestoreBottomPosition(state.entry);HGARestoreBottomPosition(state.info);
-    state.lastLift=0;
+    HGARestoreBottomPosition(state.progress);
+    for(HGABottomPosition *position in state.groups)HGARestoreBottomPosition(position);
+    state.groups=nil;state.lastLift=0;state.lastProgressLift=0;
 }
 static void HGARestoreBottomLayoutForView(UIView *view) {
     UIView *control=HGABottomControlForView(view);
@@ -96,6 +102,50 @@ static BOOL HGABottomNativeCoordinates(UIView *view,UIView *control) {
         if(view==control)return YES;
     }
     return NO;
+}
+static BOOL HGABottomCanvasIsCurrent(UIView *control) {
+    UIView *canvas=HGAPlayerCanvas(control);
+    UIWindow *window=control.window;
+    if(!canvas || !window || !HGABottomNativeCoordinates(control,canvas))return NO;
+    CGRect viewport=window.bounds;
+    // Paging cells all remain attached during a drag. A positive/negative cell
+    // origin is not the current settled page, even though HGAVisible is true.
+    // Compare with the native feed viewport instead of using the dock's
+    // converted coordinates to drag an entering cell's rail toward the dock.
+    for(UIView *parent=canvas.superview;parent && parent!=window;parent=parent.superview) {
+        if(!HGABottomViewIsA(parent,@"FQVCollectionView"))continue;
+        viewport=[parent convertRect:parent.bounds toView:window];
+        break;
+    }
+    CGRect rect=[canvas convertRect:canvas.bounds toView:window];
+    return !CGRectIsEmpty(rect) && fabs(CGRectGetMinY(rect)-CGRectGetMinY(viewport))<=1 &&
+        fabs(CGRectGetMinX(rect)-CGRectGetMinX(viewport))<=1;
+}
+static void HGAUpdateBottomInfoGroups(HGABottomLayoutState *state,UIView *info,
+    UIView *control,CGRect entryRect,CGFloat lift) {
+    // OutterSeriesInfoView spans almost the whole player and also owns VIP /
+    // payment overlays. Leave that owner in place; move only its known bottom
+    // metadata/action children, preserving their spacing with the episode row.
+    NSMutableArray<HGABottomPosition *> *next=[NSMutableArray array];
+    for(UIView *child in info.subviews) {
+        BOOL known=HGABottomViewIsA(child,@"SSShortVideoRightInteractionView") ||
+            HGABottomViewIsA(child,@"SSShortVideoAboveLeftContainerView") ||
+            HGABottomViewIsA(child,@"SSShortVideoOutterSeriesLeftContainerView") ||
+            (HGABottomViewIsA(child,@"FQVShortVideoBaseInsertView") && child.subviews.count==1);
+        if(!known || !HGAVisible(child) || !HGABottomNativeCoordinates(child,control))continue;
+        HGABottomPosition *position=nil;
+        for(HGABottomPosition *old in state.groups)if(old.view==child){position=old;break;}
+        position=HGABottomPositionForView(position,child);
+        CGRect rect=HGABottomNativeRect(child,control,position);
+        if(CGRectIsEmpty(rect) || CGRectGetMinY(rect)<control.bounds.size.height*0.20 ||
+            CGRectGetMaxY(rect)>CGRectGetMinY(entryRect)+2 ||
+            CGRectGetMaxY(rect)<CGRectGetMinY(entryRect)-180)continue;
+        [next addObject:position];
+    }
+    for(HGABottomPosition *old in state.groups)
+        if(![next containsObject:old])HGARestoreBottomPosition(old);
+    state.groups=next;
+    for(HGABottomPosition *position in next)HGAApplyBottomPosition(position,lift);
 }
 static BOOL HGABottomTrackCandidate(CGRect rect,CGRect bounds) {
     return !CGRectIsEmpty(rect) && !CGRectIsInfinite(rect) &&
@@ -180,8 +230,9 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     }
     state.entry=HGABottomPositionForView(state.entry,wrapper);
     state.info=HGABottomPositionForView(state.info,info);
+    state.progress=HGABottomPositionForView(state.progress,progress);
     CGRect entryRect=HGABottomNativeRect(wrapper,control,state.entry);
-    CGRect progressRect=[progress convertRect:progress.bounds toView:control];
+    CGRect progressRect=HGABottomNativeRect(progress,control,state.progress);
     CGRect railRect=CGRectNull;
     CGFloat width=control.bounds.size.width,height=control.bounds.size.height;
     BOOL ordinary=entryRect.size.height>=32 && entryRect.size.height<=80 &&
@@ -191,6 +242,10 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     if(!ordinary) {HGARestoreBottomState(state);return;}
     HGABottomRailResult railResult=HGABottomProgressRail(progress,control,&railRect);
     BOOL measured=railResult==HGABottomRailMeasured;
+    // Measure against the host baseline even while our previous dock offset is
+    // live. Repeated child layouts must never consume that offset a second time.
+    if(measured && state.progress.owned && CGPointEqualToPoint(progress.center,state.progress.applied))
+        railRect.origin.y+=state.progress.source.y-state.progress.applied.y;
     CGFloat needed=0;
     if(measured)needed=MAX(0,CGRectGetMaxY(entryRect)-CGRectGetMinY(railRect)+8);
     else if(railResult==HGABottomRailUnknown && progressRect.size.height>=20 && progressRect.size.height<=40 &&
@@ -202,7 +257,18 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
         needed=10;
     } else {HGARestoreBottomState(state);return;}
     if(!isfinite(needed) || needed>20) {HGARestoreBottomState(state);return;}
-    CGFloat lift=MIN(16,needed);
+    CGFloat progressLift=0;
+    CGRect dock=HGADockRectInView(control);
+    if(measured && HGABottomCanvasIsCurrent(control) && !CGRectIsNull(dock) && !CGRectIsEmpty(dock) &&
+        CGRectGetMinY(dock)>height*0.65 && CGRectGetMinY(dock)<height+100 &&
+        CGRectGetMaxX(dock)>width*0.25 && CGRectGetMinX(dock)<width*0.75) {
+        CGFloat overlap=CGRectGetMaxY(railRect)+10-CGRectGetMinY(dock);
+        // Small dock-height/lift changes share one offset across the HUD. A
+        // radically different host geometry remains native instead of moving
+        // controls far into the video or modifying its paging viewport.
+        if(isfinite(overlap) && overlap>0 && overlap<=64)progressLift=overlap;
+    }
+    CGFloat lift=MIN(16,needed)+progressLift;
     BOOL adjacentInfo=NO;
     if(info && HGABottomNativeCoordinates(info,control) && ![wrapper isDescendantOfView:info] &&
         ![progress isDescendantOfView:info]) {
@@ -210,17 +276,24 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
         adjacentInfo=CGRectGetMaxY(infoRect)<=CGRectGetMinY(entryRect)+2 &&
             CGRectGetMaxY(infoRect)>=CGRectGetMinY(entryRect)-80;
     }
+    BOOL outterGroups=HGABottomViewIsA(info,@"SSShortVideoOutterSeriesInfoView") &&
+        info.bounds.size.height>height*0.5;
     [CATransaction begin];[CATransaction setDisableActions:YES];
+    HGAApplyBottomPosition(state.progress,progressLift);
     HGAApplyBottomPosition(state.entry,lift);
     // An overlay HUD can extend to the bottom of the canvas. Its bounds are
     // not the metadata's visible edge; leave it in place instead of abandoning
     // the episode correction or dragging the full-screen HUD upward.
-    HGAApplyBottomPosition(state.info,adjacentInfo?lift:0);
+    HGAApplyBottomPosition(state.info,adjacentInfo && !outterGroups?lift:0);
+    HGAUpdateBottomInfoGroups(state,outterGroups?info:nil,control,entryRect,lift);
     [CATransaction commit];
-    if(fabs(state.lastLift-lift)>0.01 && HGEnhancedDiagnostics())
+    if((fabs(state.lastLift-lift)>0.01 || fabs(state.lastProgressLift-progressLift)>0.01) && HGEnhancedDiagnostics())
         HGLog(@"appearance.episode-spacing",@{@"lift":@(lift),@"targetGap":@8,
-            @"measuredGap":measured?@(CGRectGetMinY(railRect)-CGRectGetMaxY(entryRect)+lift):NSNull.null,
+            @"measuredGap":measured?@(CGRectGetMinY(railRect)-progressLift-CGRectGetMaxY(entryRect)+lift):NSNull.null,
+            @"progressLift":@(progressLift),@"dockGap":measured && !CGRectIsNull(dock)?
+                @(CGRectGetMinY(dock)-CGRectGetMaxY(railRect)+progressLift):NSNull.null,
+            @"controlClass":NSStringFromClass(control.class),@"infoGroups":@(state.groups.count),
             @"railMeasured":@(measured),@"capped":@(needed>16),
-            @"sliderPreserved":@YES,@"mode":@"native-wrapper-centers"});
-    state.lastLift=lift;
+            @"sliderSizePreserved":@YES,@"mode":@"native-hud-centers"});
+    state.lastLift=lift;state.lastProgressLift=progressLift;
 }

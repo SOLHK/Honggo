@@ -144,6 +144,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
 #include "EpisodeGlassIntegration.inc"
 #include "EpisodeSpacingIntegration.inc"
 #include "ActionShareAppearanceIntegration.inc"
+#include "DockVideoBackdropIntegration.inc"
 @interface HGAAppearanceTests : UIResponder <UIWindowSceneDelegate>
 @property(nonatomic,strong) UIWindow *window;
 @property(nonatomic,strong) SSTabBarController *host;
@@ -296,6 +297,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     for(NSUInteger i=0;i<5;i++)Layout(bar);
     Check(Count(bar,@"honggo.appearance.dock")==1,@"dock does not duplicate across repeated host layouts");
     HGRunDockAppearanceChecks(self.host);
+    RunDockVideoBackdropChecks(self.host);
     HGAppearanceReset();Layout(like);Layout(bar);
     Check(CGRectEqualToRect(like.frame,original) && !like.hidden,@"reset restores original playback geometry and visibility");
     Check(like.iconImageView.image==nativeImage,@"reset restores original host image");

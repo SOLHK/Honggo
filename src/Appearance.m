@@ -24,6 +24,7 @@ static void HGARefreshDock(UIView *bar);
 static NSArray<NSString *> *HGABottomControlClasses(void);
 static void HGAUpdateBottomLayoutForView(UIView *view);
 static void HGARestoreBottomLayoutForView(UIView *view);
+static CGRect HGADockRectInView(UIView *coordinateView);
 
 UIColor *HGAppearanceColor(NSString *hex, UIColor *fallback) {
     if (hex.length != 7 || ![hex hasPrefix:@"#"]) return fallback;
@@ -134,7 +135,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             BOOL wasApplying=HGAApplying;
             if(recycling)HGAApplying=YES;
             @try {
-                if(recycling)HGAResetPlayerFillState(object);
+                if(recycling) {
+                    HGVideoBackdropPrepareRendererTransfer(object);
+                    HGAResetPlayerFillState(object);
+                }
                 ((void(*)(id,SEL))original)(object,selector);
             } @finally {if(recycling)HGAApplying=wasApplying;}
             if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
@@ -157,12 +161,16 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             if(guarded)HGAApplying=YES;
             @try {
                 if(guarded && transfer) {
+                    HGVideoBackdropPrepareRendererTransfer(object);
                     HGAPreparePlayerTransfer(object,selector);
                     HGATracePlayerTransfer(object,selector,argument,invocation,@"prepared");
                 }
                 if(guarded && episodeMove)HGAApplyEpisodeCorners(object,NO,0);
                 if(guarded && (episodeMove || bottomMove))HGARestoreBottomLayoutForView(object);
-                if(guarded && modelChange)HGAPlayerModelWillChange(object,argument);
+                if(guarded && modelChange) {
+                    HGVideoBackdropPrepareRendererTransfer(object);
+                    HGAPlayerModelWillChange(object,argument);
+                }
                 ((void(*)(id,SEL,id))original)(object,selector,argument);
                 completed=YES;
             } @finally {

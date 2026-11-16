@@ -249,7 +249,7 @@ static void HGAApplyIcon(UIView *root,NSString *role) {
         if(![icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.appliedTint;
         if(!state.appliedSymbolConfiguration || ![icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
             state.symbolConfiguration=icon.preferredSymbolConfiguration;
-        state.appliedSymbolConfiguration=[UIImageSymbolConfiguration configurationWithPointSize:HGAppearanceNumber(@"icons.size") weight:UIImageSymbolWeightMedium];
+        state.appliedSymbolConfiguration=[UIImageSymbolConfiguration configurationWithPointSize:HGAppearanceNumber(@"icons.size") weight:UIImageSymbolWeightRegular];
         if(![icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
             icon.preferredSymbolConfiguration=state.appliedSymbolConfiguration;
         image=[[image imageWithConfiguration:state.appliedSymbolConfiguration] imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal];
@@ -266,9 +266,14 @@ static void HGAApplyIcon(UIView *root,NSString *role) {
     // UIImageView can normalize a symbol to its own configuration. Track the
     // value actually retained by UIKit, not the pre-assignment image pointer.
     state.applied=icon.image;
-    // Adjust only the image's rendering scale, not the touch owner or its count.
-    CGFloat side=MIN(icon.bounds.size.width,icon.bounds.size.height);
-    if(side>0)HGASetGeometry(icon,0,0,MIN(1.5,HGAppearanceNumber(@"icons.size")/side));
+    // Bound the longest side, not the shortest one: the host sometimes gives
+    // bookmark/share image views a tall rectangle. Scaling their shortest side
+    // made those glyphs and their glass discs visibly larger than the heart.
+    // Only the image transform changes; native hit targets and counts stay put.
+    CGFloat side=MAX(icon.bounds.size.width,icon.bounds.size.height);
+    CGFloat ownerLimit=MAX(20,root.bounds.size.width-8);
+    CGFloat requested=MIN(HGAppearanceNumber(@"icons.size"),ownerLimit);
+    if(side>0)HGASetGeometry(icon,0,0,MIN(1.5,requested/side));
 }
 
 @interface HGATextState : NSObject
@@ -409,13 +414,15 @@ void HGAppearanceProcessView(UIView *view) {
         HGARegisterView(view);
         NSString *name=NSStringFromClass(view.class),*role=HGARole(view);
         if([name isEqual:@"SSTabBar"]){HGARefreshDock(view);return;}
-        if([name isEqual:@"FQVCollectionView"] && [view isKindOfClass:UIScrollView.class]) {HGAObserveFeed((id)view);return;}
+        if([name isEqual:@"FQVCollectionView"] && [view isKindOfClass:UIScrollView.class]) {
+            HGAObserveFeed((id)view);HGRefreshVideoBackdropForView(view);return;
+        }
         if([name isEqual:@"TTPlayerView"]){
-            HGAApplyFullScreen(view);return;
+            HGAApplyFullScreen(view);HGRefreshVideoBackdropForView(view);return;
         }
         if([name isEqual:@"FQVShortVideoPlayerCellView"]){
             for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
-            HGAApplyTypography(view);return;
+            HGAApplyTypography(view);HGRefreshVideoBackdropForView(view);return;
         }
         if([HGACommentSurfaces() containsObject:name]) {
             HGAApplyPanel(view,@"comment");HGAApplyTypography(view);return;
@@ -442,7 +449,7 @@ void HGAppearanceProcessView(UIView *view) {
             if(action) {
                 UIImageView *icon=HGAFindIcon(view);
                 CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
-                CGFloat side=MIN(view.bounds.size.width,MAX(36,MIN(48,MAX(rect.size.width,rect.size.height)+12)));
+                CGFloat side=MIN(view.bounds.size.width,MAX(34,MIN(40,MAX(rect.size.width,rect.size.height)+8)));
                 glassFrame=CGRectMake((view.bounds.size.width-side)/2,MAX(0,CGRectGetMidY(rect)-side/2),side,side);
                 radius=side/2;
             }
@@ -450,10 +457,12 @@ void HGAppearanceProcessView(UIView *view) {
             if(action && [material isEqual:@"regular"])material=@"clear";
             HGAInstallGlassInRect(view,material,glassFrame,radius,action?0:0.08);
             if(action) {
-                // A quiet, dark scrim gives white symbols contrast without the
-                // large grey magnifying discs used by the old regular glass.
+                // Keep the optional material very quiet: the symbol remains
+                // fully opaque while only our noninteractive background fades.
+                // This avoids four hard circular lenses around the action rail.
+                HGAState(view,NO).glass.alpha=UIAccessibilityIsReduceTransparencyEnabled()?1:0.32;
                 HGASetGlassOverlay(view,[UIColor.blackColor colorWithAlphaComponent:
-                    UIAccessibilityIsReduceTransparencyEnabled()?0.82:0.14]);
+                    UIAccessibilityIsReduceTransparencyEnabled()?0.82:0.06]);
             }
         }
         else HGARemoveGlass(view);

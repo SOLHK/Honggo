@@ -1,7 +1,7 @@
 name: Appearance development
 on:
   push:
-    branches: [work/appearance-r5, work/r13-ui-paging, work/r14-playback]
+    branches: [work/appearance-r5, work/r13-ui-paging, work/r14-playback, work/r15-floating-layout]
 permissions:
   contents: read
 env:

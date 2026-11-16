@@ -213,6 +213,8 @@ static void HGRestoreViewports(NSArray<HGViewportRecord *> *records) {
     }
 }
 
+#import "TabBarVideoBackdrop.inc"
+
 @interface HGTabState : NSObject
 @property(nonatomic, weak) UIView *bar;
 @property(nonatomic, weak) UIViewController *controller;
@@ -221,6 +223,7 @@ static void HGRestoreViewports(NSArray<HGViewportRecord *> *records) {
 @property(nonatomic, strong) NSMapTable<UIView *, HGViewportRecord *> *viewports;
 @property(nonatomic, strong) NSHashTable<UIView *> *observed;
 @property(nonatomic, strong) NSMapTable<UILabel *, HGTabTitleRecord *> *titles;
+@property(nonatomic, strong) HGVideoBackdrop *videoBackdrop;
 @property(nonatomic) BOOL refreshing;
 @property(nonatomic) BOOL customDock;
 @property(nonatomic) BOOL refreshPending;
@@ -595,6 +598,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     UIView *bar = self.bar;
     UIView *root = self.controller.viewIfLoaded;
     if (!root || root.window != bar.window || ![bar isDescendantOfView:root]) {
+        [self.videoBackdrop restore];
         HGRestoreViewports(self.viewports.objectEnumerator.allObjects);
         [self.viewports removeAllObjects];
         return;
@@ -614,6 +618,8 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
         for (UIView *child in parent.subviews) if (child != path) [branches addObject:child];
         path = parent;
     }
+    if (self.customDock && !self.videoBackdrop) self.videoBackdrop = [HGVideoBackdrop new];
+    [self.videoBackdrop refreshWithBranches:branches root:root bar:bar active:self.customDock];
     for (UIView *branch in branches) {
         if (!HGContainsVisibleVerticalPager(branch, root))
             [self collectViewports:branch root:root barTop:barTop bottom:bottom records:records depth:0];
@@ -711,6 +717,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     }
 }
 - (void)restore {
+    [self.videoBackdrop restore];
     HGRestoreViewports(self.viewports.objectEnumerator.allObjects);
     for (HGTabTitleRecord *record in self.titles.objectEnumerator.allObjects) {
         [record restore]; objc_setAssociatedObject(record.label, &HGTitleRecordKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -766,6 +773,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
             if (ancestor != bar) HGObserve(ancestor, self);
         }
         if (!visible) {
+            [self.videoBackdrop restore];
             if (customDock) HGAppearanceRestoreDock(bar);
             self.glass.effect = nil;
             self.glass.hidden = YES;
@@ -779,6 +787,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
         CGRect frame = [content convertRect:content.bounds toView:bar];
         if (!isfinite(frame.size.width) || !isfinite(frame.size.height) ||
             frame.size.width < 64 || frame.size.height < 32) {
+            [self.videoBackdrop restore];
             self.glass.hidden = YES;
             return;
         }
@@ -909,6 +918,25 @@ static void HGRefreshTabBar(UIViewController *controller) {
         HGTabState *state = HGState(bar);
         state.controller = controller;
         [state refresh];
+    }
+}
+void HGRefreshVideoBackdropForView(UIView *view) {
+    if (!NSThread.isMainThread) return;
+    Class feedClass = NSClassFromString(@"FQVCollectionView");
+    UIScrollView *feed = nil;
+    for (UIView *node = view; node; node = node.superview)
+        if (feedClass && [node isKindOfClass:feedClass] && [node isKindOfClass:UIScrollView.class]) {
+            feed = (UIScrollView *)node; break;
+        }
+    if (!feed) return;
+    if (HGVideoBackdropRefreshForFeed(feed) || !HGAppearanceDockEnabled() || !feed.window) return;
+    // The first player can attach after the tab controller's layout. Bootstrap
+    // from its real containment chain; later layouts use the feed's weak link.
+    UIResponder *responder = feed.nextResponder;
+    while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
+    for (UIViewController *controller = (UIViewController *)responder; controller; controller = controller.parentViewController) {
+        UIView *bar = HGView(controller, "customTabBar");
+        if ([bar isKindOfClass:HGTabBarClass]) { HGRefreshTabBar(controller); break; }
     }
 }
 static void HGControllerLayout(id self, SEL cmd) {

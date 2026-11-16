@@ -8,6 +8,8 @@ void HGAppearanceProcessController(UIViewController *controller);
 BOOL HGAppearanceDockEnabled(void);
 void HGAppearanceLayoutDock(UIView *bar, UIViewController *controller);
 void HGAppearanceRestoreDock(UIView *bar);
+void HGRefreshVideoBackdropForView(UIView *view);
+void HGVideoBackdropPrepareRendererTransfer(UIView *view);
 void HGOpenAppearance(UIViewController *presenter, NSString *group);
 UIVisualEffect *HGAppearanceMaterial(NSString *style);
 UIColor *HGAppearanceColor(NSString *hex, UIColor *fallback);

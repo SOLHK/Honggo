@@ -17,7 +17,7 @@ architecture=$(uname -m)
 xcrun --sdk iphonesimulator clang \
     -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
     -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \
-    -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -lobjc \
+    -framework Foundation -framework CoreFoundation -framework UIKit -framework CoreText -framework PhotosUI -framework ImageIO -framework UniformTypeIdentifiers -framework QuartzCore -framework CoreGraphics -framework Metal -lobjc \
     "$source_root"/src/*.m "$source_root/tests/AppearanceIntegration.m" \
     -o "$app/HGAppearanceTests" 2>&1 | tee "$work/build.log"
 
@@ -61,6 +61,29 @@ data_directory=$(xcrun simctl get_app_container "$device_id" "$bundle_id" data)
 rm -f -- "$data_directory/Documents/appearance-results.json"
 xcrun simctl launch "$device_id" "$bundle_id" 2>&1 | tee "$work/launch.log"
 for ((attempt=0; attempt<45; attempt++)); do
+    # The Metal regression requests live compositor images. UIGraphics/layer
+    # snapshots can omit CAMetalLayer and cannot validate a video backdrop.
+    for phase in red blue; do
+        prefix="video-backdrop-${phase}"
+        if [ -f "$data_directory/Documents/${prefix}-ready.json" ] && \
+           [ ! -f "$data_directory/Documents/${prefix}-captured" ]; then
+            python3 - "$device_id" "$work/${prefix}-simulator.png" "$data_directory/Documents/${prefix}-simulator.png" <<'PY'
+import pathlib
+import subprocess
+import sys
+
+device, output, destination = sys.argv[1:]
+subprocess.run(["xcrun", "simctl", "io", device, "screenshot", "--type=png", output], check=True, timeout=8)
+data = pathlib.Path(output).read_bytes()
+if not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) < 100:
+    raise SystemExit("Metal compositor capture did not produce a PNG")
+temporary = pathlib.Path(destination + ".tmp")
+temporary.write_bytes(data)
+temporary.replace(destination)
+PY
+            touch "$data_directory/Documents/${prefix}-captured"
+        fi
+    done
     if [ -f "$data_directory/Documents/appearance-results.json" ]; then
         break
     fi
