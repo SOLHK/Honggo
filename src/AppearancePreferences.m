@@ -57,8 +57,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"player.rightGlass",@"player",@"右侧动作按钮玻璃");
         flag(@"player.headerGlass",@"player",@"顶部频道玻璃");
         flag(@"player.episodeGlass",@"player",@"全集入口玻璃");
-        flag(@"player.fullscreen",@"player",@"自动铺满竖屏视频");
-        choice(@"player.fillButton",@"player",@"画面铺满按钮",@[@"show",@"hide"],@[@"显示铺满／还原按钮",@"隐藏按钮"]);
+        flag(@"player.fullscreen",@"player",@"横屏铺满");
         choice(@"player.separateProgress",@"player",@"合集与进度条分开布局",@[@"show",@"hide"],@[@"自动留出间距",@"原始布局"]);
         choice(@"player.material",@"player",@"播放控件材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"系统磨砂"]);
         NSArray *roles = HGAppearanceRoles(), *titles = HGAppearanceRoleTitles();
@@ -164,7 +163,18 @@ NSDictionary *HGAppearanceParse(NSData *data,NSError **error) {
     if(![data isKindOfClass:NSData.class] || !data.length || data.length>128*1024){HGAError(error,@"请选择不超过 128 KiB 的外观 JSON。");return nil;}
     id root=[NSJSONSerialization JSONObjectWithData:data options:0 error:error];
     if(![root isKindOfClass:NSDictionary.class] || [root count]!=3 || ![root[@"format"] isEqual:@"Honggo.appearance"] || ![root[@"schema"] isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)root[@"schema"])==CFBooleanGetTypeID() || [root[@"schema"] doubleValue]!=1 || ![root[@"values"] isKindOfClass:NSDictionary.class] || ![root[@"values"] count]){HGAError(error,@"不是受支持的 Honggo 外观配置。");return nil;}
-    NSDictionary *d=root[@"values"];
+    NSMutableDictionary *d=[root[@"values"] mutableCopy];
+    // R13 backups contain the retired on-screen button preference. Accept only
+    // its former valid values, then discard it; it must not recreate a control.
+    id oldFillButton=d[@"player.fillButton"];
+    if(oldFillButton) {
+        if(![oldFillButton isKindOfClass:NSString.class] ||
+            ![@[@"show",@"hide"] containsObject:oldFillButton]) {
+            HGAError(error,@"文件包含未知或无效的外观参数。");return nil;
+        }
+        [d removeObjectForKey:@"player.fillButton"];
+    }
+    if(!d.count){HGAError(error,@"文件未包含可用的外观参数。");return nil;}
     for(id key in d) if(!HGAValid(HGADefinition(key),d[key])){HGAError(error,@"文件包含未知或无效的外观参数。");return nil;}
     return d.copy;
 }

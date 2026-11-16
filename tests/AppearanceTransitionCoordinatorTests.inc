@@ -59,11 +59,11 @@
 static void HGPlaybackCheckCoordinator(UIViewController *host,BOOL accepted,BOOL cancelled,BOOL hostOwnsTransform) {
     HGPlaybackTransitionOwner *owner=[HGPlaybackTransitionOwner new];
     [host addChildViewController:owner];[owner loadViewIfNeeded];
-    owner.view.frame=CGRectMake(10,100,300,420);
+    owner.view.frame=CGRectMake(10,10,600,320);
     [host.view addSubview:owner.view];[owner didMoveToParentViewController:host];
     FQVShortVideoPlayerCellView *canvas=[[FQVShortVideoPlayerCellView alloc] initWithFrame:owner.view.bounds];
     [owner.view addSubview:canvas];
-    TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:CGRectMake(50,0,200,350)];
+    TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:CGRectMake(60,20,480,280)];
     [canvas addSubview:render];Layout(canvas);Layout(render);
     CATransform3D filled=render.layer.sublayerTransform;
     NSString *(^name)(NSString *)=^NSString *(NSString *check) {
@@ -73,7 +73,7 @@ static void HGPlaybackCheckCoordinator(UIViewController *host,BOOL accepted,BOOL
     HGPlaybackTransitionCoordinator *coordinator=[HGPlaybackTransitionCoordinator new];
     coordinator.acceptsAnimations=accepted;coordinator.containerView=owner.view;
     @try {
-        Check(filled.m11>1 && CGAffineTransformIsIdentity(render.transform),name(@"attached portrait renderer starts filled with native view geometry"));
+        Check(filled.m11>1 && CGAffineTransformIsIdentity(render.transform),name(@"attached landscape renderer starts filled with native view geometry"));
         owner.fixtureTransition=coordinator;
         HGPlaybackResetTransformWrites(render);Layout(render);
         Check(CATransform3DIsIdentity(render.layer.sublayerTransform) &&
@@ -111,11 +111,15 @@ static void HGPlaybackCheckCoordinator(UIViewController *host,BOOL accepted,BOOL
 
 static void RunAppearanceTransitionCoordinatorChecks(UIViewController *host) {
     NSDictionary *saved=[HGAppearanceValues() copy];
+    UIWindow *window=HGPlaybackFixtureWindow(host.view,CGSizeMake(700,400));
     @try {
         HGAppearanceApply(@{@"enabled":@YES,@"player.fullscreen":@YES},nil);
         for(NSNumber *accepted in @[@YES,@NO])
             for(NSNumber *cancelled in @[@NO,@YES])
-                HGPlaybackCheckCoordinator(host,accepted.boolValue,cancelled.boolValue,NO);
-        HGPlaybackCheckCoordinator(host,NO,YES,YES);
-    } @finally {HGAppearanceApply(saved,nil);}
+                HGPlaybackCheckCoordinator(window.rootViewController,accepted.boolValue,cancelled.boolValue,NO);
+        HGPlaybackCheckCoordinator(window.rootViewController,NO,YES,YES);
+    } @finally {
+        window.hidden=YES;window.rootViewController=nil;
+        HGAppearanceApply(saved,nil);
+    }
 }

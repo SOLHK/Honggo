@@ -411,11 +411,11 @@ void HGAppearanceProcessView(UIView *view) {
         if([name isEqual:@"SSTabBar"]){HGARefreshDock(view);return;}
         if([name isEqual:@"FQVCollectionView"] && [view isKindOfClass:UIScrollView.class]) {HGAObserveFeed((id)view);return;}
         if([name isEqual:@"TTPlayerView"]){
-            HGAApplyFullScreen(view);HGARefreshPlayerFillControls(HGAPlayerCanvas(view));return;
+            HGAApplyFullScreen(view);return;
         }
         if([name isEqual:@"FQVShortVideoPlayerCellView"]){
             for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
-            HGARefreshPlayerFillControls(view);HGAApplyTypography(view);return;
+            HGAApplyTypography(view);return;
         }
         if([HGACommentSurfaces() containsObject:name]) {
             HGAApplyPanel(view,@"comment");HGAApplyTypography(view);return;
@@ -461,7 +461,6 @@ void HGAppearanceProcessView(UIView *view) {
     }@finally {
         @try {
             HGAUpdateBottomLayoutForView(view);
-            if([HGARole(view) isEqual:@"info"])HGARefreshPlayerFillControls(HGAPlayerCanvas(view));
         }
         @finally {HGAApplying=NO;}
     }

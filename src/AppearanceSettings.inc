@@ -84,11 +84,11 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section{return self.rows.count;}
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if([self.group isEqual:@"fonts"])return @"只改变已适配播放页、面板及底栏的原生文字，不修改视频内字幕、网页或自绘文字。编辑中的输入框、密码、图标字体保持原样。字体导入上限 50 MiB，仅本机使用。";
-    if([self.group isEqual:@"player"])return @"偏移单位为点，比例 1 表示原始大小。播放页的「铺满屏幕」等比裁切画面边缘，横屏／方形视频也可手动铺满；再点「还原比例」恢复完整画面。自动铺满只用于竖屏视频。只调整视频渲染，不修改翻页距离、播放器逻辑和系统状态栏。";
+    if([self.group isEqual:@"player"])return @"开启「横屏铺满」后，仅横屏播放横向视频时等比放大并裁切画面边缘。返回竖屏或关闭开关后恢复原比例，竖屏视频保持原样。偏移单位为点，比例 1 表示原始大小。";
     if([self.group isEqual:@"dock"])return @"底栏优先保留至少 44 点的点击区域，尺寸会受宿主可用空间限制。上滑收缩，下滑或点击圆钮展开；语音朗读开启时保持展开。搜索需要在首页有可用宿主入口。";
     if([self.group isEqual:@"icons"])return @"图片优先于 SF Symbol，最后使用预设。收藏和点赞按宿主真实状态显示；无法读取状态时保留原图标。自选图片在本地缩小为不超过 256 像素的 PNG。";
     if([self.group isEqual:@"panels"])return @"仅处理已识别面板，不隐藏绘制内容、输入框或点击遮罩。未匹配的面板保留原样，适配状态可以随日志导出。";
-    return @"先开启「启用外观定制」，或应用预设。多数调整即时生效；首次开启原生玻璃后请完全退出红果再打开，启动前未启用玻璃时先使用磨砂。外观参数备份不包含图片与字体文件；恢复时需在同一设备保留这些资源。R5 为测试版，真实宿主效果仍需验收。";
+    return @"先开启「启用外观定制」，或应用预设。多数调整即时生效；首次开启原生玻璃后请完全退出红果再打开，启动前未启用玻璃时先使用磨砂。外观参数备份不包含图片与字体文件；恢复时需在同一设备保留这些资源。";
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *row=self.rows[path.row];NSString *kind=row[@"kind"],*key=row[@"key"];
@@ -103,6 +103,8 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
         toggle.accessibilityLabel=row[@"title"];
         [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged];
         cell.accessoryView=toggle;cell.selectionStyle=UITableViewCellSelectionStyleNone;
+        if([key isEqual:@"player.fullscreen"])
+            cell.detailTextLabel.text=@"仅横屏播放横向视频时铺满，竖屏保持原比例";
     }else if([kind isEqual:@"number"]) {
         UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(0,0,125,44)];
         slider.minimumValue=[row[@"min"] floatValue];slider.maximumValue=[row[@"max"] floatValue];

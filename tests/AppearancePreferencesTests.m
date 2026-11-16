@@ -14,12 +14,34 @@ int main(void) {@autoreleasepool {
     }
     Check(unique && keys.count>100,@"every visual option has one stable key");
     Check(defaults && !HGAppearanceEnabled(),@"all appearance switches default off");
-    Check([HGAppearanceString(@"player.fillButton") isEqual:@"show"] &&
-        [HGAppearanceString(@"player.separateProgress") isEqual:@"show"],@"playback usability controls are available once appearance is enabled");
-    Check(HGAppearanceSet(@"player.fillButton",@"hide",nil) &&
-        !HGAppearanceSet(@"player.fillButton",@YES,nil),@"fill control visibility is a validated choice without enabling automatic crop");
-    Check(!HGAppearanceFlag(@"player.fullscreen"),@"showing or hiding the fill control never enables automatic cropping");
-    Check(HGAppearanceSet(@"player.fillButton",@"show",nil),@"fill control can be shown again");
+    Check(![keys containsObject:@"player.fillButton"] && HGAppearanceValue(@"player.fillButton")==nil,
+        @"the removed playback button has no setting or stored effective value");
+    Check(!HGAppearanceSet(@"player.fillButton",@"show",nil),
+        @"the removed button cannot be restored through the live settings API");
+    Check([HGAppearanceString(@"player.separateProgress") isEqual:@"show"],
+        @"episode spacing remains available once appearance is enabled");
+    NSDictionary *fillDefinition=nil;
+    for(NSDictionary *entry in HGAppearanceCatalog())if([entry[@"key"] isEqual:@"player.fullscreen"])fillDefinition=entry;
+    Check([fillDefinition[@"title"] isEqual:@"横屏铺满"] && [fillDefinition[@"kind"] isEqual:@"bool"] &&
+        !HGAppearanceFlag(@"player.fullscreen"),@"landscape fill is a settings-only switch that defaults off");
+    for(NSString *legacyValue in @[@"show",@"hide"]) {
+        NSDictionary *legacy=@{@"format":@"Honggo.appearance",@"schema":@1,
+            @"values":@{@"player.fillButton":legacyValue,@"player.fullscreen":@YES,@"layout.episodes.y":@0}};
+        NSDictionary *migrated=HGAppearanceParse([NSJSONSerialization dataWithJSONObject:legacy options:0 error:nil],nil);
+        Check(migrated && !migrated[@"player.fillButton"] && [migrated[@"player.fullscreen"] boolValue] &&
+            [migrated[@"layout.episodes.y"] isEqual:@0],@"R13 appearance backups omit the retired button key and preserve supported settings");
+    }
+    for(id invalid in @[@YES,@"invalid"]) {
+        NSDictionary *legacy=@{@"format":@"Honggo.appearance",@"schema":@1,
+            @"values":@{@"player.fillButton":invalid,@"enabled":@YES}};
+        Check(!HGAppearanceParse([NSJSONSerialization dataWithJSONObject:legacy options:0 error:nil],nil),
+            @"invalid retired button values are rejected instead of silently accepted");
+    }
+    NSMutableDictionary *legacyStored=[HGAppearanceValues() mutableCopy];legacyStored[@"player.fillButton"]=@"show";
+    [NSUserDefaults.standardUserDefaults setObject:legacyStored forKey:@"Honggo.Appearance.v1"];
+    [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:NSUserDefaults.standardUserDefaults];
+    Check(!HGAppearanceValues()[@"player.fillButton"] && !HGAppearanceFlag(@"player.fullscreen"),
+        @"an old persisted button preference cannot reactivate playback-page controls or automatic cropping");
     Check(HGAppearanceNumber(@"layout.like.scale")==1,@"layout default scale is identity");
     Check(HGAppearanceNumber(@"layout.like.x")==0,@"layout default offset is zero");
     Check(!HGAppearanceSet(@"unknown",@YES,nil),@"unknown setting rejected");

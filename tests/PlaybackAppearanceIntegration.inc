@@ -4,15 +4,51 @@
 // claimed: these fixtures verify layout ownership and native action delivery.
 #import <objc/runtime.h>
 
+// A separate UIWindow supplies real landscape window/canvas geometry without
+// rotating the simulator or changing the shared settings/dock test scene.
+static UIWindow *HGPlaybackFixtureWindow(UIView *host,CGSize size) {
+    UIWindow *window=[[UIWindow alloc] initWithWindowScene:host.window.windowScene];
+    window.frame=CGRectMake(0,0,size.width,size.height);
+    UIViewController *owner=[UIViewController new];
+    window.rootViewController=owner;window.hidden=NO;
+    [owner loadViewIfNeeded];owner.view.frame=window.bounds;
+    Layout(owner.view);
+    return window;
+}
+
 static char HGPlaybackContentModelKey;
+static char HGPlaybackModelFillKey;
+static char HGPlaybackRecycleFillKey;
 @interface FQVShortVideoPlayerCellView (HGFillContentFixture)
 @property(nonatomic,strong) id model;
+@property(nonatomic,readonly) CATransform3D fillAtModelUpdate;
+@property(nonatomic,readonly) CATransform3D fillAtRecycle;
 - (void)resetToRecycle;
 @end
 @implementation FQVShortVideoPlayerCellView (HGFillContentFixture)
 - (id)model {return objc_getAssociatedObject(self,&HGPlaybackContentModelKey);}
-- (void)setModel:(id)value {objc_setAssociatedObject(self,&HGPlaybackContentModelKey,value,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
-- (void)resetToRecycle {objc_setAssociatedObject(self,&HGPlaybackContentModelKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
+- (void)captureFillForKey:(const void *)key {
+    for(UIView *child in self.subviews)if([child isKindOfClass:TTPlayerView.class]) {
+        objc_setAssociatedObject(self,key,[NSValue valueWithCATransform3D:child.layer.sublayerTransform],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        break;
+    }
+}
+- (CATransform3D)fillAtModelUpdate {
+    NSValue *value=objc_getAssociatedObject(self,&HGPlaybackModelFillKey);
+    return value?value.CATransform3DValue:CATransform3DIdentity;
+}
+- (CATransform3D)fillAtRecycle {
+    NSValue *value=objc_getAssociatedObject(self,&HGPlaybackRecycleFillKey);
+    return value?value.CATransform3DValue:CATransform3DIdentity;
+}
+- (void)setModel:(id)value {
+    [self captureFillForKey:&HGPlaybackModelFillKey];
+    objc_setAssociatedObject(self,&HGPlaybackContentModelKey,value,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+- (void)resetToRecycle {
+    [self captureFillForKey:&HGPlaybackRecycleFillKey];
+    objc_setAssociatedObject(self,&HGPlaybackContentModelKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 @end
 
 static char HGPlaybackTransformWritesKey;
@@ -78,19 +114,19 @@ static void HGPlaybackCheckCombination(UIView *root,BOOL fullscreen,BOOL glass) 
         @"player.episodeGlass":@(glass),@"layout.episodes.hidden":@NO,
         @"layout.episodes.x":@0,@"layout.episodes.y":@0,@"layout.episodes.scale":@1},nil);
 
-    UIView *stage=[[UIView alloc] initWithFrame:CGRectMake(10,100,300,470)];
+    UIView *stage=[[UIView alloc] initWithFrame:CGRectMake(10,10,600,360)];
     [root addSubview:stage];
     FQVShortVideoPlayerCellView *canvas=[[FQVShortVideoPlayerCellView alloc]
-        initWithFrame:CGRectMake(0,0,300,420)];
+        initWithFrame:CGRectMake(0,0,600,320)];
     [stage addSubview:canvas];
-    CGRect sourceFrame=CGRectMake(50,0,200,350);
+    CGRect sourceFrame=CGRectMake(50,20,500,280);
     TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:sourceFrame];
     [canvas addSubview:render];
-    UIView *hud=[[UIView alloc] initWithFrame:CGRectMake(248,170,44,44)];
+    UIView *hud=[[UIView alloc] initWithFrame:CGRectMake(548,170,44,44)];
     [canvas addSubview:hud];
     CGRect hudFrame=hud.frame;
     SSShortVideoBottomDistributionView *entry=[[SSShortVideoBottomDistributionView alloc]
-        initWithFrame:CGRectMake(8,368,284,44)];
+        initWithFrame:CGRectMake(8,268,584,44)];
     UIControl *nativeButton=[[UIControl alloc] initWithFrame:entry.bounds];
     [entry addSubview:nativeButton];[canvas addSubview:entry];
     UIView *detail=[[UIView alloc] initWithFrame:stage.bounds];
@@ -105,7 +141,7 @@ static void HGPlaybackCheckCombination(UIView *root,BOOL fullscreen,BOOL glass) 
         CATransform3D filled=render.layer.sublayerTransform;
         Check(CGAffineTransformIsIdentity(render.transform) && (fullscreen ? filled.m11>1 && fabs(filled.m11-filled.m22)<0.001 :
             CATransform3DIsIdentity(filled)),HGPlaybackCheckName(fullscreen,glass,
-            @"portrait rendering follows the fullscreen preference"));
+            @"landscape rendering follows the settings switch"));
         UIView *material=Find(entry,@"honggo.appearance.material");
         Check(glass ? material.superview==entry && !material.userInteractionEnabled : material==nil,
             HGPlaybackCheckName(fullscreen,glass,@"episode material follows its independent preference"));
@@ -161,7 +197,7 @@ static void HGPlaybackCheckCombination(UIView *root,BOOL fullscreen,BOOL glass) 
             HGPlaybackTransformWrites(render)==0 && HGPlaybackFillWrites(render)==(fullscreen?1u:0u),
             HGPlaybackCheckName(fullscreen,glass,@"returning to the feed applies the desired rendering exactly once"));
         Check(action.taps==1 && CGRectEqualToRect(hud.frame,hudFrame) &&
-            CGRectEqualToRect(entry.frame,CGRectMake(8,368,284,44)) &&
+            CGRectEqualToRect(entry.frame,CGRectMake(8,268,584,44)) &&
             CGRectEqualToRect(nativeButton.frame,entry.bounds),
             HGPlaybackCheckName(fullscreen,glass,@"return preserves native HUD geometry and action count"));
 
@@ -262,9 +298,9 @@ static BOOL HGPlaybackGreenAt(UIView *view,CGPoint point) {
 static void HGPlaybackCheckNativeLayout(UIView *root) {
     HGAppearanceApply(@{@"enabled":@YES,@"player.fullscreen":@YES},nil);
     FQVShortVideoPlayerCellView *canvas=[[FQVShortVideoPlayerCellView alloc]
-        initWithFrame:CGRectMake(10,100,300,420)];
+        initWithFrame:CGRectMake(10,10,600,320)];
     canvas.clipsToBounds=YES;canvas.backgroundColor=UIColor.blackColor;[root addSubview:canvas];
-    TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:CGRectMake(50,0,200,350)];
+    TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:CGRectMake(60,20,480,280)];
     render.clipsToBounds=YES;render.nativeFrame=render.frame;render.nativeFrameWriterEnabled=YES;
     [canvas addSubview:render];
     @try {
@@ -282,7 +318,7 @@ static void HGPlaybackCheckNativeLayout(UIView *root) {
             render.nativeLayoutPasses>passes && render.nativeLayoutPasses-passes<=72,
             @"native frame layout cannot make fullscreen fight UIKit with repeated geometry writes");
         Check(!render.clipsToBounds && canvas.clipsToBounds &&
-            HGPlaybackGreenAt(canvas,CGPointMake(5,210)) && HGPlaybackGreenAt(canvas,CGPointMake(295,210)),
+            HGPlaybackGreenAt(canvas,CGPointMake(5,160)) && HGPlaybackGreenAt(canvas,CGPointMake(595,160)),
             @"known video surface visibly fills both sides beyond the unchanged native renderer rect");
 
         UIView *destination=[[UIView alloc] initWithFrame:canvas.frame];[root addSubview:destination];
@@ -378,138 +414,129 @@ static void HGPlaybackCheckNativeLayout(UIView *root) {
     } @finally {[canvas removeFromSuperview];}
 }
 
-static void HGPlaybackCheckManualFill(UIView *root) {
-    HGAppearanceApply(@{@"enabled":@YES,@"player.fullscreen":@NO,@"player.fillButton":@"show",
+static void HGPlaybackCheckLandscapeFill(UIView *root) {
+    HGAppearanceApply(@{@"enabled":@YES,@"player.fullscreen":@NO,
         @"layout.info.hidden":@NO,@"layout.info.x":@0,@"layout.info.y":@0,@"layout.info.scale":@1},nil);
-    FQVShortVideoPlayerCellView *canvas=[[FQVShortVideoPlayerCellView alloc] initWithFrame:CGRectMake(10,100,300,600)];
+    UIWindow *window=root.window;
+    CGRect originalWindow=window.frame;
+    FQVShortVideoPlayerCellView *canvas=[[FQVShortVideoPlayerCellView alloc] initWithFrame:CGRectMake(10,10,600,320)];
     canvas.clipsToBounds=YES;canvas.backgroundColor=UIColor.blackColor;[root addSubview:canvas];
-    TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:CGRectMake(0,210,300,170)];
+    TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:CGRectMake(50,20,500,280)];
     render.clipsToBounds=YES;render.nativeFrame=render.frame;render.nativeFrameWriterEnabled=YES;[canvas addSubview:render];
     SSShortVideoOutterSeriesInfoView *hud=[[SSShortVideoOutterSeriesInfoView alloc] initWithFrame:canvas.bounds];
     [canvas addSubview:hud];CGRect nativeHUD=hud.frame;
-    HGAActionFixture *nativeAction=[[HGAActionFixture alloc] initWithFrame:CGRectMake(220,460,54,65)];[hud addSubview:nativeAction];
+    HGAActionFixture *nativeAction=[[HGAActionFixture alloc] initWithFrame:CGRectMake(540,230,54,65)];[hud addSubview:nativeAction];
     NSObject *firstModel=[NSObject new],*nextModel=[NSObject new];canvas.model=firstModel;
     @try {
         Layout(canvas);Layout(render);Layout(hud);
-        UIButton *button=(id)Find(canvas,@"honggo.appearance.player.fill");
-        Check(button && !button.hidden && button.bounds.size.height>=44 && button.superview==hud &&
-            [button.accessibilityLabel isEqual:@"铺满屏幕"] && CATransform3DIsIdentity(render.layer.sublayerTransform),
-            @"landscape playback exposes an explicit fill control without automatic cropping");
+        Check(Count(canvas,@"honggo.appearance.player.fill")==0 && CATransform3DIsIdentity(render.layer.sublayerTransform),
+            @"landscape playback starts native sized with no on-screen fill button");
         CGRect nativeFrame=render.frame,nativeBounds=render.bounds;CGPoint nativeCenter=render.center;
-        HGPlaybackResetTransformWrites(render);
-        [button sendActionsForControlEvents:UIControlEventTouchUpInside];
+        HGAppearanceSet(@"player.fullscreen",@YES,nil);Layout(canvas);Layout(render);
         CATransform3D filled=render.layer.sublayerTransform;
-        Check(filled.m11>3 && fabs(filled.m11-filled.m22)<0.001 &&
+        Check(filled.m11>1 && fabs(filled.m11-filled.m22)<0.001 &&
             CGAffineTransformIsIdentity(render.transform) && CGRectEqualToRect(nativeFrame,render.frame) &&
             CGRectEqualToRect(nativeBounds,render.bounds) && CGPointEqualToPoint(nativeCenter,render.center) &&
-            CGRectEqualToRect(nativeHUD,hud.frame) && [button.accessibilityLabel isEqual:@"还原比例"],
-            @"manual landscape fill crops uniformly while keeping native player and HUD geometry");
-        [button setNeedsUpdateConfiguration];[button updateConfiguration];
-        Check(!button.automaticallyUpdatesConfiguration && !button.configuration.automaticallyUpdateForSelection &&
-            [button.configuration.baseForegroundColor isEqual:UIColor.whiteColor] &&
-            [button.tintColor isEqual:UIColor.whiteColor],
-            @"manual fill selection retains neutral white content instead of the host accent color");
-        Check(HGPlaybackGreenAt(canvas,CGPointMake(5,5)) && HGPlaybackGreenAt(canvas,CGPointMake(295,590)) &&
+            CGRectEqualToRect(nativeHUD,hud.frame),
+            @"the landscape setting uniformly crops only rendering while preserving native player and HUD geometry");
+        Check(HGPlaybackGreenAt(canvas,CGPointMake(5,5)) && HGPlaybackGreenAt(canvas,CGPointMake(595,315)) &&
             !render.clipsToBounds && canvas.clipsToBounds,
-            @"manual fill reaches the top and bottom of the native canvas without leaking across page boundaries");
+            @"landscape fill reaches the canvas edges without leaking outside its page");
         HGPlaybackResetTransformWrites(render);
         for(NSUInteger i=0;i<12;i++){Layout(canvas);Layout(render);Layout(hud);}
         Check(HGPlaybackTransformWrites(render)==0 && HGPlaybackFillWrites(render)==0 &&
-            Count(canvas,@"honggo.appearance.player.fill")==1,
-            @"stable manual fill keeps one control and performs no repeated geometry writes");
+            Count(canvas,@"honggo.appearance.player.fill")==0,
+            @"stable landscape layout adds no button and performs no repeated geometry writes");
         [nativeAction sendActionsForControlEvents:UIControlEventTouchUpInside];
-        Check(nativeAction.taps==1,@"manual fill leaves native playback controls callable exactly once");
-        [button sendActionsForControlEvents:UIControlEventTouchUpInside];
+        Check(nativeAction.taps==1,@"landscape fill leaves native playback controls callable exactly once");
+        HGAppearanceSet(@"player.fullscreen",@NO,nil);
         Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && render.clipsToBounds &&
-            [button.accessibilityLabel isEqual:@"铺满屏幕"],@"the same button restores native aspect and clipping");
+            CGRectEqualToRect(nativeFrame,render.frame),@"turning off the settings switch restores native aspect and clipping");
 
-        hud.hidden=YES;[button sendActionsForControlEvents:UIControlEventTouchUpInside];
-        Check(button.superview==hud && [hud hitTest:button.center withEvent:nil]==nil &&
-            CATransform3DIsIdentity(render.layer.sublayerTransform),
-            @"fill control inherits native clean-screen visibility and ignores hidden taps");
-        hud.hidden=NO;hud.alpha=0;[button sendActionsForControlEvents:UIControlEventTouchUpInside];
-        Check(CATransform3DIsIdentity(render.layer.sublayerTransform),@"faded clean-screen HUD cannot activate fill");
-        hud.alpha=1;Layout(hud);[button sendActionsForControlEvents:UIControlEventTouchUpInside];
+        HGAppearanceSet(@"player.fullscreen",@YES,nil);Layout(render);
         canvas.model=firstModel;Layout(canvas);Layout(render);
-        Check(render.layer.sublayerTransform.m11>3,@"refreshing the same content model retains the user's fill choice");
+        Check(render.layer.sublayerTransform.m11>1 && canvas.model==firstModel,
+            @"refreshing the same model keeps eligible landscape playback filled");
         canvas.model=nextModel;Layout(canvas);Layout(render);
-        Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && render.clipsToBounds,
-            @"new content clears the previous video's manual crop before native layout");
-        [button sendActionsForControlEvents:UIControlEventTouchUpInside];[canvas resetToRecycle];
-        Check(canvas.model==nil && CATransform3DIsIdentity(render.layer.sublayerTransform),
-            @"recycling restores the renderer and still calls the host reset implementation");
-        Layout(canvas);Layout(render);[button sendActionsForControlEvents:UIControlEventTouchUpInside];
-        UIView *destination=[[UIView alloc] initWithFrame:canvas.frame];[root addSubview:destination];
-        [destination addSubview:render];
-        Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && render.clipsToBounds && button.hidden,
-            @"manual fill releases borrowed renderers before a detail page receives them");
-        [canvas addSubview:render];[destination removeFromSuperview];Layout(canvas);Layout(render);
-        Check(render.layer.sublayerTransform.m11>3 && !button.hidden,
-            @"returning to the same content can reapply its explicit fill safely");
+        Check(canvas.model==nextModel && CATransform3DIsIdentity(canvas.fillAtModelUpdate) &&
+            render.layer.sublayerTransform.m11>1,
+            @"new content reaches the native model setter without the preceding video's compositor crop");
+        [canvas resetToRecycle];
+        Check(canvas.model==nil && CATransform3DIsIdentity(canvas.fillAtRecycle),
+            @"recycling restores the compositor before calling the native reset implementation");
+        Layout(canvas);Layout(render);
 
-        FQVShortVideoPlayerCellView *other=[[FQVShortVideoPlayerCellView alloc] initWithFrame:canvas.frame];
-        [root addSubview:other];[other addSubview:render];Layout(other);Layout(render);
-        Check(CATransform3DIsIdentity(render.layer.sublayerTransform),
-            @"a renderer borrowed by another canvas does not carry the previous content's fill choice");
-        [canvas addSubview:render];[other removeFromSuperview];Layout(canvas);Layout(render);
-        [button sendActionsForControlEvents:UIControlEventTouchUpInside];
         UIView *surface=render.subviews.firstObject;
         surface.frame=CGRectInset(render.bounds,0,-0.2);HGAppearanceProcessView(render);
-        [button sendActionsForControlEvents:UIControlEventTouchUpInside];
-        Check(render.layer.sublayerTransform.m11>3,
-            @"the pixel-aligned Metal overscan seen in R12 remains an eligible video surface");
-        surface.frame=CGRectInset(render.bounds,4,4);HGAppearanceProcessView(render);
-        Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && button.hidden,
-            @"a genuinely inset or unknown render surface keeps native layout and hides the unsupported control");
-        Layout(render);Layout(canvas);[button sendActionsForControlEvents:UIControlEventTouchUpInside];
-        // The previous explicit fill mode may already resume once the known
-        // native surface returns; force a filled state before testing disable.
-        if(CATransform3DIsIdentity(render.layer.sublayerTransform))
-            [button sendActionsForControlEvents:UIControlEventTouchUpInside];
-        HGAppearanceSet(@"player.fillButton",@"hide",nil);
-        Check(Find(canvas,@"honggo.appearance.player.fill")==nil &&
-            CATransform3DIsIdentity(render.layer.sublayerTransform) && render.clipsToBounds,
-            @"disabling the fill control removes its per-content crop and its button");
-        HGAppearanceSet(@"player.fillButton",@"show",nil);Layout(canvas);Layout(render);
-        button=(id)Find(canvas,@"honggo.appearance.player.fill");
-        [button sendActionsForControlEvents:UIControlEventTouchUpInside];HGAppearanceSet(@"enabled",@NO,nil);
-        Check(Find(canvas,@"honggo.appearance.player.fill")==nil &&
-            CATransform3DIsIdentity(render.layer.sublayerTransform) && CGRectEqualToRect(nativeFrame,render.frame),
-            @"the appearance master switch restores manual fill without changing host geometry");
-        HGAppearanceSet(@"enabled",@YES,nil);Layout(canvas);Layout(render);
-        Check(CATransform3DIsIdentity(render.layer.sublayerTransform),
-            @"re-enabling appearance does not silently restore a discarded manual crop");
-
-        render.nativeFrameWriterEnabled=NO;render.frame=CGRectMake(50,0,200,500);
-        HGAppearanceSet(@"player.fullscreen",@YES,nil);Layout(render);Layout(canvas);
-        button=(id)Find(canvas,@"honggo.appearance.player.fill");
-        Check(render.layer.sublayerTransform.m11>1 && [button.accessibilityLabel isEqual:@"还原比例"],
-            @"the fill control reflects an active automatic portrait crop");
-        [button sendActionsForControlEvents:UIControlEventTouchUpInside];Layout(render);
-        Check(HGAppearanceFlag(@"player.fullscreen") && CATransform3DIsIdentity(render.layer.sublayerTransform),
-            @"restore aspect can override automatic portrait fill for the current content");
-        HGAppearanceSet(@"player.fullscreen",@NO,nil);HGAppearanceSet(@"player.fullscreen",@YES,nil);Layout(render);
         Check(render.layer.sublayerTransform.m11>1,
-            @"changing the automatic portrait preference explicitly supersedes a remembered fit override");
-        HGAppearanceSet(@"player.fullscreen",@NO,nil);render.frame=CGRectMake(0,150,300,300);Layout(render);Layout(canvas);
-        [button sendActionsForControlEvents:UIControlEventTouchUpInside];
-        Check(fabs(render.layer.sublayerTransform.m11-2)<0.001 &&
-            fabs(render.layer.sublayerTransform.m11-render.layer.sublayerTransform.m22)<0.001,
-            @"square video also fills only after an explicit uniform-crop request");
-    } @finally {[canvas removeFromSuperview];}
+            @"pixel-aligned Metal overscan remains eligible for landscape fill");
+        surface.frame=CGRectInset(render.bounds,4,4);HGAppearanceProcessView(render);
+        Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && render.clipsToBounds,
+            @"a genuinely inset render surface retains native layout");
+        Layout(render);Layout(canvas);
+        Check(render.layer.sublayerTransform.m11>1,@"restoring a known Metal surface can resume landscape fill");
+        HGAppearanceSet(@"enabled",@NO,nil);
+        Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && render.clipsToBounds &&
+            CGRectEqualToRect(nativeFrame,render.frame),@"the appearance master switch restores landscape fill");
+        HGAppearanceSet(@"enabled",@YES,nil);Layout(canvas);Layout(render);
+        Check(render.layer.sublayerTransform.m11>1,
+            @"re-enabling appearance follows the persisted landscape switch");
+
+        // A wide video alone is not a landscape playback session. Either a
+        // portrait window or portrait canvas must release an existing fill.
+        window.frame=CGRectMake(0,0,400,700);root.frame=window.bounds;
+        Layout(canvas);Layout(render);
+        Check(window.bounds.size.width<window.bounds.size.height &&
+            CATransform3DIsIdentity(render.layer.sublayerTransform) && render.clipsToBounds,
+            @"a portrait window restores native video even when the canvas and source are wide");
+        window.frame=originalWindow;root.frame=window.bounds;
+        render.nativeFrameWriterEnabled=NO;
+        canvas.frame=CGRectMake(10,10,300,600);render.frame=CGRectMake(0,210,300,170);
+        Layout(canvas);Layout(render);
+        Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && render.clipsToBounds,
+            @"a portrait canvas inside a landscape window never crops its wide video");
+        canvas.frame=CGRectMake(10,10,600,320);render.frame=CGRectMake(200,10,200,300);
+        Layout(canvas);Layout(render);
+        Check(CATransform3DIsIdentity(render.layer.sublayerTransform),
+            @"portrait video retains native aspect inside a landscape playback canvas");
+        render.frame=CGRectMake(160,20,280,280);Layout(render);
+        Check(CATransform3DIsIdentity(render.layer.sublayerTransform),
+            @"square video is excluded from the landscape-only fill setting");
+        render.frame=CGRectMake(160,20,280.1,280);Layout(render);
+        Check(CATransform3DIsIdentity(render.layer.sublayerTransform),
+            @"subpixel rounding does not turn a square video into a landscape source");
+        render.frame=nativeFrame;Layout(canvas);Layout(render);
+        Check(render.layer.sublayerTransform.m11>1,
+            @"fill resumes only when window canvas and video are all landscape");
+        window.frame=CGRectMake(0,0,400,700);root.frame=window.bounds;
+        canvas.frame=CGRectMake(10,10,300,600);render.frame=CGRectMake(0,210,300,170);
+        Layout(canvas);Layout(render);HGPlaybackResetTransformWrites(render);
+        for(NSUInteger i=0;i<8;i++){Layout(canvas);Layout(render);}
+        Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && render.clipsToBounds &&
+            HGPlaybackFillWrites(render)==0 && HGPlaybackTransformWrites(render)==0 &&
+            Count(canvas,@"honggo.appearance.player.fill")==0,
+            @"returning to the portrait feed stays uncropped across repeated layouts with no fill button");
+    } @finally {
+        [canvas removeFromSuperview];window.frame=originalWindow;root.frame=window.bounds;
+    }
 }
 
 static void RunPlaybackAppearanceChecks(UIView *root) {
     NSDictionary *saved=[HGAppearanceValues() copy];
     Check(HGPlaybackInstallTransformProbe(),@"render transform probe is confined to the TTPlayerView test fixture");
+    UIWindow *window=HGPlaybackFixtureWindow(root,CGSizeMake(700,400));
+    UIView *landscapeRoot=window.rootViewController.view;
     @try {
+        Check(window.bounds.size.width>window.bounds.size.height,
+            @"landscape playback regressions use a dedicated landscape UIWindow");
         for(NSNumber *fullscreen in @[@NO,@YES])
             for(NSNumber *glass in @[@NO,@YES])
-                HGPlaybackCheckCombination(root,fullscreen.boolValue,glass.boolValue);
+                HGPlaybackCheckCombination(landscapeRoot,fullscreen.boolValue,glass.boolValue);
         HGPlaybackCheckMaterialGeometry(root);
-        HGPlaybackCheckNativeLayout(root);
-        HGPlaybackCheckManualFill(root);
+        HGPlaybackCheckNativeLayout(landscapeRoot);
+        HGPlaybackCheckLandscapeFill(landscapeRoot);
     } @finally {
+        window.hidden=YES;window.rootViewController=nil;
         HGAppearanceApply(saved,nil);
     }
 }

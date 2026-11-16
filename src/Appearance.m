@@ -134,7 +134,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             BOOL wasApplying=HGAApplying;
             if(recycling)HGAApplying=YES;
             @try {
-                if(recycling)HGAResetPlayerFillControl(object);
+                if(recycling)HGAResetPlayerFillState(object);
                 ((void(*)(id,SEL))original)(object,selector);
             } @finally {if(recycling)HGAApplying=wasApplying;}
             if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
@@ -195,7 +195,7 @@ void HGAppearanceRefresh(void) {
         @"state":HGAppearanceEnabled() ? (HGAHooks.count ? @"partial":@"unavailable") : @"disabled",
         @"installedHooks":@(HGAHooks.count),@"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),
         @"playerFillMode":@"render-sublayers",
-        @"fillButton":@([HGAppearanceString(@"player.fillButton") isEqual:@"show"]),
+        @"fillButton":@NO,@"landscapeOnly":@YES,
         @"episodeSpacing":@([HGAppearanceString(@"player.separateProgress") isEqual:@"show"]),
         @"episodeGlass":@(HGAppearanceFlag(@"player.episodeGlass")),@"rightGlass":@(HGAppearanceFlag(@"player.rightGlass")),
         @"dock":@(HGAppearanceDockEnabled()),@"reason":@"scoped visual adapters; device behavior not verified"});
@@ -279,7 +279,7 @@ void HGInstallAppearance(void) {
         HGRecordCapability(@"module.appearance",@{@"module":@"appearance",
             @"state":HGAppearanceEnabled() ? (found ? @"partial":@"unavailable") : @"disabled",
             @"available":@(found),@"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),
-            @"playerFillMode":@"render-sublayers",
+            @"playerFillMode":@"render-sublayers",@"landscapeOnly":@YES,
             @"episodeGlass":@(HGAppearanceFlag(@"player.episodeGlass")),@"rightGlass":@(HGAppearanceFlag(@"player.rightGlass")),
             @"dock":@(HGAppearanceDockEnabled()),@"reason":@"scoped visual adapters; device behavior not verified"});
     }

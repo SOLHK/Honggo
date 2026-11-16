@@ -1,7 +1,7 @@
-// R13: reserve a separate touch strip below the episode capsule. The supplied
-// scene places the 44-point entry at y=822 and the progress owner at y=841.
-// Move the entry's native insert wrapper and its adjacent info group together;
-// the host still owns the slider, video canvas, constraints and all actions.
+// R14: leave a small visual gap above the progress rail, not the much taller
+// invisible scrubbing container. The captured 44-point entry at y=822 only
+// needs 13 points of lift above the rail at y=861. Preserve the native slider,
+// video canvas, constraints and actions, and never lift more than 16 points.
 @interface HGABottomPosition : NSObject
 @property(nonatomic,weak) UIView *view;
 @property(nonatomic,weak) UIView *parent;
@@ -19,9 +19,9 @@
 static char HGABottomLayoutKey;
 
 static NSArray<NSString *> *HGABottomControlClasses(void) {
-    // Exact control owner captured in the R12 screenshot diagnostic. Unknown
-    // host layouts keep their native spacing until their geometry is verified.
-    return @[@"FQVShortVideoDerivativeVideoControlView"];
+    // Both native HUD owners are already recognized by the player adapter.
+    // Their episode/progress geometry must still pass the checks below.
+    return @[@"FQVShortVideoDerivativeVideoControlView",@"FQVShortVideoControlView"];
 }
 static BOOL HGAIsBottomControl(UIView *view) {
     for(Class cls=object_getClass(view);cls && cls!=UIView.class;cls=class_getSuperclass(cls))
@@ -42,13 +42,8 @@ static void HGARestoreBottomPosition(HGABottomPosition *position) {
     if(owned && !CGPointEqualToPoint(view.center,source))view.center=source;
 }
 static void HGARestoreBottomState(HGABottomLayoutState *state) {
-    UIView *info=state.info.view,*entry=state.entry.view;
-    CGPoint oldInfo=info.center,oldEntry=entry.center;
     HGARestoreBottomPosition(state.entry);HGARestoreBottomPosition(state.info);
     state.lastLift=0;
-    if((info && !CGPointEqualToPoint(oldInfo,info.center)) ||
-        (entry && !CGPointEqualToPoint(oldEntry,entry.center)))
-        HGARefreshPlayerFillControls(HGAPlayerCanvas(info ?: entry));
 }
 static void HGARestoreBottomLayoutForView(UIView *view) {
     UIView *control=HGABottomControlForView(view);
@@ -91,6 +86,63 @@ static BOOL HGABottomHasCustomGeometry(void) {
     }
     return NO;
 }
+static BOOL HGABottomViewIsA(UIView *view,NSString *name) {
+    Class cls=NSClassFromString(name);
+    return cls && [view isKindOfClass:cls];
+}
+static BOOL HGABottomNativeCoordinates(UIView *view,UIView *control) {
+    for(NSUInteger depth=0;view && depth<12;depth++,view=view.superview) {
+        if(!CGAffineTransformIsIdentity(view.transform))return NO;
+        if(view==control)return YES;
+    }
+    return NO;
+}
+static BOOL HGABottomTrackCandidate(CGRect rect,CGRect bounds) {
+    return !CGRectIsEmpty(rect) && !CGRectIsInfinite(rect) &&
+        isfinite(rect.origin.x) && isfinite(rect.origin.y) &&
+        rect.size.width>=bounds.size.width*0.65 && rect.size.width<=bounds.size.width+1 &&
+        rect.size.height>=0.5 && rect.size.height<=6 &&
+        CGRectContainsRect(CGRectInset(bounds,-1,-1),rect);
+}
+typedef NS_ENUM(NSUInteger,HGABottomRailResult) {
+    HGABottomRailUnknown,HGABottomRailMeasured,HGABottomRailHidden,HGABottomRailAmbiguous
+};
+static HGABottomRailResult HGABottomProgressRail(UIView *progress,UIView *control,CGRect *result) {
+    // Scope this geometric reading to the verified native progress owner.
+    // UIKit sliders expose a track rect; the host's custom rail is a broad,
+    // thin view/layer inside that owner. Never resize or intercept either.
+    CGRect rail=CGRectNull;BOOL hiddenRail=NO;
+    for(UIView *candidate in HGADescendants(progress,48)) {
+        if(!HGABottomNativeCoordinates(candidate,progress))continue;
+        BOOL visible=HGAVisible(candidate);
+        CGRect rect=CGRectNull;
+        if([candidate isKindOfClass:UISlider.class]) {
+            UISlider *slider=(id)candidate;
+            rect=[slider convertRect:[slider trackRectForBounds:slider.bounds] toView:progress];
+        } else if(candidate!=progress)rect=[candidate convertRect:candidate.bounds toView:progress];
+        if(HGABottomTrackCandidate(rect,progress.bounds)) {
+            if(!visible)hiddenRail=YES;
+            else {
+                if(!CGRectIsNull(rail) && fabs(CGRectGetMidY(rail)-CGRectGetMidY(rect))>2)return HGABottomRailAmbiguous;
+                rail=CGRectIsNull(rail)?rect:CGRectUnion(rail,rect);
+            }
+        }
+        // Some host builds draw their track directly with a CALayer.
+        for(CALayer *layer in candidate.layer.sublayers) {
+            if(!CATransform3DIsIdentity(layer.transform) ||
+                !CATransform3DIsIdentity(candidate.layer.sublayerTransform))continue;
+            CGRect layerRect=[layer convertRect:layer.bounds toLayer:progress.layer];
+            if(!HGABottomTrackCandidate(layerRect,progress.bounds))continue;
+            if(!visible || layer.hidden || layer.opacity<0.01){hiddenRail=YES;continue;}
+            if(!CGRectIsNull(rail) && fabs(CGRectGetMidY(rail)-CGRectGetMidY(layerRect))>2)return HGABottomRailAmbiguous;
+            rail=CGRectIsNull(rail)?layerRect:CGRectUnion(rail,layerRect);
+        }
+    }
+    if(CGRectIsNull(rail))return hiddenRail?HGABottomRailHidden:HGABottomRailUnknown;
+    if(rail.size.height>6)return HGABottomRailAmbiguous;
+    *result=[progress convertRect:rail toView:control];
+    return HGABottomRailMeasured;
+}
 static void HGAUpdateBottomLayoutForView(UIView *view) {
     UIView *control=HGABottomControlForView(view);
     if(!control)return;
@@ -99,22 +151,26 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
         !HGAVisible(control) || control.bounds.size.height<=control.bounds.size.width ||
         HGABottomHasCustomGeometry()) {HGARestoreBottomState(state);return;}
     UIView *progress=nil,*wrapper=nil,*info=nil;
-    BOOL ambiguous=NO;
-    for(UIView *child in control.subviews) {
-        if(!HGAVisible(child))continue;
-        NSString *name=NSStringFromClass(child.class);
-        if([name isEqual:@"FQVShortVideoProgressView"]) {
+    BOOL ambiguous=NO,ambiguousInfo=NO;
+    // A native layout may add a neutral intermediate container. Find only the
+    // recognized components belonging to this HUD, never a nested player HUD.
+    for(UIView *child in HGADescendants(control,96)) {
+        if(child==control || !HGAVisible(child) || HGABottomControlForView(child)!=control)continue;
+        if(HGABottomViewIsA(child,@"FQVShortVideoProgressView")) {
             if(progress){ambiguous=YES;break;}progress=child;
-        } else if([name isEqual:@"FQVShortVideoBaseInsertView"] && child.subviews.count==1 &&
+        } else if(HGABottomViewIsA(child,@"FQVShortVideoBaseInsertView") && child.subviews.count==1 &&
             [HGARole(child.subviews.firstObject) isEqual:@"episodes"] && HGAVisible(child.subviews.firstObject)) {
             if(wrapper){ambiguous=YES;break;}wrapper=child;
-        } else if([name isEqual:@"SSShortVideoDerivateInfoView"] ||
-            [name isEqual:@"SSShortVideoOutterSeriesInfoView"]) {
-            if(info){ambiguous=YES;break;}info=child;
+        } else if(child.superview==control &&
+            (HGABottomViewIsA(child,@"SSShortVideoDerivateInfoView") ||
+             HGABottomViewIsA(child,@"SSShortVideoOutterSeriesInfoView"))) {
+            // Multiple independent HUD groups are left in their native place.
+            if(info)ambiguousInfo=YES;else info=child;
         }
     }
-    if(ambiguous || !progress || !wrapper || !CGAffineTransformIsIdentity(wrapper.transform) ||
-        !CGAffineTransformIsIdentity(progress.transform) || (info && !CGAffineTransformIsIdentity(info.transform))) {
+    if(ambiguousInfo)info=nil;
+    if(ambiguous || !progress || !wrapper || !HGABottomNativeCoordinates(wrapper,control) ||
+        !HGABottomNativeCoordinates(progress,control)) {
         HGARestoreBottomState(state);return;
     }
     if(!state) {
@@ -126,31 +182,45 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     state.info=HGABottomPositionForView(state.info,info);
     CGRect entryRect=HGABottomNativeRect(wrapper,control,state.entry);
     CGRect progressRect=[progress convertRect:progress.bounds toView:control];
+    CGRect railRect=CGRectNull;
     CGFloat width=control.bounds.size.width,height=control.bounds.size.height;
     BOOL ordinary=entryRect.size.height>=32 && entryRect.size.height<=80 &&
         entryRect.size.width>=width*0.65 && progressRect.size.width>=width*0.65 &&
-        progressRect.size.height>=16 && progressRect.size.height<=80 &&
+        progressRect.size.height>=6 && progressRect.size.height<=80 &&
         CGRectGetMinY(entryRect)>height*0.55 && CGRectGetMinY(progressRect)>height*0.60;
-    CGFloat lift=MAX(0,CGRectGetMaxY(entryRect)-CGRectGetMinY(progressRect)+8);
-    if(!ordinary || !isfinite(lift) || lift>64) {HGARestoreBottomState(state);return;}
-    if(info) {
+    if(!ordinary) {HGARestoreBottomState(state);return;}
+    HGABottomRailResult railResult=HGABottomProgressRail(progress,control,&railRect);
+    BOOL measured=railResult==HGABottomRailMeasured;
+    CGFloat needed=0;
+    if(measured)needed=MAX(0,CGRectGetMaxY(entryRect)-CGRectGetMinY(railRect)+8);
+    else if(railResult==HGABottomRailUnknown && progressRect.size.height>=20 && progressRect.size.height<=40 &&
+        CGRectGetMaxY(entryRect)>=CGRectGetMinY(progressRect)+10 &&
+        CGRectGetMaxY(entryRect)<=CGRectGetMaxY(progressRect)+4) {
+        // The exact native progress owner can draw its rail directly. Only in
+        // its observed compact geometry, use a bounded ten-point nudge; do not
+        // infer a thin rail from the entire touch strip or reserve extra space.
+        needed=10;
+    } else {HGARestoreBottomState(state);return;}
+    if(!isfinite(needed) || needed>20) {HGARestoreBottomState(state);return;}
+    CGFloat lift=MIN(16,needed);
+    BOOL adjacentInfo=NO;
+    if(info && HGABottomNativeCoordinates(info,control) && ![wrapper isDescendantOfView:info] &&
+        ![progress isDescendantOfView:info]) {
         CGRect infoRect=HGABottomNativeRect(info,control,state.info);
-        if(CGRectGetMaxY(infoRect)>CGRectGetMinY(entryRect)+2 ||
-            CGRectGetMaxY(infoRect)<CGRectGetMinY(entryRect)-80) {
-            HGARestoreBottomState(state);return;
-        }
+        adjacentInfo=CGRectGetMaxY(infoRect)<=CGRectGetMinY(entryRect)+2 &&
+            CGRectGetMaxY(infoRect)>=CGRectGetMinY(entryRect)-80;
     }
-    CGPoint oldInfo=info.center,oldEntry=wrapper.center;
     [CATransaction begin];[CATransaction setDisableActions:YES];
-    HGAApplyBottomPosition(state.entry,lift);HGAApplyBottomPosition(state.info,lift);
+    HGAApplyBottomPosition(state.entry,lift);
+    // An overlay HUD can extend to the bottom of the canvas. Its bounds are
+    // not the metadata's visible edge; leave it in place instead of abandoning
+    // the episode correction or dragging the full-screen HUD upward.
+    HGAApplyBottomPosition(state.info,adjacentInfo?lift:0);
     [CATransaction commit];
-    // The fill button lives in this native HUD. Recompute its canvas-relative
-    // frame after moving the HUD, within the same guarded layout pass.
-    if((info && !CGPointEqualToPoint(oldInfo,info.center)) ||
-        !CGPointEqualToPoint(oldEntry,wrapper.center))
-        HGARefreshPlayerFillControls(HGAPlayerCanvas(control));
     if(fabs(state.lastLift-lift)>0.01 && HGEnhancedDiagnostics())
-        HGLog(@"appearance.episode-spacing",@{@"lift":@(lift),@"touchGap":@8,
+        HGLog(@"appearance.episode-spacing",@{@"lift":@(lift),@"targetGap":@8,
+            @"measuredGap":measured?@(CGRectGetMinY(railRect)-CGRectGetMaxY(entryRect)+lift):NSNull.null,
+            @"railMeasured":@(measured),@"capped":@(needed>16),
             @"sliderPreserved":@YES,@"mode":@"native-wrapper-centers"});
     state.lastLift=lift;
 }

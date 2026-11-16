@@ -238,14 +238,13 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:CGRectMake(50,0,200,300)];[canvas addSubview:render];
     UIView *hud=[[UIView alloc] initWithFrame:CGRectMake(250,100,44,44)];[canvas addSubview:hud];CGRect hudFrame=hud.frame;
     HGAppearanceSet(@"player.fullscreen",@YES,nil);Layout(render);
-    Check(render.layer.sublayerTransform.m11>1 &&
-        fabs(render.layer.sublayerTransform.m11-render.layer.sublayerTransform.m22)<0.001 &&
-        CGAffineTransformIsIdentity(render.transform),@"portrait fullscreen uniformly scales render sublayers with native view geometry");
-    Check(CGRectEqualToRect(hud.frame,hudFrame),@"fullscreen preserves HUD frame and hit target");
-    HGAppearanceSet(@"player.fullscreen",@NO,nil);Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && CGAffineTransformIsIdentity(render.transform),@"fullscreen can be reversed");
+    Check(CATransform3DIsIdentity(render.layer.sublayerTransform) &&
+        CGAffineTransformIsIdentity(render.transform),@"landscape fill never enlarges portrait playback");
+    Check(CGRectEqualToRect(hud.frame,hudFrame),@"the landscape setting preserves native HUD frame and hit target");
+    HGAppearanceSet(@"player.fullscreen",@NO,nil);Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && CGAffineTransformIsIdentity(render.transform),@"disabling landscape fill also leaves portrait playback native sized");
     render.frame=CGRectMake(0,70,300,170);CGRect wide=render.frame;
     HGAppearanceSet(@"player.fullscreen",@YES,nil);Layout(render);
-    Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && CGAffineTransformIsIdentity(render.transform) && CGRectEqualToRect(wide,render.frame),@"landscape video preserves size and placement");
+    Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && CGAffineTransformIsIdentity(render.transform) && CGRectEqualToRect(wide,render.frame),@"a wide video in the portrait feed preserves size and placement");
     render.frame=CGRectMake(0,0,300,300);Layout(render);
     Check(CATransform3DIsIdentity(render.layer.sublayerTransform) && CGAffineTransformIsIdentity(render.transform),@"square video remains native sized");
     RunPlaybackAppearanceChecks(root);
@@ -318,6 +317,18 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     UISearchController *search=page.navigationItem.searchController;search.searchBar.text=@"layout.like";
     [search.searchResultsUpdater updateSearchResultsForSearchController:search];
     Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==4,@"appearance search resolves stable per-control keys");
+    search.searchBar.text=@"横屏铺满";
+    [search.searchResultsUpdater updateSearchResultsForSearchController:search];
+    Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==1,
+        @"the plugin settings expose one landscape fill switch");
+    UITableViewCell *fillSetting=[page.tableView.dataSource tableView:page.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
+    Check([fillSetting.accessibilityIdentifier isEqual:@"honggo.appearance.setting.player.fullscreen"] &&
+        [fillSetting.accessoryView isKindOfClass:UISwitch.class],
+        @"landscape fill is a settings switch instead of a playback-page button");
+    search.searchBar.text=@"player.fillButton";
+    [search.searchResultsUpdater updateSearchResultsForSearchController:search];
+    Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==0,
+        @"removed fill button visibility is no longer offered in plugin settings");
     search.searchBar.text=@"TG Naloiafeed";
     [search.searchResultsUpdater updateSearchResultsForSearchController:search];
     Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==1,@"appearance search finds the Telegram channel");

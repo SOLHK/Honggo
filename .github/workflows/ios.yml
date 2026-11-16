@@ -218,13 +218,14 @@ jobs:
             "Honggo ${PLUGIN_VERSION} testing build from GitHub Actions #${GITHUB_RUN_NUMBER}." \
             "Source commit: ${GITHUB_SHA}" \
             "Built with Xcode 27.2 / iPhoneOS SDK 27.2. Required UIKit regression suites ran on the pinned iOS 27.2 simulator, not a fallback runtime." \
-            "R13 removes content-coordinate masks from Mine horizontal pagers so repeated History/Collection taps retain native animated paging." \
-            "Right actions use neutral white SF Symbols, compact clear material and actual host liked/collected colours, retaining native taps and counts." \
-            "Long-press and share sheets use a readable grouped system-blur base, continuous top corners and native share destinations without dock lens distortion." \
-            "Adds a Fill screen / Restore aspect button. Manual landscape and square fill crops uniformly inside the native playback canvas; automatic fill remains portrait-only." \
-            "Separates the episode capsule and the entire native scrub touch strip by 8 points in the observed derivative-player layout, retaining native slider geometry." \
+            "R14 removes the added Fill screen / Restore aspect button from the playback page." \
+            "Landscape fill is controlled in plugin Appearance / Playback layout settings through the existing player.fullscreen preference, disabled by default." \
+            "Fill applies only when the playback window, native playback canvas and video content are all landscape. Portrait playback, portrait video and square video keep their native aspect." \
+            "The episode capsule moves up only as needed for about 8 points of visible clearance above the progress track; the full scrub touch strip no longer determines the visual gap." \
+            "Retains native episode actions and slider geometry, with restoration on layout changes and feature disable." \
+            "Retains R13 Mine pager clipping fixes, neutral state-aware action icons and grouped native share sheets." \
             "Retains R12 renderer-transfer cleanup, reentrancy-safe dock restoration, native video pagination and R8 host-owned playback callbacks." \
-            "Required UIKit regressions exercise pager masks, action state and restoration, sheet ownership, manual fill reuse/transfer and episode hit-target separation." \
+            "Required UIKit regressions cover playback orientation gates, renderer restoration and transfer, absence of the added page button, and bounded episode/progress spacing." \
             "Retains independent appearance customization and the TG update channel https://t.me/Naloiafeed." \
             "Reference behavior was studied; implementation is written for Honggo without importing NaiwaGuo source or assets." \
             "Actual Hongguo iPhone appearance, playback and ad disappearance remain unverified." \

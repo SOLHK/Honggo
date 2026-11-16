@@ -1,7 +1,7 @@
 name: Appearance development
 on:
   push:
-    branches: [work/appearance-r5, work/r13-ui-paging]
+    branches: [work/appearance-r5, work/r13-ui-paging, work/r14-playback]
 permissions:
   contents: read
 env:
