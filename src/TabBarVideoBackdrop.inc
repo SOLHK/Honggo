@@ -20,9 +20,13 @@ static char HGVideoBackdropLinkKey;
 @property(nonatomic, weak) UIView *bar;
 @property(nonatomic, weak) UIViewController *owner;
 @property(nonatomic, strong) UIView *underlay;
+@property(nonatomic, weak) UIView *portraitRenderer;
+@property(nonatomic) CATransform3D portraitTransform;
+@property(nonatomic, strong) NSMutableSet<UIView *> *portraitClips;
 @property(nonatomic) BOOL ownsClipping;
 @property(nonatomic) BOOL refreshing;
 - (void)refreshFeed;
+- (void)prepareRendererTransfer:(UIView *)view;
 @end
 
 static BOOL HGVideoBackdropVisible(UIView *view, UIView *root) {
@@ -110,7 +114,7 @@ static BOOL HGVideoBackdropCrossesBottom(UICollectionView *feed, CGRect cellFram
     return CGRectGetMinY(cellFrame) > top + 0.75 && CGRectGetMaxY(cellFrame) > bottom + 0.75;
 }
 
-static UIColor *HGVideoBackdropMatte(UICollectionViewCell *cell, UICollectionView *feed) {
+static UIView *HGVideoBackdropCanvas(UICollectionViewCell *cell, UICollectionView *feed) {
     Class canvasClass = NSClassFromString(@"FQVShortVideoPlayerCellView");
     CGRect viewport = feed.bounds;
     CGFloat bottom = CGRectGetMaxY(viewport);
@@ -120,16 +124,71 @@ static UIColor *HGVideoBackdropMatte(UICollectionViewCell *cell, UICollectionVie
         if (CGRectGetMinY(frame) >= bottom - 0.75 || CGRectGetMaxY(frame) < bottom - 0.75 ||
             fabs(CGRectGetMinX(frame) - CGRectGetMinX(viewport)) > 0.75 ||
             fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(viewport)) > 0.75) continue;
-        // The host's refreshBgColor resolves its per-video palette on this view.
-        UIColor *color = [canvas.backgroundColor resolvedColorWithTraitCollection:canvas.traitCollection];
-        CGFloat alpha = 0;
-        if ([color getRed:NULL green:NULL blue:NULL alpha:&alpha] && alpha >= 0.99) return color;
+        return canvas;
+    }
+    return nil;
+}
+
+static UIColor *HGVideoBackdropMatte(UIView *canvas) {
+    // The host's refreshBgColor resolves its per-video palette on this view.
+    UIColor *color = [canvas.backgroundColor resolvedColorWithTraitCollection:canvas.traitCollection];
+    CGFloat alpha = 0;
+    return [color getRed:NULL green:NULL blue:NULL alpha:&alpha] && alpha >= 0.99 ? color : nil;
+}
+
+static BOOL HGVideoBackdropSameRect(CGRect a, CGRect b, CGFloat tolerance) {
+    return fabs(CGRectGetMinX(a)-CGRectGetMinX(b)) <= tolerance &&
+        fabs(CGRectGetMinY(a)-CGRectGetMinY(b)) <= tolerance &&
+        fabs(CGRectGetMaxX(a)-CGRectGetMaxX(b)) <= tolerance &&
+        fabs(CGRectGetMaxY(a)-CGRectGetMaxY(b)) <= tolerance;
+}
+
+static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView *feed, CGRect cellFrame) {
+    CGRect viewport = feed.bounds;
+    if (!canvas || feed.dragging || feed.decelerating ||
+        !HGVideoBackdropSameRect(cellFrame, viewport, 0.75)) return nil;
+    Class playerClass = NSClassFromString(@"FQVPlayer");
+    Class rendererClass = NSClassFromString(@"TTPlayerView");
+    Class metalClass = NSClassFromString(@"TTMetalView");
+    for (UIView *wrapper in canvas.subviews) {
+        UIView *player = wrapper.subviews.firstObject;
+        if (wrapper.class != UIView.class || wrapper.subviews.count != 1 ||
+            ![player isKindOfClass:playerClass]) continue;
+        for (UIView *renderer in player.subviews) {
+            if (![renderer isKindOfClass:rendererClass] || !HGVideoBackdropVisible(renderer, feed) ||
+                HGAppearancePlayerIsTransferring(renderer) || renderer.subviews.count != 1 ||
+                renderer.layer.sublayers.count != 1) continue;
+            UIView *metal = renderer.subviews.firstObject;
+            if (![metal isKindOfClass:metalClass] || !HGVideoBackdropVisible(metal, renderer) ||
+                renderer.layer.sublayers.firstObject != metal.layer ||
+                !CGPointEqualToPoint(renderer.layer.anchorPoint, CGPointMake(0.5,0.5))) continue;
+            CGFloat pixel = 1 / MAX(1, renderer.traitCollection.displayScale) + 0.01;
+            if (!HGVideoBackdropSameRect([renderer convertRect:renderer.bounds toView:feed],viewport,pixel))
+                continue;
+            // A portrait frame can already be wider than its crop. The real
+            // 9:16 surface extends 23.56pt on each side of the 440pt renderer.
+            CGRect video = metal.frame, bounds = renderer.bounds;
+            if (CGRectGetHeight(video) <= CGRectGetWidth(video) ||
+                fabs(CGRectGetMinY(video)-CGRectGetMinY(bounds)) > pixel ||
+                fabs(CGRectGetMaxY(video)-CGRectGetMaxY(bounds)) > pixel ||
+                fabs(CGRectGetMidX(video)-CGRectGetMidX(bounds)) > pixel ||
+                CGRectGetWidth(video) < CGRectGetWidth(bounds)-pixel) continue;
+            BOOL clippedByHostMask = NO;
+            for (UIView *node = renderer; node != feed; node = node.superview) {
+                if (node.layer.mask || (node != renderer && !CATransform3DIsIdentity(node.layer.sublayerTransform))) {
+                    clippedByHostMask = YES;
+                    break;
+                }
+            }
+            if (!clippedByHostMask) return renderer;
+        }
     }
     return nil;
 }
 
 @implementation HGVideoBackdrop
 - (void)dealloc {
+    [self restorePortrait];
     if (_ownsClipping) _feed.clipsToBounds = YES;
     [_underlay removeFromSuperview];
 }
@@ -140,11 +199,55 @@ static UIColor *HGVideoBackdropMatte(UICollectionViewCell *cell, UICollectionVie
     if (owned && !self.feed.clipsToBounds) self.feed.clipsToBounds = YES;
 }
 
+- (void)restorePortrait {
+    UIView *renderer = self.portraitRenderer;
+    NSMutableSet<UIView *> *clips = self.portraitClips;
+    self.portraitRenderer = nil;
+    self.portraitClips = nil;
+    if (!renderer && !clips.count) return;
+    [CATransaction begin]; [CATransaction setDisableActions:YES];
+    if (renderer && CATransform3DEqualToTransform(renderer.layer.sublayerTransform,self.portraitTransform))
+        renderer.layer.sublayerTransform = CATransform3DIdentity;
+    for (UIView *view in clips) if (!view.clipsToBounds) view.clipsToBounds = YES;
+    [CATransaction commit];
+}
+
+- (BOOL)extendPortrait:(UIView *)renderer {
+    if (self.portraitRenderer != renderer) [self restorePortrait];
+    if (!renderer) return NO;
+    CATransform3D current = renderer.layer.sublayerTransform;
+    if (!CATransform3DIsIdentity(current) &&
+        (self.portraitRenderer != renderer || !CATransform3DEqualToTransform(current,self.portraitTransform))) {
+        [self restorePortrait];
+        return NO;
+    }
+    CGFloat visibleHeight = CGRectGetHeight(self.feed.bounds);
+    CGFloat extra = CGRectGetMaxY(self.feed.superview.bounds) - CGRectGetMaxY(self.feed.frame);
+    CGFloat zoom = (visibleHeight + extra) / visibleHeight;
+    CATransform3D fill = CATransform3DMakeScale(zoom,zoom,1);
+    // Keep the existing top as the anchor and extend downward to the window.
+    fill.m42 = extra / 2;
+    if (!self.portraitClips) self.portraitClips = [NSMutableSet set];
+    self.portraitRenderer = renderer;
+    self.portraitTransform = fill;
+    [CATransaction begin]; [CATransaction setDisableActions:YES];
+    if (!CATransform3DEqualToTransform(current,fill)) renderer.layer.sublayerTransform = fill;
+    for (UIView *view = renderer; view && view != self.feed; view = view.superview) {
+        if (view.clipsToBounds) {
+            [self.portraitClips addObject:view];
+            view.clipsToBounds = NO;
+        }
+    }
+    [CATransaction commit];
+    return YES;
+}
+
 - (void)removeFeed {
     UICollectionView *feed = self.feed;
     HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
     if (link.owner == self)
         objc_setAssociatedObject(feed, &HGVideoBackdropLinkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [self restorePortrait];
     [self restoreClipping];
     [self.underlay removeFromSuperview];
     self.underlay = nil;
@@ -193,11 +296,14 @@ static UIColor *HGVideoBackdropMatte(UICollectionViewCell *cell, UICollectionVie
 
     CGRect cellFrame = CGRectNull;
     UICollectionViewCell *cell = HGVideoBackdropCellAtBottom(feed, &cellFrame);
-    [self updateUnderlay:HGVideoBackdropMatte(cell, feed)];
+    UIView *canvas = HGVideoBackdropCanvas(cell, feed);
+    UIView *renderer = HGVideoBackdropPortraitRenderer(canvas, feed, cellFrame);
+    BOOL fillsPortrait = [self extendPortrait:renderer];
+    [self updateUnderlay:fillsPortrait ? nil : HGVideoBackdropMatte(canvas)];
 
     // A prefetched next cell can already exist at the exact edge while idle.
     // Only a visible cell with a portion on both sides may draw below the feed.
-    if (!cell || !HGVideoBackdropCrossesBottom(feed, cellFrame)) {
+    if (!fillsPortrait && (!cell || !HGVideoBackdropCrossesBottom(feed, cellFrame))) {
         [self restoreClipping];
         return;
     }
@@ -206,6 +312,13 @@ static UIColor *HGVideoBackdropMatte(UICollectionViewCell *cell, UICollectionVie
         self.ownsClipping = YES;
         feed.clipsToBounds = NO;
     }
+}
+
+- (void)prepareRendererTransfer:(UIView *)view {
+    UIView *renderer = self.portraitRenderer;
+    if (!renderer || (renderer != view && ![renderer isDescendantOfView:view])) return;
+    [self restorePortrait];
+    [self restoreClipping];
 }
 
 - (void)refreshFeed {
@@ -287,13 +400,24 @@ BOOL HGVideoBackdropRefreshForFeed(UIScrollView *feed) {
     return YES;
 }
 
-void HGVideoBackdropNativeColorDidChange(UIView *canvas) {
-    if (!NSThread.isMainThread) return;
+static UIScrollView *HGVideoBackdropPlayerFeed(UIView *view) {
     Class feedClass = NSClassFromString(@"FQVCollectionView");
-    for (UIView *view = canvas.superview; view; view = view.superview) {
-        if ([view isKindOfClass:feedClass] && [view isKindOfClass:UICollectionView.class]) {
-            HGVideoBackdropRefreshForFeed((UIScrollView *)view);
-            return;
-        }
-    }
+    for (UIView *node = view.superview; node; node = node.superview)
+        if ([node isKindOfClass:feedClass] && [node isKindOfClass:UICollectionView.class])
+            return (UIScrollView *)node;
+    return nil;
+}
+
+void HGRefreshVideoBackdropForPlayer(UIView *view) {
+    if (!NSThread.isMainThread) return;
+    UIScrollView *feed = HGVideoBackdropPlayerFeed(view);
+    if (feed) HGVideoBackdropRefreshForFeed(feed);
+}
+
+void HGVideoBackdropPrepareRendererTransfer(UIView *view) {
+    if (!NSThread.isMainThread) return;
+    UIScrollView *feed = HGVideoBackdropPlayerFeed(view);
+    if (!feed) return;
+    HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
+    [link.owner prepareRendererTransfer:view];
 }

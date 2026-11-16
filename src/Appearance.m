@@ -17,7 +17,6 @@ static BOOL HGAApplying;
 static NSHashTable<UIView *> *HGAManaged;
 static NSHashTable<UIViewController *> *HGAControllers;
 static NSHashTable<UIView *> *HGABars;
-static NSString *const HGADockThinMaterial=@"thin";
 static void HGARefreshAssets(void);
 static void HGAApplyTypography(UIView *root);
 static void HGAObserveFeed(UIScrollView *feed);
@@ -25,6 +24,11 @@ static void HGARefreshDock(UIView *bar);
 static NSArray<NSString *> *HGABottomControlClasses(void);
 static void HGAUpdateBottomLayoutForView(UIView *view);
 static void HGARestoreBottomLayoutForView(UIView *view);
+
+static void HGARefreshBackdropAfterScroll(id scroll) {
+    if ([scroll isKindOfClass:NSClassFromString(@"FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class])
+        HGRefreshVideoBackdropForFeed(scroll);
+}
 static CGRect HGADockRectInView(UIView *coordinateView);
 
 UIColor *HGAppearanceColor(NSString *hex, UIColor *fallback) {
@@ -37,7 +41,6 @@ UIColor *HGAppearanceColor(NSString *hex, UIColor *fallback) {
 }
 UIVisualEffect *HGAppearanceMaterial(NSString *style) {
     if (UIAccessibilityIsReduceTransparencyEnabled() || [style isEqual:@"solid"]) return nil;
-    if ([style isEqual:HGADockThinMaterial]) return [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial];
     if (@available(iOS 26.0, *)) {
         if (![style isEqual:@"blur"] && HGNativeGlassConfigured()) {
             UIGlassEffect *glass = [UIGlassEffect effectWithStyle:
@@ -126,6 +129,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL playerCanvas=[className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL paletteChange=playerCanvas && selector==sel_registerName("refreshBgColor");
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
+    BOOL scrollComponent=[className isEqual:@"FQVShortVideoListVCScrollComponent"];
     BOOL episode=[HGAViewRoles()[className] isEqual:@"episodes"];
     BOOL episodeWrapper=[className isEqual:@"FQVShortVideoBaseInsertView"];
     BOOL bottomParticipant=episodeWrapper || [HGABottomControlClasses() containsObject:className] ||
@@ -138,11 +142,14 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             BOOL wasApplying=HGAApplying;
             if(recycling)HGAApplying=YES;
             @try {
-                if(recycling)HGAResetPlayerFillState(object);
+                if(recycling) {
+                    HGVideoBackdropPrepareRendererTransfer(object);
+                    HGAResetPlayerFillState(object);
+                }
                 ((void(*)(id,SEL))original)(object,selector);
             } @finally {if(recycling)HGAApplying=wasApplying;}
             if(paletteChange) {
-                HGVideoBackdropNativeColorDidChange(object);
+                if(!HGAApplying)HGRefreshVideoBackdropForPlayer(object);
                 return;
             }
             if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
@@ -166,6 +173,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             @try {
                 if(guarded && transfer) {
                     HGAPreparePlayerTransfer(object,selector);
+                    HGVideoBackdropPrepareRendererTransfer(object);
                     HGATracePlayerTransfer(object,selector,argument,invocation,@"prepared");
                 }
                 if(guarded && episodeMove)HGAApplyEpisodeCorners(object,NO,0);
@@ -178,12 +186,15 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGATracePlayerTransfer(object,selector,argument,invocation,completed?@"return":@"exception");
             }
             if(episodeWrapper && selector==@selector(didAddSubview:))HGAEpisodeWrapperChanged(object);
-            if(!transfer && !episodeMove && !bottomMove)HGAppearanceProcessView(object);
+            if(scrollComponent)HGARefreshBackdropAfterScroll(argument);
+            else if(!transfer && !episodeMove && !bottomMove)HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v28@0:8@16B24")) {
         replacement=imp_implementationWithBlock(^(id object,id argument,BOOL animated) {
             ((void(*)(id,SEL,id,BOOL))original)(object,selector,argument,animated);
-            HGAppearanceProcessView(object);
+            if(scrollComponent) {
+                if(!animated)HGARefreshBackdropAfterScroll(argument);
+            } else HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v20@0:8B16")) {
         replacement=imp_implementationWithBlock(^(id object,BOOL value) {
@@ -265,6 +276,12 @@ void HGInstallAppearance(void) {
                     if (class_getInstanceMethod(cls,sel)) HGAHook(cls,sel,types[i],NO);
                 }
             }
+        }
+        Class scrollComponent=NSClassFromString(@"FQVShortVideoListVCScrollComponent");
+        if(scrollComponent) {
+            HGAHook(scrollComponent,@selector(scrollViewDidEndDecelerating:),"v24@0:8@16",NO);
+            HGAHook(scrollComponent,@selector(scrollViewDidEndScrollingAnimation:),"v24@0:8@16",NO);
+            HGAHook(scrollComponent,@selector(scrollViewDidEndDragging:willDecelerate:),"v28@0:8@16B24",NO);
         }
         for (NSString *name in HGAPanelControllers()) {
             Class cls=NSClassFromString(name);

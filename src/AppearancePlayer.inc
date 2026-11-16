@@ -34,6 +34,9 @@ static UIView *HGAPlayerCanvas(UIView *view) {
         if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"])return view;
     return nil;
 }
+BOOL HGAppearancePlayerIsTransferring(UIView *view) {
+    return HGAPlayerState(view,NO).transferFlags || HGAPlayerState(HGAPlayerCanvas(view),NO).transferFlags;
+}
 static void HGAPlayerFillStatus(UIView *render,NSString *status,CGFloat zoom) {
     HGAPlayerFillState *state=HGAPlayerState(render,YES);
     if([state.lastStatus isEqual:status])return;
@@ -198,6 +201,9 @@ static void HGAResetPlayerFillState(UIView *canvas) {
 static void HGAPlayerModelWillChange(UIView *canvas,id model) {
     HGAPlayerFillState *state=HGAPlayerState(canvas,YES);
     // Model identity is used in memory only. Do not retain or log content.
-    if(!state.tracksModel || state.contentModel!=model)HGAResetPlayerFillState(canvas);
+    if(!state.tracksModel || state.contentModel!=model) {
+        HGVideoBackdropPrepareRendererTransfer(canvas);
+        HGAResetPlayerFillState(canvas);
+    }
     state.contentModel=model;state.tracksModel=YES;
 }

@@ -41,31 +41,40 @@ static void CheckR15GeometryMigration(void) {
         @"nondefault user geometry and a radius paired with custom height remain unchanged");
 
     SeedR14Appearance(nil);
-    Check(HGAppearanceNumber(@"dock.height")==62 && HGAppearanceNumber(@"dock.radius")==31 &&
-        HGAppearanceNumber(@"dock.extraSize")==62 && HGAppearanceNumber(@"icons.size")==28 &&
-        !HGAppearanceEnabled(),@"a fresh R15 install gets the new dimensions with appearance still opt-in");
+    Check(HGAppearanceNumber(@"dock.height")==70 && HGAppearanceNumber(@"dock.radius")==35 &&
+        HGAppearanceNumber(@"dock.extraSize")==70 && HGAppearanceNumber(@"icons.size")==28 &&
+        !HGAppearanceEnabled(),@"a fresh install gets the current dimensions with appearance still opt-in");
 }
-static void CheckDockWidthMigration(void) {
+static void CheckR20GeometryMigration(void) {
     NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
-    NSString *key=@"Honggo.Appearance.dockWidthMigrated";
+    NSString *key=@"Honggo.Appearance.r20GeometryMigrated";
     [defaults removeObjectForKey:key];
-    SeedR14Appearance(@{@"dock.width":@0.94,@"dock.height":@70});
-    Check(fabs(HGAppearanceNumber(@"dock.width")-0.905)<0.0001 &&
-        HGAppearanceNumber(@"dock.height")==70 && [defaults boolForKey:key],
-        @"previous stock dock width migrates once with custom height intact");
-    HGAppearanceSet(@"dock.width",@0.94,nil);
+    NSDictionary *oldStock=@{@"dock.width":@0.905,@"dock.height":@62,@"dock.radius":@31,
+        @"dock.iconSize":@26,@"dock.extraSize":@62};
+    SeedR14Appearance(oldStock);
+    NSDictionary *migrated=HGAppearanceValues();
+    Check([migrated[@"dock.width"] isEqual:@0.94] && [migrated[@"dock.height"] isEqual:@70] &&
+        [migrated[@"dock.radius"] isEqual:@35] && [migrated[@"dock.iconSize"] isEqual:@30] &&
+        [migrated[@"dock.extraSize"] isEqual:@70] && [defaults boolForKey:key],
+        @"a complete R19 stock dock moves to the wider proportions once");
+    HGAppearanceApply(oldStock,nil);
     [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:defaults];
-    Check(HGAppearanceNumber(@"dock.width")==0.94,
-        @"choosing 94 percent after the dock width migration is preserved");
+    Check(HGAppearanceNumber(@"dock.width")==0.905 && HGAppearanceNumber(@"dock.height")==62,
+        @"choosing the former stock dock after migration survives reload");
     [defaults removeObjectForKey:key];
-    SeedR14Appearance(@{@"dock.width":@0.88});
-    Check(HGAppearanceNumber(@"dock.width")==0.88,@"existing custom dock width is preserved");
-    Check([HGAppearancePreset(@"glass")[@"dock.width"] isEqual:@0.905],
-        @"glass preset uses the reference dock width");
+    SeedR14Appearance(@{@"dock.width":@0.905,@"dock.height":@65,@"dock.radius":@31,
+        @"dock.iconSize":@26,@"dock.extraSize":@62});
+    Check(HGAppearanceNumber(@"dock.width")==0.905 && HGAppearanceNumber(@"dock.height")==65 &&
+        HGAppearanceNumber(@"dock.iconSize")==26 && HGAppearanceNumber(@"dock.extraSize")==62,
+        @"a customised geometry keeps the previous width, icon and accessory dimensions");
+    NSDictionary *preset=HGAppearancePreset(@"glass");
+    Check([preset[@"dock.width"] isEqual:@0.94] && [preset[@"dock.height"] isEqual:@70] &&
+        [preset[@"dock.extraSize"] isEqual:@70] && [preset[@"dock.iconSize"] isEqual:@30],
+        @"glass preset uses the larger aligned dock and symbol proportions");
 }
 int main(void) {@autoreleasepool {
     CheckR15GeometryMigration();
-    CheckDockWidthMigration();
+    CheckR20GeometryMigration();
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];

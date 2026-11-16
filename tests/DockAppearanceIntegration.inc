@@ -54,10 +54,11 @@ static BOOL HGADockNeutralTranslucent(UIColor *color,UITraitCollection *traits) 
     return [[color resolvedColorWithTraitCollection:traits] getRed:&r green:&g blue:&b alpha:&a] &&
         fabs(r-g)<0.001 && fabs(r-b)<0.001 && a>0 && a<1;
 }
-static BOOL HGADockUsesDarkGlyph(UIButton *button) {
+static BOOL HGADockGlyphMatches(UIButton *button,BOOL lightGlyph) {
     CGFloat r,g,b,a;
-    return [button.configuration.baseForegroundColor getRed:&r green:&g blue:&b alpha:&a] &&
-        r<0.10 && g<0.10 && b<0.10 && a>0.75;
+    UIColor *color=[button.configuration.baseForegroundColor resolvedColorWithTraitCollection:button.traitCollection];
+    return [color getRed:&r green:&g blue:&b alpha:&a] &&
+        a>0.75 && (lightGlyph ? MIN(r,MIN(g,b))>0.90 : MAX(r,MAX(g,b))<0.10);
 }
 static CGFloat HGADockCompositorLuminance(UIImage *snapshot,CGPoint point) {
     CGRect pixels=CGRectIntegral(CGRectMake(point.x*snapshot.scale-2,point.y*snapshot.scale-2,4,4));
@@ -176,8 +177,8 @@ static BOOL HGASaveDockPreview(SSTabBarController *host,UIView *dock) {
         CGPoint glassPoint=[capsule convertPoint:CGPointMake(CGRectGetMaxX(selection.frame)+14,CGRectGetMidY(selection.frame)) toView:window];
         CGFloat selectedTone=HGADockCompositorLuminance(full,selectedPoint);
         CGFloat glassTone=HGADockCompositorLuminance(full,glassPoint);
-        Check(selectedTone>0.09 && selectedTone+0.025<glassTone,
-            @"selected cutout stays darker than glass while retaining the live backdrop");
+        Check(selectedTone>0.03 && selectedTone+0.015<glassTone,
+            @"selected fill adds contrast while preserving the composited material underneath");
     }
     UIButton *profile=(id)Find(dock,@"honggo.appearance.dock.extra");
     Check(HGADockCompositorGlyphIsCrisp(full,profile,window),
@@ -371,6 +372,66 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
     HGAppearanceApply(saved,nil);bar.hidden=savedHidden;Layout(bar);
 }
 
+@interface HGADockBottomInsetFixture : SSTabBar
+@end
+@implementation HGADockBottomInsetFixture
+- (UIEdgeInsets)safeAreaInsets { return UIEdgeInsetsMake(0,0,34,0); }
+@end
+
+static void HGRunExpandedDockGeometryChecks(SSTabBarController *host) {
+    NSDictionary *saved=HGAppearanceValues();
+    CGFloat rootHeight=host.view.bounds.size.height;
+    HGADockBottomInsetFixture *bar=[[HGADockBottomInsetFixture alloc]
+        initWithFrame:CGRectMake(0,rootHeight-84,320,84)];
+    NSArray<NSString *> *titles=@[@"首页",@"剧场",@"商城",@"我的"];
+    for(NSUInteger i=0;i<titles.count;i++) {
+        UIControl *source=[[UIControl alloc] initWithFrame:CGRectMake(i*80,0,80,84)];
+        UILabel *title=[[UILabel alloc] initWithFrame:source.bounds];title.text=titles[i];
+        [source addSubview:title];
+        [source addTarget:host action:@selector(nativeTap:) forControlEvents:UIControlEventTouchUpInside];
+        [bar.contentView addSubview:source];
+    }
+    [host.view addSubview:bar];
+    HGAppearanceApply(HGAppearancePreset(@"glass"),nil);
+    HGAppearanceSet(@"dock.content",@"icon",nil);
+    HGAppearanceLayoutDock(bar,host);
+    UIView *dock=Find(bar,@"honggo.appearance.dock");
+    UIView *capsule=Find(dock,@"honggo.appearance.dock.capsule");
+    UIButton *home=(id)Find(dock,@"honggo.appearance.tab.home");
+    UIButton *extra=(id)Find(dock,@"honggo.appearance.dock.extra");
+    Layout(dock);Layout(home);Layout(extra);
+    CGRect circle=[extra convertRect:extra.bounds toView:dock];
+    CGRect occupied=CGRectUnion(capsule.frame,circle);
+    CGFloat largeIcon=MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height);
+    Check(dock && fabs(CGRectGetWidth(occupied)-320*0.94)<0.01 &&
+        fabs(CGRectGetMidX(occupied)-160)<0.01 && fabs(capsule.bounds.size.height-70)<0.01 &&
+        fabs(circle.size.width-70)<0.01 && fabs(circle.size.height-70)<0.01 &&
+        fabs(CGRectGetMinX(circle)-CGRectGetMaxX(capsule.frame)-12)<0.01 &&
+        CGRectGetMinY(occupied)>=0 && CGRectGetMaxY(occupied)<=70 && home.bounds.size.width>=44,
+        @"the 94-percent dock fits an 84-point bar with 70-point surfaces and clearance above the home indicator");
+    CGPoint extraPoint=[extra convertPoint:CGPointMake(CGRectGetMidX(extra.bounds),CGRectGetMidY(extra.bounds)) toView:bar];
+    UIView *hit=[bar hitTest:extraPoint withEvent:nil];
+    Check(hit==extra || [hit isDescendantOfView:extra],@"the enlarged independent action remains inside the native tap area");
+
+    HGAppearanceApply(@{@"dock.width":@0.905,@"dock.height":@62,@"dock.radius":@31,
+        @"dock.iconSize":@26,@"dock.extraSize":@62},nil);
+    HGAppearanceLayoutDock(bar,host);Layout(home);
+    CGFloat oldIcon=MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height);
+    Check(oldIcon>0 && largeIcon>oldIcon+1 && largeIcon<=36,
+        @"the new navigation glyph grows proportionally within the new touch target");
+
+    bar.frame=CGRectMake(0,rootHeight-60,320,60);
+    HGAppearanceApply(HGAppearancePreset(@"glass"),nil);
+    HGAppearanceLayoutDock(bar,host);
+    circle=[extra convertRect:extra.bounds toView:dock];
+    occupied=CGRectUnion(capsule.frame,circle);
+    Check(fabs(capsule.bounds.size.height-46)<0.01 && fabs(circle.size.height-46)<0.01 &&
+        CGRectGetMinY(occupied)>=0 && CGRectGetMaxY(occupied)<=46 && home.bounds.size.width>=44,
+        @"a short dock host keeps safe clearance and accessible targets by shrinking the row");
+    HGAppearanceRestoreDock(bar);[bar removeFromSuperview];
+    HGAppearanceApply(saved,nil);
+}
+
 static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGRunDockRestoreReentryChecks(host);
     HGRunDockSurfaceChecks(host);
@@ -403,21 +464,28 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     UIButton *theater=(id)Find(dock,@"honggo.appearance.tab.theater");
     UIButton *extra=(id)Find(dock,@"honggo.appearance.dock.extra");
     Layout(dock);Layout(home);Layout(extra);
-    UIVisualEffectView *extraMaterial=(id)Find(extra,@"honggo.appearance.material");
+    UIView *extraAncestor=extra.superview;
+    while(extraAncestor && extraAncestor!=dock && ![extraAncestor isKindOfClass:UIVisualEffectView.class])
+        extraAncestor=extraAncestor.superview;
+    UIVisualEffectView *extraMaterial=extraAncestor!=dock ? (id)extraAncestor : nil;
     UIVisualEffectView *capsuleMaterial=(id)Find(capsule,@"honggo.appearance.material");
+    CGRect extraInDock=[extra convertRect:extra.bounds toView:dock];
+    Check([extraMaterial isKindOfClass:UIVisualEffectView.class] && extra.superview==extraMaterial.contentView &&
+        home.superview==capsuleMaterial.contentView && theater.superview==capsuleMaterial.contentView,
+        @"all navigation and accessory glyphs belong to the actual system material foreground");
     Check(fabs(capsule.bounds.size.height-62)<0.01 && fabs(extra.bounds.size.width-62)<0.01 &&
-        fabs(extra.bounds.size.height-62)<0.01 && fabs(CGRectGetMidY(capsule.frame)-CGRectGetMidY(extra.frame))<0.01 &&
+        fabs(extra.bounds.size.height-62)<0.01 && fabs(CGRectGetMidY(capsule.frame)-CGRectGetMidY(extraInDock))<0.01 &&
         fabs(capsule.layer.cornerRadius-31)<0.01 && fabs(extraMaterial.layer.cornerRadius-31)<0.01,
         @"capsule and independent action are equally thick with aligned circular ends");
-    Check(fabs(CGRectGetMinX(extra.frame)-CGRectGetMaxX(capsule.frame)-12)<0.01 &&
-        fabs(CGRectGetWidth(CGRectUnion(capsule.frame,extra.frame))/dock.bounds.size.width-0.905)<0.001,
+    Check(fabs(CGRectGetMinX(extraInDock)-CGRectGetMaxX(capsule.frame)-12)<0.01 &&
+        fabs(CGRectGetWidth(CGRectUnion(capsule.frame,extraInDock))/dock.bounds.size.width-0.905)<0.001,
         @"reference-width dock uses symmetric margins and a twelve-point accessory gap");
     BOOL reduceTransparency=UIAccessibilityIsReduceTransparencyEnabled();
     Check(selection && !selection.hidden && !selection.userInteractionEnabled &&
         HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection) &&
-        (reduceTransparency ? capsuleMaterial.maskView==nil : capsuleMaterial.maskView!=nil &&
-            [selection.backgroundColor isEqual:[UIColor colorWithWhite:0 alpha:0.12]]),
-        @"selected dock pill has a dark live-background cutout that cannot intercept navigation");
+        !capsuleMaterial.maskView && (reduceTransparency ||
+            [selection.backgroundColor isEqual:[UIColor colorWithWhite:0 alpha:0.30]]),
+        @"selection remains translucent over the unmasked system material");
     Check(CGRectGetMinY(selection.frame)>=3 && CGRectGetMaxY(selection.frame)<=capsule.bounds.size.height-3 &&
         selection.bounds.size.width<=capsule.bounds.size.height*1.53 && home.bounds.size.width>=44,
         @"two-tab dock keeps a compact inset selection pill and full accessible touch targets");
@@ -440,8 +508,8 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"tab and independent profile glyphs render white on a dark surface");
     Check(normal.blue==0 && accessory.blue==0,
         @"rendered selected tab and independent button contain no inherited blue accent");
-    CGFloat activeOpacity=CGColorGetAlpha(home.configuration.baseForegroundColor.CGColor);
-    CGFloat inactiveOpacity=CGColorGetAlpha(theater.configuration.baseForegroundColor.CGColor);
+    CGFloat activeOpacity=CGColorGetAlpha([home.configuration.baseForegroundColor resolvedColorWithTraitCollection:home.traitCollection].CGColor);
+    CGFloat inactiveOpacity=CGColorGetAlpha([theater.configuration.baseForegroundColor resolvedColorWithTraitCollection:theater.traitCollection].CGColor);
     Check(inactiveOpacity>0.50 && inactiveOpacity<activeOpacity && activeOpacity>0.90,
         @"unselected navigation glyphs stay neutral and quieter than the selected tab");
     Check(MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height)<36 &&
@@ -453,12 +521,11 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"pressed selection stays neutral after a UIKit configuration update");
     home.highlighted=NO;
     Check(HGASaveDockPreview(host,dock),@"controlled UIKit dock preview renders to PNG for visual review");
-    UIView *firstMask=capsuleMaterial.maskView;
     host.selectedIndex=1;HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
     Check(!home.selected && theater.selected &&
         fabs(CGRectGetMidX(selection.frame)-CGRectGetMidX(theater.frame))<0.01 &&
-        (reduceTransparency || (capsuleMaterial.maskView && capsuleMaterial.maskView!=firstMask)),
-        @"dark selection and glass cutout follow the host's selected tab");
+        !capsuleMaterial.maskView,
+        @"selection follows the host's selected tab over one continuous material");
     HGADockPixelCounts switched=HGADockPixels(theater);
     Check(switched.blue==0 && switched.brightNeutral>8,
         @"newly selected theater renders white after the selected state changes");
@@ -474,24 +541,38 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     theme.selectedImageColor=UIColor.blackColor;
     HGAppearanceSet(@"dock.selected",@"",nil);
     HGAppearanceLayoutDock(host.customTabBar,host);Layout(capsuleMaterial);Layout(extraMaterial);
-    UIColor *lightFill=[UIColor colorWithWhite:1 alpha:reduceTransparency?1:0.10];
+    UIColor *lightFill=[UIColor colorWithWhite:1 alpha:reduceTransparency?1:0.07];
+    Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && !capsuleMaterial.maskView &&
         extra.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight &&
         [capsuleMaterial.contentView.backgroundColor isEqual:lightFill] &&
         [extraMaterial.contentView.backgroundColor isEqual:lightFill] &&
-        (reduceTransparency ? !capsuleMaterial.effect : [capsuleMaterial.effect isKindOfClass:UIBlurEffect.class]),
-        @"light catalogue uses thin material and a light tint across both dock shapes");
-    Check(HGADockUsesDarkGlyph(home) && HGADockUsesDarkGlyph(theater) && HGADockUsesDarkGlyph(extra),
+        (reduceTransparency ? !capsuleMaterial.effect && !extraMaterial.effect :
+            [capsuleMaterial.effect isKindOfClass:expectedEffect] && [extraMaterial.effect isKindOfClass:expectedEffect]),
+        @"light catalogue keeps regular system glass across both dock shapes");
+    Check(HGADockGlyphMatches(home,NO) && HGADockGlyphMatches(theater,NO) && HGADockGlyphMatches(extra,NO),
         @"light catalogue keeps selected unselected and independent glyphs readable");
     HGAppearanceSet(@"dock.material",@"clear",nil);Layout(capsuleMaterial);
     Check(reduceTransparency || !HGNativeGlassConfigured() ||
         [capsuleMaterial.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")],
         @"explicit clear glass remains available on light pages");
-    theme.selectedImageColor=UIColor.whiteColor;
+    host.selectedIndex=0;
     HGAppearanceSet(@"dock.material",@"regular",nil);Layout(capsuleMaterial);
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
-        (reduceTransparency || capsuleMaterial.maskView) && !HGADockUsesDarkGlyph(theater),
-        @"returning to dark playback restores native glass contrast and selection");
+        HGADockGlyphMatches(home,YES) && HGADockGlyphMatches(theater,YES) && HGADockGlyphMatches(extra,YES),
+        @"returning to dark playback restores readable glyphs despite the stale catalogue foreground");
+    CGPoint homePoint=[home convertPoint:CGPointMake(CGRectGetMidX(home.bounds),CGRectGetMidY(home.bounds)) toView:dock];
+    CGPoint theaterPoint=[theater convertPoint:CGPointMake(CGRectGetMidX(theater.bounds),CGRectGetMidY(theater.bounds)) toView:dock];
+    CGPoint extraPoint=[extra convertPoint:CGPointMake(CGRectGetMidX(extra.bounds),CGRectGetMidY(extra.bounds)) toView:dock];
+    CGPoint paddingPoint=[capsule convertPoint:CGPointMake(2,CGRectGetMidY(capsule.bounds)) toView:dock];
+    NSUInteger taps=host.nativeTaps;
+    Check([dock hitTest:homePoint withEvent:nil]==home && [dock hitTest:theaterPoint withEvent:nil]==theater &&
+        [dock hitTest:extraPoint withEvent:nil]==extra && ![dock hitTest:paddingPoint withEvent:nil],
+        @"material foreground keeps the selected unselected and independent button hit targets");
+    [home sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [extra sendActionsForControlEvents:UIControlEventTouchUpInside];
+    Check(host.nativeTaps==taps+3 && host.selectedIndex==3,@"dock and accessory each forward one native navigation action");
     host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
     HGAppearanceApply(@{@"dock.material":@"solid",@"dock.selected":@""},nil);Layout(dock);
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && !capsuleMaterial.maskView,

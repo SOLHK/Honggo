@@ -10,6 +10,8 @@
 
 @interface FQVShortVideoListViewController : UIViewController @end
 @implementation FQVShortVideoListViewController @end
+@interface FQVPlayer : UIView @end
+@implementation FQVPlayer @end
 
 @interface FQVShortVideoPlayerCellView (HGBackdropPaletteFixture)
 - (void)refreshBgColor;
@@ -57,6 +59,8 @@
 
 @interface HGBackdropVideoCell : UICollectionViewCell
 @property(nonatomic,strong) FQVShortVideoPlayerCellView *canvas;
+@property(nonatomic,strong) UIView *videoWrapper;
+@property(nonatomic,strong) FQVPlayer *player;
 @property(nonatomic,strong) TTPlayerView *renderer;
 @property(nonatomic,strong) HGBackdropMetalFixture *metal;
 @property(nonatomic) CGFloat videoHeight;
@@ -65,10 +69,13 @@
 - (instancetype)initWithFrame:(CGRect)frame {
     if((self=[super initWithFrame:frame])) {
         self.canvas=[[FQVShortVideoPlayerCellView alloc] initWithFrame:self.contentView.bounds];
-        self.renderer=[[TTPlayerView alloc] initWithFrame:self.canvas.bounds];
+        self.videoWrapper=[[UIView alloc] initWithFrame:self.canvas.bounds];
+        self.player=[[FQVPlayer alloc] initWithFrame:self.videoWrapper.bounds];
+        self.renderer=[[TTPlayerView alloc] initWithFrame:self.player.bounds];
         for(UIView *view in self.renderer.subviews.copy)[view removeFromSuperview];
         self.metal=[[HGBackdropMetalFixture alloc] initWithFrame:self.renderer.bounds];
-        [self.renderer addSubview:self.metal];[self.canvas addSubview:self.renderer];
+        [self.renderer addSubview:self.metal];[self.player addSubview:self.renderer];
+        [self.videoWrapper addSubview:self.player];[self.canvas addSubview:self.videoWrapper];
         // Keep one positional HUD marker alongside the native renderer.
         UIView *hud=[[UIView alloc] initWithFrame:CGRectMake(0,0,frame.size.width,32)];
         hud.backgroundColor=UIColor.magentaColor;hud.autoresizingMask=UIViewAutoresizingFlexibleWidth;
@@ -77,7 +84,8 @@
 }
 - (void)layoutSubviews {
     [super layoutSubviews];self.canvas.frame=self.contentView.bounds;
-    CGRect video=self.canvas.bounds;
+    self.videoWrapper.frame=self.canvas.bounds;self.player.frame=self.videoWrapper.bounds;
+    CGRect video=self.player.bounds;
     if(self.videoHeight>0) {
         video.origin.y=CGRectGetMidY(video)-self.videoHeight/2;
         video.size.height=self.videoHeight;
@@ -214,12 +222,49 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         Check(cell && [cell.metal.layer isKindOfClass:CAMetalLayer.class] && cell.metal.device,
             @"video backdrop fixture uses a real Metal device and CAMetalLayer on a native middle feed page");
         if(!cell || !cell.metal.device)return;
+        CGRect videoSample=CGRectMake(width*0.35,feedHeight*0.45,width*0.3,24);
+        CGRect dockSample=CGRectMake(width*0.35,feedHeight+14,width*0.3,12);
+        cell.renderer.clipsToBounds=YES;cell.player.clipsToBounds=YES;cell.canvas.clipsToBounds=YES;
+        cell.canvas.backgroundColor=UIColor.blackColor;
+        CGRect portraitFrame=cell.renderer.frame;
+        NSArray *portraitGeometry=HGBackdropNativeSnapshot(@[page.view,feed,cell,cell.contentView,cell.canvas,
+            cell.videoWrapper,cell.player,cell.metal]);
+        BOOL portraitPresented=[cell.metal presentRed:0.91 green:0.06 blue:0.05];
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        CATransform3D fill=cell.renderer.layer.sublayerTransform;
+        Check(!feed.clipsToBounds && !cell.canvas.clipsToBounds && !cell.player.clipsToBounds && !cell.renderer.clipsToBounds &&
+            fabs(fill.m11-height/feedHeight)<0.001 && fabs(fill.m22-fill.m11)<0.001 && fabs(fill.m42-45)<0.001 &&
+            CGRectEqualToRect(cell.renderer.frame,portraitFrame) && HGBackdropNativeUnchanged(portraitGeometry),
+            @"a settled portrait renderer reaches the window with uniform magnification and native pager and HUD geometry");
+        UIImage *portrait=HGBackdropCompositorCapture(@"portrait",window,videoSample,dockSample);
+        HGBackdropRGB nativePortrait=HGBackdropAverageColor(portrait,window,videoSample);
+        HGBackdropRGB dockPortrait=HGBackdropAverageColor(portrait,window,dockSample);
+        Check(portraitPresented && nativePortrait.valid && nativePortrait.red>MAX(nativePortrait.green,nativePortrait.blue)+0.35 &&
+            dockPortrait.valid && dockPortrait.red>MAX(dockPortrait.green,dockPortrait.blue)+0.35 &&
+            HGBackdropNativeUnchanged(portraitGeometry),
+            @"the settled portrait dock shows live upright native Metal pixels instead of a black band");
+
+        // Exercise the actual player willMoveToSuperview hook: the native
+        // renderer must see its original compositor before it is borrowed.
+        __block BOOL restoredBeforeTransfer=NO;
+        __weak HGBackdropVideoCell *movingCell=cell;
+        cell.renderer.nativeWillMoveObserver=^{
+            restoredBeforeTransfer=CATransform3DIsIdentity(movingCell.renderer.layer.sublayerTransform) &&
+                movingCell.renderer.clipsToBounds && movingCell.player.clipsToBounds &&
+                movingCell.canvas.clipsToBounds && feed.clipsToBounds;
+        };
+        UIView *temporary=[[UIView alloc] initWithFrame:cell.player.bounds];
+        [cell.player addSubview:temporary];
+        [temporary addSubview:cell.renderer];
+        cell.renderer.nativeWillMoveObserver=nil;
+        [cell.player addSubview:cell.renderer];
+        [temporary removeFromSuperview];
+        Check(restoredBeforeTransfer,@"native handoff sees original renderer and clipping before any reparenting");
+
         cell.videoHeight=width*9/16;Layout(cell);Layout(cell.renderer);
         cell.canvas.backgroundColor=[UIColor colorWithRed:0.28 green:0.18 blue:0.13 alpha:1];
         NSArray *geometry=HGBackdropNativeSnapshot(@[page.view,feed,cell,cell.contentView,cell.canvas,cell.renderer,cell.metal]);
-        CGRect videoSample=CGRectMake(width*0.35,feedHeight*0.45,width*0.3,24);
         CGRect matteSample=CGRectMake(width*0.35,feedHeight-54,width*0.3,12);
-        CGRect dockSample=CGRectMake(width*0.35,feedHeight+14,width*0.3,12);
         BOOL greenPresented=[cell.metal presentRed:0.08 green:0.84 blue:0.12];
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
         UIImage *wide=HGBackdropCompositorCapture(@"wide",window,videoSample,dockSample);
@@ -294,6 +339,8 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         feed.layer.mask=nil;
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
 
+        incoming.videoHeight=width*9/16;
+        Layout(incoming);
         [feed setContentOffset:CGPointMake(0,feedHeight*2) animated:NO];Layout(feed);
         Check(feed.clipsToBounds && fabs(feed.contentOffset.y-feedHeight*2)<0.01,
             @"settling on a native page restores clipping before preloaded neighbors can show through");

@@ -102,16 +102,17 @@ static void RunOutterEpisodeSpacingChecks(UIView *root) {
             [bar.contentView addSubview:button];
         }
         [screen addSubview:bar];
-        HGAppearanceApply(@{@"dock.enabled":@YES,@"dock.extra":@YES,@"dock.height":@62,
-            @"dock.extraSize":@62,@"dock.lift":@0,@"dock.width":@0.94,
+        HGAppearanceApply(@{@"dock.enabled":@YES,@"dock.extra":@YES,@"dock.height":@70,
+            @"dock.extraSize":@70,@"dock.lift":@0,@"dock.width":@0.94,
             @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@NO,@"dock.hide.mine":@NO},nil);
         HGAppearanceLayoutDock(bar,nil);Layout(control);
         UIView *capsule=Find(bar,@"honggo.appearance.dock.capsule");
         CGRect dock=[capsule convertRect:capsule.bounds toView:control];
         rail=[track convertRect:track.bounds toView:control];
-        Check(capsule && fabs(CGRectGetMinY(dock)-CGRectGetMaxY(rail)-10)<0.01 &&
+        Check(capsule && fabs(capsule.bounds.size.height-70)<0.01 &&
+            fabs(CGRectGetMinY(dock)-CGRectGetMaxY(rail)-10)<0.01 &&
             fabs(CGRectGetMinY(rail)-CGRectGetMaxY(wrapper.frame)-8)<0.01,
-            @"the visible sixty-two-point dock leaves ten points below the rail and eight above it");
+            @"the larger floating dock leaves ten points below the rail and eight above it");
         Check(CGSizeEqualToSize(progress.bounds.size,nativeProgress.size) &&
             CGRectEqualToRect(track.frame,nativeTrack) && CGRectEqualToRect(canvas.frame,nativeCanvas) &&
             CGRectEqualToRect(render.frame,nativeRender) && CGRectEqualToRect(info.frame,nativeInfo),

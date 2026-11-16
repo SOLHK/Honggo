@@ -230,15 +230,20 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
     HGAppearanceLayoutDock(self.host.customTabBar,self.host);
     UIView *capsule=Find(self.host.customTabBar,@"honggo.appearance.dock.capsule");
-    BOOL matchingGlass=capsule!=nil;
-    for(UIView *chrome in @[like,header,episodes,capsule ?: self.host.customTabBar]) {
+    BOOL matchingGlass=YES;
+    for(UIView *chrome in @[like,header,episodes]) {
         UIVisualEffectView *material=(id)Find(chrome,@"honggo.appearance.material");
         Layout(material);
         BOOL correctEffect=reducedTransparency ? material.effect==nil : [material.effect isKindOfClass:expectedEffect];
         matchingGlass &= material.alpha==1 && correctEffect && material.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
             [material.contentView.backgroundColor isEqual:chromeColor];
     }
-    Check(matchingGlass,@"actions, header, episode entry and dock share full-opacity dark glass with the same neutral base");
+    Check(matchingGlass,@"actions header and episode entry share full-opacity dark glass with the same neutral base");
+    UIVisualEffectView *dockMaterial=(id)Find(capsule,@"honggo.appearance.material");
+    Layout(dockMaterial);
+    Check(dockMaterial.alpha==1 && !dockMaterial.maskView &&
+        (reducedTransparency ? !dockMaterial.effect : [dockMaterial.effect isKindOfClass:expectedEffect]),
+        @"playback dock keeps one unmasked material at full effect-view opacity");
     RunEpisodeGlassChecks(root);
     RunEpisodeSpacingChecks(root);
 
@@ -316,6 +321,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     for(NSUInteger i=0;i<5;i++)Layout(bar);
     Check(Count(bar,@"honggo.appearance.dock")==1,@"dock does not duplicate across repeated host layouts");
     HGRunDockAppearanceChecks(self.host);
+    HGRunExpandedDockGeometryChecks(self.host);
     RunDockVideoBackdropChecks(self.host);
     HGAppearanceReset();Layout(like);Layout(bar);
     Check(CGRectEqualToRect(like.frame,original) && !like.hidden,@"reset restores original playback geometry and visibility");

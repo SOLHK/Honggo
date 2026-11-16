@@ -428,11 +428,11 @@ void HGAppearanceProcessView(UIView *view) {
             HGAObserveFeed((id)view);HGRefreshVideoBackdropForFeed((id)view);return;
         }
         if([name isEqual:@"TTPlayerView"]){
-            HGAApplyFullScreen(view);return;
+            HGAApplyFullScreen(view);HGRefreshVideoBackdropForPlayer(view);return;
         }
         if([name isEqual:@"FQVShortVideoPlayerCellView"]){
             for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
-            HGAApplyTypography(view);return;
+            HGAApplyTypography(view);HGRefreshVideoBackdropForPlayer(view);return;
         }
         if([HGACommentSurfaces() containsObject:name]) {
             HGAApplyPanel(view,@"comment");HGAApplyTypography(view);return;
