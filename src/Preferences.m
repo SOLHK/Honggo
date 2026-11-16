@@ -29,6 +29,7 @@ static const HGFeatureDefinition HGFeatureDefinitions[HGFeatureCount] = {
     [HGWelfareGuide] = {@"welfareGuide", @"隐藏福利标签引导气泡", @"提示 福利 气泡 guide"},
     [HGSurvey] = {@"survey", @"隐藏短剧满意度问卷", @"调查 评分 问卷 survey"},
     [HGGlassControls] = {@"glassControls", @"原生液态玻璃按钮", @"按钮 控件 模糊 glass controls"},
+    [HGSidebarGameCenter] = {@"sidebarGameCenter", @"隐藏侧栏游戏中心", @"首页 左侧栏 小游戏 卡片 sidebar game center"},
 };
 
 static NSObject *HGPreferenceLock(void) {

@@ -227,9 +227,10 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         surface.overrideUserInterfaceStyle=surfaceStyle;
         surface.layer.cornerCurve=kCACornerCurveContinuous;
     }
-    HGAInstallGlass(self.capsule,style,self.collapsed?22:radius,0.08);
-    HGAInstallGlass(self.extra,style,circle/2,0.08);
-    HGAInstallGlass(self.expand,style,22,0.08);
+    UIColor *tint=HGAppearanceColor(HGAppearanceString(@"dock.tint"),nil);
+    HGAInstallPlaybackGlass(self.capsule,style,self.capsule.bounds,self.collapsed?22:radius,tint);
+    HGAInstallPlaybackGlass(self.extra,style,self.extra.bounds,circle/2,tint);
+    HGAInstallPlaybackGlass(self.expand,style,self.expand.bounds,22,tint);
     // UIKit may reorder a UIButton's configuration content after our background
     // was inserted. These two buttons belong entirely to Honggo: keep their
     // material behind every normal content layer so it cannot blur the glyph.
@@ -239,13 +240,6 @@ static NSInteger HGASelectedTab(UIViewController *controller) {
         if(materialLayer.zPosition!=-1)materialLayer.zPosition=-1;
     }
     self.capsule.hidden=self.collapsed;
-    UIColor *tint=HGAppearanceColor(HGAppearanceString(@"dock.tint"),nil);
-    UIColor *surfaceColor=translucent ? [UIColor colorWithWhite:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor;
-    CGFloat surfaceAlpha=[style isEqual:@"solid"] || UIAccessibilityIsReduceTransparencyEnabled()?1:0.12;
-    HGASetGlassOverlay(self.capsule,tint ? [tint colorWithAlphaComponent:0.30] :
-        [surfaceColor colorWithAlphaComponent:surfaceAlpha]);
-    HGASetGlassOverlay(self.extra,[surfaceColor colorWithAlphaComponent:surfaceAlpha]);
-    HGASetGlassOverlay(self.expand,[surfaceColor colorWithAlphaComponent:surfaceAlpha]);
     self.capsule.layer.cornerRadius=radius;
     self.capsule.layer.borderWidth=translucent ? 0.5 : 0;
     self.capsule.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.14].CGColor;

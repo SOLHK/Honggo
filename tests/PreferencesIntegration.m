@@ -47,6 +47,7 @@ int main(void) {
         [defaults setObject:@"unrelated-prefix-key" forKey:@"HongguoGlass.futureSetting"];
 
         HGPreferencesReset();
+        HGCheck(!HGIsEnabled(HGSidebarGameCenter), @"sidebar Game Center stays visible by default");
         HGSetEnabled(HGGlass, YES);
         HGSetEnabled(HGFeed, YES);
         HGSetEnabled(HGMarketing, YES);
@@ -56,7 +57,7 @@ int main(void) {
 
         NSArray<NSString *> *shipped = @[@"glass", @"splash", @"topview", @"feed", @"comment",
             @"pause", @"patch", @"commerce", @"marketing", @"redPacket", @"bookstoreAd",
-            @"couponPendant", @"miniGamePendant", @"welfareGuide", @"survey", @"glassControls"];
+            @"couponPendant", @"miniGamePendant", @"welfareGuide", @"survey", @"glassControls", @"sidebarGameCenter"];
         BOOL stable = shipped.count == HGFeatureCount;
         for (HGFeature feature = 0; feature < MIN(shipped.count, HGFeatureCount); feature++) {
             stable &= [HGFeatureIdentifier(feature) isEqual:shipped[feature]] &&

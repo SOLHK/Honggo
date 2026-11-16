@@ -142,6 +142,16 @@ static void HGAInstallGlass(UIView *view,NSString *style,CGFloat radius,CGFloat 
 static void HGASetGlassOverlay(UIView *view,UIColor *color) {
     HGAState(view,NO).glass.overlayColor=color;
 }
+static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius,UIColor *tint) {
+    HGAInstallGlassInRect(view,style,frame,radius,0);
+    HGAAppearanceMaterial *glass=HGAState(view,NO).glass;
+    BOOL solid=[style isEqual:@"solid"];
+    // Match the playback chrome while leaving host content traits alone.
+    glass.overrideUserInterfaceStyle=solid ? UIUserInterfaceStyleUnspecified : UIUserInterfaceStyleDark;
+    UIColor *color=tint ?: (solid ? UIColor.secondarySystemBackgroundColor : [UIColor colorWithWhite:0.10 alpha:1]);
+    CGFloat opacity=solid || UIAccessibilityIsReduceTransparencyEnabled() ? 1 : (tint ? 0.30 : 0.12);
+    glass.overlayColor=[color colorWithAlphaComponent:opacity];
+}
 static NSDictionary<NSString *,NSString *> *HGAViewRoles(void) {
     static NSDictionary *roles;static dispatch_once_t once;
     dispatch_once(&once,^{roles=@{
@@ -453,17 +463,7 @@ void HGAppearanceProcessView(UIView *view) {
                 glassFrame=CGRectMake((view.bounds.size.width-side)/2,MAX(0,CGRectGetMidY(rect)-side/2),side,side);
                 radius=side/2;
             }
-            NSString *material=HGAppearanceString(@"player.material");
-            if(action && [material isEqual:@"regular"])material=@"clear";
-            HGAInstallGlassInRect(view,material,glassFrame,radius,action?0:0.08);
-            if(action) {
-                // Keep the optional material very quiet: the symbol remains
-                // fully opaque while only our noninteractive background fades.
-                // This avoids four hard circular lenses around the action rail.
-                HGAState(view,NO).glass.alpha=UIAccessibilityIsReduceTransparencyEnabled()?1:0.32;
-                HGASetGlassOverlay(view,[UIColor.blackColor colorWithAlphaComponent:
-                    UIAccessibilityIsReduceTransparencyEnabled()?0.82:0.06]);
-            }
+            HGAInstallPlaybackGlass(view,HGAppearanceString(@"player.material"),glassFrame,radius,nil);
         }
         else HGARemoveGlass(view);
         HGAApplyTypography(view);

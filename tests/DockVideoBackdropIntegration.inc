@@ -56,6 +56,7 @@ void HGVideoBackdropPrepareRendererTransfer(UIView *renderer);
 @property(nonatomic,strong) FQVShortVideoPlayerCellView *canvas;
 @property(nonatomic,strong) TTPlayerView *renderer;
 @property(nonatomic,strong) HGBackdropMetalFixture *metal;
+@property(nonatomic) CGFloat videoHeight;
 @end
 @implementation HGBackdropVideoCell
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -73,7 +74,12 @@ void HGVideoBackdropPrepareRendererTransfer(UIView *renderer);
 }
 - (void)layoutSubviews {
     [super layoutSubviews];self.canvas.frame=self.contentView.bounds;
-    self.renderer.frame=self.canvas.bounds;self.metal.frame=self.renderer.bounds;
+    CGRect video=self.canvas.bounds;
+    if(self.videoHeight>0) {
+        video.origin.y=CGRectGetMidY(video)-self.videoHeight/2;
+        video.size.height=self.videoHeight;
+    }
+    self.renderer.frame=video;self.metal.frame=self.renderer.bounds;
 }
 @end
 @interface HGBackdropVideoDataSource : NSObject <UICollectionViewDataSource> @end
@@ -452,6 +458,27 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         NSLog(@"VIDEO_BACKDROP_COMPOSITOR red native=%.3f/%.3f/%.3f extension=%.3f/%.3f/%.3f blue native=%.3f/%.3f/%.3f extension=%.3f/%.3f/%.3f",
             nativeRed.red,nativeRed.green,nativeRed.blue,extendedRed.red,extendedRed.green,extendedRed.blue,
             nativeBlue.red,nativeBlue.green,nativeBlue.blue,extendedBlue.red,extendedBlue.green,extendedBlue.blue);
+        cell.videoHeight=width*9/16;Layout(cell);Layout(cell.renderer);
+        NSArray *wideGeometry=HGBackdropNativeSnapshot(@[page.view,feed,cell,cell.contentView,cell.canvas,cell.renderer,cell.metal]);
+        CGRect wideVideo=[cell.renderer convertRect:cell.renderer.bounds toView:page.view];
+        BOOL widePresented=[cell.metal presentRed:0.08 green:0.84 blue:0.12];
+        HGVideoBackdropRefreshForFeed(feed);
+        CGPoint reflectedWideBottom=[portal convertPoint:CGPointMake(CGRectGetMidX(portal.bounds),CGRectGetMaxY(portal.bounds))
+            toView:page.view];
+        Check(feedHeight-CGRectGetMaxY(wideVideo)>90 &&
+            fabs(reflectedWideBottom.y-feedHeight)<0.01 && HGBackdropPortalSource(portal)==cell.renderer &&
+            HGBackdropNativeUnchanged(wideGeometry),
+            @"a centered wide video mirrors its visible edge while the host letterbox and paging geometry stay intact");
+        UIImage *wide=HGBackdropCompositorCapture(@"wide",window,nativeRect,extensionRect,@[]);
+        HGBackdropRGB nativeWide=HGBackdropAverageColor(wide,window,nativeRect);
+        HGBackdropRGB extendedWide=HGBackdropAverageColor(wide,window,extensionRect);
+        HGBackdropWriteColorEvidence(@"wide",nativeWide,extendedWide,@[]);
+        Check(widePresented && nativeWide.valid && nativeWide.green>MAX(nativeWide.red,nativeWide.blue)+0.35 &&
+            extendedWide.valid && extendedWide.green>MAX(extendedWide.red,extendedWide.blue)+0.12 &&
+            HGBackdropNativeUnchanged(wideGeometry),
+            @"wide Metal video reaches the dock strip through the live compositor despite a native letterbox");
+        cell.videoHeight=0;Layout(cell);Layout(cell.renderer);
+        HGVideoBackdropRefreshForFeed(feed);
         [manager refreshWithBranches:branches root:container.view bar:bar active:NO];
         Check(!Find(page.view,@"honggo.video.backdrop") && HGBackdropNativeUnchanged(geometry),
             @"disabling the reflected strip removes only plugin surfaces and preserves native paging geometry");

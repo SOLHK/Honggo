@@ -1,7 +1,7 @@
 name: Appearance development
 on:
   push:
-    branches: [work/appearance-r5, work/r13-ui-paging, work/r14-playback, work/r15-floating-layout]
+    branches: [work/appearance-r5, work/r13-ui-paging, work/r14-playback, work/r15-floating-layout, work/honggo-r17]
 permissions:
   contents: read
 env:
@@ -15,8 +15,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Require Xcode 27.2 and iOS 27.2 runtime
         run: bash tools/verify-ios-toolchain.sh
+      - name: Validate version and tooling
+        if: ${{ github.ref_name == 'work/honggo-r17' }}
+        run: |
+          set -euo pipefail
+          python3 tools/version.py --check --base 2fd075b1942a6ab6a9fcdc884006b2823818d636 --channel test
+          python3 -B -m unittest discover -s tests -v
       - name: Compile device plugin
         run: bash tools/build-ios.sh
       - name: Validate appearance preferences
@@ -25,6 +32,15 @@ jobs:
       - name: Validate appearance behavior in UIKit
         if: ${{ !cancelled() }}
         run: bash tools/test-appearance-ios.sh
+      - name: Validate plugin preferences
+        if: ${{ !cancelled() && github.ref_name == 'work/honggo-r17' }}
+        run: bash tools/test-preferences.sh
+      - name: Validate plugin settings in UIKit
+        if: ${{ !cancelled() && github.ref_name == 'work/honggo-r17' }}
+        run: bash tools/test-settings-ios.sh
+      - name: Validate sidebar and ad hooks in UIKit
+        if: ${{ !cancelled() && github.ref_name == 'work/honggo-r17' }}
+        run: bash tools/test-ads-ios.sh
       - name: Snapshot tested source
         if: always()
         run: |
@@ -42,5 +58,9 @@ jobs:
             build/appearance-tests/*.tar
             build/appearance-tests/*.txt
             build/appearance-tests/*.png
+            build/preferences-tests/results.log
+            build/settings-tests/**/*.json
+            build/ads-tests/**/*.json
+            build/toolchain/BUILD-ENVIRONMENT.json
             build/*.dylib
           if-no-files-found: warn

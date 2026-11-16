@@ -225,6 +225,20 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Check(Find(header,@"honggo.appearance.material")!=nil,@"top channel glass is active");
     SSShortVideoBottomDistributionView *episodes=[[SSShortVideoBottomDistributionView alloc] initWithFrame:CGRectMake(20,220,280,44)];[root addSubview:episodes];Layout(episodes);
     Check(Find(episodes,@"honggo.appearance.material")!=nil,@"episode entry glass is active");
+    BOOL reducedTransparency=UIAccessibilityIsReduceTransparencyEnabled();
+    UIColor *chromeColor=[UIColor colorWithWhite:0.10 alpha:reducedTransparency?1:0.12];
+    Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
+    HGAppearanceLayoutDock(self.host.customTabBar,self.host);
+    UIView *capsule=Find(self.host.customTabBar,@"honggo.appearance.dock.capsule");
+    BOOL matchingGlass=capsule!=nil;
+    for(UIView *chrome in @[like,header,episodes,capsule ?: self.host.customTabBar]) {
+        UIVisualEffectView *material=(id)Find(chrome,@"honggo.appearance.material");
+        Layout(material);
+        BOOL correctEffect=reducedTransparency ? material.effect==nil : [material.effect isKindOfClass:expectedEffect];
+        matchingGlass &= material.alpha==1 && correctEffect && material.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
+            [material.contentView.backgroundColor isEqual:chromeColor];
+    }
+    Check(matchingGlass,@"actions, header, episode entry and dock share full-opacity dark glass with the same neutral base");
     RunEpisodeGlassChecks(root);
     RunEpisodeSpacingChecks(root);
 

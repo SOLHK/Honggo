@@ -3,12 +3,12 @@
 // collection, its cells, or its player can change the host's episode handoff.
 //
 // Only plugin-owned views are installed here. One read-only UIKit portal
-// reflects the observed TTPlayerView across the feed's bottom edge, clipped to
-// the uncovered strip. The portal is composed directly: a background-extension
+// reflects an edge of the observed TTPlayerView into the uncovered strip.
+// The portal is composed directly: a background-extension
 // effect must not sample another portal, which lost live Metal content in the
 // compositor regression. No snapshots, pixel readback, polling timer, native
 // reparenting, playback calls, or changes to the portrait video ratio are used.
-// Original letterboxing remains letterboxing; only the exposed edge is mirrored.
+// The native feed keeps its letterbox. Only the strip below it receives video.
 //
 // The portal selectors are used by Telegram's UIKitRuntimeUtils/UIKitUtils.m;
 // every selector below is checked against the running Objective-C ABI first.
@@ -175,6 +175,11 @@ static UIView *HGVideoBackdropRenderer(UIScrollView *feed) {
             CGRect page = [canvas convertRect:canvas.bounds toView:feed];
             CGRect visible = CGRectIntersection(page, viewport);
             if (CGRectIsNull(visible) || CGRectIsEmpty(visible)) continue;
+            // An incoming cell can reach the edge before its centered wide
+            // video enters the viewport. Keep sampling a visible video until
+            // the incoming page actually has one on screen.
+            CGRect video = [view convertRect:view.bounds toView:feed];
+            if (CGRectIsEmpty(CGRectIntersection(video, viewport))) continue;
             // During a native vertical swipe the page touching the lower edge
             // supplies that edge's background. No paging offset is modified.
             BOOL touchesBottom = CGRectGetMinY(page) < CGRectGetMaxY(viewport) - 0.75 &&
@@ -264,12 +269,16 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
     if (!CGRectEqualToRect(self.canvas.frame, self.extension.bounds))
         self.canvas.frame = self.extension.bounds;
     CGRect source = [renderer convertRect:renderer.bounds toView:parent];
-    // Reflection about y=edge maps source y to 2*edge-y. In the strip's local
-    // coordinates its center is edge-midY(source). The source rectangle already
-    // includes the native feed offset and preserves horizontal-video letterbox.
+    // A centered wide video may end far above the feed edge. In that geometry
+    // the naive reflection never intersects the strip and exposes its plain
+    // backing color. Reflect from the last available row of that video instead.
+    // For a video already crossing the feed edge, sample at the edge itself.
+    CGFloat sampleEdge = edge;
+    if (CGRectGetWidth(source) > CGRectGetHeight(source))
+        sampleEdge = MIN(edge, CGRectGetMaxY(source));
     // Never write frame on this transformed portal; only its bounds and center.
     CGPoint center = CGPointMake(CGRectGetMidX(source) - CGRectGetMinX(strip),
-        edge - CGRectGetMidY(source));
+        sampleEdge - CGRectGetMidY(source));
     if (!CGRectEqualToRect(self.portal.bounds, renderer.bounds)) self.portal.bounds = renderer.bounds;
     if (!CGPointEqualToPoint(self.portal.center, center)) self.portal.center = center;
     CGAffineTransform reflection = CGAffineTransformMakeScale(1, -1);

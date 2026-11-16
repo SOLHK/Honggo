@@ -364,7 +364,8 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     UIButton *theater=(id)Find(dock,@"honggo.appearance.tab.theater");
     UIButton *extra=(id)Find(dock,@"honggo.appearance.dock.extra");
     Layout(dock);Layout(home);Layout(extra);
-    UIView *extraMaterial=Find(extra,@"honggo.appearance.material");
+    UIVisualEffectView *extraMaterial=(id)Find(extra,@"honggo.appearance.material");
+    UIVisualEffectView *capsuleMaterial=(id)Find(capsule,@"honggo.appearance.material");
     Check(fabs(capsule.bounds.size.height-62)<0.01 && fabs(extra.bounds.size.width-62)<0.01 &&
         fabs(extra.bounds.size.height-62)<0.01 && fabs(CGRectGetMidY(capsule.frame)-CGRectGetMidY(extra.frame))<0.01 &&
         fabs(capsule.layer.cornerRadius-31)<0.01 && fabs(extraMaterial.layer.cornerRadius-31)<0.01,
@@ -378,6 +379,15 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
         host.overrideUserInterfaceStyle==UIUserInterfaceStyleLight,
         @"video dock keeps dark glass without changing the host light theme");
+    HGAppearanceSet(@"dock.tint",@"#604080",nil);
+    Layout(capsuleMaterial);Layout(extraMaterial);
+    UIColor *customColor=[HGAppearanceColor(@"#604080",nil)
+        colorWithAlphaComponent:UIAccessibilityIsReduceTransparencyEnabled()?1:0.30];
+    Check([capsuleMaterial.contentView.backgroundColor isEqual:customColor] &&
+        [extraMaterial.contentView.backgroundColor isEqual:customColor],
+        @"custom dock tint colors both the capsule and the independent action");
+    HGAppearanceSet(@"dock.tint",@"",nil);
+    Layout(capsuleMaterial);Layout(extraMaterial);
     Check(!home.automaticallyUpdatesConfiguration && !home.configuration.automaticallyUpdateForSelection,
         @"dock owns selection appearance instead of inheriting UIKit accent selection");
     HGADockPixelCounts normal=HGADockPixels(home),accessory=HGADockPixels(extra);

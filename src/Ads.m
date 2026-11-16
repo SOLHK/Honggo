@@ -28,6 +28,7 @@ typedef struct {
 static HGForwardingAdHook HGPatchPresentationHook;
 static HGForwardingAdHook HGDirectGameInitHook;
 static HGForwardingAdHook HGNaturalAdInsertHook;
+static HGForwardingAdHook HGSidebarLayoutHook;
 static Class HGNaturalAdDataClass;
 static Class HGDirectGameFeedHost, HGDirectGameSeriesHost;
 static char HGDirectGameRemovalPending;
@@ -133,12 +134,27 @@ static BOOL HGNoObjectClass(id self, SEL cmd, id argument, Class viewClass) { HG
 static BOOL HGYesObject(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, YES); return YES; }
 static id HGNoModel(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, NO); return nil; }
 static id HGNoModels(id self, SEL cmd, id data, id context) { HGAdDecision(self, cmd, NO); return nil; }
+static id HGNoSidebarGameData(id self, SEL cmd) { HGAdDecision(self, cmd, NO); return nil; }
 static id HGNoDirectGameModel(id self, SEL cmd, id data, NSInteger source, id host) {
     HGAdDecision(self, cmd, NO);
     return nil;
 }
 static void HGSkipSurvey(id self, SEL cmd, NSInteger style, id videoID) { HGAdDecision(self, cmd, NO); }
 static void HGSkipPendant(id self, SEL cmd, UIView *parent) { HGAdDecision(self, cmd, NO); }
+
+static void HGSetSidebarLayout(id self, SEL cmd, NSArray *layout) {
+    // The 621 drawer uses the same component list for counting, sizing and building cells.
+    NSString *gameComponent = @"SSMyUser621SideBarGameContainerCell";
+    if ([layout isKindOfClass:NSArray.class] && [layout containsObject:gameComponent]) {
+        NSMutableArray *filtered = [layout mutableCopy];
+        [filtered removeObject:gameComponent];
+        layout = filtered.copy;
+        HGAdDecision(self, cmd, NO);
+    }
+    void (*original)(id, SEL, NSArray *) = (void (*)(id, SEL, NSArray *))atomic_load_explicit(
+        &HGSidebarLayoutHook.original, memory_order_acquire);
+    original(self, cmd, layout);
+}
 
 static void HGForwardPatchPresentation(id self, SEL cmd, id context, id seriesID, id videoID,
     double currentTime, void (^ready)(id), void (^remove)(void)) {
@@ -241,6 +257,10 @@ static const HGGate HGGates[] = {
     {HGFeed, "SSShortVideoFeedDirectGameContentModel", "modelDidDisplay", "v16@0:8", (IMP)HGDirectGameDidDisplay},
     {HGFeed, "SSShortVideoFeedDirectGameContentView", "initWithFrame:", "@48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16", (IMP)HGDirectGameInit},
     {HGFeed, "SSNaturalAdManager", "tryInsertDataToSaaS:", "B24@0:8@16", (IMP)HGNaturalAdInsert},
+    // Both feed drawers already omit the entire game section for these outcomes.
+    {HGSidebarGameCenter, "SSVideoSeriesFeedSideBarViewController", "gameEntranceData", "@16@0:8", (IMP)HGNoSidebarGameData},
+    {HGSidebarGameCenter, "SSVideoSeriesFeedSideBarV725ViewController", "showsGameSection", "B16@0:8", (IMP)HGNo},
+    {HGSidebarGameCenter, "SSMyUser621SideBarViewController", "setComponentsLayout:", "v24@0:8@16", (IMP)HGSetSidebarLayout},
 };
 
 static void HGAdDecision(id object, SEL selector, BOOL result) {
@@ -310,6 +330,7 @@ void HGInstallAds(void) {
         HGForwardingAdHook *forwarding = gate->replacement == (IMP)HGForwardPatchPresentation ?
             &HGPatchPresentationHook : gate->replacement == (IMP)HGDirectGameInit ?
             &HGDirectGameInitHook : naturalAdInsert ? &HGNaturalAdInsertHook : NULL;
+        if (gate->replacement == (IMP)HGSetSidebarLayout) forwarding = &HGSidebarLayoutHook;
         IMP original = forwarding ?
             HGInstallForwardingAdHook(target, selector, gate->encoding, gate->replacement, forwarding) :
             HGInstallVerifiedHook(target, selector, gate->encoding, gate->replacement, @"ads");

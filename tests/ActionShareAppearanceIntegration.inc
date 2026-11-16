@@ -104,9 +104,8 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             CGRectEqualToRect(comment.frame,touchFrame) && CGRectEqualToRect(comment.countLabel.frame,countFrame),
             @"SF symbol proportions improve without resizing the native action or count");
         UIView *material=Find(comment,@"honggo.appearance.material");
-        Check(material && material.bounds.size.width<=40.01 && !material.userInteractionEnabled &&
-            (UIAccessibilityIsReduceTransparencyEnabled() || material.alpha<=0.33),
-            @"right actions use quiet compact material with unchanged native hit handling");
+        Check(material && material.bounds.size.width<=40.01 && !material.userInteractionEnabled && material.alpha==1,
+            @"right actions use compact glass at full effect-view opacity with unchanged native hit handling");
         [comment sendActionsForControlEvents:UIControlEventTouchUpInside];
         Check(comment.taps==1,@"redrawn right action still delivers one original tap");
         for(NSUInteger i=0;i<8;i++)Layout(comment);

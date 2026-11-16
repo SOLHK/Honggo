@@ -10,6 +10,25 @@ static NSUInteger gameModelCreations;
 static NSUInteger manualGameEntries;
 static NSUInteger nativeGameInitializations;
 
+@interface SSVideoSeriesFeedSideBarViewController : UIViewController
+@property(nonatomic, strong) id gameEntranceData;
+@end
+@implementation SSVideoSeriesFeedSideBarViewController
+@end
+
+@interface SSVideoSeriesFeedSideBarV725ViewController : UIViewController
+- (BOOL)showsGameSection;
+@end
+@implementation SSVideoSeriesFeedSideBarV725ViewController
+- (BOOL)showsGameSection { return YES; }
+@end
+
+@interface SSMyUser621SideBarViewController : UIViewController
+@property(nonatomic, copy) NSArray *componentsLayout;
+@end
+@implementation SSMyUser621SideBarViewController
+@end
+
 // Configure host classification outcomes without duplicating its JSON parser.
 @interface SSNaturalAdData : NSObject
 @property(nonatomic) NSInteger forceWatchTime;
@@ -406,6 +425,31 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     [self.checks addObject:@{@"name": name, @"passed": @(passed)}];
     NSLog(@"[HonggoAdsTests] %@: %@", passed ? @"PASS" : @"FAIL", name);
 }
+- (void)checkSidebarGameCenterWithGames:(SSVideoMiniGameService *)games {
+    SSVideoSeriesFeedSideBarViewController *legacy = [SSVideoSeriesFeedSideBarViewController new];
+    SSVideoSeriesFeedSideBarV725ViewController *modern = [SSVideoSeriesFeedSideBarV725ViewController new];
+    SSMyUser621SideBarViewController *profile = [SSMyUser621SideBarViewController new];
+    NSString *game = @"SSMyUser621SideBarGameContainerCell";
+    NSArray *layout = @[@"messages", @"history", game, @"functions"];
+    legacy.gameEntranceData = game;
+    profile.componentsLayout = layout;
+    [self check:legacy.gameEntranceData == game && [modern showsGameSection] &&
+        [profile.componentsLayout isEqualToArray:layout]
+        name:@"the default sidebar preference preserves all host Game Center sections"];
+
+    HGSetEnabled(HGSidebarGameCenter, YES);
+    HGInstallAds();
+    HGInstallAds();
+    legacy.gameEntranceData = game;
+    profile.componentsLayout = layout;
+    [self check:legacy.gameEntranceData == nil && ![modern showsGameSection]
+        name:@"both video drawers use native omission when the sidebar preference is enabled"];
+    [self check:[profile.componentsLayout isEqualToArray:@[@"messages", @"history", @"functions"]] &&
+        [layout containsObject:game]
+        name:@"the profile drawer removes the exact game component without reordering other sections or changing the source"];
+    [self check:[[games createFeedPageDataModelWithCellViewData:@"game-legacy" listVCContext:nil] isEqual:@"game-legacy"]
+        name:@"the sidebar preference does not change feed game models"];
+}
 - (void)checkPatchLifecycleWithCompletion:(void (^)(void))completion {
     SEL selector = @selector(showPatchAdViewWithContext:seriesId:vId:currentTime:patchAdViewReadyBlock:removeBlock:);
     IMP installed = class_getMethodImplementation(SSBizVideoPatchAdService.class, selector);
@@ -799,6 +843,7 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     Method naturalInsert = class_getInstanceMethod(SSNaturalAdManager.class, @selector(tryInsertDataToSaaS:));
     IMP originalNaturalInsert = method_getImplementation(naturalInsert);
     HGInstallAds();
+    [self checkSidebarGameCenterWithGames:games];
     [self checkNaturalAdInsertionEnabled:NO original:originalNaturalInsert];
     [self checkGameBindingHidden:NO];
     SSShortVideoFeedDirectGameContentModel *disabledGame = HGDisplayingGame(SSShortVideoFeedDirectGameFeedPageHost.class);
