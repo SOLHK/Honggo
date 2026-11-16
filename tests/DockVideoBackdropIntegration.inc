@@ -134,6 +134,103 @@ static NSDictionary *HGBackdropViewGeometry(UIView *view,UIWindow *window) {
         @"safeArea":NSStringFromUIEdgeInsets(view.safeAreaInsets),
         @"hidden":@(view.hidden),@"alpha":@(view.alpha),@"mounted":@(view.window==window)};
 }
+static NSMethodSignature *HGBackdropProbeSignature(id target,NSString *name) {
+    Method method=target?class_getInstanceMethod([target class],NSSelectorFromString(name)):NULL;
+    const char *encoding=method?method_getTypeEncoding(method):NULL;
+    return encoding?[NSMethodSignature signatureWithObjCTypes:encoding]:nil;
+}
+static NSDictionary *HGBackdropReadProbeGetter(id target,NSString *name,id expected) {
+    Method method=target?class_getInstanceMethod([target class],NSSelectorFromString(name)):NULL;
+    const char *encoding=method?method_getTypeEncoding(method):NULL;
+    NSMethodSignature *signature=HGBackdropProbeSignature(target,name);
+    NSMutableDictionary *value=[@{@"encoding":encoding?@(encoding):@"missing"} mutableCopy];
+    if(!signature || signature.numberOfArguments!=2)return value;
+    char result=signature.methodReturnType[0];SEL selector=NSSelectorFromString(name);
+    if(result=='B' || result=='c')value[@"value"]=@(((BOOL(*)(id,SEL))objc_msgSend)(target,selector));
+    else if(result=='@') {
+        id object=((id(*)(id,SEL))objc_msgSend)(target,selector);
+        value[@"class"]=object?NSStringFromClass([object class]):@"nil";
+        value[@"matchesExpected"]=@(expected && object==expected);
+    }
+    return value;
+}
+static NSDictionary *HGBackdropPortalMetadata(UIView *portal,UIView *source) {
+    NSMutableDictionary *view=[NSMutableDictionary dictionary],*layer=[NSMutableDictionary dictionary];
+    for(NSString *name in @[@"sourceView",@"hidesSourceView",@"matchesPosition",@"matchesTransform",
+        @"matchesAlpha",@"allowsHitTesting",@"forwardsClientHitTestingToSourceView"])
+        view[name]=HGBackdropReadProbeGetter(portal,name,[name isEqual:@"sourceView"]?source:nil);
+    for(NSString *name in @[@"sourceLayer",@"hidesSourceLayer",@"matchesPosition",@"matchesTransform",@"matchesOpacity"])
+        layer[name]=HGBackdropReadProbeGetter(portal.layer,name,[name isEqual:@"sourceLayer"]?source.layer:nil);
+    return @{@"portalClass":portal?NSStringFromClass(portal.class):@"nil",
+        @"layerClass":portal.layer?NSStringFromClass(portal.layer.class):@"nil",@"viewGetters":view,@"layerGetters":layer};
+}
+static BOOL HGBackdropSetProbeFlag(UIView *portal,NSString *name,BOOL value) {
+    NSMethodSignature *signature=HGBackdropProbeSignature(portal,name);
+    if(!signature || signature.numberOfArguments!=3 || signature.methodReturnType[0]!='v')return NO;
+    char argument=[signature getArgumentTypeAtIndex:2][0];
+    if(argument!='B' && argument!='c')return NO;
+    ((void(*)(id,SEL,BOOL))objc_msgSend)(portal,NSSelectorFromString(name),value);return YES;
+}
+static BOOL HGBackdropSetProbeSource(UIView *portal,UIView *source) {
+    NSMethodSignature *signature=HGBackdropProbeSignature(portal,@"setSourceView:");
+    if(!signature || signature.numberOfArguments!=3 || signature.methodReturnType[0]!='v' ||
+        [signature getArgumentTypeAtIndex:2][0]!='@')return NO;
+    ((void(*)(id,SEL,id))objc_msgSend)(portal,NSSelectorFromString(@"setSourceView:"),source);return YES;
+}
+static NSArray<NSDictionary *> *HGBackdropCreateDiagnosticProbes(UIView *page,TTPlayerView *renderer,UIView *metal) {
+    UIView *green=[[UIView alloc] initWithFrame:CGRectMake(8,MAX(36,page.safeAreaInsets.top+4),64,18)];
+    green.backgroundColor=[UIColor colorWithRed:0.04 green:0.90 blue:0.12 alpha:1];
+    green.userInteractionEnabled=NO;[page addSubview:green];
+    NSArray *specs=@[@{@"name":@"view-identity",@"source":green},
+        @{@"name":@"player-identity",@"source":renderer},
+        @{@"name":@"metal-identity",@"source":metal},
+        @{@"name":@"metal-flipped",@"source":metal,@"flip":@YES},
+        @{@"name":@"player-source-first",@"source":renderer,@"sourceFirst":@YES},
+        @{@"name":@"player-reinsert",@"source":renderer,@"reinsert":@YES}];
+    Class portalClass=NSClassFromString(@"_UIPortalView");
+    NSMutableArray *probes=[NSMutableArray array];
+    for(NSUInteger index=0;index<specs.count;index++) {
+        NSDictionary *spec=specs[index];UIView *source=spec[@"source"];
+        UIView *clip=[[UIView alloc] initWithFrame:CGRectMake(8,MAX(72,page.safeAreaInsets.top+36)+index*56,64,40)];
+        // An opaque neutral backing prevents the native red/blue movie below
+        // an empty portal from producing a false positive in these probes.
+        clip.backgroundColor=[UIColor colorWithWhite:0.06 alpha:1];clip.opaque=YES;
+        clip.clipsToBounds=YES;clip.userInteractionEnabled=NO;[page addSubview:clip];
+        UILabel *label=[[UILabel alloc] initWithFrame:CGRectMake(8,CGRectGetMaxY(clip.frame)+1,94,12)];
+        label.font=[UIFont systemFontOfSize:8];label.textColor=UIColor.whiteColor;
+        label.text=spec[@"name"];[page addSubview:label];
+        UIView *portal=portalClass && [portalClass isSubclassOfClass:UIView.class]?[[portalClass alloc] initWithFrame:CGRectZero]:nil;
+        if(!portal){[probes addObject:@{@"name":spec[@"name"],@"view":clip,@"label":label,@"source":source,@"error":@"portal class unavailable"}];continue;}
+        portal.userInteractionEnabled=NO;portal.accessibilityElementsHidden=YES;[clip addSubview:portal];
+        BOOL configured=HGBackdropSetProbeFlag(portal,@"setHidesSourceView:",NO);
+        if([spec[@"sourceFirst"] boolValue])configured&=HGBackdropSetProbeSource(portal,source);
+        configured&=HGBackdropSetProbeFlag(portal,@"setMatchesPosition:",NO);
+        configured&=HGBackdropSetProbeFlag(portal,@"setMatchesTransform:",NO);
+        configured&=HGBackdropSetProbeFlag(portal,@"setMatchesAlpha:",YES);
+        configured&=HGBackdropSetProbeFlag(portal,@"setAllowsHitTesting:",NO);
+        configured&=HGBackdropSetProbeFlag(portal,@"setForwardsClientHitTestingToSourceView:",NO);
+        if(![spec[@"sourceFirst"] boolValue])configured&=HGBackdropSetProbeSource(portal,source);
+        NSDictionary *assigned=HGBackdropPortalMetadata(portal,source);
+        if([spec[@"reinsert"] boolValue]) {
+            NSUInteger position=[clip.subviews indexOfObjectIdenticalTo:portal];
+            if(position!=NSNotFound)[clip insertSubview:portal atIndex:position];
+        }
+        portal.bounds=source.bounds;portal.center=CGPointMake(source.bounds.size.width/2,source.bounds.size.height/2);
+        portal.transform=[spec[@"flip"] boolValue]?CGAffineTransformMakeScale(1,-1):CGAffineTransformIdentity;
+        [probes addObject:@{@"name":spec[@"name"],@"view":clip,@"label":label,@"portal":portal,@"source":source,
+            @"configured":@(configured),@"afterAssignment":assigned}];
+    }return probes;
+}
+static NSArray<NSDictionary *> *HGBackdropProbeGeometry(NSArray<NSDictionary *> *probes,UIWindow *window) {
+    NSMutableArray *result=[NSMutableArray array];
+    for(NSDictionary *probe in probes) {
+        UIView *portal=probe[@"portal"],*source=probe[@"source"];
+        [result addObject:@{@"name":probe[@"name"],@"configured":probe[@"configured"]?:@NO,
+            @"clip":HGBackdropViewGeometry(probe[@"view"],window),@"portal":HGBackdropViewGeometry(portal,window),
+            @"source":HGBackdropViewGeometry(source,window),@"afterAssignment":probe[@"afterAssignment"]?:@{},
+            @"afterLayout":HGBackdropPortalMetadata(portal,source)}];
+    }return result;
+}
 static NSDictionary *HGBackdropCaptureGeometry(UIWindow *window) {
     UIView *extension=Find(window,@"honggo.video.backdrop");
     UIView *canvas=Find(extension,@"honggo.video.backdrop.canvas");
@@ -148,9 +245,9 @@ static NSDictionary *HGBackdropCaptureGeometry(UIWindow *window) {
     }
     return @{@"extension":HGBackdropViewGeometry(extension,window),@"canvas":HGBackdropViewGeometry(canvas,window),
         @"portal":HGBackdropViewGeometry(portal,window),@"source":HGBackdropViewGeometry(source,window),
-        @"subtree":subtree};
+        @"portalRuntime":HGBackdropPortalMetadata(portal,source),@"subtree":subtree};
 }
-static UIImage *HGBackdropCompositorCapture(NSString *stage,UIWindow *window,CGRect nativeRect,CGRect extensionRect) {
+static UIImage *HGBackdropCompositorCapture(NSString *stage,UIWindow *window,CGRect nativeRect,CGRect extensionRect,NSArray *probes) {
     NSURL *documents=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
     [NSFileManager.defaultManager createDirectoryAtURL:documents withIntermediateDirectories:YES attributes:nil error:nil];
     NSString *base=[@"video-backdrop-" stringByAppendingString:stage];
@@ -164,7 +261,8 @@ static UIImage *HGBackdropCompositorCapture(NSString *stage,UIWindow *window,CGR
     HGBackdropFlushFrames(0.35);
     NSDictionary *request=@{@"stage":stage,@"window":NSStringFromCGRect(window.bounds),
         @"nativeSample":NSStringFromCGRect(nativeRect),@"extensionSample":NSStringFromCGRect(extensionRect),
-        @"source":@"presented CAMetalDrawable; compositor capture required",@"geometry":HGBackdropCaptureGeometry(window)};
+        @"source":@"presented CAMetalDrawable; compositor capture required",@"geometry":HGBackdropCaptureGeometry(window),
+        @"diagnosticProbes":HGBackdropProbeGeometry(probes,window)};
     [stage writeToURL:active atomically:YES encoding:NSUTF8StringEncoding error:nil];
     [[NSJSONSerialization dataWithJSONObject:request options:NSJSONWritingPrettyPrinted error:nil]
         writeToURL:ready atomically:YES];
@@ -198,10 +296,37 @@ static HGBackdropRGB HGBackdropAverageColor(UIImage *image,UIWindow *window,CGRe
     result.red/=denominator;result.green/=denominator;result.blue/=denominator;result.valid=YES;
     return result;
 }
-static void HGBackdropWriteColorEvidence(NSString *stage,HGBackdropRGB native,HGBackdropRGB extension) {
+static NSArray<NSDictionary *> *HGBackdropProbeColors(NSArray<NSDictionary *> *probes,UIImage *image,UIWindow *window) {
+    NSMutableArray *colors=[NSMutableArray array];
+    for(NSDictionary *probe in probes) {
+        UIView *clip=probe[@"view"];
+        // Use the top 10pt for every probe: the visible green source is only
+        // 18pt high and a center crop would include its black backing.
+        CGRect sample=[clip convertRect:CGRectMake(8,4,40,10) toView:window];
+        HGBackdropRGB rgb=HGBackdropAverageColor(image,window,sample);
+        NSMutableDictionary *color=[@{@"name":probe[@"name"],@"sample":NSStringFromCGRect(sample),
+            @"valid":@(rgb.valid),@"r":@(rgb.red),@"g":@(rgb.green),@"b":@(rgb.blue)} mutableCopy];
+        if([probe[@"name"] isEqual:@"view-identity"]) {
+            UIView *source=probe[@"source"];
+            HGBackdropRGB direct=HGBackdropAverageColor(image,window,[source convertRect:CGRectMake(8,4,40,10) toView:window]);
+            color[@"visibleGreenSource"]=@{@"valid":@(direct.valid),@"r":@(direct.red),@"g":@(direct.green),@"b":@(direct.blue)};
+        }
+        [colors addObject:color];
+        NSLog(@"VIDEO_BACKDROP_PROBE %@ RGB=%.3f/%.3f/%.3f valid=%d",probe[@"name"],rgb.red,rgb.green,rgb.blue,rgb.valid);
+    }return colors;
+}
+static void HGBackdropRemoveDiagnosticProbes(NSArray<NSDictionary *> *probes) {
+    for(NSDictionary *probe in probes) {
+        HGBackdropSetProbeSource(probe[@"portal"],nil);
+        [probe[@"view"] removeFromSuperview];[probe[@"label"] removeFromSuperview];
+        if([probe[@"name"] isEqual:@"view-identity"])[probe[@"source"] removeFromSuperview];
+    }
+}
+static void HGBackdropWriteColorEvidence(NSString *stage,HGBackdropRGB native,HGBackdropRGB extension,NSArray *probeColors) {
     NSDictionary *sample=@{@"stage":stage,
         @"native":@{@"valid":@(native.valid),@"r":@(native.red),@"g":@(native.green),@"b":@(native.blue)},
-        @"extension":@{@"valid":@(extension.valid),@"r":@(extension.red),@"g":@(extension.green),@"b":@(extension.blue)}};
+        @"extension":@{@"valid":@(extension.valid),@"r":@(extension.red),@"g":@(extension.green),@"b":@(extension.blue)},
+        @"diagnosticProbes":probeColors};
     NSURL *documents=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
     NSURL *url=[documents URLByAppendingPathComponent:[NSString stringWithFormat:@"video-backdrop-%@-sample.json",stage]];
     [[NSJSONSerialization dataWithJSONObject:sample options:NSJSONWritingPrettyPrinted error:nil] writeToURL:url atomically:YES];
@@ -302,20 +427,22 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         if(!redPresented || !extension || !portal)return;
         CGRect nativeRect=CGRectMake(width*0.35,feedHeight*0.45,width*0.3,24);
         CGRect extensionRect=CGRectMake(width*0.35,feedHeight+14,width*0.3,24);
-        UIImage *red=HGBackdropCompositorCapture(@"red",window,nativeRect,extensionRect);
+        NSArray *probes=HGBackdropCreateDiagnosticProbes(page.view,cell.renderer,cell.metal);
+        UIImage *red=HGBackdropCompositorCapture(@"red",window,nativeRect,extensionRect,probes);
         HGBackdropRGB nativeRed=HGBackdropAverageColor(red,window,nativeRect);
         HGBackdropRGB extendedRed=HGBackdropAverageColor(red,window,extensionRect);
-        HGBackdropWriteColorEvidence(@"red",nativeRed,extendedRed);
+        HGBackdropWriteColorEvidence(@"red",nativeRed,extendedRed,HGBackdropProbeColors(probes,red,window));
         Check(nativeRed.valid && nativeRed.red>nativeRed.blue+0.35 &&
             extendedRed.valid && extendedRed.red>extendedRed.blue+0.12,
             @"simulator compositor shows the red Metal video below the native viewport instead of a black bottom mask");
         BOOL bluePresented=[cell.metal presentRed:0.05 green:0.08 blue:0.92];
         // Intentionally do not refresh or recreate the manager/portal between
         // colors. The same live source must propagate the next GPU drawable.
-        UIImage *blue=HGBackdropCompositorCapture(@"blue",window,nativeRect,extensionRect);
+        UIImage *blue=HGBackdropCompositorCapture(@"blue",window,nativeRect,extensionRect,probes);
         HGBackdropRGB nativeBlue=HGBackdropAverageColor(blue,window,nativeRect);
         HGBackdropRGB extendedBlue=HGBackdropAverageColor(blue,window,extensionRect);
-        HGBackdropWriteColorEvidence(@"blue",nativeBlue,extendedBlue);
+        HGBackdropWriteColorEvidence(@"blue",nativeBlue,extendedBlue,HGBackdropProbeColors(probes,blue,window));
+        HGBackdropRemoveDiagnosticProbes(probes);
         Check(bluePresented && nativeBlue.valid && nativeBlue.blue>nativeBlue.red+0.35 &&
             extendedBlue.valid && extendedBlue.blue>extendedBlue.red+0.12 &&
             Find(page.view,@"honggo.video.backdrop.portal")==portal && HGBackdropNativeUnchanged(geometry),

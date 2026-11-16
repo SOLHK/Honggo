@@ -51,6 +51,8 @@ view 的尺寸、分页步长、偏移、父视图和播放器业务回调均不
 变换只施加于插件自己的镜像，使用 bounds、center 与 transform 定位；
 原生视图不重新挂载。合成器回归同时检查挂接、底部裁剪、原生几何不变
 和下方区域的真实像素。
+来源切换后，同一个插件镜像按原父视图、原索引重新插入，以更新已挂载
+的合成连接；随后恢复镜像几何。该步骤不重挂载原生来源，也不逐帧执行。
 
 开发回归发现：在 `UIBackgroundExtensionView` 中再次延展含 portal 的
 内容，虽然挂接与几何均正确，红蓝 Metal 画面下方的采样仍为全黑。因此
@@ -60,6 +62,7 @@ view 的尺寸、分页步长、偏移、父视图和播放器业务回调均不
 参考的是接口事实与平台行为，实现由 Honggo 独立编写：
 
 - [Telegram UIKitRuntimeUtils 中的 portal 接口使用](https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m)
+- [Telegram PortalView 的来源重载生命周期](https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/Display/Source/PortalView.swift)
 
 ## 验证要求
 

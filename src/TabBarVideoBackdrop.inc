@@ -13,6 +13,9 @@
 // The portal selectors are used by Telegram's UIKitRuntimeUtils/UIKitUtils.m;
 // every selector below is checked against the running Objective-C ABI first.
 // https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m
+// Its PortalView reload also reinserts the portal at its existing sibling index
+// after changing the source, reconnecting the already-mounted compositor view.
+// https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/Display/Source/PortalView.swift
 
 @interface HGVideoBackdrop : NSObject
 - (void)refreshWithBranches:(NSArray<UIView *> *)branches root:(UIView *)root
@@ -268,6 +271,17 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
     if (![self.canvas.backgroundColor isEqual:color]) self.canvas.backgroundColor = color;
     if (self.renderer != renderer || self.portal.sourceView != renderer) {
         self.portal.sourceView = renderer; self.renderer = renderer;
+        // Match the source-reload lifecycle used by Telegram's PortalView.
+        // Only the plugin portal is reinserted, into its existing parent/index;
+        // the source player, its layer and the native paging tree never move.
+        NSUInteger index = [self.canvas.subviews indexOfObjectIdenticalTo:self.portal];
+        if (index != NSNotFound) [self.canvas insertSubview:self.portal atIndex:index];
+        // didMove/layout inside UIKit may synchronize geometry while attaching.
+        // Restore our bounds/center/transform without writing a transformed frame.
+        if (!CGRectEqualToRect(self.portal.bounds, renderer.bounds)) self.portal.bounds = renderer.bounds;
+        if (!CGPointEqualToPoint(self.portal.center, center)) self.portal.center = center;
+        if (!CGAffineTransformEqualToTransform(self.portal.transform, reflection))
+            self.portal.transform = reflection;
     }
     self.extension.hidden = NO;
     [CATransaction commit];
