@@ -100,7 +100,21 @@ static BOOL HGALandscapeFixtureIsCircle(UIView *glass) {
     return glass && CGRectGetWidth(glass.bounds)==36 && CGRectGetHeight(glass.bounds)==36 && glass.layer.cornerRadius==18;
 }
 
+@interface FQVShortVideoListVCToastComponent : NSObject
+@property(nonatomic) NSUInteger toastCount;
+@property(nonatomic,copy) NSString *message;
+- (void)toast:(NSString *)message;
+@end
+@implementation FQVShortVideoListVCToastComponent
+- (void)toast:(NSString *)message { self.toastCount++;self.message=message; }
+@end
+
 static void RunLandscapeChromeChecks(SSTabBarController *host) {
+    FQVShortVideoListVCToastComponent *toast=[FQVShortVideoListVCToastComponent new];
+    NSString *failure=@"加载失败，请稍后重试";
+    [toast toast:failure];
+    Check(toast.toastCount==1 && [toast.message isEqual:failure],
+        @"observing the landscape load failure preserves the native toast and its message");
     NSDictionary *saved=HGAppearanceValues();
     HGAppearanceApply(@{@"enabled":@YES,@"player.controlsGlass":@YES,@"player.material":@"blur"},nil);
     UIWindow *window=HGPlaybackFixtureWindow(host.view,CGSizeMake(820,360));
@@ -204,20 +218,21 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     Check(bottomGroup.alpha==1 && Count(bottomGroup,identifier)==8 && [volume.backgroundColor isEqual:UIColor.clearColor],
         @"the native nonanimated show hook reuses the footer glass and refreshes the audio backing");
     UIView *backGlass=Find(top,identifier);
-    CGRect titleRect=[info.titleL textRectForBounds:info.titleL.bounds limitedToNumberOfLines:info.titleL.numberOfLines];
-    titleRect=[info.titleL convertRect:titleRect toView:top];
+    CGRect titleFrame=info.titleL.frame;
     Check(Count(page,identifier)==15 && Count(bottom,identifier)==3 && Count(interactions,identifier)==5 &&
         Count(navigation,identifier)==2 && Count(progress,identifier)==0 && Count(inflow,identifier)==1,
         @"landscape glass covers the original navigation, side and business controls without styling the scrubber");
-    Check(backGlass.superview==top && !backGlass.userInteractionEnabled && CGRectGetHeight(backGlass.bounds)==40 &&
-        CGRectContainsRect(backGlass.frame,titleRect) &&
+    Check(backGlass.superview==top && !backGlass.userInteractionEnabled && HGALandscapeFixtureIsCircle(backGlass) &&
+        CGRectContainsRect(backGlass.frame,info.navBackImageView.frame) && !CGRectIntersectsRect(backGlass.frame,titleFrame) &&
         [top.subviews indexOfObjectIdenticalTo:backGlass]<[top.subviews indexOfObjectIdenticalTo:info.navBackImageView] &&
         info.navBackImageView.image==arrow && interactions.danmakuBtnView.image==danmaku && shareItem.shareIconV.image==shareImage,
-        @"landscape title and arrow share a centered 40-point backing behind the unmodified native foreground");
-    CGFloat previousTitleWidth=CGRectGetWidth(backGlass.frame);
-    [info setVideoDataModel:@"谁让这个文盲修仙的：第十二集更长的完整标题"];
-    Check(Find(top,identifier)==backGlass && CGRectGetWidth(backGlass.frame)>previousTitleWidth,
-        @"landscape title glass updates from the host's episode model without a second surface");
+        @"the landscape back arrow has its own round glass with the title outside the material");
+    CGRect previousBackFrame=backGlass.frame;
+    NSString *longTitle=@"谁让这个文盲修仙的：第十二集更长的完整标题";
+    [info setVideoDataModel:longTitle];
+    Check(Find(top,identifier)==backGlass && CGRectEqualToRect(backGlass.frame,previousBackFrame) &&
+        CGRectEqualToRect(info.titleL.frame,titleFrame) && [info.titleL.text isEqual:longTitle] && !info.titleL.hidden,
+        @"a long native title remains visible without widening the back arrow glass");
     UIView *likeGlass=Find(interactions.likeBtnView,identifier);
     UILabel *count=interactions.likeCountLabel;
     CGRect countInk=[count textRectForBounds:count.bounds limitedToNumberOfLines:count.numberOfLines];

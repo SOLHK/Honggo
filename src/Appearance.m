@@ -8,6 +8,7 @@
 #import <CommonCrypto/CommonDigest.h>
 #import <objc/message.h>
 #import <dispatch/dispatch.h>
+#include <mach-o/dyld.h>
 #include <math.h>
 #include <string.h>
 
@@ -285,8 +286,16 @@ void HGInstallAppearance(void) {
             }
             if([name isEqual:@"FQVShortVideoVPlayerControlView"])
                 HGAHook(cls,sel_registerName("handleOutterFeedClipBounds:"),"v20@0:8B16",NO);
+            if([name isEqual:@"SSShortVideoTagListBottomInsertView"])
+                HGAHook(cls,sel_registerName("relayout"),"v16@0:8",NO);
+            if([name isEqual:@"SSShortVideoTagListBottomInsertView"] || [name isEqual:@"SSShortVideoSingleBottomInsertView"])
+                HGAHook(cls,sel_registerName("setVideoDataModel:"),"v24@0:8@16",NO);
+            if([name isEqual:@"FQVShortVideoControlCleanSwitchView"])
+                HGAHook(cls,sel_registerName("refreshLayout"),"v16@0:8",NO);
             if([name isEqual:@"SSShortVideoBottomDistributionView"])
                 HGAHook(cls,sel_registerName("renderWithModel:"),"v24@0:8@16",NO);
+            if([name isEqual:@"SSBookStoreEntranceView"] || [name isEqual:@"SSBookStoreKingKongBannerView"])
+                HGAHook(cls,sel_registerName("setModel:"),"v24@0:8@16",NO);
             if([name isEqual:@"SSShortVideoLandscapeBizInteractionView"])
                 HGAHook(cls,sel_registerName("refreshUI"),"v16@0:8",NO);
             if([name isEqual:@"SSHGBookStoreCategoryTitleCell"])
@@ -369,6 +378,7 @@ void HGInstallAppearance(void) {
             HGAHook(detailController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
         if ([dockController isSubclassOfClass:UIViewController.class])
             HGAHook(dockController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
+        HGAInstallLandscapeLoadFailureDiagnostic();
         static dispatch_once_t once;
         dispatch_once(&once, ^{
             dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();});

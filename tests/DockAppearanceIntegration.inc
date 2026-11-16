@@ -1,6 +1,7 @@
 // Included after the controlled host, Check, Find and Layout helpers. These
 // checks render real UIKit button layers and exercise their state changes.
 #import <QuartzCore/QuartzCore.h>
+#import "RuntimeSupport.h"
 
 @interface HGADockThemeFixture : NSObject
 @property(nonatomic,strong) UIColor *selectedImageColor;
@@ -441,16 +442,54 @@ static void HGRunExpandedDockGeometryChecks(SSTabBarController *host) {
 - (UIGestureRecognizerState)state {return self.fixtureState;}
 @end
 
+@interface HGAAppearanceDock (TouchFixture) <UIGestureRecognizerDelegate>
+- (BOOL)acceptsSelectionTouchAtPoint:(CGPoint)point inView:(UIView *)hit;
+@end
+
+static void HGRunDockTouchRoutingChecks(HGAAppearanceDock *dock,UIView *bar,UIView *capsule,UIButton *home) {
+    UIView *container=bar.superview;
+    UIPanGestureRecognizer *installed=nil;
+    for(UIGestureRecognizer *gesture in container.gestureRecognizers)
+        if(gesture.delegate==(id)dock && [gesture isKindOfClass:UIPanGestureRecognizer.class])installed=(id)gesture;
+    Check(installed && installed.cancelsTouchesInView && installed.maximumNumberOfTouches==1,
+        @"dock drag is installed on the actual shared container and cancels the original button touch");
+
+    // The host progress control covers a larger rectangle than its visible rail.
+    UIView *player=[[NSClassFromString(@"FQVShortVideoVPlayerControlView") alloc] initWithFrame:container.bounds];
+    UIPanGestureRecognizer *progress=HGReadObjectGetter(player,"progressPanGesture");
+    CGRect surface=[capsule convertRect:capsule.bounds toView:container];
+    UISlider *rail=[[UISlider alloc] initWithFrame:CGRectMake(CGRectGetMinX(surface),CGRectGetMinY(surface)-22,
+        CGRectGetWidth(surface),40)];
+    [player addSubview:rail];
+    [container insertSubview:player aboveSubview:bar];
+    CGPoint overlap=CGPointMake(CGRectGetMidX(home.frame),10);
+    CGPoint above=CGPointMake(overlap.x,-8);
+    UIView *overlapHit=[container hitTest:[capsule convertPoint:overlap toView:container] withEvent:nil];
+    UIView *railHit=[container hitTest:[capsule convertPoint:above toView:container] withEvent:nil];
+    Check([overlapHit isDescendantOfView:player] && [overlapHit isDescendantOfView:installed.view] &&
+        [dock acceptsSelectionTouchAtPoint:overlap inView:overlapHit],
+        @"a dock start can reach the pan through the shared ancestor even when the native scrubber wins hit testing");
+    Check([railHit isDescendantOfView:player] && ![dock acceptsSelectionTouchAtPoint:above inView:railHit],
+        @"the progress rail above the rounded capsule retains its native touch route");
+    UIPanGestureRecognizer *unrelated=[UIPanGestureRecognizer new];
+    unrelated.delegate=(id)player;[player addGestureRecognizer:unrelated];
+    Check(progress && [dock gestureRecognizer:installed shouldBeRequiredToFailByGestureRecognizer:progress] &&
+        ![dock gestureRecognizer:installed shouldBeRequiredToFailByGestureRecognizer:unrelated],
+        @"the identified progress pan alone waits for the dock pan");
+    UIView *sheet=[[UIView alloc] initWithFrame:container.bounds];
+    [container addSubview:sheet];
+    UIView *sheetHit=[container hitTest:[capsule convertPoint:overlap toView:container] withEvent:nil];
+    Check(sheetHit==sheet && ![dock acceptsSelectionTouchAtPoint:overlap inView:sheetHit],
+        @"an unrelated surface covering the dock retains its touches");
+    [sheet removeFromSuperview];[player removeFromSuperview];
+}
+
 static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock,UIView *capsule,
     UIView *selection,UIButton *home,UIButton *theater) {
     NSUInteger taps=host.nativeTaps;
     host.selectedIndex=0;
     HGAppearanceLayoutDock(host.customTabBar,host);
-    UIPanGestureRecognizer *installed=nil;
-    for(UIGestureRecognizer *gesture in capsule.gestureRecognizers)
-        if([gesture isKindOfClass:UIPanGestureRecognizer.class])installed=(id)gesture;
-    Check(installed && installed.cancelsTouchesInView && installed.maximumNumberOfTouches==1,
-        @"tab drag is scoped to the capsule and cancels the original button touch when recognized");
+    HGRunDockTouchRoutingChecks(dock,host.customTabBar,capsule,home);
 
     CGFloat homeX=CGRectGetMidX(home.frame),theaterX=CGRectGetMidX(theater.frame);
     CGFloat middle=(homeX+theaterX)/2;
@@ -637,10 +676,12 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     CGPoint theaterPoint=[theater convertPoint:CGPointMake(CGRectGetMidX(theater.bounds),CGRectGetMidY(theater.bounds)) toView:dock];
     CGPoint extraPoint=[extra convertPoint:CGPointMake(CGRectGetMidX(extra.bounds),CGRectGetMidY(extra.bounds)) toView:dock];
     CGPoint paddingPoint=[capsule convertPoint:CGPointMake(2,CGRectGetMidY(capsule.bounds)) toView:dock];
+    CGPoint clearCorner=[capsule convertPoint:CGPointMake(1,1) toView:dock];
     NSUInteger taps=host.nativeTaps;
     Check([dock hitTest:homePoint withEvent:nil]==home && [dock hitTest:theaterPoint withEvent:nil]==theater &&
-        [dock hitTest:extraPoint withEvent:nil]==extra && ![dock hitTest:paddingPoint withEvent:nil],
-        @"material foreground keeps the selected unselected and independent button hit targets");
+        [dock hitTest:extraPoint withEvent:nil]==extra && [dock hitTest:paddingPoint withEvent:nil]==capsule &&
+        ![dock hitTest:clearCorner withEvent:nil],
+        @"button slots and rounded capsule padding acquire touches, while transparent corners pass through");
     [home sendActionsForControlEvents:UIControlEventTouchUpInside];
     [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
     [extra sendActionsForControlEvents:UIControlEventTouchUpInside];

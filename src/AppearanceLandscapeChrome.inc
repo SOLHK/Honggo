@@ -93,18 +93,9 @@ static void HGAPlaceLandscapeSurface(UIView *target,CGRect frame,BOOL inside,HGA
     [glass requestMaterialRefresh];
 }
 
-static CGRect HGALandscapeSurfaceFrame(UIView *target,UIView *labelView,BOOL round,BOOL inside) {
+static CGRect HGALandscapeSurfaceFrame(UIView *target,BOOL round,BOOL inside) {
     UIView *parent=inside ? target : target.superview;
     CGRect frame=inside ? target.bounds : [target convertRect:target.bounds toView:parent];
-    if(labelView && !labelView.hidden && !CGRectIsEmpty(labelView.bounds)) {
-        CGRect text=[labelView convertRect:labelView.bounds toView:parent];
-        if([labelView isKindOfClass:UILabel.class]) {
-            UILabel *label=(UILabel *)labelView;
-            CGRect used=[label textRectForBounds:label.bounds limitedToNumberOfLines:label.numberOfLines];
-            text=[label convertRect:used toView:parent];
-        }
-        frame=CGRectInset(CGRectUnion(frame,text),-10,0);
-    }
     CGFloat height=round ? HGALandscapeButtonDiameter : 40;
     CGFloat width=round ? height : MAX(height,CGRectGetWidth(frame));
     CGRect padded=CGRectMake(CGRectGetMidX(frame)-width/2,CGRectGetMidY(frame)-height/2,width,height);
@@ -178,7 +169,7 @@ static void HGALandscapeApplyView(UIView *root) {
     NSMapTable<UIView *,NSArray<UIView *> *> *counters=biz ? [NSMapTable strongToStrongObjectsMapTable] : nil;
     NSDictionary<NSString *,NSArray<NSString *> *> *countGetters=biz ? @{@"likeBtnView":@[@"likeCountLabel",@"likeIcon"],
         @"commentBtnView":@[@"commentCountLabel",@"commentIcon"],@"starBtnView":@[@"starCountLabel",@"starIcon"]} : nil;
-    UIView *back=nil,*title=nil,*next=nil;
+    UIView *back=nil,*next=nil;
     UIView *input=nil,*inputPaint=nil;
     for(NSString *getter in getters[kind]) {
         UIView *target=HGAViewGetter(root,getter.UTF8String,root);
@@ -196,7 +187,6 @@ static void HGALandscapeApplyView(UIView *root) {
     }
     if(info) {
         back=HGAViewGetter(root,"navBackImageView",root);
-        title=HGAViewGetter(root,"titleL",root);
         if(back && !CGRectIsEmpty(back.bounds))[targets addObject:back];
     } else if([kind isEqual:@"FQVShortVideoLandscapeNavBar"]) {
         id items=HGReadObjectGetter(root,"itemList");
@@ -232,8 +222,8 @@ static void HGALandscapeApplyView(UIView *root) {
         NSArray<UIView *> *counter=[counters objectForKey:target];
         BOOL inside=adjustment || target==input || counter || (target!=back && !target.clipsToBounds &&
             ![target isKindOfClass:UIImageView.class] && ![target isKindOfClass:UILabel.class]);
-        BOOL round=target!=back && target!=next && target!=input && !inflow;
-        CGRect frame=HGALandscapeSurfaceFrame(target,target==back ? title : nil,round,inside);
+        BOOL round=target!=next && target!=input && !inflow;
+        CGRect frame=HGALandscapeSurfaceFrame(target,round,inside);
         // Give the switch breathing room without shifting the host's input
         // target, placeholder or draft publish button.
         if(target==input)frame=CGRectInset(frame,MIN(6,MAX(0,(CGRectGetWidth(frame)-44)/2)),0);
@@ -253,4 +243,34 @@ static void HGALandscapeApplyView(UIView *root) {
         HGAPlaceLandscapeSurface(target,frame,inside,state);
     }
     [CATransaction commit];
+}
+
+static IMP HGALandscapeToastOriginal;
+
+static void HGALandscapeToast(id object,SEL command,id message) {
+    if([message isKindOfClass:NSString.class] && [message isEqualToString:@"加载失败，请稍后重试"]) {
+        uintptr_t executableBase=(uintptr_t)_dyld_get_image_header(0);
+        NSArray<NSNumber *> *frames=NSThread.callStackReturnAddresses;
+        // Eggplant 7.4.3.33 return sites immediately after these verified toast
+        // calls. The addresses are only compared here and never exported.
+        for(NSUInteger i=0;i<MIN(frames.count,8);i++) {
+            NSString *stage=nil;
+            switch(frames[i].unsignedLongLongValue-executableBase) {
+                case 0xf5c5b54: stage=@"prepare-switch"; break;
+                case 0xf5c5da4: stage=@"select-target"; break;
+                case 0xf5c6454: stage=@"complete-switch"; break;
+                case 0xf5c6730: stage=@"prepare-direct"; break;
+                case 0xf6491ac: stage=@"season-delegate-declined"; break;
+                case 0xf649364: stage=@"season-route-failed"; break;
+                default: break;
+            }
+            if(stage) {HGLog(@"playback.landscape-load-failed",@{@"stage":stage});break;}
+        }
+    }
+    ((void(*)(id,SEL,id))HGALandscapeToastOriginal)(object,command,message);
+}
+
+static void HGAInstallLandscapeLoadFailureDiagnostic(void) {
+    Class toast=NSClassFromString(@"FQVShortVideoListVCToastComponent");
+    if(toast)HGALandscapeToastOriginal=HGReplaceMethod(toast,sel_registerName("toast:"),"v24@0:8@16",(IMP)HGALandscapeToast);
 }

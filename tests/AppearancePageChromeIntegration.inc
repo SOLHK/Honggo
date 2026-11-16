@@ -36,6 +36,10 @@
 @property(nonatomic,strong) UIView *searchButtonSlotView;
 @end
 @implementation SSVideoSeriesFeedHeaderSearchView @end
+@interface HGAFinderRecognitionFixture : UIView
+@property(nonatomic,strong) UIView *separatorView;
+@end
+@implementation HGAFinderRecognitionFixture @end
 @interface SSVideoSeriesFeedHeaderView (PageChromeFixture)
 - (void)setupSideBarViewIfNeeded;
 - (void)relayoutHeaderWithSearchBar;
@@ -53,6 +57,7 @@
 @property(nonatomic,strong) UIView *searchView;
 @property(nonatomic,strong) UIView *searchBgView;
 @property(nonatomic,strong) UIView *imageSearchContainer;
+@property(nonatomic,strong) HGAFinderRecognitionFixture *normalImageSearchView;
 @property(nonatomic,strong) UIView *aiSearchEntranceView;
 @end
 @implementation FQTheaterViewController @end
@@ -61,6 +66,7 @@
 @interface SSBookStoreEntranceView : UIView
 @property(nonatomic,strong) UILabel *nameLabel;
 @property(nonatomic,strong) UIImageView *bgImgView;
+@property(nonatomic,copy) NSString *model;
 @property(nonatomic) NSUInteger backgroundGetterCalls;
 @end
 @implementation SSBookStoreEntranceView
@@ -69,7 +75,16 @@
     self.backgroundGetterCalls++;
     return _bgImgView;
 }
+- (void)setModel:(NSString *)model {
+    _model=[model copy];
+    self.nameLabel.text=model;
+    _bgImgView.hidden=NO;
+}
 @end
+@interface FQFeedTabFilterPanelEntranceView : UIView
+@property(nonatomic,strong) UIImageView *backgroundView;
+@end
+@implementation FQFeedTabFilterPanelEntranceView @end
 @interface SSMyUser637TabsView : UIView
 @property(nonatomic,strong) UIButton *searchBtn;
 @end
@@ -199,8 +214,17 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     [root addSubview:finder.view];[finder didMoveToParentViewController:host];
     finder.searchBgView=PageChromeControl(finder.view,CGRectMake(0,0,180,34));
     finder.searchView=PageChromeControl(finder.view,CGRectMake(5,8,18,18));
-    finder.imageSearchContainer=PageChromeControl(finder.view,CGRectMake(183,0,40,34));
-    finder.aiSearchEntranceView=PageChromeControl(finder.view,CGRectMake(226,0,40,34));
+    finder.imageSearchContainer=PageChromeControl(finder.view,CGRectMake(167,0,50,34));
+    finder.normalImageSearchView=[[HGAFinderRecognitionFixture alloc] initWithFrame:finder.imageSearchContainer.bounds];
+    finder.normalImageSearchView.separatorView=PageChromeControl(finder.normalImageSearchView,CGRectMake(2,7,1,20));
+    [finder.imageSearchContainer addSubview:finder.normalImageSearchView];
+    finder.aiSearchEntranceView=PageChromeControl(finder.view,CGRectMake(225,0,40,34));
+    CGRect nativeRecognition=finder.imageSearchContainer.frame,nativeSearchField=finder.searchBgView.frame;
+    FQFeedTabFilterPanelEntranceView *filterShortcut=[[FQFeedTabFilterPanelEntranceView alloc] initWithFrame:CGRectMake(0,0,48,34)];
+    filterShortcut.backgroundView=[[UIImageView alloc] initWithFrame:filterShortcut.bounds];
+    [filterShortcut addSubview:filterShortcut.backgroundView];
+    [finder.view addSubview:filterShortcut];
+    Layout(filterShortcut);
     NSArray *labels=@[@"筛选",@"排行榜",@"新剧",@"预约",@"其他"];
     NSMutableArray *shortcuts=[NSMutableArray array];
     for(NSUInteger i=0;i<labels.count;i++) {
@@ -211,9 +235,26 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         [shortcut addSubview:shortcut.nameLabel];[finder.view addSubview:shortcut];[shortcuts addObject:shortcut];Layout(shortcut);
     }
     HGAppearanceProcessController(finder);
-    UIView *searchGlass=Find(finder.searchBgView,material);
-    BOOL scoped=searchGlass && CGRectEqualToRect(searchGlass.frame,finder.searchBgView.bounds) && !Find(finder.searchView,material) &&
-        Find(finder.imageSearchContainer,material) && Find(finder.aiSearchEntranceView,material);
+    UIVisualEffectView *searchGlass=(id)Find(finder.searchBgView,material);
+    UIView *recognitionGlass=Find(finder.imageSearchContainer,material);
+    UIView *assistantGlass=Find(finder.aiSearchEntranceView,material);
+    CGRect searchSurface=[searchGlass convertRect:searchGlass.bounds toView:finder.view];
+    CGRect recognitionSurface=[recognitionGlass convertRect:recognitionGlass.bounds toView:finder.view];
+    Check(searchGlass && recognitionGlass && assistantGlass && !Find(finder.searchView,material) &&
+        fabs(CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)-6)<0.01 &&
+        assistantGlass.bounds.size.width==assistantGlass.bounds.size.height &&
+        CGRectEqualToRect(finder.searchBgView.frame,nativeSearchField) &&
+        CGRectEqualToRect(finder.imageSearchContainer.frame,nativeRecognition) &&
+        finder.normalImageSearchView.separatorView.hidden,
+        @"finder search and recognition have separate glass with a six-point gap and an independent round AI control");
+    finder.imageSearchContainer.hidden=YES;
+    HGAppearanceProcessController(finder);
+    Check(CGRectEqualToRect(searchGlass.frame,finder.searchBgView.bounds) &&
+        !Find(finder.imageSearchContainer,material) && !finder.normalImageSearchView.separatorView.hidden,
+        @"finder restores the full search surface when its recognition tool is unavailable");
+    finder.imageSearchContainer.hidden=NO;
+    HGAppearanceProcessController(finder);
+    BOOL scoped=Find(filterShortcut,material)!=nil && filterShortcut.backgroundView.hidden;
     for(NSUInteger i=0;i<shortcuts.count;i++) {
         SSBookStoreEntranceView *shortcut=shortcuts[i];
         scoped&=(Find(shortcut,material)!=nil)==(i<4) && shortcut.bgImgView.hidden==(i<4) && !shortcut.nameLabel.hidden;
@@ -227,9 +268,15 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     reused.bgImgView=currentCover;
     Layout(reused);
     scoped&=!previousCover.hidden && currentCover.hidden;
+    reused.model=@"其他";
+    BOOL lateBinding=!currentCover.hidden && !Find(reused,material);
+    reused.model=@"排行榜";
+    Check(lateBinding && currentCover.hidden && Find(reused,material),
+        @"reused catalogue shortcut reconciles its host paint when the model changes without a layout pass");
     NSUInteger getterCalls=reused.backgroundGetterCalls;
     HGAppearanceSet(@"player.finderGlass",@NO,nil);
-    scoped&=reused.backgroundGetterCalls==getterCalls && !Find(finder.view,material) &&
+    scoped&=reused.backgroundGetterCalls==getterCalls && !Find(finder.view,material) && !filterShortcut.backgroundView.hidden &&
+        !finder.normalImageSearchView.separatorView.hidden &&
         [finder.searchBgView.backgroundColor isEqual:UIColor.systemGrayColor];
     for(SSBookStoreEntranceView *shortcut in shortcuts)scoped&=!shortcut.bgImgView.hidden && shortcut.bgImgView.image!=nil;
     Check(scoped,@"finder glass targets the four shortcuts and restores native search backgrounds on disable");

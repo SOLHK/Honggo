@@ -4,11 +4,12 @@ static NSDictionary<NSString *,NSArray<NSString *> *> *HGAPlayerControlGetters(v
     static NSDictionary *getters;static dispatch_once_t once;
     dispatch_once(&once,^{getters=@{
         @"FQVShortVideoVPlayerControlView":@[@"fullscreenBtn"],
-        @"SSShortVideoBottomInsertView":@[@"playRateButton",@"cleanScreenView",@"cleanSwitchView"],
+        @"SSShortVideoBottomInsertView":@[@"playRateButton",@"cleanScreenView"],
         @"SSShortVideoSingleBottomInsertView":@[@"episodeInfoView"],
         @"SSShortVideoAlbumSeriesBottomInsertView":@[@"containerView"],
         @"SSShortVideoPugcVideoBottomInsertView":@[@"commentContainerView"],
-        @"SSShortVideoTagListBottomInsertView":@[@"contentView"],
+        @"SSShortVideoTagListBottomInsertView":@[@"episodeInfoView"],
+        @"FQVShortVideoControlCleanSwitchView":@[],
         @"FQCShortVideoDanmakuEntranceView":@[],
         @"SSShortVideoEpisodePanelCollectView":@[@"containerView",@"shareContainerView"],
         @"SSShortVideoEpisodesRelatedInfoView":@[@"contentView"],
@@ -59,12 +60,34 @@ static void HGAApplyEpisodeCollectInk(UIView *root,BOOL enabled) {
     state.label.textColor=UIColor.labelColor;state.icon.tintColor=UIColor.labelColor;
     if(state.icon.image!=state.appliedImage)state.icon.image=state.appliedImage;
 }
-static void HGAPlayerControlGlass(UIView *target,BOOL enabled,BOOL sheet) {
-    if(!target)return;
-    if(!enabled || !target.window){HGARemoveGlass(target);return;}
+static char HGAEpisodeLayerPaintKey;
+static NSString *HGAPlayerDetailEntryMaterial(void) {
+    return [HGAppearanceString(@"player.material") isEqual:@"clear"] ? @"clear" : @"regular";
+}
+static void HGARestorePlayerControlGlass(UIView *target) {
+    HGARemoveGlass(target);
+    UIColor *paint=objc_getAssociatedObject(target,&HGAEpisodeLayerPaintKey);
+    if(!paint)return;
+    CGColorRef current=target.layer.backgroundColor;
+    if(!current || CGColorGetAlpha(current)==0)target.layer.backgroundColor=paint.CGColor;
+    objc_setAssociatedObject(target,&HGAEpisodeLayerPaintKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static void HGAPlayerControlGlass(UIView *target,BOOL sheet,BOOL episodeEntry) {
+    if(!target.window || CGRectIsEmpty(target.bounds)){HGARestorePlayerControlGlass(target);return;}
     CGFloat radius=MIN(22,MIN(target.bounds.size.width,target.bounds.size.height)/2);
+    if(episodeEntry) {
+        // The tag-list episode pill paints its color directly onto CALayer.
+        // Preserve that paint separately if UIView doesn't report the color.
+        CGColorRef paint=target.layer.backgroundColor;
+        UIColor *background=target.backgroundColor;
+        if(paint && CGColorGetAlpha(paint)>0 && (!background || !CGColorEqualToColor(paint,background.CGColor)))
+            objc_setAssociatedObject(target,&HGAEpisodeLayerPaintKey,[UIColor colorWithCGColor:paint],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
     if(sheet) HGAInstallGlass(target,HGAppearanceString(@"panels.material"),radius,0.04);
-    else HGAInstallPlaybackGlass(target,HGAppearanceString(@"player.material"),target.bounds,radius,nil);
+    else HGAInstallPlaybackGlass(target,episodeEntry ? HGAPlayerDetailEntryMaterial() : HGAppearanceString(@"player.material"),
+        target.bounds,radius,nil);
+    if(episodeEntry && target.layer.backgroundColor && CGColorGetAlpha(target.layer.backgroundColor)>0)
+        target.layer.backgroundColor=nil;
 }
 
 @interface HGADanmakuLegacyInk : NSObject
@@ -131,7 +154,7 @@ static void HGAApplyDanmakuLegacyInk(UIView *root,BOOL enabled) {
 static char HGAPlayerChromeKey;
 static HGAPlayerChromeState *HGAPlayerChromeTargets(id owner,NSArray<UIView *> *targets,NSArray<UIView *> *paints) {
     HGAPlayerChromeState *state=objc_getAssociatedObject(owner,&HGAPlayerChromeKey);
-    for(UIView *previous in state.targets)if(![targets containsObject:previous])HGARemoveGlass(previous);
+    for(UIView *previous in state.targets)if(![targets containsObject:previous])HGARestorePlayerControlGlass(previous);
     for(UIView *previous in state.paints)if(![paints containsObject:previous])HGASetHidden(previous,NO);
     if(!targets.count && !paints.count){objc_setAssociatedObject(owner,&HGAPlayerChromeKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);return nil;}
     if(!state) {
@@ -148,16 +171,27 @@ static void HGAApplyPlayerControls(UIView *root) {
     BOOL danmaku=[name isEqual:@"FQCShortVideoDanmakuEntranceView"];
     BOOL sheet=HGAEpisodeControl(root);
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(sheet?@"panels.episodes":@"player.controlsGlass") && root.window;
+    if([root isKindOfClass:NSClassFromString(@"FQVShortVideoControlCleanSwitchView")]) {
+        if(!enabled || root.hidden || CGRectIsEmpty(root.bounds)){HGARemoveGlass(root);return;}
+        CGRect frame=root.bounds;
+        CGFloat side=MIN(frame.size.width,frame.size.height);
+        frame=CGRectMake(CGRectGetMidX(frame)-side/2,CGRectGetMidY(frame)-side/2,side,side);
+        HGAInstallPlaybackGlass(root,HGAPlayerDetailEntryMaterial(),frame,side/2,nil);
+        return;
+    }
     if(!enabled) {
         HGAPlayerChromeTargets(root,nil,nil);HGAApplyEpisodeCollectInk(root,NO);
         if(danmaku)HGAApplyDanmakuLegacyInk(root,NO);
         return;
     }
     NSMutableArray *targets=[NSMutableArray array],*paints=[NSMutableArray array];
+    UIView *episodeEntry=nil;
     for(Class cls=object_getClass(root);cls && cls!=UIView.class;cls=class_getSuperclass(cls)) {
         for(NSString *getter in HGAPlayerControlGetters()[NSStringFromClass(cls)]) {
             UIView *target=HGAViewGetter(root,getter.UTF8String,root);
-            if(target)[targets addObject:target];
+            if(!target)continue;
+            if([getter isEqual:@"episodeInfoView"])episodeEntry=target;
+            [targets addObject:target];
         }
     }
     if(danmaku) {
@@ -185,7 +219,7 @@ static void HGAApplyPlayerControls(UIView *root) {
         }
     }
     HGAPlayerChromeTargets(root,targets,paints);
-    for(UIView *target in targets)HGAPlayerControlGlass(target,YES,sheet);
+    for(UIView *target in targets)HGAPlayerControlGlass(target,sheet,target==episodeEntry);
     if([name isEqual:@"SSShortVideoEpisodesViewItemCell"]) {
         // The host's custom setIsSelected: paints bgView independently of
         // UICollectionViewCell.selected. Preserve that authored state as tint.

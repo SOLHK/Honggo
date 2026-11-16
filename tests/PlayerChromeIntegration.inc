@@ -1,9 +1,19 @@
-@interface FQVShortVideoVPlayerControlView : UIView
+@interface FQVShortVideoVPlayerControlView : UIView <UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIButton *fullscreenBtn;
+@property(nonatomic,strong,readonly) UIPanGestureRecognizer *progressPanGesture;
 @property(nonatomic) NSUInteger nativeClipPasses;
 - (void)handleOutterFeedClipBounds:(BOOL)clip;
 @end
 @implementation FQVShortVideoVPlayerControlView
+@synthesize progressPanGesture=_progressPanGesture;
+- (UIPanGestureRecognizer *)progressPanGesture {
+    if(!_progressPanGesture) {
+        _progressPanGesture=[UIPanGestureRecognizer new];
+        _progressPanGesture.delegate=self;
+        [self addGestureRecognizer:_progressPanGesture];
+    }
+    return _progressPanGesture;
+}
 - (void)handleOutterFeedClipBounds:(BOOL)clip {
     self.nativeClipPasses++;
     for(UIView *view=self.superview;view && ![view.nextResponder isKindOfClass:UIViewController.class];view=view.superview)
@@ -16,6 +26,18 @@
 @property(nonatomic,strong) UIView *cleanScreenView;
 @end
 @implementation SSShortVideoBottomInsertView @end
+
+@interface FQVShortVideoControlCleanSwitchView : UIView @end
+@implementation FQVShortVideoControlCleanSwitchView @end
+
+@interface SSShortVideoTagListBottomInsertView : SSShortVideoBottomInsertView
+@property(nonatomic,strong) UIView *contentView;
+@property(nonatomic,strong) UIButton *episodeInfoView;
+- (void)setVideoDataModel:(UIColor *)paint;
+@end
+@implementation SSShortVideoTagListBottomInsertView
+- (void)setVideoDataModel:(UIColor *)paint {self.episodeInfoView.layer.backgroundColor=paint.CGColor;}
+@end
 
 @interface SSShortVideoDetailViewController : UIViewController
 @property(nonatomic,strong) UILabel *navLeftLabel;
@@ -228,26 +250,54 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     [playback removeFromSuperview];
 
     HGAppearanceSet(@"player.controlsGlass",@YES,nil);
-    SSShortVideoBottomInsertView *insert=[[SSShortVideoBottomInsertView alloc] initWithFrame:CGRectMake(240,160,46,40)];
-    insert.cleanSwitchView=[[UIView alloc] initWithFrame:insert.bounds];
-    insert.cleanScreenView=[[UIView alloc] initWithFrame:insert.bounds];
+    HGAppearanceSet(@"player.material",@"blur",nil);
+    SSShortVideoTagListBottomInsertView *insert=[[SSShortVideoTagListBottomInsertView alloc]
+        initWithFrame:CGRectMake(12,160,360,40)];
+    insert.contentView=[[UIView alloc] initWithFrame:CGRectMake(0,0,304,40)];
+    insert.episodeInfoView=[UIButton buttonWithType:UIButtonTypeCustom];
+    insert.episodeInfoView.frame=insert.contentView.bounds;
+    [insert.episodeInfoView setTitle:@"选集 · 全114集 · 免费观看" forState:UIControlStateNormal];
+    HGAEpisodeTapFixture *episodeAction=[HGAEpisodeTapFixture new];
+    [insert.episodeInfoView addTarget:episodeAction action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
+    [insert.contentView addSubview:insert.episodeInfoView];
+    [insert addSubview:insert.contentView];
+    insert.cleanSwitchView=[[FQVShortVideoControlCleanSwitchView alloc] initWithFrame:CGRectMake(314,0,46,40)];
+    insert.cleanScreenView=[[UIView alloc] initWithFrame:insert.cleanSwitchView.bounds];
     UIButton *cleanButton=[UIButton buttonWithType:UIButtonTypeCustom];
-    cleanButton.frame=insert.bounds;
+    cleanButton.frame=insert.cleanSwitchView.bounds;
     HGAEpisodeTapFixture *cleanAction=[HGAEpisodeTapFixture new];
     [cleanButton addTarget:cleanAction action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
     [insert.cleanSwitchView addSubview:cleanButton];
     [insert addSubview:insert.cleanSwitchView];
+    UIColor *entryPaint=[UIColor colorWithWhite:1 alpha:0.10];
+    [insert setVideoDataModel:entryPaint];
     [host.view addSubview:insert];
-    HGAppearanceProcessView(insert);
-    UIView *cleanGlass=Find(insert.cleanSwitchView,@"honggo.appearance.material");
+    [insert setVideoDataModel:entryPaint];
+    UIVisualEffectView *cleanGlass=(id)Find(insert.cleanSwitchView,@"honggo.appearance.material");
+    UIVisualEffectView *episodeGlass=(id)Find(insert.episodeInfoView,@"honggo.appearance.material");
+    CGColorRef paint=insert.episodeInfoView.layer.backgroundColor;
     Check(cleanGlass.superview==insert.cleanSwitchView && !Find(insert.cleanScreenView,@"honggo.appearance.material") &&
-        [insert hitTest:CGPointMake(20,20) withEvent:nil]==cleanButton,
-        @"detail bottom glass belongs to the mounted clean switch and preserves its existing button");
+        CGRectEqualToRect(cleanGlass.frame,CGRectMake(3,0,40,40)) &&
+        [insert hitTest:CGPointMake(337,20) withEvent:nil]==cleanButton,
+        @"detail clean switch has a centered round material and the original hit target");
+    Check(episodeGlass.superview==insert.episodeInfoView && episodeGlass.layer.cornerRadius==20 &&
+        (!paint || CGColorGetAlpha(paint)==0) && Count(insert,@"honggo.appearance.material")==2 &&
+        [insert hitTest:CGPointMake(120,20) withEvent:nil]==insert.episodeInfoView,
+        @"detail episode pill decorates the actual native entry and clears its layer paint after a model update");
+    if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled()) {
+        Layout(cleanGlass);Layout(episodeGlass);
+        Class glassClass=NSClassFromString(@"UIGlassEffect");
+        Check([cleanGlass.effect isKindOfClass:glassClass] && [episodeGlass.effect isKindOfClass:glassClass],
+            @"detail episode and clean controls use native liquid glass when available");
+    }
+    [insert.episodeInfoView sendActionsForControlEvents:UIControlEventTouchUpInside];
     [cleanButton sendActionsForControlEvents:UIControlEventTouchUpInside];
     HGAppearanceSet(@"player.controlsGlass",@NO,nil);
     HGAppearanceProcessView(insert);
-    Check(cleanAction.taps==1 && !Find(insert,@"honggo.appearance.material"),
-        @"disabling the bottom glass removes only the decoration");
+    paint=insert.episodeInfoView.layer.backgroundColor;
+    Check(cleanAction.taps==1 && episodeAction.taps==1 && !Find(insert,@"honggo.appearance.material") &&
+        paint && CGColorEqualToColor(paint,entryPaint.CGColor),
+        @"disabling detail bottom glass restores the native paint and preserves both actions");
     [insert removeFromSuperview];
 
     SSShortVideoIntroductionTabViewController *panel=[SSShortVideoIntroductionTabViewController new];

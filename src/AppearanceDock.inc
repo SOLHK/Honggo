@@ -166,6 +166,11 @@ static CGRect HGADockSelectionFrame(CGFloat center,CGFloat width,CGFloat height,
     CGFloat halfWidth=MIN(preferredWidth/2,MIN(center,width-center)-4);
     return CGRectMake(center-halfWidth,4,halfWidth*2,height-8);
 }
+static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
+    return HGAVisible(capsule) && CGRectContainsPoint(capsule.bounds,point) &&
+        [[UIBezierPath bezierPathWithRoundedRect:capsule.bounds cornerRadius:capsule.layer.cornerRadius]
+            containsPoint:point];
+}
 @implementation HGAAppearanceDock
 - (instancetype)initWithFrame:(CGRect)frame {
     if((self=[super initWithFrame:frame])) {
@@ -191,7 +196,6 @@ static CGRect HGADockSelectionFrame(CGFloat center,CGFloat width,CGFloat height,
         self.selectionPan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragSelection:)];
         self.selectionPan.delegate=self;
         self.selectionPan.maximumNumberOfTouches=1;
-        [self.capsule addGestureRecognizer:self.selectionPan];
         self.extra=[UIView new];
         self.extraButton=HGADockButton();
         self.extraButton.accessibilityIdentifier=@"honggo.appearance.dock.extra";
@@ -214,6 +218,30 @@ static CGRect HGADockSelectionFrame(CGFloat center,CGFloat width,CGFloat height,
         self.swipes=swipes;
     }return self;
 }
+- (BOOL)acceptsSelectionTouchAtPoint:(CGPoint)point inView:(UIView *)hit {
+    UIView *container=self.selectionPan.view;
+    if(!self.selectionPan.enabled || !container.window || hit.window!=container.window ||
+        !HGADockContainsPoint(self.capsule,point))return NO;
+    if([hit isDescendantOfView:self.capsule])return YES;
+
+    // A player's seek hotspot can extend below its visible progress rail.
+    // Only the recognized player branch may share these capsule touches.
+    Class player=NSClassFromString(@"FQVShortVideoVPlayerControlView");
+    for(UIView *node=hit;node && node!=container;node=node.superview)
+        if([node isKindOfClass:player] && [node isDescendantOfView:container])return YES;
+    return NO;
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
+    return gesture!=self.selectionPan ||
+        [self acceptsSelectionTouchAtPoint:[touch locationInView:self.capsule] inView:touch.view];
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)other {
+    if(gesture!=self.selectionPan || !gesture.enabled || other.view.window!=self.window ||
+        ![other.view isDescendantOfView:gesture.view] || ![other isKindOfClass:UIPanGestureRecognizer.class])return NO;
+    id player=other.delegate;
+    return [player isKindOfClass:NSClassFromString(@"FQVShortVideoVPlayerControlView")] &&
+        other==HGReadObjectGetter(player,"progressPanGesture");
+}
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
     if(gesture!=self.selectionPan)return YES;
     CGPoint velocity=[self.selectionPan velocityInView:self.capsule];
@@ -227,8 +255,15 @@ static CGRect HGADockSelectionFrame(CGFloat center,CGFloat width,CGFloat height,
     return gesture!=self.selectionPan && other!=self.selectionPan;
 }
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if(self.userInteractionEnabled && [self pointInside:point withEvent:event] &&
+        HGADockContainsPoint(self.capsule,[self convertPoint:point toView:self.capsule])) {
+        for(UIButton *button in self.buttons.allValues)
+            if(!button.hidden && button.enabled && [button pointInside:[self convertPoint:point toView:button] withEvent:event])
+                return button;
+        return self.capsule;
+    }
     for(UIView *hit=[super hitTest:point withEvent:event];hit && hit!=self;hit=hit.superview)
-        if([hit isKindOfClass:UIButton.class])return [(UIButton *)hit isEnabled] ? hit : nil;
+        if(hit==self.extraButton || hit==self.expandButton)return [(UIButton *)hit isEnabled] ? hit : nil;
     return nil;
 }
 - (void)hideSource:(UIView *)view {
@@ -279,6 +314,7 @@ static CGRect HGADockSelectionFrame(CGFloat center,CGFloat width,CGFloat height,
             return;
         }
         if(self.superview!=bar)[bar addSubview:self];
+        if(self.selectionPan.view!=bar.superview)[bar.superview addGestureRecognizer:self.selectionPan];
         if(!CGRectEqualToRect(self.frame,bar.bounds))self.frame=bar.bounds;
         if(!self.backgroundOwned || ![bar.backgroundColor isEqual:UIColor.clearColor])self.hostBackground=bar.backgroundColor;
         if(!self.backgroundOwned || bar.opaque)self.hostOpaque=bar.opaque;
@@ -440,6 +476,7 @@ static CGRect HGADockSelectionFrame(CGFloat center,CGFloat width,CGFloat height,
         UIColor *background=self.hostBackground;
         self.backgroundOwned=NO;self.collapsed=NO;
         [self clearSelectionDrag];
+        [self.selectionPan.view removeGestureRecognizer:self.selectionPan];
         self.lastOccupiedRect=CGRectNull;
         for(NSArray *entry in restorations) {
             UIView *view=entry[0];
