@@ -22,12 +22,19 @@ build_variant() {
     local app="$work/$variant/HGTabBarTests.app"
     local bundle_id="org.honggo.tabbar.tests.$variant"
     mkdir -p "$app"
-    # Historical TabBar implementations predate the title ownership accessor.
-    # Keep their foreground behavior unchanged when linking current Controls.
-    local title_compat="$work/$variant/TitleCompat.m"
-    printf '#import "Honggo.h"\n' > "$title_compat"
+    # Link the historical TabBar sources with today's unrelated modules while
+    # preserving their original behavior. These sources predate title ownership
+    # and the video-backdrop adapter; a no-op is their historical behavior.
+    # The current variant gets declarations only, so production must provide
+    # every real implementation and a missing symbol still fails its link.
+    local historical_compat="$work/$variant/HistoricalTabBarCompat.m"
+    printf '#import "Honggo.h"\n#import "Appearance.h"\n' > "$historical_compat"
     if [ "$variant" != current ]; then
-        printf 'UIColor *HGOriginalTabTitleColor(UILabel *label) { return label.textColor; }\n' >> "$title_compat"
+        cat >> "$historical_compat" <<'OBJC'
+UIColor *HGOriginalTabTitleColor(UILabel *label) { return label.textColor; }
+void HGRefreshVideoBackdropForView(UIView *view) { (void)view; }
+void HGVideoBackdropPrepareRendererTransfer(UIView *view) { (void)view; }
+OBJC
     fi
     xcrun --sdk iphonesimulator clang \
         -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
@@ -38,7 +45,7 @@ build_variant() {
         "$source_root/src/Controls.m" "$source_root/src/Diagnostics.m" \
         "$source_root/src/AdSceneDiagnostics.m" "$source_root/src/PlaybackDiagnostics.m" \
         "$source_root/tests/ControlsIntegration.m" \
-        "$source_root/tests/TabBarIntegration.m" "$title_compat" -o "$app/HGTabBarTests"
+        "$source_root/tests/TabBarIntegration.m" "$historical_compat" -o "$app/HGTabBarTests"
     python3 - "$app/Info.plist" "$bundle_id" "$source_root" <<'PY'
 import plistlib
 import sys
