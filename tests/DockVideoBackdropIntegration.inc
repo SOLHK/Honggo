@@ -275,16 +275,30 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         }
         Check(redPresented && extension && portal && HGBackdropPortalSource(portal)==cell.renderer &&
             [page.view.subviews indexOfObject:extension]<[page.view.subviews indexOfObject:feed],
-            @"live video extension attaches behind the feed and mirrors only the renderer without its HUD");
+            @"live reflected strip attaches behind the feed and mirrors only the renderer without its HUD");
         Check(extension.window==window && backdropCanvas.superview && backdropCanvas.window==window &&
             portal.window==window && [portal isDescendantOfView:extension],
-            @"background extension canvas and portal are mounted in the live window hierarchy");
+            @"reflected edge canvas and portal are mounted in the live window hierarchy");
+        CGRect strip=[backdropCanvas convertRect:backdropCanvas.bounds toView:page.view];
+        CGPoint reflectedBottom=[portal convertPoint:CGPointMake(CGRectGetMidX(portal.bounds),CGRectGetMaxY(portal.bounds))
+            toView:page.view];
+        Check(extension.clipsToBounds && backdropCanvas.clipsToBounds &&
+            fabs(strip.origin.x)<0.01 && fabs(strip.origin.y-feedHeight)<0.01 &&
+            fabs(strip.size.width-width)<0.01 && fabs(strip.size.height-90)<0.01 &&
+            CGRectEqualToRect(portal.bounds,cell.renderer.bounds) &&
+            fabs(portal.center.x-width/2)<0.01 && fabs(portal.center.y-feedHeight/2)<0.01 &&
+            CGAffineTransformEqualToTransform(portal.transform,CGAffineTransformMakeScale(1,-1)) &&
+            fabs(reflectedBottom.y-feedHeight)<0.01 &&
+            CGAffineTransformIsIdentity(cell.renderer.transform) &&
+            CATransform3DIsIdentity(cell.renderer.layer.transform) &&
+            CATransform3DIsIdentity(cell.renderer.layer.sublayerTransform),
+            @"only the uncovered 90pt strip reflects the video edge while the native renderer remains untransformed");
         for(NSUInteger pass=0;pass<3;pass++)HGVideoBackdropRefreshForFeed(feed);
         Check(HGBackdropNativeUnchanged(geometry),
             @"enabling the backdrop preserves all native parents frames bounds transforms insets content size and page offset");
         Check(Count(page.view,@"honggo.video.backdrop")==1 &&
             Find(page.view,@"honggo.video.backdrop.portal")==portal && HGBackdropPortalSource(portal)==cell.renderer,
-            @"feed relayout reuses one live extension and never duplicates its portal");
+            @"feed relayout reuses one reflected strip and never duplicates its live portal");
         if(!redPresented || !extension || !portal)return;
         CGRect nativeRect=CGRectMake(width*0.35,feedHeight*0.45,width*0.3,24);
         CGRect extensionRect=CGRectMake(width*0.35,feedHeight+14,width*0.3,24);
@@ -311,7 +325,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             nativeBlue.red,nativeBlue.green,nativeBlue.blue,extendedBlue.red,extendedBlue.green,extendedBlue.blue);
         [manager refreshWithBranches:branches root:container.view bar:bar active:NO];
         Check(!Find(page.view,@"honggo.video.backdrop") && HGBackdropNativeUnchanged(geometry),
-            @"disabling video extension removes only plugin surfaces and preserves native paging geometry");
+            @"disabling the reflected strip removes only plugin surfaces and preserves native paging geometry");
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
         cell.renderer.hidden=YES;
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];

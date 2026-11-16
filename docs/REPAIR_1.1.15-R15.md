@@ -41,21 +41,24 @@ R14 会保存整套默认配置，因此增加一次性旧默认值迁移；非�
 view 的尺寸、分页步长、偏移、父视图和播放器业务回调均不由此功能修改。
 
 新增的插件背景只镜像已识别的视频渲染视图，不镜像 HUD，以免形成玻璃
-效果递归。系统背景延展位于原视频列表后方，补齐底栏下面的原始空白；
-不拉伸竖屏视频、不拍摄周期性快照，也不创建第二个播放器。
+效果递归。插件裁剪容器位于原视频列表后方，只显示列表底边到屏幕底部
+的空白区域。单层实时镜像以原列表底边为轴上下反射，补齐底栏下面的背景；
+原生视频的画幅保持不变，不拍摄周期性快照，也不创建第二个播放器。
+横视频底边若是黑色留边，仍保留该留边，不把中间的视频强行拉伸到底部。
 
 镜像入口需要在当前系统逐项核对方法签名，并禁用交互转发；不可用时不
 调用未知接口。窗口、宿主页面、可见渲染器或设置改变时释放镜像来源。
-系统背景延展使用 iOS 26 的 `UIBackgroundExtensionView`，仅对插件创建
-的内容容器设置 `automaticallyPlacesContentView = NO`。原生视图不重新挂载。
-内容先交给系统延展视图，再关闭自动布局；插件自己的内容容器必须实际
-挂接到窗口中。合成器回归同时检查该挂接关系和下方区域的真实像素。
+变换只施加于插件自己的镜像，使用 bounds、center 与 transform 定位；
+原生视图不重新挂载。合成器回归同时检查挂接、底部裁剪、原生几何不变
+和下方区域的真实像素。
+
+开发回归发现：在 `UIBackgroundExtensionView` 中再次延展含 portal 的
+内容，虽然挂接与几何均正确，红蓝 Metal 画面下方的采样仍为全黑。因此
+最终路径移除了这层系统二次延展，直接验证单层镜像的实时像素，不将
+视图已挂接当作视频已渲染的证据。
 
 参考的是接口事实与平台行为，实现由 Honggo 独立编写：
 
-- [Apple UIBackgroundExtensionView](https://developer.apple.com/documentation/uikit/uibackgroundextensionview)
-- [Apple automaticallyPlacesContentView](https://developer.apple.com/documentation/uikit/uibackgroundextensionview/automaticallyplacescontentview)
-- [Apple WWDC25 UIKit 手动布局示例](https://developer.apple.com/videos/play/wwdc2025/284/)
 - [Telegram UIKitRuntimeUtils 中的 portal 接口使用](https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m)
 
 ## 验证要求

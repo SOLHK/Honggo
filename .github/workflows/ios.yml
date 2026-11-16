@@ -222,7 +222,7 @@ jobs:
             "Progress, episode entry, bottom metadata and right-side actions share measured clearance from the visible floating dock." \
             "The default dock and separate round button are now 62 points tall, with 26-point navigation glyphs; previous stock dimensions migrate once." \
             "Action glyphs use a balanced heart, three-dot speech bubble, star and curved share arrow, with quieter optional glass and original native actions." \
-            "The video backdrop extends beneath the dock using a live compositor mirror and the system background extension, without resizing or moving native players or changing pagination." \
+            "The uncovered strip beneath the dock uses one live compositor mirror of the video's lower edge, reflected inside a plugin-owned clip without resizing or moving native players or changing pagination." \
             "Retains settings-only landscape fill, portrait aspect, Mine pager clipping, grouped native share sheets and reentrancy-safe restoration." \
             "Required UIKit regressions include the observed outer HUD, native tap and scrub targets, default migration and live Metal backdrop frames." \
             "Retains independent appearance customization and the TG update channel https://t.me/Naloiafeed." \

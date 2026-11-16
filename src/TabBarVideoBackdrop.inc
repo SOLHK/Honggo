@@ -2,17 +2,14 @@
 // has a 440x866 FQVCollectionView inside a 440x956 controller: resizing that
 // collection, its cells, or its player can change the host's episode handoff.
 //
-// Only plugin-owned views are installed here. A read-only UIKit portal mirrors
-// the observed TTPlayerView into a separate canvas below the original feed.
-// UIBackgroundExtensionView then extends that canvas into the uncovered strip.
-// This is live composition, with no snapshots, pixel readback, polling timer,
-// native reparenting, playback calls, or changes to the portrait video ratio.
+// Only plugin-owned views are installed here. One read-only UIKit portal
+// reflects the observed TTPlayerView across the feed's bottom edge, clipped to
+// the uncovered strip. The portal is composed directly: a background-extension
+// effect must not sample another portal, which lost live Metal content in the
+// compositor regression. No snapshots, pixel readback, polling timer, native
+// reparenting, playback calls, or changes to the portrait video ratio are used.
+// Original letterboxing remains letterboxing; only the exposed edge is mirrored.
 //
-// Public extension contract (iOS 26): automaticallyPlacesContentView = NO keeps
-// our explicitly laid-out content view and fills only the surrounding area.
-// https://developer.apple.com/documentation/uikit/uibackgroundextensionview/automaticallyplacescontentview
-// Apple's manual-layout example sets contentView before opting out of placement:
-// https://developer.apple.com/videos/play/wwdc2025/284/ (6:51)
 // The portal selectors are used by Telegram's UIKitRuntimeUtils/UIKitUtils.m;
 // every selector below is checked against the running Objective-C ABI first.
 // https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m
@@ -213,7 +210,7 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
     if ([self.lastStatus isEqual:status]) return;
     self.lastStatus = status;
     HGRecordCapability(@"appearance.dock.video-backdrop", @{@"module":@"appearance",
-        @"state":[status isEqual:@"live-extension"] ? @"installed" : @"partial",
+        @"state":[status isEqual:@"live-reflected-edge"] ? @"installed" : @"partial",
         @"reason":status, @"nativeGeometryPreserved":@YES, @"nativeHierarchyPreserved":@YES,
         @"snapshotPolling":@NO});
 }
@@ -239,8 +236,8 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
     UIView *parent = self.parent;
     if (!HGVideoBackdropFeedGeometry(feed, parent, self.root, self.bar) ||
         self.owner.viewIfLoaded != parent || HGVideoBackdropHasTransition(self.owner) ||
-        self.extension.superview != parent || !self.canvas.superview ||
-        ![self.canvas isDescendantOfView:self.extension] || self.portal.superview != self.canvas) {
+        self.extension.superview != parent || self.canvas.superview != self.extension ||
+        self.portal.superview != self.canvas) {
         [self removeBackdrop]; return;
     }
     UIView *renderer = HGVideoBackdropRenderer(feed);
@@ -249,30 +246,32 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
         [self recordStatus:@"waiting-for-known-video-surface"]; return;
     }
     [CATransaction begin]; [CATransaction setDisableActions:YES];
-    BOOL needsLayout = NO;
-    if (!CGRectEqualToRect(self.extension.frame, parent.bounds)) {
-        self.extension.frame = parent.bounds; needsLayout = YES;
-    }
-    // UIKit may place content in an internal container. Convert to the actual
-    // canvas parent instead of assuming it is a direct child of the extension;
-    // its system-owned container is never moved or reparented.
-    CGRect canvasFrame = [parent convertRect:feed.frame toView:self.canvas.superview];
-    if (!CGRectEqualToRect(self.canvas.frame, canvasFrame)) {
-        self.canvas.frame = canvasFrame; needsLayout = YES;
-    }
-    CGRect portalFrame = [renderer convertRect:renderer.bounds toView:self.canvas];
-    if (!CGRectEqualToRect(self.portal.frame, portalFrame)) {
-        self.portal.frame = portalFrame; needsLayout = YES;
-    }
+    CGFloat edge = CGRectGetMaxY(feed.frame);
+    CGRect strip = CGRectMake(CGRectGetMinX(feed.frame), edge, CGRectGetWidth(feed.frame),
+        CGRectGetMaxY(parent.bounds) - edge);
+    if (!CGRectEqualToRect(self.extension.frame, strip)) self.extension.frame = strip;
+    if (!CGRectEqualToRect(self.canvas.frame, self.extension.bounds))
+        self.canvas.frame = self.extension.bounds;
+    CGRect source = [renderer convertRect:renderer.bounds toView:parent];
+    // Reflection about y=edge maps source y to 2*edge-y. In the strip's local
+    // coordinates its center is edge-midY(source). The source rectangle already
+    // includes the native feed offset and preserves horizontal-video letterbox.
+    // Never write frame on this transformed portal; only its bounds and center.
+    CGPoint center = CGPointMake(CGRectGetMidX(source) - CGRectGetMinX(strip),
+        edge - CGRectGetMidY(source));
+    if (!CGRectEqualToRect(self.portal.bounds, renderer.bounds)) self.portal.bounds = renderer.bounds;
+    if (!CGPointEqualToPoint(self.portal.center, center)) self.portal.center = center;
+    CGAffineTransform reflection = CGAffineTransformMakeScale(1, -1);
+    if (!CGAffineTransformEqualToTransform(self.portal.transform, reflection))
+        self.portal.transform = reflection;
     UIColor *color = HGVideoBackdropLetterboxColor(renderer, feed);
     if (![self.canvas.backgroundColor isEqual:color]) self.canvas.backgroundColor = color;
     if (self.renderer != renderer || self.portal.sourceView != renderer) {
         self.portal.sourceView = renderer; self.renderer = renderer;
     }
     self.extension.hidden = NO;
-    if (needsLayout) [self.extension setNeedsLayout];
     [CATransaction commit];
-    [self recordStatus:@"live-extension"];
+    [self recordStatus:@"live-reflected-edge"];
 }
 - (void)refreshFeed {
     if (self.mutating) return;
@@ -345,24 +344,20 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
                 portal.allowsHitTesting = NO; portal.forwardsClientHitTestingToSourceView = NO;
                 portal.userInteractionEnabled = NO; portal.accessibilityElementsHidden = YES;
                 portal.accessibilityIdentifier = @"honggo.video.backdrop.portal";
-                UIView *canvas = [[UIView alloc] initWithFrame:candidate.frame];
-                canvas.userInteractionEnabled = NO; canvas.accessibilityElementsHidden = YES;
-                canvas.accessibilityIdentifier = @"honggo.video.backdrop.canvas";
-                canvas.clipsToBounds = YES; canvas.backgroundColor = UIColor.blackColor;
-                [canvas addSubview:portal];
-                UIBackgroundExtensionView *extension = [[UIBackgroundExtensionView alloc] initWithFrame:parent.bounds];
+                CGFloat edge = CGRectGetMaxY(candidate.frame);
+                CGRect strip = CGRectMake(CGRectGetMinX(candidate.frame), edge, CGRectGetWidth(candidate.frame),
+                    CGRectGetMaxY(parent.bounds) - edge);
+                UIView *extension = [[UIView alloc] initWithFrame:strip];
                 extension.userInteractionEnabled = NO; extension.accessibilityElementsHidden = YES;
                 extension.accessibilityIdentifier = @"honggo.video.backdrop";
                 extension.backgroundColor = UIColor.clearColor; extension.opaque = NO;
                 extension.clipsToBounds = YES;
-                // Follow Apple's WWDC25 manual-layout example: provide the
-                // content first, then opt out of automatic safe-area placement.
-                // Only our canvas is adopted; no host view can move here.
-                extension.contentView = canvas;
-                extension.automaticallyPlacesContentView = NO;
-                if (!canvas.superview) [extension addSubview:canvas];
-                canvas.frame = [extension convertRect:candidate.frame toView:canvas.superview];
-                [extension setNeedsLayout];
+                UIView *canvas = [[UIView alloc] initWithFrame:extension.bounds];
+                canvas.userInteractionEnabled = NO; canvas.accessibilityElementsHidden = YES;
+                canvas.accessibilityIdentifier = @"honggo.video.backdrop.canvas";
+                canvas.clipsToBounds = YES; canvas.backgroundColor = UIColor.blackColor;
+                [canvas addSubview:portal];
+                [extension addSubview:canvas];
                 self.feed = candidate; self.parent = parent; self.owner = owner;
                 self.root = root; self.bar = bar;
                 self.portal = portal; self.canvas = canvas; self.extension = extension;
@@ -374,7 +369,7 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
             }
             [self updateOwnedBackdrop];
         } else {
-            [self removeBackdrop]; [self recordStatus:@"requires-ios-26-background-extension"];
+            [self removeBackdrop]; [self recordStatus:@"requires-ios-26-video-backdrop"];
         }
     } @finally { self.mutating = NO; }
 }
