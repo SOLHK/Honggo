@@ -1,0 +1,61 @@
+name: Validate R16 local R5 merge
+
+on:
+  push:
+    branches: [work/r16-merge-local-r5]
+
+permissions:
+  contents: read
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+  HG_SIMULATOR_OS: "27.2"
+
+jobs:
+  validate:
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require Xcode 27.2 and iOS 27.2 runtime
+        run: bash tools/verify-ios-toolchain.sh
+      - name: Verify R16 version against R15
+        run: python3 tools/version.py --check --base refs/tags/v1.1.15-R15 --channel test
+      - name: Check IPA preparation and version rules
+        run: python3 -B -m unittest discover -s tests -v
+      - name: Check merged ad filtering in UIKit
+        run: bash tools/test-ads-ios.sh
+      - name: Check runtime module compatibility in UIKit
+        if: ${{ !cancelled() }}
+        run: bash tools/test-runtime-ios.sh
+      - name: Build device dylib and record its source
+        run: |
+          set -euo pipefail
+          bash tools/build-ios.sh
+          plugin_version=$(python3 tools/version.py)
+          git rev-parse HEAD > build/source-commit.txt
+          printf '%s\n' "$plugin_version" > build/VERSION
+          cp build/toolchain/BUILD-ENVIRONMENT.json build/BUILD-ENVIRONMENT.json
+          (
+            cd build
+            shasum -a 256 "Honggo-$plugin_version.dylib" VERSION source-commit.txt BUILD-ENVIRONMENT.json > SHA256SUMS.txt
+          )
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: always()
+        with:
+          name: Honggo-R16-merge-validation
+          path: |
+            build/ads-tests/**/*.json
+            build/ads-tests/**/*.log
+            build/runtime-tests/**/*.json
+            build/runtime-tests/**/*.log
+            build/toolchain/BUILD-ENVIRONMENT.json
+            build/Honggo-*.dylib
+            build/source-commit.txt
+            build/VERSION
+            build/SHA256SUMS.txt
+            build/BUILD-ENVIRONMENT.json
+          if-no-files-found: warn

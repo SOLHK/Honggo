@@ -1,0 +1,50 @@
+arm
+64
+ 1 fd: 3 +0x00000000 0x00000000 * 0x1eecabff r-x
+        :   0x0fffb66c      stp   fp, lr, [sp, -0x10]!
+        :   0x0fffb670      bl    0xa255fdc
+        :   0x0fffb674      bl    0xfffe7c4
+        :   0x0fffb678      stp   x0, x8, [sp, -0x10]!
+        :   0x0fffb67c      bl    0xa303170
+        :   0x0fffb680      mov   x19, x0
+       ,==< 0x0fffb684      cbz   x0, 0xfffb6b4
+       |:   0x0fffb688      bl    0xa2b6870
+       |:   0x0fffb68c      bl    0x11ee07f4
+       |:   0x0fffb690      mov   fp, fp
+       |:   0x0fffb694      bl    0x11ee08a8
+       |:   0x0fffb698      bl    0xa2a04b4
+       |:   0x0fffb69c      bl    0xa256094
+       |:   0x0fffb6a0      bl    0xf8b5ecc
+       |:   0x0fffb6a4      adrp  x8, 0x1cef2000
+       |:   0x0fffb6a8      ldr   x1, [x8, 0x910]                      ; [0x910:4]=0
+       |:   0x0fffb6ac      bl    0xa25b1f0
+       |:   0x0fffb6b0      bl    0xa30b2d8
+       `--> 0x0fffb6b4      bl    0xa258560
+        `=< 0x0fffb6b8      b     0xa256190
+            0x0fffbd5c      mov   x21, 0
+        .-> 0x0fffbd60      bl    0xd5b52cc
+       ,==< 0x0fffbd64      b     0xfffbd78
+       |:   0x0fffbd68      bl    0xe998324
+       |`=< 0x0fffbd6c      cbnz  w0, 0xfffbd60
+       |    0x0fffbd70      bl    0xd621808
+       |    0x0fffbd74      bl    0xa2686d0
+       `--> 0x0fffbd78      bl    0xa256d6c
+            0x0fffbd7c      bl    0xa26043c
+        ,=< 0x0fffbd80      b     0x11ee086c
+        |   0x0fffbd84      stp   fp, lr, [sp, -0x10]!
+        |   0x0fffbd88      bl    0xa2b6a94
+        :   0x0c4973d0      stp   fp, lr, [sp, -0x10]!
+        :   0x0c4973d4      bl    0xa255fdc
+        :   0x0c4973d8      bl    0xa25703c
+        :   0x0c4973dc      adrp  x8, 0x1cbed000
+        :   0x0c4973e0      ldr   x1, [x8, 0xb38]                      ; [0xb38:4]=0x10000000
+        :   0x0c4973e4      bl    0x11ee07f4
+       ,==< 0x0c4973e8      tbz   w20, 0, 0xc4973f0
+       |`=< 0x0c4973ec      b     0xa256190
+       `--> 0x0c4973f0      bl    0xc497b78
+            0x0c4973f4      bl    0x699d9d8
+        ,=< 0x0c4973f8      b     0x11ee07f4
+        |   0x0c4973fc      stp   fp, lr, [sp, -0x10]!
+        |   0x0c497400      bl    0xa26dc28
+        |   0x0c497404      bl    0x7c26760
+       ,==< 0x0c497408      tbnz  w0, 0, 0xc497438

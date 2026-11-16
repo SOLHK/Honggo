@@ -13,12 +13,22 @@ typedef struct {
     BOOL classMethod;
 } HGGate;
 
+typedef UIView *(*HGDirectGameInitializer)(UIView * __attribute__((ns_consumed)), SEL, CGRect)
+    __attribute__((ns_returns_retained));
+
 static void HGAdDecision(id object, SEL selector, BOOL result);
 static void (*HGOriginalDirectGameDidDisplay)(id, SEL);
 typedef void (*HGPatchPresentationIMP)(id, SEL, id, id, id, double,
     void (^)(id), void (^)(void));
-static _Atomic(HGPatchPresentationIMP) HGOriginalPatchPresentation;
-static BOOL HGPatchPresentationInstalled;
+typedef BOOL (*HGNaturalAdInsertIMP)(id, SEL, id);
+typedef struct {
+    _Atomic(IMP) original;
+    BOOL installed;
+} HGForwardingAdHook;
+static HGForwardingAdHook HGPatchPresentationHook;
+static HGForwardingAdHook HGDirectGameInitHook;
+static HGForwardingAdHook HGNaturalAdInsertHook;
+static Class HGNaturalAdDataClass;
 static Class HGDirectGameFeedHost, HGDirectGameSeriesHost;
 static char HGDirectGameRemovalPending;
 
@@ -33,6 +43,37 @@ static char HGDirectGameRemovalPending;
 - (BOOL)isInvalidated;
 - (void)handleTerminalFailureWithReason:(NSString *)reason;
 @end
+
+@protocol HGNaturalAdData <NSObject>
+- (NSInteger)forceWatchTime;
+- (void)parseGameDict;
+- (BOOL)isGameContent;
+@end
+
+static BOOL HGNaturalAdInsert(id self, SEL cmd, id<HGNaturalAdData> data) {
+    if (data && object_getClass(data) == HGNaturalAdDataClass && data.forceWatchTime < 1) {
+        // The host classifies this payload lazily, before preparing its game views.
+        [data parseGameDict];
+        if (data.isGameContent) {
+            HGAdDecision(self, cmd, NO);
+            return NO;
+        }
+    }
+    HGNaturalAdInsertIMP original = (HGNaturalAdInsertIMP)atomic_load_explicit(
+        &HGNaturalAdInsertHook.original, memory_order_acquire);
+    return original(self, cmd, data);
+}
+
+__attribute__((ns_returns_retained))
+static UIView *HGDirectGameInit(UIView * __attribute__((ns_consumed)) self, SEL cmd, CGRect frame) {
+    HGDirectGameInitializer original = (HGDirectGameInitializer)atomic_load_explicit(
+        &HGDirectGameInitHook.original, memory_order_acquire);
+    UIView *view = original(self, cmd, frame);
+    // Both wrappers attach this root only after initialization, even if binding is skipped.
+    view.hidden = YES;
+    HGAdDecision(view, cmd, NO);
+    return view;
+}
 
 static void HGDirectGameDidDisplay(id<HGDirectGameModel> self, SEL cmd) {
     HGOriginalDirectGameDidDisplay(self, cmd);
@@ -58,6 +99,15 @@ static void HGDirectGameDidDisplay(id<HGDirectGameModel> self, SEL cmd) {
 static BOOL HGAdMethodMatches(Class type, SEL selector, const char *expected) {
     Method method = class_getInstanceMethod(type, selector);
     return method && strcmp(method_getTypeEncoding(method), expected) == 0;
+}
+
+static BOOL HGNaturalAdInsertSupported(void) {
+    Class data = objc_lookUpClass("SSNaturalAdData");
+    if (!HGAdMethodMatches(data, @selector(forceWatchTime), "q16@0:8") ||
+        !HGAdMethodMatches(data, @selector(parseGameDict), "v16@0:8") ||
+        !HGAdMethodMatches(data, @selector(isGameContent), "B16@0:8")) return NO;
+    HGNaturalAdDataClass = data;
+    return YES;
 }
 
 static BOOL HGDirectGameDisplaySupported(Class model) {
@@ -103,34 +153,33 @@ static void HGForwardPatchPresentation(id self, SEL cmd, id context, id seriesID
     // contract of every declined presentation. Keep the host's lifecycle,
     // callback identities and scheduling intact instead of synthesizing ready(nil).
     // The separate shouldSkipPatchAdWithContext: decision gate stays installed.
-    HGPatchPresentationIMP original = atomic_load_explicit(&HGOriginalPatchPresentation,
-        memory_order_acquire);
+    HGPatchPresentationIMP original = (HGPatchPresentationIMP)atomic_load_explicit(
+        &HGPatchPresentationHook.original, memory_order_acquire);
     original(self, cmd, context, seriesID, videoID, currentTime, ready, remove);
 }
 
-static IMP HGInstallPatchPresentation(Class target, SEL selector, const char *encoding) {
+static IMP HGInstallForwardingAdHook(Class target, SEL selector, const char *encoding,
+        IMP replacement, HGForwardingAdHook *hook) {
     @synchronized (target) {
         // Seed a distinct, ABI-checked original before publishing the wrapper:
         // another thread may enter as soon as class_replaceMethod returns.
         // Never reseed from a later interposer, which may itself call our wrapper.
-        if (!HGPatchPresentationInstalled) {
+        if (!hook->installed) {
             Method method = class_getInstanceMethod(target, selector);
             const char *actual = method ? method_getTypeEncoding(method) : NULL;
             IMP candidate = method ? method_getImplementation(method) : NULL;
             if (actual && strcmp(actual, encoding) == 0 && candidate &&
-                    candidate != (IMP)HGForwardPatchPresentation) {
-                atomic_store_explicit(&HGOriginalPatchPresentation,
-                    (HGPatchPresentationIMP)candidate, memory_order_release);
+                    candidate != replacement) {
+                atomic_store_explicit(&hook->original, candidate, memory_order_release);
             }
         }
         IMP original = HGInstallVerifiedHook(target, selector, encoding,
-            (IMP)HGForwardPatchPresentation, @"ads");
-        if (original && original != (IMP)HGForwardPatchPresentation) {
+            replacement, @"ads");
+        if (original && original != replacement) {
             // The verified installer returns this wrapper's saved original on
             // retries, including when another plugin has installed above it.
-            atomic_store_explicit(&HGOriginalPatchPresentation,
-                (HGPatchPresentationIMP)original, memory_order_release);
-            HGPatchPresentationInstalled = YES;
+            atomic_store_explicit(&hook->original, original, memory_order_release);
+            hook->installed = YES;
         }
         return original;
     }
@@ -190,6 +239,8 @@ static const HGGate HGGates[] = {
     // Both direct-game callers check nil before constructing or enqueueing a page.
     {HGFeed, "SSVideoMiniGameService", "createDirectGameContentModelWithCellViewData:source:host:", "@40@0:8@16q24@32", (IMP)HGNoDirectGameModel},
     {HGFeed, "SSShortVideoFeedDirectGameContentModel", "modelDidDisplay", "v16@0:8", (IMP)HGDirectGameDidDisplay},
+    {HGFeed, "SSShortVideoFeedDirectGameContentView", "initWithFrame:", "@48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16", (IMP)HGDirectGameInit},
+    {HGFeed, "SSNaturalAdManager", "tryInsertDataToSaaS:", "B24@0:8@16", (IMP)HGNaturalAdInsert},
 };
 
 static void HGAdDecision(id object, SEL selector, BOOL result) {
@@ -238,6 +289,7 @@ void HGInstallAds(void) {
             continue;
         }
         BOOL directGameDisplay = gate->replacement == (IMP)HGDirectGameDidDisplay;
+        BOOL naturalAdInsert = gate->replacement == (IMP)HGNaturalAdInsert;
         SEL selector = sel_registerName(gate->selector);
         if (directGameDisplay && !HGDirectGameDisplaySupported(target)) {
             HGRecordCapability(identifier, @{@"module": @"ads", @"class": @(gate->className),
@@ -247,8 +299,19 @@ void HGInstallAds(void) {
                 @"reason": @"direct-game host method ABI mismatch"});
             continue;
         }
-        IMP original = gate->replacement == (IMP)HGForwardPatchPresentation ?
-            HGInstallPatchPresentation(target, selector, gate->encoding) :
+        if (naturalAdInsert && !HGNaturalAdInsertSupported()) {
+            HGRecordCapability(identifier, @{@"module": @"ads", @"class": @(gate->className),
+                @"selector": @(gate->selector), @"state": @"abi-mismatch",
+                @"reason": @"natural ad data method ABI mismatch", @"feature": @(gate->feature)});
+            HGLog(@"hook.skipped", @{@"class": @(gate->className), @"selector": @(gate->selector),
+                @"reason": @"natural ad data method ABI mismatch"});
+            continue;
+        }
+        HGForwardingAdHook *forwarding = gate->replacement == (IMP)HGForwardPatchPresentation ?
+            &HGPatchPresentationHook : gate->replacement == (IMP)HGDirectGameInit ?
+            &HGDirectGameInitHook : naturalAdInsert ? &HGNaturalAdInsertHook : NULL;
+        IMP original = forwarding ?
+            HGInstallForwardingAdHook(target, selector, gate->encoding, gate->replacement, forwarding) :
             HGInstallVerifiedHook(target, selector, gate->encoding, gate->replacement, @"ads");
         if (original) {
             if (directGameDisplay) HGOriginalDirectGameDidDisplay = (void (*)(id, SEL))original;

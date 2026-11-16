@@ -1,0 +1,82 @@
+{
+  "phrases": [
+    "点击即玩",
+    "欢喜斗地主",
+    "上滑继续看短剧",
+    "立即玩",
+    "即玩"
+  ],
+  "binary_size": 518827008,
+  "additional_members_scanned": 3841,
+  "matches": [
+    {
+      "phrase": "上滑继续看短剧",
+      "encoding": "utf-16le",
+      "path": "Payload/Eggplant.app/Eggplant",
+      "file_offset": "0x171044ee",
+      "cfstring_offsets": [
+        "0x1a3f0858"
+      ]
+    },
+    {
+      "phrase": "立即玩",
+      "encoding": "utf-16le",
+      "path": "Payload/Eggplant.app/Eggplant",
+      "file_offset": "0x17087016",
+      "cfstring_offsets": [
+        "0x1a0451d8"
+      ]
+    },
+    {
+      "phrase": "立即玩",
+      "encoding": "utf-16le",
+      "path": "Payload/Eggplant.app/Eggplant",
+      "file_offset": "0x17087022",
+      "cfstring_offsets": [
+        "0x1a045218"
+      ]
+    },
+    {
+      "phrase": "立即玩",
+      "encoding": "utf-16le",
+      "path": "Payload/Eggplant.app/Eggplant",
+      "file_offset": "0x170870f8",
+      "cfstring_offsets": []
+    },
+    {
+      "phrase": "立即玩",
+      "encoding": "utf-16le",
+      "path": "Payload/Eggplant.app/Eggplant",
+      "file_offset": "0x17098660",
+      "cfstring_offsets": []
+    },
+    {
+      "phrase": "即玩",
+      "encoding": "utf-16le",
+      "path": "Payload/Eggplant.app/Eggplant",
+      "file_offset": "0x17087018",
+      "cfstring_offsets": []
+    },
+    {
+      "phrase": "即玩",
+      "encoding": "utf-16le",
+      "path": "Payload/Eggplant.app/Eggplant",
+      "file_offset": "0x17087024",
+      "cfstring_offsets": []
+    },
+    {
+      "phrase": "即玩",
+      "encoding": "utf-16le",
+      "path": "Payload/Eggplant.app/Eggplant",
+      "file_offset": "0x170870fa",
+      "cfstring_offsets": []
+    },
+    {
+      "phrase": "即玩",
+      "encoding": "utf-16le",
+      "path": "Payload/Eggplant.app/Eggplant",
+      "file_offset": "0x17098662",
+      "cfstring_offsets": []
+    }
+  ]
+}

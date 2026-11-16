@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "kind": "sanitized-projection-not-canonical-REA-evidence",
+  "hostBuild": "7.4.3.33",
+  "binarySHA256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+  "reaVersion": "6.9.0",
+  "rizinVersion": "0.9.1",
+  "sourceEvidenceID": "ev_22ec8c814513454f68d19089ae4b5bb3e8d946b66df514f685e37d862c83c549",
+  "sourceRecordSHA256": "60162c658a9975d2da97a465a825db9e2748457e9929f7b309f1148202d7760a",
+  "command": "e asm.arch; e asm.bits; oml; pd 42 @ 0x8405624; pd 24 @ 0x849bd10; pd 12 @ 0xfff8fc0; pd 24 @ 0xfffbd18; pd 18 @ 0xfffd348; pd 25 @ 0xfffbebc; pd 6 @ 0xa303320; pd 10 @ 0xfffa394",
+  "mode": "ARM64 raw file offsets, base 0",
+  "instructionCount": 161,
+  "exitCode": 0,
+  "completion": "complete",
+  "truncated": false,
+  "artifactChanged": false,
+  "stderr": "",
+  "finding": "On both valid-model routes the dedicated view binds before addSubview, and the game controller mounts inside gameContainerView. The later initializer audit covers paths that skip binding.",
+  "limits": [
+    "Static native-path proof does not identify the screenshot runtime class.",
+    "Remote template variants and actual zero-frame device behavior remain unverified.",
+    "Do not return nil from createInsertView; its generic wrapper has no nil guard."
+  ],
+  "note": "DIRECT_GAME_VISUAL_GATE.md",
+  "instructions": "rea-pre-attachment-gates.txt"
+}

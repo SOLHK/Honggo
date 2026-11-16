@@ -1,0 +1,24 @@
+[
+  {
+    "file": "rea-final-r4-init.json",
+    "recordSHA256": "adea8eda9b5db0a0f5a7ee77cfaa55096a12d6729dd0a110550263194712a57c",
+    "evidenceID": "ev_e88c39177c1539645970c3f2759da992135a6d9b358c44787f2b1e08eb941d06",
+    "subjectSHA256": "1bd4db7c83a3b0a7c3b5e44787d2d37cc61747ca07ae6c42b1805e635c385e15",
+    "command": "e asm.arch; e asm.bits; oml; pd 19 @ 0x4608",
+    "exitCode": 0,
+    "complete": true,
+    "truncated": false,
+    "changed": false
+  },
+  {
+    "file": "rea-host-init-visibility.json",
+    "recordSHA256": "9dcb32c589e615813854bae521123e9e15ea921461c6aa1585f2d26f10f71e58",
+    "evidenceID": "ev_7d4ccfce2f40a9935ee0ec49bd7c665b755160ee57e8e0152b106795f8426ef9",
+    "subjectSHA256": "01bcb8b48ad07cb6e1cac5917dfcb67cdba9bf3f5239df9171bc46bb637fb8ab",
+    "command": "e asm.arch; e asm.bits; oml; pd 20 @ 0xfffb66c; pd 12 @ 0xfffbd5c; pd 15 @ 0xc4973d0",
+    "exitCode": 0,
+    "complete": true,
+    "truncated": false,
+    "changed": false
+  }
+]
