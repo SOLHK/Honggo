@@ -21,6 +21,7 @@ static void HGARefreshAssets(void);
 static void HGAApplyTypography(UIView *root);
 static void HGAObserveFeed(UIScrollView *feed);
 static void HGARefreshDock(UIView *bar);
+static CGFloat HGAExpandedDockWidthForHeader(UIView *header);
 static NSArray<NSString *> *HGABottomControlClasses(void);
 static void HGAUpdateBottomLayoutForView(UIView *view);
 static void HGARestoreBottomLayoutForView(UIView *view);
@@ -130,6 +131,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL paletteChange=playerCanvas && selector==sel_registerName("refreshBgColor");
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL scrollComponent=[className isEqual:@"FQVShortVideoListVCScrollComponent"];
+    BOOL playerNavigation=[className isEqual:@"FQVShortVideoListVCNavBarComponent"];
     BOOL episode=[HGAViewRoles()[className] isEqual:@"episodes"];
     BOOL episodeWrapper=[className isEqual:@"FQVShortVideoBaseInsertView"];
     BOOL bottomParticipant=episodeWrapper || [HGABottomControlClasses() containsObject:className] ||
@@ -155,7 +157,12 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
                 HGAFinishPlayerTransfer(object,selector);
             if(episodeWrapper)HGAEpisodeWrapperChanged(object);
-            if (controller) HGAppearanceProcessController(object);
+            if(playerNavigation){HGAApplyPlayerNavigation(object);return;}
+            if (controller) {
+                HGAppearanceProcessController(object);
+                if([className isEqual:@"FQVShortVideoListViewController"])
+                    for(id component in HGAPlayerNavigations.allObjects)HGAApplyPlayerNavigation(component);
+            }
             else if ((selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)) && [(UIView *)object window]) [(UIView *)object setNeedsLayout];
             else HGAppearanceProcessView(object);
         });
@@ -186,7 +193,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGATracePlayerTransfer(object,selector,argument,invocation,completed?@"return":@"exception");
             }
             if(episodeWrapper && selector==@selector(didAddSubview:))HGAEpisodeWrapperChanged(object);
-            if(scrollComponent)HGARefreshBackdropAfterScroll(argument);
+            if(playerNavigation)HGAApplyPlayerNavigation(object);
+            else if(scrollComponent)HGARefreshBackdropAfterScroll(argument);
             else if(!transfer && !episodeMove && !bottomMove)HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v28@0:8@16B24")) {
@@ -195,6 +203,11 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             if(scrollComponent) {
                 if(!animated)HGARefreshBackdropAfterScroll(argument);
             } else HGAppearanceProcessView(object);
+        });
+    } else if (!strcmp(encoding,"v28@0:8B16@20")) {
+        replacement=imp_implementationWithBlock(^(id object,BOOL value,id title) {
+            ((void(*)(id,SEL,BOOL,id))original)(object,selector,value,title);
+            HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v20@0:8B16")) {
         replacement=imp_implementationWithBlock(^(id object,BOOL value) {
@@ -210,6 +223,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
 void HGAppearanceRefresh(void) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();}); return; }
     HGARefreshAssets();
+    for(id component in HGAPlayerNavigations.allObjects)HGAApplyPlayerNavigation(component);
     HGRecordCapability(@"module.appearance",@{@"module":@"appearance",
         @"state":HGAppearanceEnabled() ? (HGAHooks.count ? @"partial":@"unavailable") : @"disabled",
         @"installedHooks":@(HGAHooks.count),@"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),
@@ -229,8 +243,10 @@ void HGInstallAppearance(void) {
         NSUInteger found=0;
         NSMutableOrderedSet *classes=[NSMutableOrderedSet orderedSetWithArray:HGAViewRoles().allKeys];
         [classes addObjectsFromArray:HGACommentSurfaces()];
+        [classes addObjectsFromArray:HGAPageChromeViews()];
         [classes addObjectsFromArray:HGAActionPanelSurfaces()];
         [classes addObjectsFromArray:HGABottomControlClasses()];
+        [classes addObjectsFromArray:HGAPlayerControlClasses()];
         [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar",@"FQVShortVideoBaseInsertView"]];
         for (NSString *name in classes) {
             Class cls=NSClassFromString(name);
@@ -242,6 +258,10 @@ void HGInstallAppearance(void) {
             found++;
             HGAHook(cls,@selector(layoutSubviews),"v16@0:8",NO);
             HGAHook(cls,@selector(didMoveToWindow),"v16@0:8",NO);
+            if([name isEqual:@"SSShortVideoEpisodesViewItemCell"])
+                HGAHook(cls,sel_registerName("setIsSelected:"),"v20@0:8B16",NO);
+            if([name isEqual:@"SSShortVideoEpisodePanelCollectView"])
+                HGAHook(cls,sel_registerName("updateCollectStatus:collectText:"),"v28@0:8B16@20",NO);
             if([name isEqual:@"TTPlayerView"] || [name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 HGAHook(cls,@selector(willMoveToSuperview:),"v24@0:8@16",NO);
                 HGAHook(cls,@selector(willMoveToWindow:),"v24@0:8@16",NO);
@@ -278,18 +298,29 @@ void HGInstallAppearance(void) {
             }
         }
         Class scrollComponent=NSClassFromString(@"FQVShortVideoListVCScrollComponent");
+        Class playerNavigation=NSClassFromString(@"FQVShortVideoListVCNavBarComponent");
+        if(playerNavigation) {
+            for(NSString *name in @[@"setupLayout:",@"updateNavgationBarRightViewWithRightItems:"])
+                HGAHook(playerNavigation,NSSelectorFromString(name),"v24@0:8@16",NO);
+            for(NSString *name in @[@"updateNavgationBarLeftView",@"updateNavgationBarRightView",@"uiAdaptModeDidChanged"])
+                HGAHook(playerNavigation,NSSelectorFromString(name),"v16@0:8",NO);
+        }
         if(scrollComponent) {
             HGAHook(scrollComponent,@selector(scrollViewDidEndDecelerating:),"v24@0:8@16",NO);
             HGAHook(scrollComponent,@selector(scrollViewDidEndScrollingAnimation:),"v24@0:8@16",NO);
             HGAHook(scrollComponent,@selector(scrollViewDidEndDragging:willDecelerate:),"v28@0:8@16B24",NO);
         }
-        for (NSString *name in HGAPanelControllers()) {
+        NSArray *controllers=[HGAPanelControllers().allKeys arrayByAddingObjectsFromArray:HGAFinderControllers()];
+        for (NSString *name in controllers) {
             Class cls=NSClassFromString(name);
             if (![cls isSubclassOfClass:UIViewController.class]) continue;
             HGAHook(cls,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
         }
         // The original navigation is still owned by the host controller.
         Class dockController=NSClassFromString(@"SSTabBarController");
+        Class playbackController=NSClassFromString(@"FQVShortVideoListViewController");
+        if([playbackController isSubclassOfClass:UIViewController.class])
+            HGAHook(playbackController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
         if ([dockController isSubclassOfClass:UIViewController.class])
             HGAHook(dockController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
         static dispatch_once_t once;

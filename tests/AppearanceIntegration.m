@@ -39,7 +39,14 @@
 @implementation SSShortVideoRightInteractionCommentView @end
 @interface SSShortVideoRightInteractionShareView : HGAActionFixture @end
 @implementation SSShortVideoRightInteractionShareView @end
-@interface SSVideoSeriesFeedHeaderView : UIView @end
+@interface SSVideoSeriesFeedHeaderView : UIView
+@property(nonatomic,strong) UIView *sideBar;
+@property(nonatomic,strong) UIView *tabContainer;
+@property(nonatomic,strong) UIView *searchViewContainer;
+@property(nonatomic,strong) UIView *findDramaSearchRowViewV731;
+@property(nonatomic,strong) UIView *findDramaAIEntranceViewV731;
+@property(nonatomic) BOOL isFindDramaSearchPresentationActiveV731;
+@end
 @implementation SSVideoSeriesFeedHeaderView @end
 @interface SSShortVideoBottomDistributionView : UIView @end
 @implementation SSShortVideoBottomDistributionView @end
@@ -148,8 +155,10 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
 #include "DockAppearanceIntegration.inc"
 #include "EpisodeGlassIntegration.inc"
 #include "EpisodeSpacingIntegration.inc"
+#include "PlayerChromeIntegration.inc"
 #include "ActionShareAppearanceIntegration.inc"
 #include "DockVideoBackdropIntegration.inc"
+#include "AppearancePageChromeIntegration.inc"
 @interface HGAAppearanceTests : UIResponder <UIWindowSceneDelegate>
 @property(nonatomic,strong) UIWindow *window;
 @property(nonatomic,strong) SSTabBarController *host;
@@ -223,6 +232,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     }
     SSVideoSeriesFeedHeaderView *header=[[SSVideoSeriesFeedHeaderView alloc] initWithFrame:CGRectMake(20,60,280,44)];[root addSubview:header];Layout(header);
     Check(Find(header,@"honggo.appearance.material")!=nil,@"top channel glass is active");
+    VerifyPageChrome(root,self.host.customTabBar,self.host);
     SSShortVideoBottomDistributionView *episodes=[[SSShortVideoBottomDistributionView alloc] initWithFrame:CGRectMake(20,220,280,44)];[root addSubview:episodes];Layout(episodes);
     Check(Find(episodes,@"honggo.appearance.material")!=nil,@"episode entry glass is active");
     BOOL reducedTransparency=UIAccessibilityIsReduceTransparencyEnabled();
@@ -243,9 +253,21 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Layout(dockMaterial);
     Check(dockMaterial.alpha==1 && !dockMaterial.maskView &&
         (reducedTransparency ? !dockMaterial.effect : [dockMaterial.effect isKindOfClass:expectedEffect]),
-        @"playback dock keeps one unmasked material at full effect-view opacity");
+        @"playback dock keeps native glass unmasked at full effect-view opacity");
+    UIVisualEffectView *diffuser=(id)Find(capsule,@"honggo.appearance.dock.diffuser");
+    if(HGNativeGlassConfigured() && !reducedTransparency) {
+        Check(diffuser && [diffuser.effect isKindOfClass:UIBlurEffect.class] && diffuser.alpha==1 &&
+            !diffuser.userInteractionEnabled && CGRectEqualToRect(diffuser.frame,dockMaterial.frame) &&
+            [capsule.subviews indexOfObject:diffuser]<[capsule.subviews indexOfObject:dockMaterial],
+            @"dock diffuses source edges inside each lens without a full-width cover");
+        UIVisualEffect *existingEffect=dockMaterial.effect;
+        for(NSUInteger pass=0;pass<3;pass++){HGAppearanceLayoutDock(self.host.customTabBar,self.host);Layout(dockMaterial);}
+        Check(Find(capsule,@"honggo.appearance.dock.diffuser")==diffuser && dockMaterial.effect==existingEffect,
+            @"stable dock layouts reuse both effect views instead of restarting glass while scrolling");
+    } else Check(!diffuser,@"non-glass and reduced-transparency modes do not stack materials");
     RunEpisodeGlassChecks(root);
     RunEpisodeSpacingChecks(root);
+    RunPlayerChromeChecks(self.host);
 
     SSShortVideoOutterSeriesInfoView *info=[[SSShortVideoOutterSeriesInfoView alloc] initWithFrame:CGRectMake(20,280,280,60)];[root addSubview:info];
     UILabel *rich=[[UILabel alloc] initWithFrame:CGRectMake(0,0,180,24)];

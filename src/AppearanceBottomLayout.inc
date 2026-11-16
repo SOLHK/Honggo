@@ -23,9 +23,10 @@ static char HGABottomLayoutKey;
 
 static NSArray<NSString *> *HGABottomControlClasses(void) {
     // Exact observed host identities; do not hook their common UIKit base.
-    // The outer multi-series owner is present in the supplied R14 scene.
+    // Feed type 3 uses the inner multi-series control, a sibling of the
+    // outer control responsible for home playback.
     return @[@"FQVShortVideoDerivativeVideoControlView",@"FQVShortVideoControlView",
-        @"FQVShortVideoVPlayerOutterMultiSeriesControlView"];
+        @"FQVShortVideoVPlayerMultiSeriesControlView",@"FQVShortVideoVPlayerOutterMultiSeriesControlView"];
 }
 static BOOL HGAIsBottomControl(UIView *view) {
     for(Class cls=object_getClass(view);cls && cls!=UIView.class;cls=class_getSuperclass(cls))

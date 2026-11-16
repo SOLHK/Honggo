@@ -55,6 +55,7 @@
 @property(nonatomic,strong) UIColor *background;
 @property(nonatomic) BOOL clearsBackground;
 @property(nonatomic,strong) HGAAppearanceMaterial *glass;
+@property(nonatomic,strong) UIVisualEffectView *diffuser;
 @end
 @implementation HGAViewState @end
 static char HGAViewStateKey;
@@ -104,6 +105,7 @@ static void HGARemoveGlass(UIView *view) {
     HGAViewState *state=HGAState(view,NO);
     if(!state)return;
     [state.glass removeFromSuperview];state.glass=nil;
+    [state.diffuser removeFromSuperview];state.diffuser=nil;
     if(state.clearsBackground && [view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=state.background;
     state.clearsBackground=NO;state.background=nil;
 }
@@ -244,19 +246,24 @@ static void HGAApplyIcon(UIView *root,NSString *role) {
     UIImageView *icon=HGAFindIcon(root);
     HGAIconState *state=objc_getAssociatedObject(root,&HGAIconKey);
     if(state.imageView!=icon){HGARestoreIcon(root);state=nil;}
-    UIImage *image=HGAIcon(role,selected);
+    BOOL drawnPreset=NO;
+    UIImage *image=HGAIcon(role,selected,&drawnPreset);
     if(!icon || !image){HGARestoreIcon(root);return;}
     if(!state){state=[HGAIconState new];state.imageView=icon;state.source=icon.image;state.tint=icon.tintColor;
         objc_setAssociatedObject(root,&HGAIconKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     else if(icon.image!=state.applied && ![icon.image isEqual:state.applied])state.source=icon.image;
-    if(image.isSymbolImage) {
-        // Template symbols otherwise inherit the host's blue tint even in
-        // their normal state. Bake the selected colour into the symbol, while
-        // keeping custom bitmap assets and native action targets untouched.
-        UIColor *color=selected ? ([role isEqual:@"like"]?UIColor.systemPinkColor:UIColor.systemYellowColor) : UIColor.whiteColor;
+    if(drawnPreset || image.isSymbolImage) {
+        UIColor *color=HGAActionIconColor(role,selected);
         if(!state.appliedTint || ![icon.tintColor isEqual:state.appliedTint])state.tint=icon.tintColor;
         state.appliedTint=color;
         if(![icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.appliedTint;
+    } else {
+        if(state.appliedTint && [icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.tint;
+        state.appliedTint=nil;
+    }
+    if(image.isSymbolImage) {
+        // Carry the action's state color through hosts that customize icon tint.
+        UIColor *color=state.appliedTint;
         if(!state.appliedSymbolConfiguration || ![icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
             state.symbolConfiguration=icon.preferredSymbolConfiguration;
         state.appliedSymbolConfiguration=[UIImageSymbolConfiguration configurationWithPointSize:HGAppearanceNumber(@"icons.size") weight:UIImageSymbolWeightRegular];
@@ -264,10 +271,9 @@ static void HGAApplyIcon(UIView *root,NSString *role) {
             icon.preferredSymbolConfiguration=state.appliedSymbolConfiguration;
         image=[[image imageWithConfiguration:state.appliedSymbolConfiguration] imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal];
     } else {
-        if(state.appliedTint && [icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.tint;
         if(state.appliedSymbolConfiguration && [icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
             icon.preferredSymbolConfiguration=state.symbolConfiguration;
-        state.appliedTint=nil;state.appliedSymbolConfiguration=nil;
+        state.appliedSymbolConfiguration=nil;
     }
     if(!state.ownsContentMode || icon.contentMode!=UIViewContentModeScaleAspectFit)state.contentMode=icon.contentMode;
     state.ownsContentMode=YES;
@@ -372,7 +378,8 @@ static NSDictionary<NSString *,NSString *> *HGAPanelControllers(void) {
         @"SSVideoSharePanelViewController":@"share",
         @"SSShortVideoSharePanelViewController":@"share",
         @"SSSharePanelViewController":@"share",
-        @"UGKmpSharePanelContainerViewController":@"share"};
+        @"UGKmpSharePanelContainerViewController":@"share",
+        @"SSShortVideoIntroductionTabViewController":@"episodes"};
 }
 static NSString *HGAPanelKind(UIViewController *controller) {
     for(Class cls=object_getClass(controller);cls && cls!=UIViewController.class;cls=class_getSuperclass(cls)) {
@@ -417,11 +424,15 @@ static void HGAApplyPanel(UIView *root,NSString *kind) {
         }
     }
 }
+#include "AppearancePlayerControls.inc"
+#include "AppearancePageChrome.inc"
+
 void HGAppearanceProcessView(UIView *view) {
     if(!NSThread.isMainThread || HGAApplying || ![view isKindOfClass:UIView.class] || HGAOwnView(view))return;
     HGAApplying=YES;
     @try {
         HGARegisterView(view);
+        HGAApplyPlayerControls(view);
         NSString *name=NSStringFromClass(view.class),*role=HGARole(view);
         if([name isEqual:@"SSTabBar"]){HGARefreshDock(view);return;}
         if([name isEqual:@"FQVCollectionView"] && [view isKindOfClass:UIScrollView.class]) {
@@ -438,8 +449,10 @@ void HGAppearanceProcessView(UIView *view) {
             HGAApplyPanel(view,@"comment");HGAApplyTypography(view);return;
         }
         if(HGAIsActionPanelSurface(view)) {HGAUpdateActionPanelSurface(view);return;}
-        if(!role)return;
         BOOL enabled=HGAppearanceEnabled() && view.window;
+        BOOL header=[name isEqual:@"SSVideoSeriesFeedHeaderView"];
+        BOOL headerShowsFinder=header && HGAApplyHeaderChrome(view,enabled);
+        if(!role){HGAApplyNativePageChrome(view,name,enabled);return;}
         BOOL outer=!HGAHasRoleAncestor(view,role);
         NSString *prefix=[@"layout." stringByAppendingString:role];
         HGASetHidden(view,enabled && outer && HGAppearanceFlag([prefix stringByAppendingString:@".hidden"]));
@@ -448,7 +461,7 @@ void HGAppearanceProcessView(UIView *view) {
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".scale"]):1);
         BOOL action=[@[@"avatar",@"collect",@"comment",@"like",@"share",@"more"] containsObject:role];
         BOOL glass=enabled && outer && ((action && HGAppearanceFlag(@"player.rightGlass")) ||
-            ([role isEqual:@"channels"] && HGAppearanceFlag(@"player.headerGlass")) ||
+            ([role isEqual:@"channels"] && !headerShowsFinder && HGAppearanceFlag(@"player.headerGlass")) ||
             ([role isEqual:@"episodes"] && HGAppearanceFlag(@"player.episodeGlass")));
         BOOL episode=[role isEqual:@"episodes"];
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
@@ -456,7 +469,12 @@ void HGAppearanceProcessView(UIView *view) {
         HGAApplyIcon(view,role);
         if(glass && !view.hidden) {
             CGRect glassFrame=view.bounds;CGFloat radius=episode ? episodeRadius : 20;
-            if(action) {
+            if(header) {
+                CGFloat width=HGAExpandedDockWidthForHeader(view);
+                glassFrame=CGRectMake(CGRectGetMidX(view.bounds)-width/2,CGRectGetMinY(view.bounds),
+                    width,CGRectGetHeight(view.bounds));
+                radius=CGRectGetHeight(glassFrame)/2;
+            } else if(action) {
                 UIImageView *icon=HGAFindIcon(view);
                 CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
                 CGFloat side=MIN(view.bounds.size.width,MAX(34,MIN(40,MAX(rect.size.width,rect.size.height)+8)));
@@ -485,7 +503,9 @@ void HGAppearanceProcessController(UIViewController *controller) {
             if(bar)HGAppearanceLayoutDock(bar,controller);
             return;
         }
+        if(HGAIsFinderController(controller)){HGAApplyFinderChrome(controller);return;}
         NSString *kind=HGAPanelKind(controller);
-        if(kind){HGAApplyPanel(controller.view,kind);HGAApplyTypography(controller.view);}
+        if([kind isEqual:@"episodes"])HGAApplyEpisodeController(controller);
+        else if(kind){HGAApplyPanel(controller.view,kind);HGAApplyTypography(controller.view);}
     }@finally {HGAApplying=NO;}
 }

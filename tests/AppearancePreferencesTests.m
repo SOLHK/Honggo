@@ -78,13 +78,16 @@ int main(void) {@autoreleasepool {
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];
+    NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.mineGlass",@"player.controlsGlass",@"panels.episodes"]];
     BOOL unique=YES,defaults=YES;
     for(NSDictionary *entry in HGAppearanceCatalog()) {
         unique &= ![keys containsObject:entry[@"key"]];[keys addObject:entry[@"key"]];
-        if([entry[@"kind"] isEqual:@"bool"])defaults &= !HGAppearanceFlag(entry[@"key"]);
+        if([entry[@"kind"] isEqual:@"bool"])
+            defaults &= HGAppearanceFlag(entry[@"key"])==[onWhenEnabled containsObject:entry[@"key"]];
     }
     Check(unique && keys.count>100,@"every visual option has one stable key");
-    Check(defaults && !HGAppearanceEnabled(),@"all appearance switches default off");
+    Check(defaults && [onWhenEnabled isSubsetOfSet:keys] && !HGAppearanceEnabled() && !HGAppearanceNeedsGlass(),
+        @"appearance remains opt-in with the new scoped defaults ready under its master switch");
     Check(![keys containsObject:@"player.fillButton"] && HGAppearanceValue(@"player.fillButton")==nil,
         @"the removed playback button has no setting or stored effective value");
     Check(!HGAppearanceSet(@"player.fillButton",@"show",nil),
@@ -147,6 +150,13 @@ int main(void) {@autoreleasepool {
     Check(!HGAppearanceParse([NSJSONSerialization dataWithJSONObject:root options:0 error:nil],nil),@"boolean schema rejected");
     Check(HGAppearanceApply(HGAppearancePreset(@"glass"),nil),@"glass preset validates");
     Check(HGAppearanceEnabled() && HGAppearanceFlag(@"dock.enabled") && HGAppearanceFlag(@"icons.enabled") && HGAppearanceFlag(@"panels.speed"),@"glass preset activates visible modules");
+    Check([HGAppearanceString(@"icons.preset") isEqual:@"filled"],@"glass preset selects classic solid action glyphs");
+    NSDictionary *legacyIcons=@{@"format":@"Honggo.appearance",@"schema":@1,
+        @"values":@{@"icons.preset":@"outline",@"icons.collect.normal.symbol":@"bookmark.fill"}};
+    NSDictionary *importedIcons=HGAppearanceParse([NSJSONSerialization dataWithJSONObject:legacyIcons options:0 error:nil],nil);
+    Check([importedIcons[@"icons.preset"] isEqual:@"filled"] &&
+        [importedIcons[@"icons.collect.normal.symbol"] isEqual:@"bookmark.fill"],
+        @"older outline backups migrate to classic while preserving explicit icon overrides");
     Check(HGAppearanceNeedsGlass(),@"startup knows the visual preset requests glass");
     Check(HGAppearanceApply(HGAppearancePreset(@"focus"),nil) && HGAppearanceFlag(@"dock.autoCollapse") && HGAppearanceFlag(@"layout.tags.hidden"),@"focus preset supplies collapse and clean layout");
     HGAppearanceReset();

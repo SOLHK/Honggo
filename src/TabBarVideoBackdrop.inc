@@ -23,6 +23,7 @@ static char HGVideoBackdropLinkKey;
 @property(nonatomic, weak) UIView *portraitRenderer;
 @property(nonatomic) CATransform3D portraitTransform;
 @property(nonatomic, strong) NSMutableSet<UIView *> *portraitClips;
+@property(nonatomic, strong) NSMapTable<UIImageView *, NSNumber *> *cornerAlpha;
 @property(nonatomic) BOOL ownsClipping;
 @property(nonatomic) BOOL refreshing;
 - (void)refreshFeed;
@@ -190,7 +191,46 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
 - (void)dealloc {
     [self restorePortrait];
     if (_ownsClipping) _feed.clipsToBounds = YES;
+    [self restoreCornerImages];
     [_underlay removeFromSuperview];
+}
+
+- (void)restoreCornerImages {
+    for (UIImageView *image in self.cornerAlpha)
+        if (image.alpha == 0) image.alpha = [[self.cornerAlpha objectForKey:image] doubleValue];
+    [self.cornerAlpha removeAllObjects];
+}
+
+- (void)updateCornerImages {
+    // The host mounts a pair of 12pt corner images as siblings of its feed
+    // (FQVShortVideoListVCUIComponent setupCornerRadiusImageView). They stay
+    // at the old bottom edge when the live renderer extends underneath it.
+    CGRect frame = self.feed.frame;
+    CGRect leftFrame = CGRectMake(CGRectGetMinX(frame), CGRectGetMaxY(frame)-12, 12, 12);
+    CGRect rightFrame = CGRectOffset(leftFrame, CGRectGetWidth(frame)-12, 0);
+    UIImageView *left = nil, *right = nil;
+    for (UIView *view in self.feed.superview.subviews) {
+        if (![view isKindOfClass:UIImageView.class] || view.userInteractionEnabled) continue;
+        if (HGVideoBackdropSameRect(view.frame,leftFrame,0.5)) {
+            if (left) { [self restoreCornerImages]; return; }
+            left = (UIImageView *)view;
+        } else if (HGVideoBackdropSameRect(view.frame,rightFrame,0.5)) {
+            if (right) { [self restoreCornerImages]; return; }
+            right = (UIImageView *)view;
+        }
+    }
+    if (!left || !right) { [self restoreCornerImages]; return; }
+    for (UIImageView *image in self.cornerAlpha.keyEnumerator.allObjects) {
+        if (image == left || image == right) continue;
+        if (image.alpha == 0) image.alpha = [[self.cornerAlpha objectForKey:image] doubleValue];
+        [self.cornerAlpha removeObjectForKey:image];
+    }
+    if (!self.cornerAlpha) self.cornerAlpha = [NSMapTable weakToStrongObjectsMapTable];
+    for (UIImageView *image in @[left,right]) {
+        if (image.alpha == 0) continue;
+        [self.cornerAlpha setObject:@(image.alpha) forKey:image];
+        image.alpha = 0;
+    }
 }
 
 - (void)restoreClipping {
@@ -249,6 +289,7 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
         objc_setAssociatedObject(feed, &HGVideoBackdropLinkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [self restorePortrait];
     [self restoreClipping];
+    [self restoreCornerImages];
     [self.underlay removeFromSuperview];
     self.underlay = nil;
     self.feed = nil; self.root = nil; self.bar = nil; self.owner = nil;
@@ -305,9 +346,11 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
     // Only a visible cell with a portion on both sides may draw below the feed.
     if (!fillsPortrait && (!cell || !HGVideoBackdropCrossesBottom(feed, cellFrame))) {
         [self restoreClipping];
+        [self restoreCornerImages];
         return;
     }
 
+    [self updateCornerImages];
     if (feed.clipsToBounds) {
         self.ownsClipping = YES;
         feed.clipsToBounds = NO;
@@ -319,6 +362,7 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
     if (!renderer || (renderer != view && ![renderer isDescendantOfView:view])) return;
     [self restorePortrait];
     [self restoreClipping];
+    [self restoreCornerImages];
 }
 
 - (void)refreshFeed {

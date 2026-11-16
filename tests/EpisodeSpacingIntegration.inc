@@ -28,12 +28,40 @@
 @implementation FQVShortVideoVPlayerOutterMultiSeriesControlView
 - (void)layoutSubviews {[super layoutSubviews];}
 @end
+@interface FQVShortVideoVPlayerMultiSeriesControlView : UIView @end
+@implementation FQVShortVideoVPlayerMultiSeriesControlView
+- (void)layoutSubviews {[super layoutSubviews];}
+@end
 @interface SSShortVideoRightInteractionView : UIView @end
 @implementation SSShortVideoRightInteractionView @end
 @interface SSShortVideoAboveLeftContainerView : UIView @end
 @implementation SSShortVideoAboveLeftContainerView @end
 @interface SSShortVideoOutterSeriesLeftContainerView : UIView @end
 @implementation SSShortVideoOutterSeriesLeftContainerView @end
+
+static void RunInnerEpisodeSpacingChecks(UIView *root) {
+    FQVShortVideoVPlayerMultiSeriesControlView *control=
+        [[FQVShortVideoVPlayerMultiSeriesControlView alloc] initWithFrame:CGRectMake(0,0,440,956)];
+    CGRect entryFrame=CGRectMake(0,826,440,44), progressFrame=CGRectMake(0,849,440,30);
+    CGRect commentFrame=CGRectMake(16,892,378,40);
+    FQVShortVideoBaseInsertView *wrapper=[[FQVShortVideoBaseInsertView alloc] initWithFrame:entryFrame];
+    SSShortVideoBottomDistributionView *entry=[[SSShortVideoBottomDistributionView alloc] initWithFrame:wrapper.bounds];
+    [wrapper addSubview:entry];
+    FQVShortVideoProgressView *progress=[[FQVShortVideoProgressView alloc] initWithFrame:progressFrame];
+    UIView *track=[[UIView alloc] initWithFrame:CGRectMake(16,21,408,2)];
+    track.userInteractionEnabled=NO;
+    [progress addSubview:track];
+    UIView *comment=[[UIView alloc] initWithFrame:commentFrame];
+    [control addSubview:progress];[control addSubview:wrapper];[control addSubview:comment];
+    [root addSubview:control];Layout(control);Layout(entry);
+    CGRect rail=[track convertRect:track.bounds toView:control];
+    Check(fabs(CGRectGetMinY(rail)-CGRectGetMaxY(wrapper.frame)-8)<0.01 &&
+        CGRectEqualToRect(progress.frame,progressFrame) && CGRectEqualToRect(comment.frame,commentFrame),
+        @"detail playback keeps an eight-point gap above the native rail without moving the comment entry");
+    [control removeFromSuperview];
+    Check(CGRectEqualToRect(wrapper.frame,entryFrame) && CGRectEqualToRect(progress.frame,progressFrame),
+        @"leaving the detail HUD restores its original capsule position");
+}
 
 static void RunOutterEpisodeSpacingChecks(UIView *root) {
     NSDictionary *prior=HGAppearanceValues();
@@ -325,6 +353,7 @@ static void RunEpisodeSpacingChecks(UIView *root) {
         [standard removeFromSuperview];Layout(entry);
         Check(CGPointEqualToPoint(wrapper.center,nativeWrapperCenter),
             @"detaching a nested native HUD clears the owned episode lift");
+        RunInnerEpisodeSpacingChecks(root);
         RunOutterEpisodeSpacingChecks(root);
     } @finally {
         [screen removeFromSuperview];

@@ -50,9 +50,9 @@ static BOOL HGASaveActionPreview(UIView *root) {
     HGAppearanceApply(layout,nil);
     UIView *canvas=[[UIView alloc] initWithFrame:CGRectMake(8,100,160,348)];
     canvas.backgroundColor=[UIColor colorWithWhite:0.1 alpha:1];[root addSubview:canvas];
-    NSArray *classes=@[SSShortVideoRightInteractionLikeView.class,SSShortVideoRightInteractionCommentView.class,
-        SSShortVideoRightInteractionCollectView.class,SSShortVideoRightInteractionShareView.class];
-    NSArray *counts=@[@"2.8万",@"1077",@"19.3万",@"分享"];
+    NSArray *classes=@[SSShortVideoRightInteractionCollectView.class,SSShortVideoRightInteractionCommentView.class,
+        SSShortVideoRightInteractionLikeView.class,SSShortVideoRightInteractionShareView.class];
+    NSArray *counts=@[@"10.1万",@"572",@"2万",@"1256"];
     for(NSUInteger i=0;i<classes.count;i++) {
         HGAActionFixture *view=[[classes[i] alloc] initWithFrame:CGRectMake(57,14+i*82,46,62)];
         if([view isKindOfClass:SSShortVideoRightInteractionLikeView.class])
@@ -66,7 +66,7 @@ static BOOL HGASaveActionPreview(UIView *root) {
     [canvas removeFromSuperview];HGAppearanceApply(before,nil);return saved;
 }
 
-static BOOL HGASymbolHasOnlyNeutralPixels(UIImage *image) {
+static BOOL HGAIconHasOnlyNeutralPixels(UIImage *image) {
     UIGraphicsImageRendererFormat *format=[UIGraphicsImageRendererFormat defaultFormat];
     format.scale=1;format.opaque=NO;format.preferredRange=UIGraphicsImageRendererFormatRangeStandard;
     UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(40,40) format:format];
@@ -83,10 +83,67 @@ static BOOL HGASymbolHasOnlyNeutralPixels(UIImage *image) {
     }
     return visible>20;
 }
+static uint8_t HGAActionPixelAlpha(UIImage *image,CGFloat x,CGFloat y) {
+    CGImageRef source=image.CGImage;
+    if(!source)return 0;
+    CGRect pixelRect=CGRectMake(floor(x*image.scale),floor(y*image.scale),1,1);
+    CGImageRef pixelImage=CGImageCreateWithImageInRect(source,pixelRect);
+    if(!pixelImage)return 0;
+    uint8_t pixel[4]={0};
+    CGColorSpaceRef space=CGColorSpaceCreateDeviceRGB();
+    CGContextRef context=CGBitmapContextCreate(pixel,1,1,8,4,space,kCGImageAlphaPremultipliedLast|kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(space);
+    if(context){CGContextDrawImage(context,CGRectMake(0,0,1,1),pixelImage);CGContextRelease(context);}
+    CGImageRelease(pixelImage);
+    return pixel[3];
+}
+static void RunActionIconChoices(UIView *root) {
+    NSDictionary *saved=HGAppearanceValues();
+    NSMutableArray<HGAActionFixture *> *controls=[NSMutableArray array];
+    NSArray *classes=@[SSShortVideoRightInteractionCollectView.class,SSShortVideoRightInteractionCommentView.class,
+        SSShortVideoRightInteractionLikeView.class,SSShortVideoRightInteractionShareView.class];
+    for(Class type in classes) {
+        HGAActionFixture *control=[[type alloc] initWithFrame:CGRectMake(18+50*controls.count,170,46,62)];
+        if([control isKindOfClass:SSShortVideoRightInteractionLikeView.class])
+            ((SSShortVideoRightInteractionLikeView *)control).model=[SSShortVideoRightInteractionLikeModel new];
+        [root addSubview:control];
+        [controls addObject:control];
+    }
+    NSMutableArray<NSMutableSet<NSData *> *> *images=[NSMutableArray array];
+    for(NSUInteger i=0;i<controls.count;i++)[images addObject:[NSMutableSet set]];
+    BOOL neutral=YES;
+    for(NSString *preset in @[@"filled",@"circle",@"square"]) {
+        HGAppearanceSet(@"icons.preset",preset,nil);
+        for(NSUInteger i=0;i<controls.count;i++) {
+            Layout(controls[i]);
+            UIImage *image=controls[i].iconImageView.image;
+            NSData *bytes=UIImagePNGRepresentation(image);
+            if(bytes)[images[i] addObject:bytes];
+            neutral &= !image.isSymbolImage && HGAIconHasOnlyNeutralPixels(image);
+        }
+    }
+    BOOL distinct=YES;
+    for(NSSet *shape in images)distinct &= shape.count==3;
+    Check(neutral && distinct,@"all four actions have three distinct original filled icon designs");
+    HGAppearanceSet(@"icons.preset",@"filled",nil);
+    UIImage *bubble=controls[1].iconImageView.image;
+    Check(HGAActionPixelAlpha(controls[0].iconImageView.image,16,16)>240 &&
+        HGAActionPixelAlpha(controls[2].iconImageView.image,16,16)>240 &&
+        HGAActionPixelAlpha(controls[3].iconImageView.image,16,16)>240 &&
+        HGAActionPixelAlpha(bubble,13,14)>240 && HGAActionPixelAlpha(bubble,10,14)<10 &&
+        HGAActionPixelAlpha(bubble,16,14)<10 && HGAActionPixelAlpha(bubble,22,14)<10,
+        @"reference-inspired preset uses solid silhouettes and three open chat dots");
+    HGAppearanceSet(@"icons.comment.normal.symbol",@"paperplane.fill",nil);
+    Check(controls[1].iconImageView.image.isSymbolImage &&
+        ![UIImagePNGRepresentation(controls[1].iconImageView.image) isEqual:UIImagePNGRepresentation(bubble)],
+        @"a custom system symbol overrides the selected preset");
+    for(UIView *control in controls)[control removeFromSuperview];
+    HGAppearanceApply(saved,nil);
+}
 static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     UIView *root=host.view;
     NSDictionary *before=HGAppearanceValues();
-    HGAppearanceApply(@{@"enabled":@YES,@"icons.enabled":@YES,@"icons.preset":@"outline",@"icons.size":@26,
+    HGAppearanceApply(@{@"enabled":@YES,@"icons.enabled":@YES,@"icons.preset":@"filled",@"icons.size":@26,
         @"player.rightGlass":@YES,@"panels.longpress":@YES,@"panels.share":@YES},nil);
     SSShortVideoRightInteractionCommentView *comment=[[SSShortVideoRightInteractionCommentView alloc] initWithFrame:CGRectMake(20,100,46,62)];
     comment.iconImageView.tintColor=UIColor.systemBlueColor;comment.iconImageView.contentMode=UIViewContentModeScaleToFill;
@@ -98,18 +155,18 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     @try {
         Check([comment.iconImageView.tintColor isEqual:UIColor.whiteColor] &&
             comment.iconImageView.image.renderingMode==UIImageRenderingModeAlwaysOriginal &&
-            HGASymbolHasOnlyNeutralPixels(comment.iconImageView.image),
-            @"right action symbols render neutral white instead of inherited host blue");
+            HGAIconHasOnlyNeutralPixels(comment.iconImageView.image),
+            @"right action glyphs render neutral white over the glass");
         Check(comment.iconImageView.contentMode==UIViewContentModeScaleAspectFit &&
             CGRectEqualToRect(comment.frame,touchFrame) && CGRectEqualToRect(comment.countLabel.frame,countFrame),
-            @"SF symbol proportions improve without resizing the native action or count");
+            @"solid glyph proportions preserve the native action and count geometry");
         UIView *material=Find(comment,@"honggo.appearance.material");
         Check(material && material.bounds.size.width<=40.01 && !material.userInteractionEnabled && material.alpha==1,
             @"right actions use compact glass at full effect-view opacity with unchanged native hit handling");
         [comment sendActionsForControlEvents:UIControlEventTouchUpInside];
         Check(comment.taps==1,@"redrawn right action still delivers one original tap");
         for(NSUInteger i=0;i<8;i++)Layout(comment);
-        Check(Count(comment,@"honggo.appearance.material")==1 && HGASymbolHasOnlyNeutralPixels(comment.iconImageView.image),
+        Check(Count(comment,@"honggo.appearance.material")==1 && HGAIconHasOnlyNeutralPixels(comment.iconImageView.image),
             @"right action reuse keeps a single surface and stable neutral rendering");
         HGAppearanceSet(@"icons.enabled",@NO,nil);
         Check([comment.iconImageView.tintColor isEqual:UIColor.systemBlueColor] &&
@@ -144,6 +201,7 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     }@finally {
         [share removeFromSuperview];HGAppearanceApply(@{@"icons.enabled":@YES,@"icons.size":@26},nil);
     }
+    RunActionIconChoices(root);
     Check(HGASaveActionPreview(root),@"controlled UIKit right-action preview renders to PNG for visual review");
 
     FQVShortVideoSettingsViewController_hmd_subfix_ *panel=[FQVShortVideoSettingsViewController_hmd_subfix_ new];

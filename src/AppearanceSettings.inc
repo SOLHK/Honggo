@@ -66,6 +66,8 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
     }else {
         for(NSDictionary *def in HGAppearanceCatalog()) {
             if(self.group && ![def[@"group"] isEqual:self.group])continue;
+            NSString *key=def[@"key"];
+            if([key hasPrefix:@"icons.comment.selected."] || [key hasPrefix:@"icons.share.selected."])continue;
             NSString *haystack=[NSString stringWithFormat:@"%@ %@",def[@"title"],def[@"key"]];
             BOOL match=YES;
             for(NSString *word in [query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet])
@@ -86,7 +88,7 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
     if([self.group isEqual:@"fonts"])return @"只改变已适配播放页、面板及底栏的原生文字，不修改视频内字幕、网页或自绘文字。编辑中的输入框、密码、图标字体保持原样。字体导入上限 50 MiB，仅本机使用。";
     if([self.group isEqual:@"player"])return @"开启「横屏铺满」后，仅横屏播放横向视频时等比放大并裁切画面边缘。返回竖屏或关闭开关后恢复原比例，竖屏视频保持原样。偏移单位为点，比例 1 表示原始大小。";
     if([self.group isEqual:@"dock"])return @"底栏优先保留至少 44 点的点击区域，尺寸会受宿主可用空间限制。上滑收缩，下滑或点击圆钮展开；语音朗读开启时保持展开。搜索需要在首页有可用宿主入口。";
-    if([self.group isEqual:@"icons"])return @"图片优先于 SF Symbol，最后使用预设。收藏和点赞按宿主真实状态显示；无法读取状态时保留原图标。自选图片在本地缩小为不超过 256 像素的 PNG。";
+    if([self.group isEqual:@"icons"])return @"每个动作可使用预设、系统图标或相册图片。收藏和点赞可单独设置已选中的图标。";
     if([self.group isEqual:@"panels"])return @"仅处理已识别面板，不隐藏绘制内容、输入框或点击遮罩。未匹配的面板保留原样，适配状态可以随日志导出。";
     return @"先开启「启用外观定制」，或应用预设。多数调整即时生效；首次开启原生玻璃后请完全退出红果再打开，启动前未启用玻璃时先使用磨砂。外观参数备份不包含图片与字体文件；恢复时需在同一设备保留这些资源。";
 }
@@ -179,13 +181,19 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
         [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];[self presentSheet:a];return;
     }
     if([kind isEqual:@"symbol"]) {
-        UIAlertController *a=[UIAlertController alertControllerWithTitle:row[@"title"] message:@"输入系统图标名，如 heart、star.fill。留空恢复预设。" preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertController *a=[UIAlertController alertControllerWithTitle:row[@"title"] message:@"输入系统图标名，如 heart.fill、star.fill。保存会替换该项图片，留空清除系统图标。" preferredStyle:UIAlertControllerStyleAlert];
         [a addTextFieldWithConfigurationHandler:^(UITextField *text){text.text=HGAppearanceString(key);text.autocorrectionType=UITextAutocorrectionTypeNo;text.autocapitalizationType=UITextAutocapitalizationTypeNone;}];
         [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
         [a addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *button){
             NSString *value=[a.textFields.firstObject.text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
             if(value.length && ![UIImage systemImageNamed:value]) {dispatch_async(dispatch_get_main_queue(),^{[self message:@"图标不存在" detail:@"此系统没有该 SF Symbol，请检查名称。"];});return;}
-            [self save:key value:value];[self reloadRows];
+            if(value.length) {
+                NSError *error=nil;
+                NSString *imageKey=[[key stringByDeletingPathExtension] stringByAppendingString:@".asset"];
+                if(!HGAppearanceApply(@{key:value,imageKey:@""},&error))
+                    dispatch_async(dispatch_get_main_queue(),^{[self message:@"设置未更改" detail:error.localizedDescription];});
+            } else [self save:key value:value];
+            [self reloadRows];
         }]];[self presentViewController:a animated:YES completion:nil];return;
     }
     if([kind isEqual:@"color"] || [kind isEqual:@"image"] || [kind isEqual:@"font"] || [kind isEqual:@"fontfile"]) {

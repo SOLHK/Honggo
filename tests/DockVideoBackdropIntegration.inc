@@ -213,6 +213,11 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
     [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
     HGBackdropVideoCell *cell=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
     Layout(cell);Layout(cell.renderer);
+    UIImageView *leftCorner=[[UIImageView alloc] initWithFrame:CGRectMake(0,feedHeight-12,12,12)];
+    UIImageView *rightCorner=[[UIImageView alloc] initWithFrame:CGRectMake(width-12,feedHeight-12,12,12)];
+    UIImageView *otherImage=[[UIImageView alloc] initWithFrame:CGRectMake(14,feedHeight-12,12,12)];
+    leftCorner.backgroundColor=UIColor.blackColor;rightCorner.backgroundColor=UIColor.blackColor;
+    [page.view addSubview:leftCorner];[page.view addSubview:rightCorner];[page.view addSubview:otherImage];
     UIView *bar=[[UIView alloc] initWithFrame:CGRectMake(0,height-84,width,84)];
     bar.backgroundColor=UIColor.clearColor;bar.userInteractionEnabled=NO;[container.view addSubview:bar];
     HGVideoBackdrop *manager=[HGVideoBackdrop new];
@@ -239,10 +244,16 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         UIImage *portrait=HGBackdropCompositorCapture(@"portrait",window,videoSample,dockSample);
         HGBackdropRGB nativePortrait=HGBackdropAverageColor(portrait,window,videoSample);
         HGBackdropRGB dockPortrait=HGBackdropAverageColor(portrait,window,dockSample);
+        HGBackdropRGB leftEdge=HGBackdropAverageColor(portrait,window,CGRectMake(2,feedHeight-10,6,6));
+        HGBackdropRGB rightEdge=HGBackdropAverageColor(portrait,window,CGRectMake(width-8,feedHeight-10,6,6));
         Check(portraitPresented && nativePortrait.valid && nativePortrait.red>MAX(nativePortrait.green,nativePortrait.blue)+0.35 &&
             dockPortrait.valid && dockPortrait.red>MAX(dockPortrait.green,dockPortrait.blue)+0.35 &&
             HGBackdropNativeUnchanged(portraitGeometry),
             @"the settled portrait dock shows live upright native Metal pixels instead of a black band");
+        Check(leftCorner.alpha==0 && rightCorner.alpha==0 && otherImage.alpha==1 &&
+            leftEdge.valid && leftEdge.red>MAX(leftEdge.green,leftEdge.blue)+0.35 &&
+            rightEdge.valid && rightEdge.red>MAX(rightEdge.green,rightEdge.blue)+0.35,
+            @"only the two original corner images release the black seams over the extended Metal video");
 
         // Exercise the actual player willMoveToSuperview hook: the native
         // renderer must see its original compositor before it is borrowed.
@@ -251,7 +262,8 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         cell.renderer.nativeWillMoveObserver=^{
             restoredBeforeTransfer=CATransform3DIsIdentity(movingCell.renderer.layer.sublayerTransform) &&
                 movingCell.renderer.clipsToBounds && movingCell.player.clipsToBounds &&
-                movingCell.canvas.clipsToBounds && feed.clipsToBounds;
+                movingCell.canvas.clipsToBounds && feed.clipsToBounds &&
+                leftCorner.alpha==1 && rightCorner.alpha==1;
         };
         UIView *temporary=[[UIView alloc] initWithFrame:cell.player.bounds];
         [cell.player addSubview:temporary];

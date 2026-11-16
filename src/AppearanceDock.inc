@@ -44,6 +44,26 @@ static CGRect HGADockRectInView(UIView *coordinateView) {
     return result;
 }
 static NSArray *HGATabIDs(void){return @[@"home",@"theater",@"store",@"mine"];}
+static CGFloat HGAExpandedDockWidth(CGFloat width,CGFloat controlHeight,NSUInteger visibleCount) {
+    CGFloat reserve=HGAppearanceFlag(@"dock.extra") ?
+        MIN(HGAppearanceNumber(@"dock.extraSize"),controlHeight)+HGADockAccessoryGap : 0;
+    return MIN(width-8,MAX(visibleCount*44+reserve,HGAppearanceNumber(@"dock.width")*width));
+}
+static CGFloat HGAExpandedDockWidthForHeader(UIView *header) {
+    CGFloat width=CGRectGetWidth(header.bounds);
+    if(!HGAppearanceDockEnabled() || width<180)return width;
+    CGFloat controlHeight=HGAppearanceNumber(@"dock.extraSize");
+    for(UIView *bar in HGABars.allObjects) {
+        if(bar.window==header.window && HGAVisible(bar) && HGADockControlHeight(bar)>=44) {
+            controlHeight=HGADockControlHeight(bar);
+            break;
+        }
+    }
+    NSUInteger visibleCount=0;
+    for(NSString *key in HGATabIDs())
+        if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))visibleCount++;
+    return HGAExpandedDockWidth(width,controlHeight,visibleCount);
+}
 static NSArray *HGATabTitles(void){return @[@"首页",@"剧场",@"商城",@"我的"];}
 static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@"person"];}
 static UIButton *HGADockButton(void) {
@@ -130,6 +150,30 @@ static UIUserInterfaceStyle HGADockPageStyle(UIViewController *controller,UIView
 static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat radius,UIColor *fill) {
     HGAInstallGlass(surface,style,radius,0);
     HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
+    HGAViewState *state=HGAState(surface,NO);
+    // Diffuse moving poster/text edges before native glass refracts them.
+    // Both effects are local to the capsule, at alpha 1. No full-width cover,
+    // snapshots, parent masks, or effect replacement on scroll frames.
+    BOOL diffuse=HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
+        ([@"regular" isEqual:style] || [@"clear" isEqual:style]);
+    if(@available(iOS 26.0,*)) {} else {diffuse=NO;}
+    if(diffuse) {
+        if(!state.diffuser) {
+            state.diffuser=[[UIVisualEffectView alloc] initWithEffect:
+                [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial]];
+            state.diffuser.accessibilityIdentifier=@"honggo.appearance.dock.diffuser";
+            state.diffuser.userInteractionEnabled=NO;
+            state.diffuser.accessibilityElementsHidden=YES;
+            state.diffuser.layer.cornerCurve=kCACornerCurveContinuous;
+            state.diffuser.clipsToBounds=YES;
+            [surface insertSubview:state.diffuser belowSubview:glass];
+        }
+        state.diffuser.frame=surface.bounds;
+        state.diffuser.layer.cornerRadius=MIN(radius,MIN(surface.bounds.size.width,surface.bounds.size.height)/2);
+        state.diffuser.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    } else {
+        [state.diffuser removeFromSuperview];state.diffuser=nil;
+    }
     glass.userInteractionEnabled=YES;
     glass.accessibilityElementsHidden=NO;
     glass.overlayColor=fill;
@@ -261,7 +305,7 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
     CGFloat circle=MIN(HGAppearanceNumber(@"dock.extraSize"),controlHeight);
     CGFloat height=MIN(HGAppearanceNumber(@"dock.height"),controlHeight);
     CGFloat reserve=extra ? circle+HGADockAccessoryGap : 0;
-    CGFloat total=MIN(width-8,MAX(visible.count*44+reserve,HGAppearanceNumber(@"dock.width")*width));
+    CGFloat total=HGAExpandedDockWidth(width,controlHeight,visible.count);
     CGFloat rowHeight=self.collapsed ? 44 : (extra?MAX(height,circle):height);
     CGFloat safeBottom=MIN(self.hostBar.safeAreaInsets.bottom,availableHeight-rowHeight);
     CGFloat rowTop=MAX(0,availableHeight-safeBottom-rowHeight-HGAppearanceNumber(@"dock.lift"));
@@ -289,7 +333,7 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
     UIColor *tint=HGAppearanceColor(HGAppearanceString(@"dock.tint"),nil);
     BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
     UIColor *base=tint ?: (translucent ? [UIColor colorWithWhite:light?1:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor);
-    UIColor *fill=[base colorWithAlphaComponent:!translucent || reduced ? 1 : (tint ? 0.30 : (light ? 0.07 : 0.12))];
+    UIColor *fill=[base colorWithAlphaComponent:!translucent || reduced ? 1 : (tint ? 0.30 : 0)];
     UIView *capsuleContent=HGADockMaterialContent(self.capsule,style,self.collapsed?22:radius,fill);
     UIView *extraContent=HGADockMaterialContent(self.extra,style,circle/2,fill);
     UIView *expandContent=HGADockMaterialContent(self.expand,style,22,fill);

@@ -62,7 +62,16 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         for (NSUInteger i=0; i<tabIDs.count; i++) flag([@"dock.hide." stringByAppendingString:tabIDs[i]],@"dock",[@"隐藏" stringByAppendingString:tabNames[i]]);
         flag(@"player.rightGlass",@"player",@"右侧动作按钮玻璃");
         flag(@"player.headerGlass",@"player",@"顶部频道玻璃");
+        NSArray *channelIDs=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
+        NSArray *channelNames=@[@"菜单",@"关注",@"漫剧",@"真人剧",@"推荐",@"搜索"];
+        for(NSUInteger i=0;i<channelIDs.count;i++)
+            flag([@"layout.channels.hide." stringByAppendingString:channelIDs[i]],@"player",
+                [@"隐藏顶部" stringByAppendingString:channelNames[i]]);
+        [a addObject:HGADef(@"player.finderGlass",@"player",@"找剧搜索与快捷入口玻璃",@"bool",@YES,nil)];
+        [a addObject:HGADef(@"player.mineGlass",@"player",@"我的页面控件玻璃",@"bool",@YES,nil)];
         flag(@"player.episodeGlass",@"player",@"全集入口玻璃");
+        [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];
+        [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
         flag(@"player.fullscreen",@"player",@"横屏铺满");
         choice(@"player.separateProgress",@"player",@"合集与进度条分开布局",@[@"show",@"hide"],@[@"自动留出间距",@"原始布局"]);
         choice(@"player.material",@"player",@"播放控件材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"系统磨砂"]);
@@ -81,7 +90,8 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         choice(@"panels.material",@"panels",@"面板材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"系统磨砂"]);
         number(@"panels.opacity",@"panels",@"面板底色不透明度",0.28,0.08,0.85);
         flag(@"icons.enabled",@"icons",@"使用自定义动作图标");
-        choice(@"icons.preset",@"icons",@"图标预设",@[@"outline",@"filled",@"circle",@"square"],@[@"线性",@"实心",@"圆形",@"方形"]);
+        choice(@"icons.preset",@"icons",@"动作图标样式",@[@"filled",@"square",@"circle"],
+            @[@"经典实心",@"几何实心",@"柔圆实心"]);
         number(@"icons.size",@"icons",@"动作图标大小",28,20,48);
         for (NSString *role in @[@"like",@"collect",@"comment",@"share"]) {
             NSString *title = [HGAppearanceRoleTitles() objectAtIndex:[HGAppearanceRoles() indexOfObject:role]];
@@ -173,9 +183,13 @@ BOOL HGAppearanceFlag(NSString *key){ return [HGAppearanceValue(key) boolValue];
 double HGAppearanceNumber(NSString *key){ return [HGAppearanceValue(key) doubleValue]; }
 NSString *HGAppearanceString(NSString *key){ id v=HGAppearanceValue(key); return [v isKindOfClass:NSString.class]?v:@""; }
 static BOOL HGAError(NSError **error,NSString *message) { if(error)*error=[NSError errorWithDomain:@"Honggo.Appearance" code:1 userInfo:@{NSLocalizedDescriptionKey:message}]; return NO; }
+static void HGAMigrateActionIconPreset(NSMutableDictionary *values) {
+    if([values[@"icons.preset"] isEqual:@"outline"])values[@"icons.preset"]=@"filled";
+}
 BOOL HGAppearanceApply(NSDictionary *values,NSError **error) {
     if(![values isKindOfClass:NSDictionary.class] || values.count==0 || values.count>HGAppearanceCatalog().count) return HGAError(error,@"外观配置内容无效。");
-    NSDictionary *snapshot=values.copy;
+    NSMutableDictionary *snapshot=values.mutableCopy;
+    HGAMigrateActionIconPreset(snapshot);
     for(id key in snapshot) if(!HGAValid(HGADefinition(key),snapshot[key])) return HGAError(error,@"存在未知设置、错误类型或超出范围的数值。");
     @synchronized(HGALock()) {
         NSMutableDictionary *merged=[HGAppearanceValues() mutableCopy]; [merged addEntriesFromDictionary:snapshot];
@@ -191,11 +205,17 @@ BOOL HGAppearanceApply(NSDictionary *values,NSError **error) {
 BOOL HGAppearanceSet(NSString *key,id value,NSError **error) { if(!key || !value)return HGAError(error,@"设置不能为空。"); return HGAppearanceApply(@{key:value},error); }
 void HGAppearanceReset(void) { NSMutableDictionary *d=[NSMutableDictionary dictionary]; for(NSDictionary *def in HGAppearanceCatalog()) d[def[@"key"]]=def[@"default"]; HGAppearanceApply(d,nil); }
 BOOL HGAppearanceEnabled(void){return HGAppearanceFlag(@"enabled");}
-BOOL HGAppearanceNeedsGlass(void) { if(!HGAppearanceEnabled())return NO; for(NSString *key in @[@"dock.enabled",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"])if(HGAppearanceFlag(key))return YES; return NO; }
+BOOL HGAppearanceNeedsGlass(void) {
+    if(!HGAppearanceEnabled())return NO;
+    if(HGAppearanceFlag(@"player.finderGlass") || HGAppearanceFlag(@"player.mineGlass"))return YES;
+    for(NSString *key in @[@"dock.enabled",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"])
+        if(HGAppearanceFlag(key))return YES;
+    return NO;
+}
 NSDictionary *HGAppearancePreset(NSString *name) {
     NSMutableDictionary *d=[NSMutableDictionary dictionary]; for(NSDictionary *def in HGAppearanceCatalog()) d[def[@"key"]]=def[@"default"];
     if([name isEqual:@"glass"] || [name isEqual:@"focus"]) {
-        for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"dock.haptics",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed",@"icons.enabled"])d[key]=@YES;
+        for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"dock.haptics",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed",@"icons.enabled"])d[key]=@YES;
         if([name isEqual:@"focus"]) {d[@"dock.collapse"]=@YES; d[@"dock.autoCollapse"]=@YES; for(NSString *role in @[@"avatar",@"tags",@"notice"])d[[NSString stringWithFormat:@"layout.%@.hidden",role]]=@YES; }
     }
     return d.copy;
@@ -217,6 +237,7 @@ NSDictionary *HGAppearanceParse(NSData *data,NSError **error) {
         [d removeObjectForKey:@"player.fillButton"];
     }
     if(!d.count){HGAError(error,@"文件未包含可用的外观参数。");return nil;}
+    HGAMigrateActionIconPreset(d);
     for(id key in d) if(!HGAValid(HGADefinition(key),d[key])){HGAError(error,@"文件包含未知或无效的外观参数。");return nil;}
     return d.copy;
 }
