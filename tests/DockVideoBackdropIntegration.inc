@@ -3,6 +3,7 @@
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <objc/message.h>
+#import <objc/runtime.h>
 
 @interface HGVideoBackdrop : NSObject
 - (void)refreshWithBranches:(NSArray<UIView *> *)branches root:(UIView *)root bar:(UIView *)bar active:(BOOL)active;
@@ -164,6 +165,18 @@ static UIView *HGBackdropPortalSource(UIView *portal) {
     SEL selector=NSSelectorFromString(@"sourceView");
     return [portal respondsToSelector:selector]?((id(*)(id,SEL))objc_msgSend)(portal,selector):nil;
 }
+static void HGBackdropLogPortalSignatures(void) {
+    Class type=NSClassFromString(@"_UIPortalView");
+    NSLog(@"VIDEO_BACKDROP_ABI class=%@",type?NSStringFromClass(type):@"missing");
+    const char *selectors[]={"sourceView","setSourceView:","setHidesSourceView:",
+        "setMatchesPosition:","setMatchesTransform:","setMatchesAlpha:",
+        "setAllowsHitTesting:","setForwardsClientHitTestingToSourceView:"};
+    for(NSUInteger i=0;i<sizeof(selectors)/sizeof(selectors[0]);i++) {
+        Method method=type?class_getInstanceMethod(type,sel_registerName(selectors[i])):NULL;
+        const char *encoding=method?method_getTypeEncoding(method):NULL;
+        NSLog(@"VIDEO_BACKDROP_ABI %s %s",selectors[i],encoding?:"missing");
+    }
+}
 
 static void RunDockVideoBackdropChecks(SSTabBarController *host) {
     NSDictionary *saved=HGAppearanceValues();
@@ -183,7 +196,8 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
     feed.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
     feed.pagingEnabled=YES;feed.backgroundColor=UIColor.blackColor;
     feed.showsVerticalScrollIndicator=NO;feed.showsHorizontalScrollIndicator=NO;
-    HGBackdropVideoDataSource *dataSource=[HGBackdropVideoDataSource new];feed.dataSource=dataSource;
+    __attribute__((objc_precise_lifetime)) HGBackdropVideoDataSource *dataSource=[HGBackdropVideoDataSource new];
+    feed.dataSource=dataSource;
     [feed registerClass:HGBackdropVideoCell.class forCellWithReuseIdentifier:@"live-metal"];
     [page.view addSubview:feed];[feed reloadData];Layout(feed);
     [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
@@ -194,7 +208,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
     HGVideoBackdrop *manager=[HGVideoBackdrop new];
     NSArray *branches=@[page.view];
     @try {
-        HGAppearanceApply(@{@"enabled":@YES,@"player.fullscreen":@NO},nil);
+        HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"player.fullscreen":@NO},nil);
         Check(cell && [cell.metal.layer isKindOfClass:CAMetalLayer.class] && cell.metal.device,
             @"video backdrop fixture uses a real Metal device and CAMetalLayer on a native middle feed page");
         if(!cell || !cell.metal.device)return;
@@ -203,6 +217,14 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
         UIView *extension=Find(page.view,@"honggo.video.backdrop");
         UIView *portal=Find(page.view,@"honggo.video.backdrop.portal");
+        if(!extension || !portal) {
+            HGBackdropLogPortalSignatures();
+            NSLog(@"VIDEO_BACKDROP_FIXTURE window=%@ root=%@ parent=%@ feed=%@ bounds=%@ offset=%@ renderer=%@ child=%@ layers=%lu",
+                NSStringFromCGRect(window.bounds),NSStringFromCGRect(container.view.bounds),NSStringFromCGRect(page.view.bounds),
+                NSStringFromCGRect(feed.frame),NSStringFromCGRect(feed.bounds),NSStringFromCGPoint(feed.contentOffset),
+                NSStringFromCGRect(cell.renderer.frame),NSStringFromClass(cell.renderer.subviews.firstObject.class),
+                (unsigned long)cell.renderer.layer.sublayers.count);
+        }
         Check(redPresented && extension && portal && HGBackdropPortalSource(portal)==cell.renderer &&
             [page.view.subviews indexOfObject:extension]<[page.view.subviews indexOfObject:feed],
             @"live video extension attaches behind the feed and mirrors only the renderer without its HUD");
@@ -252,7 +274,17 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         Check((!previousExtension.superview || previousExtension.hidden) && !HGBackdropPortalSource(previousPortal),
             @"renderer handoff clears the portal source and hides only the extension before host movement");
         UIView *destination=[[UIView alloc] initWithFrame:page.view.bounds];[container.view addSubview:destination];
+        __block BOOL transferStayedClear=NO;
+        __weak TTPlayerView *transferringRenderer=cell.renderer;
+        cell.renderer.nativeWillMoveObserver=^{
+            [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+            transferStayedClear=HGAppearancePlayerIsTransferring(transferringRenderer) &&
+                !HGBackdropPortalSource(Find(page.view,@"honggo.video.backdrop.portal"));
+        };
         CGRect sourceFrame=cell.renderer.frame;[destination addSubview:cell.renderer];
+        cell.renderer.nativeWillMoveObserver=nil;
+        Check(transferStayedClear,
+            @"a synchronous native willMove layout cannot reattach the renderer before its transfer completes");
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
         [manager restore];
         Check(!Find(page.view,@"honggo.video.backdrop") && cell.renderer.superview==destination &&

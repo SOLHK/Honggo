@@ -161,8 +161,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             if(guarded)HGAApplying=YES;
             @try {
                 if(guarded && transfer) {
-                    HGVideoBackdropPrepareRendererTransfer(object);
                     HGAPreparePlayerTransfer(object,selector);
+                    HGVideoBackdropPrepareRendererTransfer(object);
                     HGATracePlayerTransfer(object,selector,argument,invocation,@"prepared");
                 }
                 if(guarded && episodeMove)HGAApplyEpisodeCorners(object,NO,0);

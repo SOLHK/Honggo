@@ -607,7 +607,9 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     CGFloat bottom = MIN(CGRectGetMaxY(root.bounds), CGRectGetMaxY(windowRect));
     CGRect barRect = [bar convertRect:bar.bounds toView:root];
     CGFloat barTop = CGRectGetMinY(barRect);
-    if (bottom - barTop < 20 || bottom - barTop > 160) return;
+    if (bottom - barTop < 20 || bottom - barTop > 160) {
+        [self.videoBackdrop restore]; return;
+    }
     NSMutableArray<HGViewportRecord *> *records = [NSMutableArray array];
     // Walk only sibling content branches under the known tab controller.
     // Transparent intermediate containers can also enclose the tab bar.

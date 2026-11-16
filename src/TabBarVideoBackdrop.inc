@@ -141,7 +141,8 @@ static UIView *HGVideoBackdropCanvasForRenderer(UIView *renderer, UIScrollView *
 
 static BOOL HGVideoBackdropKnownRenderer(UIView *renderer, UIScrollView *feed) {
     Class metal = NSClassFromString(@"TTMetalView");
-    if (!metal || renderer.subviews.count != 1 || renderer.layer.sublayers.count != 1 ||
+    if (!metal || HGAppearancePlayerIsTransferring(renderer) ||
+        renderer.subviews.count != 1 || renderer.layer.sublayers.count != 1 ||
         renderer.layer.mask || !CATransform3DIsIdentity(renderer.layer.sublayerTransform) ||
         !HGVideoBackdropVisible(renderer, feed)) return NO;
     UIView *surface = renderer.subviews.firstObject;
@@ -362,7 +363,8 @@ BOOL HGVideoBackdropRefreshForFeed(UIScrollView *feed) {
     HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
     HGVideoBackdrop *owner = link.owner;
     if (!owner) return NO;
-    [owner refreshFeed];
+    if (!HGAppearanceDockEnabled()) [owner restore];
+    else [owner refreshFeed];
     return YES;
 }
 void HGVideoBackdropPrepareRendererTransfer(UIView *view) {

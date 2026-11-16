@@ -59,6 +59,7 @@
 @property(nonatomic) BOOL nativeFrameWriterEnabled;
 @property(nonatomic) CGRect nativeFrame;
 @property(nonatomic) NSUInteger nativeLayoutPasses;
+@property(nonatomic,copy) dispatch_block_t nativeWillMoveObserver;
 @end
 @implementation TTPlayerView
 + (Class)layerClass{return HGPlaybackRenderLayer.class;}
@@ -74,6 +75,10 @@
     [super layoutSubviews];self.nativeLayoutPasses++;
     if(self.nativeFrameWriterEnabled)self.frame=self.nativeFrame;
     self.subviews.firstObject.frame=self.bounds;
+}
+- (void)willMoveToSuperview:(UIView *)superview {
+    if(self.nativeWillMoveObserver)self.nativeWillMoveObserver();
+    [super willMoveToSuperview:superview];
 }
 @end
 @interface FQVCollectionView : UICollectionView @end
