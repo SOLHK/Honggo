@@ -33,6 +33,8 @@ build_variant() {
         cat >> "$historical_compat" <<'OBJC'
 UIColor *HGOriginalTabTitleColor(UILabel *label) { return label.textColor; }
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) { (void)feed; }
+void HGRefreshVideoBackdropForPlayer(UIView *view) { (void)view; }
+void HGVideoBackdropPrepareRendererTransfer(UIView *view) { (void)view; }
 OBJC
     fi
     xcrun --sdk iphonesimulator clang \
