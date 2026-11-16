@@ -541,7 +541,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     theme.selectedImageColor=UIColor.blackColor;
     HGAppearanceSet(@"dock.selected",@"",nil);
     HGAppearanceLayoutDock(host.customTabBar,host);Layout(capsuleMaterial);Layout(extraMaterial);
-    UIColor *lightFill=[UIColor colorWithWhite:1 alpha:reduceTransparency?1:0.07];
+    UIColor *lightFill=[UIColor colorWithWhite:1 alpha:reduceTransparency?1:0];
     Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && !capsuleMaterial.maskView &&
         extra.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight &&
@@ -552,6 +552,17 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"light catalogue keeps regular system glass across both dock shapes");
     Check(HGADockGlyphMatches(home,NO) && HGADockGlyphMatches(theater,NO) && HGADockGlyphMatches(extra,NO),
         @"light catalogue keeps selected unselected and independent glyphs readable");
+    HGAppearanceSet(@"dock.material",@"blur",nil);Layout(capsuleMaterial);Layout(extraMaterial);
+    Check((reduceTransparency ? !capsuleMaterial.effect && !extraMaterial.effect :
+        [capsuleMaterial.effect isKindOfClass:UIBlurEffect.class] && [extraMaterial.effect isKindOfClass:UIBlurEffect.class]) &&
+        capsuleMaterial.alpha==1 && extraMaterial.alpha==1 && capsule.layer.borderWidth==0 &&
+        [capsuleMaterial.contentView.backgroundColor isEqual:lightFill] &&
+        !Find(capsule,@"honggo.appearance.dock.diffuser"),
+        @"classic blur uses one real blur effect in both shapes without a glass rim or opaque cover");
+    UIVisualEffect *classicEffect=capsuleMaterial.effect;
+    for(NSUInteger pass=0;pass<3;pass++){HGAppearanceLayoutDock(host.customTabBar,host);Layout(capsuleMaterial);}
+    Check(capsuleMaterial.effect==classicEffect && HGADockGlyphMatches(home,NO) && HGADockGlyphMatches(extra,NO),
+        @"classic blur survives repeated layout with readable foreground and stable effect identity");
     HGAppearanceSet(@"dock.material",@"clear",nil);Layout(capsuleMaterial);
     Check(reduceTransparency || !HGNativeGlassConfigured() ||
         [capsuleMaterial.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")],

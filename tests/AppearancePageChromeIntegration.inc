@@ -4,10 +4,31 @@
 @implementation FQRJXCategoryTitleCell @end
 @interface FQRJXCategoryTitleView : UIView
 @property(nonatomic,copy) NSArray *titles;
-@property(nonatomic,copy) NSArray *indicators;
+@property(nonatomic,copy) NSArray<UIView *> *indicators;
 @property(nonatomic) NSInteger selectedIndex;
 @end
 @implementation FQRJXCategoryTitleView @end
+@interface SSHGBookStoreCategoryTitleCell : FQRJXCategoryTitleCell
+- (void)reloadData:(NSString *)title;
+@end
+@implementation SSHGBookStoreCategoryTitleCell
+- (void)layoutSubviews {[super layoutSubviews];}
+- (void)reloadData:(NSString *)title {
+    self.hidden=NO;
+    self.titleLabel.text=title;
+}
+@end
+@interface SSHGBookStoreCategoryTitleView : FQRJXCategoryTitleView
+- (void)refreshState;
+- (void)refreshSelectedCellModel:(NSNumber *)selected unselectedCellModel:(NSNumber *)unselected;
+@end
+@implementation SSHGBookStoreCategoryTitleView
+- (void)refreshState {self.indicators.firstObject.hidden=NO;}
+- (void)refreshSelectedCellModel:(NSNumber *)selected unselectedCellModel:(NSNumber *)unselected {
+    self.selectedIndex=selected.integerValue;
+    [self refreshState];
+}
+@end
 @interface SSVideoSeriesFeedHeaderSearchView : UIView
 @property(nonatomic,strong) UIView *searchView;
 @property(nonatomic,strong) UIView *searchBgView;
@@ -15,6 +36,19 @@
 @property(nonatomic,strong) UIView *searchButtonSlotView;
 @end
 @implementation SSVideoSeriesFeedHeaderSearchView @end
+@interface SSVideoSeriesFeedHeaderView (PageChromeFixture)
+- (void)setupSideBarViewIfNeeded;
+- (void)relayoutHeaderWithSearchBar;
+@end
+@implementation SSVideoSeriesFeedHeaderView (PageChromeFixture)
+- (void)setupSideBarViewIfNeeded {self.sideBar.hidden=NO;}
+- (void)relayoutHeaderWithSearchBar {
+    SSVideoSeriesFeedHeaderSearchView *search=(id)self.searchViewContainer;
+    search.searchButtonSlotView.hidden=NO;
+}
+@end
+@interface HGAObservedHeaderFixture : SSVideoSeriesFeedHeaderView @end
+@implementation HGAObservedHeaderFixture @end
 @interface FQTheaterViewController : UIViewController
 @property(nonatomic,strong) UIView *searchView;
 @property(nonatomic,strong) UIView *searchBgView;
@@ -48,7 +82,9 @@
 @implementation FQReaderSaaSBaseButton @end
 
 static FQRJXCategoryTitleCell *PageChromeTitle(UIView *container,NSString *title,CGFloat x) {
-    FQRJXCategoryTitleCell *cell=[[FQRJXCategoryTitleCell alloc] initWithFrame:CGRectMake(x,0,52,32)];
+    Class cellClass=[container isKindOfClass:SSHGBookStoreCategoryTitleView.class] ?
+        SSHGBookStoreCategoryTitleCell.class : FQRJXCategoryTitleCell.class;
+    FQRJXCategoryTitleCell *cell=[[cellClass alloc] initWithFrame:CGRectMake(x,0,52,32)];
     cell.titleLabel=[[UILabel alloc] initWithFrame:cell.contentView.bounds];
     cell.titleLabel.text=title;
     [cell.contentView addSubview:cell.titleLabel];[container addSubview:cell];Layout(cell);
@@ -64,23 +100,31 @@ static UIView *PageChromeControl(UIView *parent,CGRect frame) {
 
 static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host) {
     NSString *material=@"honggo.appearance.material";
-    SSVideoSeriesFeedHeaderView *header=[[SSVideoSeriesFeedHeaderView alloc]
+    SSVideoSeriesFeedHeaderView *header=[[HGAObservedHeaderFixture alloc]
         initWithFrame:CGRectMake(0,64,CGRectGetWidth(bar.bounds),44)];
     [root addSubview:header];
     header.sideBar=PageChromeControl(header,CGRectMake(16,10,24,24));
-    FQRJXCategoryTitleView *channels=[[FQRJXCategoryTitleView alloc] initWithFrame:CGRectMake(56,0,220,44)];
-    header.tabContainer=channels;[header addSubview:channels];
+    UIView *tabContainer=PageChromeControl(header,CGRectMake(56,0,220,44));
+    SSHGBookStoreCategoryTitleView *channels=[[SSHGBookStoreCategoryTitleView alloc] initWithFrame:tabContainer.bounds];
+    header.tabContainer=tabContainer;[tabContainer addSubview:channels];
     SSVideoSeriesFeedHeaderSearchView *search=[[SSVideoSeriesFeedHeaderSearchView alloc] initWithFrame:header.bounds];
     header.searchViewContainer=search;[header addSubview:search];
     search.searchButtonSlotView=PageChromeControl(search,CGRectMake(CGRectGetWidth(header.bounds)-40,10,24,24));
-    CGRect nativeSearch=search.frame,nativeTabs=channels.frame;
+    CGRect nativeSearch=search.frame,nativeTabs=tabContainer.frame;
     NSArray *titles=@[@"关注",@"漫剧",@"真人剧",@"推荐"];
     channels.titles=titles;channels.selectedIndex=3;
-    UIView *underline=PageChromeControl(channels,CGRectMake(167,30,28,2));
+    UIView *categoryList=[[UIView alloc] initWithFrame:channels.bounds];
+    [channels addSubview:categoryList];
+    UIView *underline=PageChromeControl(categoryList,CGRectMake(167,30,28,2));
     channels.indicators=@[underline];
     NSMutableArray *controls=[NSMutableArray arrayWithObject:header.sideBar];
-    for(NSUInteger i=0;i<titles.count;i++)[controls addObject:PageChromeTitle(header.tabContainer,titles[i],52*i)];
-    [controls addObject:search];
+    for(NSUInteger i=0;i<titles.count;i++) {
+        SSHGBookStoreCategoryTitleCell *cell=(id)PageChromeTitle(channels,titles[i],52*i);
+        [categoryList addSubview:cell];
+        Layout(cell);
+        [controls addObject:cell];
+    }
+    [controls addObject:search.searchButtonSlotView];
     Layout(header);Layout(channels);HGAppearanceLayoutDock(bar,host);
     UIView *capsule=Find(bar,@"honggo.appearance.dock.capsule");
     UIView *accessory=Find(bar,@"honggo.appearance.dock.extra");
@@ -95,7 +139,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     Check(headerGlass && fabs(CGRectGetMidX(left)-CGRectGetMinX(headerGlass.frame)-23)<0.5 &&
         fabs(CGRectGetMaxX(headerGlass.frame)-CGRectGetMidX(right)-23)<0.5 &&
         left.size.width==24 && right.size.width==24 && CGRectEqualToRect(search.frame,nativeSearch) &&
-        CGRectEqualToRect(channels.frame,nativeTabs),
+        CGRectEqualToRect(tabContainer.frame,nativeTabs),
         @"the two native header slots get equal capsule insets without resizing their hit areas or moving channels");
     HGAppearanceSet(@"player.headerGlass",@NO,nil);
     Check(CGAffineTransformIsIdentity(header.sideBar.transform) &&
@@ -108,12 +152,26 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     for(NSUInteger i=0;i<keys.count;i++) {
         NSString *key=[@"layout.channels.hide." stringByAppendingString:keys[i]];
         HGAppearanceSet(key,@YES,nil);
+        [header setupSideBarViewIfNeeded];
+        [header relayoutHeaderWithSearchBar];
+        for(NSUInteger j=1;j<=titles.count;j++)[controls[j] reloadData:titles[j-1]];
+        [channels refreshSelectedCellModel:@3 unselectedCellModel:@0];
         for(NSUInteger j=0;j<controls.count;j++)independent&=((UIView *)controls[j]).hidden==(i==j);
-        independent&=underline.hidden==(i==4);
+        independent&=underline.hidden==(i==4) && !search.hidden;
         HGAppearanceSet(key,@NO,nil);
         independent&=!((UIView *)controls[i]).hidden && !underline.hidden;
     }
     Check(independent,@"each of the six header controls hides and restores independently");
+
+    NSMutableDictionary *allHidden=[NSMutableDictionary dictionary];
+    for(NSString *key in keys)allHidden[[@"layout.channels.hide." stringByAppendingString:key]]=@YES;
+    HGAppearanceApply(allHidden,nil);
+    Check(header.hidden && !Find(header,material),@"hiding all six native home controls also removes the empty capsule");
+    HGAppearanceSet(@"layout.channels.hide.search",@NO,nil);
+    Check(!header.hidden && Find(header,material) && !search.searchButtonSlotView.hidden && header.sideBar.hidden && underline.hidden,
+        @"the R22 five-hidden combination preserves the native search as the only top control");
+    for(NSString *key in allHidden.allKeys)allHidden[key]=@NO;
+    HGAppearanceApply(allHidden,nil);
 
     search.searchBgView=PageChromeControl(search,search.bounds);
     search.searchView=PageChromeControl(search,CGRectMake(3,10,18,18));
@@ -121,7 +179,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     header.findDramaAIEntranceViewV731=PageChromeControl(header,CGRectMake(240,0,42,44));
     HGAppearanceSet(@"layout.channels.hide.search",@YES,nil);
     header.isFindDramaSearchPresentationActiveV731=YES;Layout(header);
-    Check(!search.hidden && Find(search.searchBgView,material) && !Find(search.searchView,material) && Find(search.imageSearchContainer,material) &&
+    Check(!search.hidden && !search.searchButtonSlotView.hidden && Find(search.searchBgView,material) && !Find(search.searchView,material) && Find(search.imageSearchContainer,material) &&
         Find(header.findDramaAIEntranceViewV731,material) && ![header.subviews.firstObject.accessibilityIdentifier isEqual:material] &&
         CGAffineTransformIsIdentity(header.sideBar.transform) && CGAffineTransformIsIdentity(search.searchButtonSlotView.transform),
         @"finder mode restores the shared search control and uses scoped search, recognition and AI glass");

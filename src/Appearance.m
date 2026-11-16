@@ -42,6 +42,9 @@ UIColor *HGAppearanceColor(NSString *hex, UIColor *fallback) {
 }
 UIVisualEffect *HGAppearanceMaterial(NSString *style) {
     if (UIAccessibilityIsReduceTransparencyEnabled() || [style isEqual:@"solid"]) return nil;
+    // The blur option uses the traditional iOS 18-era Light/Dark blur pair.
+    // It must not be upgraded to Liquid Glass or stack a second material.
+    if([style isEqual:@"blur"])return [UIBlurEffect effectWithStyle:UIBlurEffectStyleRegular];
     if (@available(iOS 26.0, *)) {
         if (![style isEqual:@"blur"] && HGNativeGlassConfigured()) {
             UIGlassEffect *glass = [UIGlassEffect effectWithStyle:
@@ -160,7 +163,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             if(playerNavigation){HGAApplyPlayerNavigation(object);return;}
             if (controller) {
                 HGAppearanceProcessController(object);
-                if([className isEqual:@"FQVShortVideoListViewController"])
+                if([@[@"FQVShortVideoListViewController",@"SSShortVideoDetailViewController"] containsObject:className])
                     for(id component in HGAPlayerNavigations.allObjects)HGAApplyPlayerNavigation(component);
             }
             else if ((selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)) && [(UIView *)object window]) [(UIView *)object setNeedsLayout];
@@ -205,6 +208,11 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 if(!animated)HGARefreshBackdropAfterScroll(argument);
             } else HGAppearanceProcessView(object);
         });
+    } else if (!strcmp(encoding,"v32@0:8@16@24")) {
+        replacement=imp_implementationWithBlock(^(id object,id first,id second) {
+            ((void(*)(id,SEL,id,id))original)(object,selector,first,second);
+            HGAppearanceProcessView(object);
+        });
     } else if (!strcmp(encoding,"v28@0:8B16@20")) {
         replacement=imp_implementationWithBlock(^(id object,BOOL value,id title) {
             ((void(*)(id,SEL,BOOL,id))original)(object,selector,value,title);
@@ -248,6 +256,7 @@ void HGInstallAppearance(void) {
         [classes addObjectsFromArray:HGAActionPanelSurfaces()];
         [classes addObjectsFromArray:HGABottomControlClasses()];
         [classes addObjectsFromArray:HGAPlayerControlClasses()];
+        [classes addObjectsFromArray:HGALandscapeChromeClasses()];
         [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar",@"FQVShortVideoBaseInsertView"]];
         for (NSString *name in classes) {
             Class cls=NSClassFromString(name);
@@ -259,6 +268,22 @@ void HGInstallAppearance(void) {
             found++;
             HGAHook(cls,@selector(layoutSubviews),"v16@0:8",NO);
             HGAHook(cls,@selector(didMoveToWindow),"v16@0:8",NO);
+            if([name isEqual:@"FQVShortVideoLandscapeNavBar"])
+                HGAHook(cls,sel_registerName("refreshLayout"),"v16@0:8",NO);
+            if([name isEqual:@"FQVShortVideoPlayerLandscapeBaseInfoView"])
+                HGAHook(cls,sel_registerName("setVideoDataModel:"),"v24@0:8@16",NO);
+            if([name isEqual:@"FQVShortVideoPlayerLandscapeBaseControlView"])
+                HGAHook(cls,sel_registerName("updateScreenLockButtonStyle"),"v16@0:8",NO);
+            if([name isEqual:@"SSHGBookStoreCategoryTitleCell"])
+                HGAHook(cls,sel_registerName("reloadData:"),"v24@0:8@16",NO);
+            if([name isEqual:@"SSHGBookStoreCategoryTitleView"]) {
+                HGAHook(cls,sel_registerName("refreshState"),"v16@0:8",NO);
+                HGAHook(cls,sel_registerName("refreshSelectedCellModel:unselectedCellModel:"),"v32@0:8@16@24",NO);
+            }
+            if([name isEqual:@"SSVideoSeriesFeedHeaderView"]) {
+                HGAHook(cls,sel_registerName("setupSideBarViewIfNeeded"),"v16@0:8",NO);
+                HGAHook(cls,sel_registerName("relayoutHeaderWithSearchBar"),"v16@0:8",NO);
+            }
             if([name isEqual:@"SSShortVideoEpisodesViewItemCell"])
                 HGAHook(cls,sel_registerName("setIsSelected:"),"v20@0:8B16",NO);
             if([name isEqual:@"SSShortVideoEpisodePanelCollectView"])
@@ -324,6 +349,9 @@ void HGInstallAppearance(void) {
         Class playbackController=NSClassFromString(@"FQVShortVideoListViewController");
         if([playbackController isSubclassOfClass:UIViewController.class])
             HGAHook(playbackController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
+        Class detailController=NSClassFromString(@"SSShortVideoDetailViewController");
+        if([detailController isSubclassOfClass:UIViewController.class])
+            HGAHook(detailController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
         if ([dockController isSubclassOfClass:UIViewController.class])
             HGAHook(dockController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
         static dispatch_once_t once;

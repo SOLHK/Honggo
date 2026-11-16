@@ -298,6 +298,7 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
     self.extra.frame=CGRectMake(x+total-circle,rowTop+(rowHeight-circle)/2,circle,circle);
     self.extra.hidden=!extra || self.collapsed;
     NSString *style=HGAppearanceString(@"dock.material");
+    BOOL classicBlur=[style isEqual:@"blur"];
     CGFloat radius=MIN(height/2,HGAppearanceNumber(@"dock.radius"));
     BOOL translucent=![style isEqual:@"solid"];
     NSInteger selected=HGASelectedTab(self.hostController);
@@ -326,12 +327,13 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
     self.expandButton.hidden=self.expand.hidden;
     self.capsule.hidden=self.collapsed;
     self.capsule.layer.cornerRadius=radius;
-    self.capsule.layer.borderWidth=translucent ? 0.5 : 0;
+    self.capsule.layer.borderWidth=translucent && !classicBlur ? 0.5 : 0;
     self.capsule.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
     BOOL darkSurface=self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-    self.selection.backgroundColor=translucent && !reduced ?
+    self.selection.backgroundColor=classicBlur && !reduced ?
+        [UIColor colorWithWhite:light?0:1 alpha:light?0.08:0.12] : (translucent && !reduced ?
         [UIColor colorWithWhite:0 alpha:(light?0.12:0.30)] :
-        [UIColor colorWithWhite:darkSurface?1:0 alpha:(darkSurface?0.18:0.08)];
+        [UIColor colorWithWhite:darkSurface?1:0 alpha:(darkSurface?0.18:0.08)]);
     self.selection.hidden=YES;
     NSString *content=HGAppearanceString(@"dock.content");
     CGFloat slotInset=MIN(14,MAX(0,(expanded.size.width-44*visible.count)/2));

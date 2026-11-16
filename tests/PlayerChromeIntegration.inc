@@ -3,6 +3,34 @@
 @end
 @implementation FQVShortVideoVPlayerControlView @end
 
+@interface SSShortVideoBottomInsertView : UIView
+@property(nonatomic,strong) UIView *cleanSwitchView;
+@property(nonatomic,strong) UIView *cleanScreenView;
+@end
+@implementation SSShortVideoBottomInsertView @end
+
+@interface SSShortVideoDetailViewController : UIViewController
+@property(nonatomic,strong) UILabel *navLeftLabel;
+@end
+@implementation SSShortVideoDetailViewController @end
+
+@interface SSShortVideoDetailViewController_hmd_subfix : SSShortVideoDetailViewController @end
+@implementation SSShortVideoDetailViewController_hmd_subfix @end
+
+@interface FQVShortVideoListVCNavBarComponent : NSObject
+@property(nonatomic,strong) UIView *navBar;
+@property(nonatomic,strong) UIButton *backBtn;
+@property(nonatomic,strong) UILabel *navLeftLabel;
+@property(nonatomic,strong) UIView *playRateView;
+@property(nonatomic,strong) UIImageView *playRateImgView;
+@property(nonatomic,strong) UILabel *playRateLabel;
+@property(nonatomic,strong) UIButton *moreBtn;
+- (void)updateNavgationBarLeftView;
+@end
+@implementation FQVShortVideoListVCNavBarComponent
+- (void)updateNavgationBarLeftView {}
+@end
+
 @interface SSShortVideoIntroductionTabViewController : UIViewController @end
 @implementation SSShortVideoIntroductionTabViewController @end
 
@@ -86,10 +114,84 @@ static void RunDanmakuChromeChecks(UIView *root) {
     HGAppearanceApply(saved,nil);
 }
 
+static void RunDetailNavigationChromeChecks(UIViewController *host) {
+    SSShortVideoDetailViewController *detail=[SSShortVideoDetailViewController_hmd_subfix new];
+    [host addChildViewController:detail];
+    detail.view.frame=CGRectMake(0,72,360,140);
+    [host.view addSubview:detail.view];
+    [detail didMoveToParentViewController:host];
+
+    UIViewController *playback=[UIViewController new];
+    [detail addChildViewController:playback];
+    playback.view.frame=detail.view.bounds;
+    [detail.view addSubview:playback.view];
+    [playback didMoveToParentViewController:detail];
+
+    FQVShortVideoListVCNavBarComponent *navigation=[FQVShortVideoListVCNavBarComponent new];
+    navigation.navBar=[[UIView alloc] initWithFrame:CGRectMake(0,0,360,44)];
+    [playback.view addSubview:navigation.navBar];
+    navigation.backBtn=[UIButton buttonWithType:UIButtonTypeCustom];
+    navigation.backBtn.frame=CGRectMake(18,10,24,24);
+    [navigation.backBtn setImage:[UIImage systemImageNamed:@"chevron.left"] forState:UIControlStateNormal];
+    [navigation.navBar addSubview:navigation.backBtn];
+    navigation.navLeftLabel=[[UILabel alloc] initWithFrame:CGRectMake(42,10,100,24)];
+    [navigation.navBar addSubview:navigation.navLeftLabel];
+
+    UIView *detailNavigation=[[UIView alloc] initWithFrame:navigation.navBar.frame];
+    detailNavigation.userInteractionEnabled=NO;
+    [detail.view addSubview:detailNavigation];
+    detail.navLeftLabel=[[UILabel alloc] initWithFrame:CGRectMake(44,10,100,24)];
+    detail.navLeftLabel.text=@"第2集";
+    [detailNavigation addSubview:detail.navLeftLabel];
+
+    navigation.playRateView=[[UIView alloc] initWithFrame:CGRectMake(228,5,62,30)];
+    [navigation.navBar addSubview:navigation.playRateView];
+    navigation.playRateImgView=[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"speedometer"]];
+    navigation.playRateImgView.frame=CGRectMake(2,7,16,16);
+    [navigation.playRateView addSubview:navigation.playRateImgView];
+    navigation.playRateLabel=[[UILabel alloc] initWithFrame:CGRectMake(20,5,42,20)];
+    navigation.playRateLabel.text=@"1.0x";
+    [navigation.playRateView addSubview:navigation.playRateLabel];
+    navigation.moreBtn=[UIButton buttonWithType:UIButtonTypeCustom];
+    navigation.moreBtn.frame=CGRectMake(316,12,24,24);
+    [navigation.moreBtn setImage:[UIImage systemImageNamed:@"ellipsis"] forState:UIControlStateNormal];
+    [navigation.navBar addSubview:navigation.moreBtn];
+
+    [navigation updateNavgationBarLeftView];
+    UIView *backGlass=Find(navigation.navBar,@"honggo.appearance.material");
+    UIView *rateGlass=Find(navigation.playRateView,@"honggo.appearance.material");
+    UIView *moreGlass=Find(navigation.moreBtn,@"honggo.appearance.material");
+    CGRect titleInk=[detail.navLeftLabel textRectForBounds:detail.navLeftLabel.bounds limitedToNumberOfLines:1];
+    titleInk=[detail.navLeftLabel convertRect:titleInk toView:navigation.navBar];
+    CGRect ratePlate=[rateGlass.superview convertRect:rateGlass.frame toView:navigation.navBar];
+    CGRect morePlate=[moreGlass.superview convertRect:moreGlass.frame toView:navigation.navBar];
+    Check(backGlass.superview==navigation.navBar && rateGlass && moreGlass &&
+        Count(navigation.navBar,@"honggo.appearance.material")==3 &&
+        CGRectContainsRect(backGlass.frame,titleInk) &&
+        CGRectGetWidth(backGlass.frame)>CGRectGetWidth(morePlate) && CGRectGetWidth(ratePlate)>CGRectGetWidth(morePlate) &&
+        CGRectGetHeight(backGlass.frame)==34 && CGRectGetHeight(ratePlate)==34 && CGRectGetHeight(morePlate)==34 &&
+        CGRectGetMidY(backGlass.frame)==CGRectGetMidY(ratePlate) && CGRectGetMidY(ratePlate)==CGRectGetMidY(morePlate),
+        @"detail navigation includes the controller-owned episode title with the arrow and aligns three content-sized surfaces");
+    Check([navigation.navBar hitTest:CGPointMake(30,22) withEvent:nil]==navigation.backBtn &&
+        [navigation.navBar hitTest:CGPointMake(328,24) withEvent:nil]==navigation.moreBtn &&
+        CGRectEqualToRect(navigation.playRateView.frame,CGRectMake(228,5,62,30)),
+        @"detail navigation keeps native button hit areas and the playback speed frame");
+
+    HGAppearanceSet(@"player.controlsGlass",@NO,nil);
+    [navigation updateNavgationBarLeftView];
+    Check(!Find(navigation.navBar,@"honggo.appearance.material") && [detail.navLeftLabel.text isEqual:@"第2集"],
+        @"disabling detail navigation glass preserves the native episode title");
+    HGAppearanceSet(@"player.controlsGlass",@YES,nil);
+    [detail willMoveToParentViewController:nil];
+    [detail.view removeFromSuperview];
+    [detail removeFromParentViewController];
+}
+
 static void RunPlayerChromeChecks(SSTabBarController *host) {
     RunDanmakuChromeChecks(host.view);
     NSDictionary *saved=HGAppearanceValues();
     HGAppearanceApply(@{@"enabled":@YES,@"player.controlsGlass":@YES,@"panels.episodes":@YES,@"panels.material":@"blur"},nil);
+    RunDetailNavigationChromeChecks(host);
     HGAEpisodeTapFixture *action=[HGAEpisodeTapFixture new];
     FQVShortVideoVPlayerControlView *playback=[[FQVShortVideoVPlayerControlView alloc] initWithFrame:CGRectMake(10,100,144,60)];
     UIButton *fullscreen=[UIButton buttonWithType:UIButtonTypeCustom];
@@ -116,6 +218,29 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
         [fullscreen.backgroundColor isEqual:nativeFullscreenColor],
         @"fullscreen button forwards its native action once in both states and restores its backing");
     [playback removeFromSuperview];
+
+    HGAppearanceSet(@"player.controlsGlass",@YES,nil);
+    SSShortVideoBottomInsertView *insert=[[SSShortVideoBottomInsertView alloc] initWithFrame:CGRectMake(240,160,46,40)];
+    insert.cleanSwitchView=[[UIView alloc] initWithFrame:insert.bounds];
+    insert.cleanScreenView=[[UIView alloc] initWithFrame:insert.bounds];
+    UIButton *cleanButton=[UIButton buttonWithType:UIButtonTypeCustom];
+    cleanButton.frame=insert.bounds;
+    HGAEpisodeTapFixture *cleanAction=[HGAEpisodeTapFixture new];
+    [cleanButton addTarget:cleanAction action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
+    [insert.cleanSwitchView addSubview:cleanButton];
+    [insert addSubview:insert.cleanSwitchView];
+    [host.view addSubview:insert];
+    HGAppearanceProcessView(insert);
+    UIView *cleanGlass=Find(insert.cleanSwitchView,@"honggo.appearance.material");
+    Check(cleanGlass.superview==insert.cleanSwitchView && !Find(insert.cleanScreenView,@"honggo.appearance.material") &&
+        [insert hitTest:CGPointMake(20,20) withEvent:nil]==cleanButton,
+        @"detail bottom glass belongs to the mounted clean switch and preserves its existing button");
+    [cleanButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+    HGAppearanceSet(@"player.controlsGlass",@NO,nil);
+    HGAppearanceProcessView(insert);
+    Check(cleanAction.taps==1 && !Find(insert,@"honggo.appearance.material"),
+        @"disabling the bottom glass removes only the decoration");
+    [insert removeFromSuperview];
 
     SSShortVideoIntroductionTabViewController *panel=[SSShortVideoIntroductionTabViewController new];
     [host addChildViewController:panel];

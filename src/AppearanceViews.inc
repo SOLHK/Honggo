@@ -425,6 +425,7 @@ static void HGAApplyPanel(UIView *root,NSString *kind) {
 #include "AppearancePlayerControls.inc"
 #include "AppearancePageChrome.inc"
 #include "AppearanceChromeGeometry.inc"
+#include "AppearanceLandscapeChrome.inc"
 
 void HGAppearanceProcessView(UIView *view) {
     if(!NSThread.isMainThread || HGAApplying || ![view isKindOfClass:UIView.class] || HGAOwnView(view))return;
@@ -432,6 +433,7 @@ void HGAppearanceProcessView(UIView *view) {
     @try {
         HGARegisterView(view);
         HGAApplyPlayerControls(view);
+        HGALandscapeApplyView(view);
         NSString *name=NSStringFromClass(view.class),*role=HGARole(view);
         if([name isEqual:@"SSTabBar"]){HGARefreshDock(view);return;}
         if([name isEqual:@"FQVCollectionView"] && [view isKindOfClass:UIScrollView.class]) {
@@ -449,12 +451,13 @@ void HGAppearanceProcessView(UIView *view) {
         }
         if(HGAIsActionPanelSurface(view)) {HGAUpdateActionPanelSurface(view);return;}
         BOOL enabled=HGAppearanceEnabled() && view.window;
-        BOOL header=[name isEqual:@"SSVideoSeriesFeedHeaderView"];
+        BOOL header=HGAIsHeaderView(view);
         BOOL headerShowsFinder=header && HGAApplyHeaderChrome(view,enabled);
         if(!role){HGAApplyNativePageChrome(view,name,enabled);return;}
         BOOL outer=!HGAHasRoleAncestor(view,role);
         NSString *prefix=[@"layout." stringByAppendingString:role];
-        HGASetHidden(view,enabled && outer && HGAppearanceFlag([prefix stringByAppendingString:@".hidden"]));
+        HGASetHidden(view,enabled && outer && (HGAppearanceFlag([prefix stringByAppendingString:@".hidden"]) ||
+            (header && !headerShowsFinder && HGAAllTopControlsHidden())));
         HGASetGeometry(view,enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".x"]):0,
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".y"]):0,
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".scale"]):1);

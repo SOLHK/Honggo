@@ -157,6 +157,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
 #include "EpisodeSpacingIntegration.inc"
 #include "ActionShareAppearanceIntegration.inc"
 #include "PlayerChromeIntegration.inc"
+#include "AppearanceLandscapeChromeIntegration.inc"
 #include "DockVideoBackdropIntegration.inc"
 #include "AppearancePageChromeIntegration.inc"
 @interface HGAAppearanceTests : UIResponder <UIWindowSceneDelegate>
@@ -262,6 +263,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     RunEpisodeGlassChecks(root);
     RunEpisodeSpacingChecks(root);
     RunPlayerChromeChecks(self.host);
+    RunLandscapeChromeChecks(self.host);
 
     SSShortVideoOutterSeriesInfoView *info=[[SSShortVideoOutterSeriesInfoView alloc] initWithFrame:CGRectMake(20,280,280,60)];[root addSubview:info];
     UILabel *rich=[[UILabel alloc] initWithFrame:CGRectMake(0,0,180,24)];

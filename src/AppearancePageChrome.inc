@@ -1,5 +1,6 @@
 static NSArray<NSString *> *HGAPageChromeViews(void) {
-    return @[@"FQRJXCategoryTitleCell",@"FQRJXCategoryTitleView",@"SSBookStoreEntranceView",@"SSBookStoreKingKongBannerView",
+    return @[@"FQRJXCategoryTitleCell",@"FQRJXCategoryTitleView",@"SSHGBookStoreCategoryTitleCell",@"SSHGBookStoreCategoryTitleView",
+        @"SSBookStoreEntranceView",@"SSBookStoreKingKongBannerView",
         @"FQFeedTabFilterPanelEntranceView",@"SSMyUser637TabsView",@"SSVideoFilterPanelEntranceView",
         @"SSMyUser637Bar",@"SSMyUserFollowItemView",@"SSMyUser637JGZoneCell"];
 }
@@ -17,6 +18,10 @@ static UIView *HGAAncestorNamed(UIView *view,NSString *name) {
 static BOOL HGAHeaderShowsFinder(UIView *header) {
     BOOL finder=NO;
     return HGABoolGetter(header,@"isFindDramaSearchPresentationActiveV731",&finder) && finder;
+}
+
+static BOOL HGAIsHeaderView(UIView *view) {
+    return [view isKindOfClass:NSClassFromString(@"SSVideoSeriesFeedHeaderView")];
 }
 
 static NSString *HGAPageChromeLabel(UIView *view,const char *getter) {
@@ -42,27 +47,29 @@ static void HGAApplyPageChrome(UIView *target,BOOL enabled) {
     } else if(target)HGARemoveGlass(target);
 }
 
-static char HGAPageChromeCoversKey;
+static char HGAPageChromeHiddenKey;
+static void HGAHidePageChromeTarget(UIView *owner,NSString *key,UIView *target) {
+    NSMapTable<NSString *,UIView *> *hidden=objc_getAssociatedObject(owner,&HGAPageChromeHiddenKey);
+    if(!target && !hidden)return;
+    UIView *previous=[hidden objectForKey:key];
+    if(previous && previous!=target)HGASetHidden(previous,NO);
+    if(target) {
+        if(!hidden) {
+            hidden=[NSMapTable strongToWeakObjectsMapTable];
+            objc_setAssociatedObject(owner,&HGAPageChromeHiddenKey,hidden,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        [hidden setObject:target forKey:key];
+        HGASetHidden(target,YES);
+    } else {
+        [hidden removeObjectForKey:key];
+        if(!hidden.count)objc_setAssociatedObject(owner,&HGAPageChromeHiddenKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
 static void HGASetPageChromeCover(UIView *container,const char *getter,BOOL hide) {
-    NSMapTable<NSString *,UIView *> *covers=objc_getAssociatedObject(container,&HGAPageChromeCoversKey);
-    if(!hide && !covers)return;
-    NSString *key=@(getter);
-    UIView *previous=[covers objectForKey:key];
     UIView *cover=hide ? HGAViewGetter(container,getter,container) : nil;
     if(cover==container || ![cover isKindOfClass:UIImageView.class])cover=nil;
-    if(previous && previous!=cover)HGASetHidden(previous,NO);
-    if(cover) {
-        if(!covers) {
-            covers=[NSMapTable strongToWeakObjectsMapTable];
-            objc_setAssociatedObject(container,&HGAPageChromeCoversKey,covers,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        [covers setObject:cover forKey:key];
-        HGASetHidden(cover,YES);
-    } else {
-        [covers removeObjectForKey:key];
-        if(covers && !covers.count)
-            objc_setAssociatedObject(container,&HGAPageChromeCoversKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
+    HGAHidePageChromeTarget(container,@(getter),cover);
 }
 
 static char HGAPageChromeTargetsKey;
@@ -87,12 +94,17 @@ static void HGAApplyPageChromeTargets(UIView *owner,NSArray<UIView *> *targets) 
 
 static BOOL HGAApplyHeaderChrome(UIView *header,BOOL enabled) {
     BOOL finder=HGAHeaderShowsFinder(header);
-    UIView *sidebar=HGAViewGetter(header,"sideBar",header);
     UIView *search=HGAViewGetter(header,"searchViewContainer",header);
-    // The finder row reuses the native search container. Restore its home
-    // visibility before applying the finder material and leave its actions alone.
-    if(sidebar)HGASetHidden(sidebar,enabled && !finder && HGAppearanceFlag(@"layout.channels.hide.sidebar"));
-    if(search)HGASetHidden(search,enabled && !finder && HGAppearanceFlag(@"layout.channels.hide.search"));
+    BOOL home=enabled && !finder;
+    UIView *sidebar=home && HGAppearanceFlag(@"layout.channels.hide.sidebar") ? HGAViewGetter(header,"sideBar",header) : nil;
+    UIView *searchSlot=nil;
+    if(home && HGAppearanceFlag(@"layout.channels.hide.search")) {
+        // The container spans the whole header and is reused for the full search row.
+        searchSlot=HGAViewGetter(search,"searchButtonSlotView",search) ?: HGAViewGetter(search,"searchButtonView",search);
+        if(searchSlot==search)searchSlot=nil;
+    }
+    HGAHidePageChromeTarget(header,@"sidebar",sidebar);
+    HGAHidePageChromeTarget(header,@"searchSlot",searchSlot);
     if(!enabled || !finder || !HGAppearanceFlag(@"player.finderGlass")) {
         HGAApplyPageChromeTargets(header,nil);
         return finder;
@@ -131,10 +143,18 @@ static BOOL HGATopChannelHidden(NSString *title) {
     return key && HGAppearanceFlag(key);
 }
 
+static BOOL HGAAllTopControlsHidden(void) {
+    return HGAppearanceFlag(@"layout.channels.hide.sidebar") && HGAppearanceFlag(@"layout.channels.hide.search") &&
+        HGATopChannelHidden(@"关注") && HGATopChannelHidden(@"漫剧") && HGATopChannelHidden(@"真人剧") && HGATopChannelHidden(@"推荐");
+}
+
 static BOOL HGAIsHomeChannel(UIView *view) {
-    UIView *header=HGAAncestorNamed(view,@"SSVideoSeriesFeedHeaderView");
-    UIView *channels=HGAViewGetter(header,"tabContainer",header);
-    return channels && !HGAHeaderShowsFinder(header) && (view==channels || [view isDescendantOfView:channels]);
+    for(UIView *parent=view.superview;parent;parent=parent.superview) {
+        if(!HGAIsHeaderView(parent))continue;
+        UIView *channels=HGAViewGetter(parent,"tabContainer",parent);
+        return channels && !HGAHeaderShowsFinder(parent) && (view==channels || [view isDescendantOfView:channels]);
+    }
+    return NO;
 }
 
 static void HGAApplyChannelIndicators(UIView *categories,BOOL enabled) {
@@ -161,6 +181,10 @@ static void HGAApplyChannelOrHistoryTitle(UIView *cell,BOOL enabled) {
     BOOL home=enabled && HGAIsHomeChannel(cell);
     BOOL mine=enabled && HGAppearanceFlag(@"player.mineGlass") && HGAAncestorNamed(cell,@"SSMyUser637TabsView");
     NSString *title=home || mine ? HGAPageChromeLabel(cell,"titleLabel") : nil;
+    if(home && !title.length) {
+        id modelTitle=HGReadObjectGetter(HGReadObjectGetter(cell,"cellModel"),"title");
+        if([modelTitle isKindOfClass:NSString.class])title=modelTitle;
+    }
     HGASetHidden(cell,home && HGATopChannelHidden(title));
 
     BOOL history=NO;
@@ -174,9 +198,9 @@ static void HGAApplyChannelOrHistoryTitle(UIView *cell,BOOL enabled) {
 }
 
 static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
-    if([name isEqual:@"FQRJXCategoryTitleCell"]) {
+    if([view isKindOfClass:NSClassFromString(@"FQRJXCategoryTitleCell")]) {
         HGAApplyChannelOrHistoryTitle(view,enabled);
-    } else if([name isEqual:@"FQRJXCategoryTitleView"]) {
+    } else if([view isKindOfClass:NSClassFromString(@"FQRJXCategoryTitleView")]) {
         HGAApplyChannelIndicators(view,enabled);
     } else if([name isEqual:@"SSMyUser637Bar"]) {
         NSMutableArray *targets=[NSMutableArray array];

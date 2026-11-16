@@ -4,7 +4,7 @@ static NSDictionary<NSString *,NSArray<NSString *> *> *HGAPlayerControlGetters(v
     static NSDictionary *getters;static dispatch_once_t once;
     dispatch_once(&once,^{getters=@{
         @"FQVShortVideoVPlayerControlView":@[@"fullscreenBtn"],
-        @"SSShortVideoBottomInsertView":@[@"playRateButton",@"cleanScreenView"],
+        @"SSShortVideoBottomInsertView":@[@"playRateButton",@"cleanScreenView",@"cleanSwitchView"],
         @"SSShortVideoSingleBottomInsertView":@[@"episodeInfoView"],
         @"SSShortVideoAlbumSeriesBottomInsertView":@[@"containerView"],
         @"SSShortVideoPugcVideoBottomInsertView":@[@"commentContainerView"],
@@ -195,6 +195,35 @@ static void HGAApplyPlayerControls(UIView *root) {
 }
 
 static NSHashTable *HGAPlayerNavigations;
+static CGRect HGAPlayerNavigationContent(UIView *view,UIView *bar) {
+    if(!HGAVisible(view))return CGRectNull;
+    if([view isKindOfClass:UIButton.class]) {
+        UIImageView *image=((UIButton *)view).imageView;
+        if(image.image && HGAVisible(image))view=image;
+    }
+    CGRect bounds=view.bounds;
+    if([view isKindOfClass:UILabel.class]) {
+        UILabel *label=(UILabel *)view;
+        if(!label.text.length)return CGRectNull;
+        bounds=[label textRectForBounds:bounds limitedToNumberOfLines:label.numberOfLines];
+    }
+    return CGRectIsEmpty(bounds) ? CGRectNull : [view convertRect:bounds toView:bar];
+}
+
+static UIView *HGAPlayerDetailNavigationTitle(UIView *bar) {
+    // Detail playback can put the episode label on the enclosing controller's
+    // own navigation view. The player component owns the adjacent back arrow.
+    Class detail=NSClassFromString(@"SSShortVideoDetailViewController");
+    Class album=NSClassFromString(@"SSShortVideoAlbumDetailViewController");
+    for(UIViewController *owner=HGAOwner(bar);owner;owner=owner.parentViewController) {
+        if([owner isKindOfClass:detail] || [owner isKindOfClass:album]) {
+            UIView *label=HGAViewGetter(owner,"navLeftLabel",owner.view);
+            return label.window==bar.window ? label : nil;
+        }
+    }
+    return nil;
+}
+
 static void HGAApplyPlayerNavigation(id component) {
     if(!NSThread.isMainThread || HGAApplying)return;
     HGAApplying=YES;
@@ -208,18 +237,33 @@ static void HGAApplyPlayerNavigation(id component) {
         if(![candidate isKindOfClass:UIView.class]){HGAPlayerChromeTargets(component,nil,nil);return;}
         UIView *bar=candidate;
         if(!bar.window){HGAPlayerChromeTargets(component,nil,nil);return;}
+        [bar layoutIfNeeded];
         NSMutableArray *targets=[NSMutableArray array];
         UIView *back=HGAViewGetter(component,"backBtn",bar);
-        UIView *label=HGAViewGetter(component,"navLeftLabel",bar);
-        CGRect frame=back && !back.hidden ? [back convertRect:back.bounds toView:bar] : CGRectNull;
-        if(label && !label.hidden && !CGRectIsNull(frame))frame=CGRectUnion(frame,[label convertRect:label.bounds toView:bar]);
-        if(!CGRectIsNull(frame)) {
-            HGAInstallPlaybackGlass(bar,HGAppearanceString(@"player.material"),CGRectInset(frame,-6,0),22,nil);
-            [targets addObject:bar];
-        }
-        for(NSString *getter in @[@"moreBtn",@"playRateView"]) {
-            UIView *target=HGAViewGetter(component,getter.UTF8String,bar);
-            if(target){HGAPlayerControlGlass(target,YES,NO);[targets addObject:target];}
+        CGRect backInk=HGAPlayerNavigationContent(back,bar);
+        CGRect title=HGAPlayerNavigationContent(HGAViewGetter(component,"navLeftLabel",bar),bar);
+        if(CGRectIsNull(title))title=HGAPlayerNavigationContent(HGAPlayerDetailNavigationTitle(bar),bar);
+        CGRect left=CGRectIsNull(backInk) ? CGRectNull : CGRectUnion(backInk,title);
+        UIView *rate=HGAViewGetter(component,"playRateView",bar);
+        CGRect rateInk=rate ? CGRectUnion(HGAPlayerNavigationContent(HGAViewGetter(component,"playRateImgView",rate),bar),
+            HGAPlayerNavigationContent(HGAViewGetter(component,"playRateLabel",rate),bar)) : CGRectNull;
+        if(CGRectIsNull(rateInk))rateInk=HGAPlayerNavigationContent(rate,bar);
+        UIView *more=HGAViewGetter(component,"moreBtn",bar);
+        CGRect moreInk=HGAPlayerNavigationContent(more,bar);
+        CGRect anchor=!CGRectIsNull(backInk) ? [back convertRect:back.bounds toView:bar] :
+            (!CGRectIsNull(rateInk) ? rateInk : moreInk);
+        if(CGRectIsNull(anchor)){HGAPlayerChromeTargets(component,nil,nil);return;}
+        CGFloat height=34,centerY=CGRectGetMidY(anchor);
+        UIView *controls[]={bar,rate,more};
+        CGRect content[]={left,rateInk,moreInk};
+        NSString *style=HGAppearanceString(@"player.material");
+        for(NSUInteger i=0;i<3;i++) {
+            UIView *target=controls[i];
+            if(CGRectIsNull(content[i]))continue;
+            CGFloat width=MAX(height,CGRectGetWidth(content[i])+14);
+            CGRect pill=CGRectMake(CGRectGetMidX(content[i])-width/2,centerY-height/2,width,height);
+            HGAInstallPlaybackGlass(target,style,[bar convertRect:pill toView:target],height/2,nil);
+            [targets addObject:target];
         }
         HGAPlayerChromeTargets(component,targets,nil);
     } @finally {HGAApplying=NO;}
