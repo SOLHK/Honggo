@@ -474,9 +474,7 @@ void HGAppearanceProcessView(UIView *view) {
         if(glass && !view.hidden) {
             CGRect glassFrame=view.bounds;CGFloat radius=episode ? episodeRadius : 20;
             if(header) {
-                CGFloat width=HGAExpandedDockWidthForHeader(view);
-                glassFrame=CGRectMake(CGRectGetMidX(view.bounds)-width/2,CGRectGetMinY(view.bounds),
-                    width,CGRectGetHeight(view.bounds));
+                glassFrame=HGAHeaderGlassFrame(view,HGAExpandedDockWidthForHeader(view));
                 radius=CGRectGetHeight(glassFrame)/2;
             } else if(action) {
                 UIImageView *icon=HGAFindIcon(view);

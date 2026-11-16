@@ -10,8 +10,8 @@
 // not take a new geometry/background baseline halfway through its transaction.
 BOOL HGAppearanceDockIsMutating(UIView *bar);
 
-// Only the version-checked host tab bar is a global hook target. Page/content
-// observers below are per-instance subclasses, never UIView/UIScrollView hooks.
+// Lifecycle hooks target version-checked host types. Page/content observers
+// below use per-instance subclasses instead of UIKit base class hooks.
 static Class HGTabBarClass;
 static BOOL HGGlassEnabled;
 static char HGStateKey, HGObservedOwnerKey, HGObservedBaseKey;
@@ -26,6 +26,7 @@ static void (*HGOriginalBarAlpha)(id, SEL, CGFloat);
 static void (*HGOriginalBarTraits)(id, SEL, id);
 static void (*HGOriginalMineLayout)(id, SEL);
 static void (*HGOriginalMineAppear)(id, SEL, BOOL);
+static void (*HGOriginalMallMount)(id, SEL);
 static char HGMineRefreshPendingKey;
 
 static id HGObject(id object, const char *name) {
@@ -939,12 +940,7 @@ static void HGControllerLayout(id self, SEL cmd) {
     HGRefreshTabBar(self);
 }
 
-static void HGRefreshMine(UIViewController *page) {
-    if (!page.viewIfLoaded.window) return;
-    UIScrollView *mineScroll = (UIScrollView *)HGView(page, "scrollView");
-    if ([mineScroll isKindOfClass:UIScrollView.class]) HGApplyMineClip(mineScroll);
-    // Resolve through containment, including the navigation controller that
-    // owns Mine. Do not depend on a scroll callback to discover a new page.
+static void HGRefreshContainingTabBar(UIViewController *page) {
     for (UIViewController *owner = page; owner; owner = owner.parentViewController) {
         if ([HGView(owner, "customTabBar") isKindOfClass:HGTabBarClass]) {
             HGRefreshTabBar(owner);
@@ -952,6 +948,21 @@ static void HGRefreshMine(UIViewController *page) {
         }
     }
     HGRefreshTabBar(page.tabBarController);
+}
+static void HGRefreshMine(UIViewController *page) {
+    if (!page.viewIfLoaded.window) return;
+    UIScrollView *mineScroll = (UIScrollView *)HGView(page, "scrollView");
+    if ([mineScroll isKindOfClass:UIScrollView.class]) HGApplyMineClip(mineScroll);
+    HGRefreshContainingTabBar(page);
+}
+static void HGMallMount(UIViewController *page, SEL cmd) {
+    HGOriginalMallMount(page, cmd);
+    if (!NSThread.isMainThread || (!HGGlassEnabled && !HGAppearanceDockEnabled())) return;
+    UIView *root = page.viewIfLoaded;
+    if (!root.window || HGView(page, "mallView").superview != root) return;
+    // The host attaches the mall after reserving the entire native tab bar.
+    // Run the existing reversible viewport pass after the initial mount/reset.
+    HGRefreshContainingTabBar(page);
 }
 static void HGMineLayout(UIViewController *page, SEL cmd) {
     HGOriginalMineLayout(page, cmd);
@@ -1041,6 +1052,10 @@ BOOL HGInstallTabBar(void) {
         }
         HGGlassEnabled = HGIsEnabled(HGGlass);
         HGOriginalControllerLayout = (void (*)(id, SEL))HGReplaceMethod(controller, selectors[0], encodings[0], (IMP)HGControllerLayout);
+        Class mall = objc_lookUpClass("FQMSEcomXTabMallViewController");
+        if ([mall isSubclassOfClass:UIViewController.class])
+            HGOriginalMallMount = (void (*)(id, SEL))HGReplaceMethod(mall,
+                sel_registerName("mountMallViewIfNeeded"), "v16@0:8", (IMP)HGMallMount);
         if (HGGlassEnabled) {
             Class mine = objc_lookUpClass("SSMine737KMPViewController");
             HGOriginalMineLayout = (void (*)(id, SEL))HGReplaceMethod(mine,

@@ -48,8 +48,16 @@
 @property(nonatomic) BOOL isFindDramaSearchPresentationActiveV731;
 @end
 @implementation SSVideoSeriesFeedHeaderView @end
-@interface SSShortVideoBottomDistributionView : UIView @end
-@implementation SSShortVideoBottomDistributionView @end
+@interface SSShortVideoBottomDistributionView : UIView
+@property(nonatomic,strong) UIView *defaultContentView;
+- (void)renderWithModel:(NSDictionary *)model;
+@end
+@implementation SSShortVideoBottomDistributionView
+- (void)renderWithModel:(NSDictionary *)model {
+    self.defaultContentView.backgroundColor=model[@"background"];
+    self.defaultContentView.subviews.firstObject.backgroundColor=model[@"shade"];
+}
+@end
 @interface SSShortVideoOutterSeriesInfoView : UIView @end
 @implementation SSShortVideoOutterSeriesInfoView @end
 @interface FQVShortVideoPlayerCellView : UIView @end

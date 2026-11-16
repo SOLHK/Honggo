@@ -170,6 +170,15 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceSet(@"layout.channels.hide.search",@NO,nil);
     Check(!header.hidden && Find(header,material) && !search.searchButtonSlotView.hidden && header.sideBar.hidden && underline.hidden,
         @"the R22 five-hidden combination preserves the native search as the only top control");
+    headerGlass=Find(header,material);
+    right=[search.searchButtonSlotView convertRect:search.searchButtonSlotView.bounds toView:header];
+    Check(fabs(CGRectGetWidth(headerGlass.frame)-44)<0.5 &&
+        fabs(CGRectGetMidX(headerGlass.frame)-CGRectGetMidX(right))<0.5 &&
+        CGRectEqualToRect(search.frame,nativeSearch) && right.size.width==24,
+        @"a lone search uses one round glass surface around the unchanged native target");
+    HGAppearanceSet(@"layout.channels.hide.follow",@NO,nil);
+    Check(CGRectGetWidth(Find(header,material).frame)>44,
+        @"restoring a channel expands the same material back to the shared header capsule");
     for(NSString *key in allHidden.allKeys)allHidden[key]=@NO;
     HGAppearanceApply(allHidden,nil);
 

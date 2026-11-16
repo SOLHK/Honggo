@@ -29,6 +29,41 @@ static NSUInteger nativeGameInitializations;
 @implementation SSMyUser621SideBarViewController
 @end
 
+@interface SSBizVideoScanShoppingService : NSObject
+@property(nonatomic) BOOL shareEnabled;
+@property(nonatomic) NSUInteger systemScreenshotCallbacks;
+@property(nonatomic) NSUInteger searchCards;
+@property(nonatomic) NSUInteger shareActions;
+@property(nonatomic) NSUInteger manualSearches;
+- (BOOL)enableVideoSearch;
+- (BOOL)enableVideoScreenshotShare;
+- (void)startScanSearchBySceneSnapShot;
+- (BOOL)openPicSearch;
+@end
+@implementation SSBizVideoScanShoppingService
+- (instancetype)init {
+    if ((self = [super init]))
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(startScanSearchBySceneSnapShot)
+            name:UIApplicationUserDidTakeScreenshotNotification object:nil];
+    return self;
+}
+- (BOOL)enableVideoSearch { return YES; }
+- (BOOL)enableVideoScreenshotShare { return self.shareEnabled; }
+- (void)startScanSearchBySceneSnapShot {
+    self.systemScreenshotCallbacks++;
+    if ([self enableVideoSearch]) self.searchCards++;
+    if ([self enableVideoScreenshotShare]) self.shareActions++;
+}
+- (BOOL)openPicSearch { self.manualSearches++; return YES; }
+@end
+
+@interface SSUGCleanScreenshotHelper : NSObject
+- (BOOL)canSearchWithService:(SSBizVideoScanShoppingService *)service;
+@end
+@implementation SSUGCleanScreenshotHelper
+- (BOOL)canSearchWithService:(SSBizVideoScanShoppingService *)service { return [service enableVideoSearch]; }
+@end
+
 // Configure host classification outcomes without duplicating its JSON parser.
 @interface SSNaturalAdData : NSObject
 @property(nonatomic) NSInteger forceWatchTime;
@@ -450,6 +485,39 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     [self check:[[games createFeedPageDataModelWithCellViewData:@"game-legacy" listVCContext:nil] isEqual:@"game-legacy"]
         name:@"the sidebar preference does not change feed game models"];
 }
+- (void)checkScreenshotShopping {
+    SSBizVideoScanShoppingService *shopping = [SSBizVideoScanShoppingService new];
+    SSUGCleanScreenshotHelper *clean = [SSUGCleanScreenshotHelper new];
+    void (^takeScreenshot)(void) = ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:UIApplicationUserDidTakeScreenshotNotification object:nil];
+    };
+    takeScreenshot();
+    [self check:!HGIsEnabled(HGScreenshotShopping) && shopping.systemScreenshotCallbacks == 1 &&
+        shopping.searchCards == 1 && [clean canSearchWithService:shopping]
+        name:@"default screenshot preference preserves automatic shopping in the two host flows"];
+
+    Method gate = class_getInstanceMethod(SSBizVideoScanShoppingService.class, @selector(enableVideoSearch));
+    IMP native = method_getImplementation(gate);
+    HGSetEnabled(HGScreenshotShopping, YES);
+    HGInstallAds();
+    takeScreenshot();
+    [self check:shopping.systemScreenshotCallbacks == 2 && shopping.searchCards == 1 &&
+        shopping.shareActions == 0 && ![clean canSearchWithService:shopping]
+        name:@"enabled setting declines automatic screenshot shopping through the native gate"];
+    shopping.shareEnabled = YES;
+    takeScreenshot();
+    [self check:shopping.systemScreenshotCallbacks == 3 && shopping.searchCards == 1 && shopping.shareActions == 1 &&
+        [shopping openPicSearch] && shopping.manualSearches == 1
+        name:@"the gate preserves screenshot notifications, separately enabled sharing and manual image search"];
+
+    // Simulate a fresh process after turning off this launch-time feature.
+    method_setImplementation(gate, native);
+    HGSetEnabled(HGScreenshotShopping, NO);
+    HGInstallAds();
+    takeScreenshot();
+    [self check:shopping.searchCards == 2 && shopping.shareActions == 2 && [clean canSearchWithService:shopping]
+        name:@"turning off screenshot shopping suppression restores the original gate on next launch"];
+}
 - (void)checkPatchLifecycleWithCompletion:(void (^)(void))completion {
     SEL selector = @selector(showPatchAdViewWithContext:seriesId:vId:currentTime:patchAdViewReadyBlock:removeBlock:);
     IMP installed = class_getMethodImplementation(SSBizVideoPatchAdService.class, selector);
@@ -844,6 +912,7 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     IMP originalNaturalInsert = method_getImplementation(naturalInsert);
     HGInstallAds();
     [self checkSidebarGameCenterWithGames:games];
+    [self checkScreenshotShopping];
     [self checkNaturalAdInsertionEnabled:NO original:originalNaturalInsert];
     [self checkGameBindingHidden:NO];
     SSShortVideoFeedDirectGameContentModel *disabledGame = HGDisplayingGame(SSShortVideoFeedDirectGameFeedPageHost.class);

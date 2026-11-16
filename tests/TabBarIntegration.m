@@ -56,6 +56,36 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
 - (void)scrollViewDidScroll:(UIScrollView *)scroll { }
 @end
 
+@interface IESECNativeMallView : UIView
+@property(nonatomic, strong) UIScrollView *products;
+@end
+@implementation IESECNativeMallView
+@end
+
+@interface FQMSEcomXTabMallViewController : UIViewController
+@property(nonatomic, strong) IESECNativeMallView *mallView;
+@property(nonatomic) CGFloat nativeBarHeight;
+@property(nonatomic) NSUInteger mounts;
+- (void)mountMallViewIfNeeded;
+@end
+@implementation FQMSEcomXTabMallViewController
+- (void)mountMallViewIfNeeded {
+    if (self.mallView.superview == self.view) return;
+    CGRect frame = self.view.bounds;
+    frame.size.height -= self.nativeBarHeight;
+    IESECNativeMallView *mall = [[IESECNativeMallView alloc] initWithFrame:frame];
+    mall.clipsToBounds = YES;
+    mall.products = [[UIScrollView alloc] initWithFrame:mall.bounds];
+    mall.products.contentSize = CGSizeMake(frame.size.width, frame.size.height * 2);
+    mall.products.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    mall.products.contentInset = UIEdgeInsetsMake(0, 0, 12, 0);
+    [mall addSubview:mall.products];
+    self.mallView = mall;
+    [self.view addSubview:mall];
+    self.mounts++;
+}
+@end
+
 // Instrument only our plugin's effect subclass in this test executable. Keep
 // the production setter implementation intact and observe real assignments;
 // UIVisualEffectView.effect is not required to preserve getter object identity.
@@ -762,6 +792,7 @@ static UIImage *HGWhiteImage(void) {
     [self runMineClipChecks];
     [self runMinePagingChecks];
     [self runMineAppearanceChecks];
+    [self runMallMountChecksWithGlass:YES];
     [self runNestedChecksForClass:SSNestedContainerScrollView.class];
     [self runNestedChecksForClass:SSMyUser637NestedContainerScrollView.class];
     [self runReturnChecks];
@@ -888,6 +919,57 @@ static UIImage *HGWhiteImage(void) {
     [mine.view removeFromSuperview];
     [mine removeFromParentViewController];
     [self.host.customTabBar layoutSubviews];
+}
+- (void)runMallMountChecksWithGlass:(BOOL)glass {
+    [self layoutHost];
+    UIView *root = self.host.view;
+    SSTabBar *bar = self.host.customTabBar;
+    CGFloat bottom = CGRectGetHeight(root.bounds), barTop = CGRectGetMinY(bar.frame);
+    CGFloat reserved = bottom - barTop;
+    FQMSEcomXTabMallViewController *mallPage = [FQMSEcomXTabMallViewController new];
+    mallPage.nativeBarHeight = reserved;
+    [self.host addChildViewController:mallPage];
+    mallPage.view.frame = root.bounds;
+    self.host.viewport.hidden = YES;
+    [root insertSubview:mallPage.view belowSubview:bar];
+    [mallPage didMoveToParentViewController:self.host];
+
+    // Initial mount and service reset both happen after the root laid out its bar.
+    // Do not trigger another bar or controller layout before checking the result.
+    [mallPage mountMallViewIfNeeded];
+    IESECNativeMallView *first = mallPage.mallView;
+    CGFloat viewportHeight = glass ? bottom : barTop;
+    CGFloat bottomInset = glass ? 12 + reserved : 12;
+    BOOL late = first.superview == mallPage.view && fabs(CGRectGetHeight(first.frame) - viewportHeight) < 0.75 &&
+        fabs(CGRectGetHeight(first.products.frame) - viewportHeight) < 0.75 &&
+        fabs(first.products.contentInset.bottom - bottomInset) < 0.75;
+    [mallPage mountMallViewIfNeeded];
+    late &= mallPage.mounts == 1 && first == mallPage.mallView &&
+        fabs(first.products.contentInset.bottom - bottomInset) < 0.75;
+    [self check:late name:glass ? @"late mall mount extends the mall and product list below the bar exactly once" :
+        @"mall mount keeps the original viewport and scrolling inset with glass disabled"];
+
+    [first removeFromSuperview];
+    [mallPage mountMallViewIfNeeded];
+    IESECNativeMallView *replacement = mallPage.mallView;
+    [self check:replacement != first && mallPage.mounts == 2 &&
+        fabs(CGRectGetHeight(replacement.frame) - viewportHeight) < 0.75 &&
+        fabs(replacement.products.contentInset.bottom - bottomInset) < 0.75 &&
+        fabs(CGRectGetHeight(first.frame) - barTop) < 0.75 &&
+        fabs(first.products.contentInset.bottom - 12) < 0.75
+        name:@"native mall remount reconciles the replacement and releases old viewport state"];
+    if (glass) {
+        bar.hidden = YES;
+        [self check:fabs(CGRectGetHeight(replacement.frame) - barTop) < 0.75 &&
+            fabs(replacement.products.contentInset.bottom - 12) < 0.75 && replacement.clipsToBounds
+            name:@"hiding the glass tab bar restores the active mall's native reservation"];
+        bar.hidden = NO;
+    }
+    [mallPage willMoveToParentViewController:nil];
+    [mallPage.view removeFromSuperview];
+    [mallPage removeFromParentViewController];
+    self.host.viewport.hidden = NO;
+    [self layoutHost];
 }
 - (void)runReturnChecks {
     [self layoutHost];
@@ -1120,6 +1202,7 @@ static UIImage *HGWhiteImage(void) {
         settingsGesture |= [gesture isKindOfClass:UILongPressGestureRecognizer.class];
     }
     [self check:settingsGesture name:@"settings fallback stays discoverable with glass disabled"];
+    [self runMallMountChecksWithGlass:NO];
     [self capture:@"tabbar-disabled-simulator.png"];
 }
 - (void)runFallbackChecks {

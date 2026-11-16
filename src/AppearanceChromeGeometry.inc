@@ -54,3 +54,24 @@ static void HGAApplyHeaderInsets(UIView *header,BOOL enabled,BOOL finder,CGFloat
     HGAInsetHeaderTarget(sidebar,header,middle-width/2,channels,YES);
     HGAInsetHeaderTarget(slot,header,middle+width/2,channels,NO);
 }
+
+static CGRect HGAHeaderGlassFrame(UIView *header,CGFloat width) {
+    CGRect frame=CGRectMake(CGRectGetMidX(header.bounds)-width/2,CGRectGetMinY(header.bounds),
+        width,CGRectGetHeight(header.bounds));
+    BOOL channelsHidden=HGATopChannelHidden(@"关注") && HGATopChannelHidden(@"漫剧") &&
+        HGATopChannelHidden(@"真人剧") && HGATopChannelHidden(@"推荐");
+    BOOL menuHidden=HGAppearanceFlag(@"layout.channels.hide.sidebar");
+    BOOL searchHidden=HGAppearanceFlag(@"layout.channels.hide.search");
+    if(channelsHidden && menuHidden!=searchHidden) {
+        UIView *target=menuHidden ? HGAViewGetter(HGAViewGetter(header,"searchViewContainer",header),
+            "searchButtonSlotView",header) : HGAViewGetter(header,"sideBar",header);
+        if(target && !target.hidden && !CGRectIsEmpty(target.bounds)) {
+            // Shrink only the decoration. Keep the original search/menu target,
+            // gesture and position, including the common inset above.
+            CGRect control=[target convertRect:target.bounds toView:header];
+            frame.size.width=frame.size.height;
+            frame.origin.x=CGRectGetMidX(control)-frame.size.width/2;
+        }
+    }
+    return frame;
+}

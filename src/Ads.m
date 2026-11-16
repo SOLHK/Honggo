@@ -261,6 +261,9 @@ static const HGGate HGGates[] = {
     {HGSidebarGameCenter, "SSVideoSeriesFeedSideBarViewController", "gameEntranceData", "@16@0:8", (IMP)HGNoSidebarGameData},
     {HGSidebarGameCenter, "SSVideoSeriesFeedSideBarV725ViewController", "showsGameSection", "B16@0:8", (IMP)HGNo},
     {HGSidebarGameCenter, "SSMyUser621SideBarViewController", "setComponentsLayout:", "v24@0:8@16", (IMP)HGSetSidebarLayout},
+    // Both screenshot flows handle the search action's native declined path.
+    // Screenshot sharing and manual image search use independent decisions.
+    {HGScreenshotShopping, "SSBizVideoScanShoppingService", "enableVideoSearch", "B16@0:8", (IMP)HGNo},
 };
 
 static void HGAdDecision(id object, SEL selector, BOOL result) {

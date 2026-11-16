@@ -78,7 +78,7 @@ int main(void) {@autoreleasepool {
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];
-    NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.mineGlass",@"player.controlsGlass",@"panels.episodes"]];
+    NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes"]];
     BOOL unique=YES,defaults=YES;
     for(NSDictionary *entry in HGAppearanceCatalog()) {
         unique &= ![keys containsObject:entry[@"key"]];[keys addObject:entry[@"key"]];
@@ -88,6 +88,9 @@ int main(void) {@autoreleasepool {
     Check(unique && keys.count>100,@"every visual option has one stable key");
     Check(defaults && [onWhenEnabled isSubsetOfSet:keys] && !HGAppearanceEnabled() && !HGAppearanceNeedsGlass(),
         @"appearance remains opt-in with the new scoped defaults ready under its master switch");
+    HGAppearanceSet(@"player.episodeGlass",@NO,nil);
+    Check(!HGAppearanceFlag(@"player.episodeGlass"),@"an explicit disabled episode preference overrides the new default");
+    HGAppearanceReset();
     Check(![keys containsObject:@"player.fillButton"] && HGAppearanceValue(@"player.fillButton")==nil,
         @"the removed playback button has no setting or stored effective value");
     Check(!HGAppearanceSet(@"player.fillButton",@"show",nil),

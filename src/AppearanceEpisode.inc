@@ -66,7 +66,7 @@ static void HGARestoreEpisodeSurface(HGAEpisodeSurfaceState *state) {
     if(objc_getAssociatedObject(view,&HGAEpisodeWrapperKey)==state)
         objc_setAssociatedObject(view,&HGAEpisodeWrapperKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
-static void HGAApplyEpisodeSurface(HGAEpisodeSurfaceState *state,CGFloat radius,BOOL clear) {
+static void HGAApplyEpisodeSurface(HGAEpisodeSurfaceState *state,CGFloat radius,BOOL clear,BOOL round) {
     UIView *view=state.view;
     if(clear) {
         if(!state.clearsBackground || ![view.backgroundColor isEqual:UIColor.clearColor])
@@ -74,6 +74,7 @@ static void HGAApplyEpisodeSurface(HGAEpisodeSurfaceState *state,CGFloat radius,
         state.clearsBackground=YES;
         if(![view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=UIColor.clearColor;
     }
+    if(!round)return;
     if(!state.rounded || fabs(view.layer.cornerRadius-state.appliedRadius)>0.001)state.radius=view.layer.cornerRadius;
     if(!state.rounded || ![view.layer.cornerCurve isEqual:kCACornerCurveContinuous])state.curve=view.layer.cornerCurve;
     if(!state.rounded || view.layer.maskedCorners!=HGAEpisodeAllCorners)state.corners=view.layer.maskedCorners;
@@ -116,8 +117,24 @@ static void HGAApplyEpisodeCorners(UIView *entry,BOOL enabled,CGFloat radius) {
     if(!enabled)HGARestoreEpisodeInset(entry);
     NSArray<HGAEpisodeSurfaceState *> *previous=objc_getAssociatedObject(entry,&HGAEpisodeSurfacesKey);
     NSMutableArray<UIView *> *surfaces=[NSMutableArray array];
+    UIView *shade=nil;
     if(enabled && entry.window && !CGRectIsEmpty(entry.bounds)) {
         [surfaces addObject:entry];
+        UIView *content=HGAViewGetter(entry,"defaultContentView",entry);
+        if(content.superview==entry && [content isKindOfClass:NSClassFromString(@"SSShortVideoDistributionContentView")]) {
+            // The host inserts this 15%-white paint-only UIView at index zero
+            // above the content view's own black background.
+            UIView *paint=content.subviews.firstObject;
+            CGFloat white=0,alpha=0;
+            if(object_getClass(paint)==UIView.class &&
+                [paint.backgroundColor getWhite:&white alpha:&alpha] && white==1 && fabs(alpha-0.15)<0.005)
+                shade=paint;
+            if(!shade && [paint.backgroundColor isEqual:UIColor.clearColor]) {
+                for(HGAEpisodeSurfaceState *state in previous)
+                    if(state.view==paint && state.clearsBackground && !state.rounded){shade=paint;break;}
+            }
+            if(shade)[surfaces addObject:shade];
+        }
         for(UIView *child in HGADescendants(entry,32)) {
             NSString *name=NSStringFromClass(child.class);
             if(child!=entry && ([name isEqual:@"SSShortVideoDistributionContentView"] ||
@@ -142,7 +159,7 @@ static void HGAApplyEpisodeCorners(UIView *entry,BOOL enabled,CGFloat radius) {
         HGAEpisodeSurfaceState *state=nil;
         for(HGAEpisodeSurfaceState *candidate in previous)if(candidate.view==view){state=candidate;break;}
         if(!state){state=[HGAEpisodeSurfaceState new];state.view=view;state.owner=entry;}
-        HGAApplyEpisodeSurface(state,radius,view!=entry);
+        HGAApplyEpisodeSurface(state,radius,view!=entry,view!=shade);
         if(view==entry.superview)
             objc_setAssociatedObject(view,&HGAEpisodeWrapperKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [current addObject:state];

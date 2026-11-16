@@ -65,10 +65,15 @@ static void RunEpisodeGlassChecks(UIView *root) {
     entry.layer.maskedCorners=kCALayerMinXMinYCorner;
     SSShortVideoDistributionContentView *content=[[SSShortVideoDistributionContentView alloc] initWithFrame:frame];
     content.backgroundColor=UIColor.lightGrayColor;
+    UIView *shade=[[UIView alloc] initWithFrame:frame];
+    UIColor *nativeShade=[UIColor colorWithWhite:1 alpha:0.15];
+    shade.backgroundColor=nativeShade;
+    [content addSubview:shade];
     UIControl *button=[[UIControl alloc] initWithFrame:frame];button.backgroundColor=UIColor.systemBlueColor;
     HGAEpisodeTapFixture *action=[HGAEpisodeTapFixture new];
     [button addTarget:action action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
-    [content addSubview:button];[entry addSubview:content];[wrapper addSubview:entry];[root addSubview:wrapper];
+    [content addSubview:button];entry.defaultContentView=content;
+    [entry addSubview:content];[wrapper addSubview:entry];[root addSubview:wrapper];
     Layout(entry);
     @try {
         UIView *material=Find(entry,@"honggo.appearance.material");
@@ -78,8 +83,9 @@ static void RunEpisodeGlassChecks(UIView *root) {
             @"episode glass clips the native wrapper and content to the same capsule");
         Check([wrapper.backgroundColor isEqual:UIColor.clearColor] &&
             [content.backgroundColor isEqual:UIColor.clearColor] &&
+            [shade.backgroundColor isEqual:UIColor.clearColor] && !shade.hidden &&
             [button.backgroundColor isEqual:UIColor.systemBlueColor],
-            @"episode glass clears only the known surface fills and retains native control content");
+            @"episode glass clears the native content and shade fills while keeping foreground and hit testing");
         Check(HGAEpisodeRenderedCornersAreClear(wrapper),
             @"episode rendering has transparent pixels at all four corners with opaque native content");
         Check(CGRectEqualToRect(entry.frame,frame) && CGRectEqualToRect(content.frame,frame) &&
@@ -91,13 +97,18 @@ static void RunEpisodeGlassChecks(UIView *root) {
         for(NSUInteger i=0;i<8;i++)Layout(entry);
         Check(Count(entry,@"honggo.appearance.material")==1 && HGAEpisodeRenderedCornersAreClear(wrapper),
             @"repeated episode layout keeps a single rounded surface");
+        UIColor *renderedBackground=[UIColor colorWithWhite:0 alpha:0.4];
+        [entry renderWithModel:@{@"background":renderedBackground,@"shade":nativeShade}];
+        Check([content.backgroundColor isEqual:UIColor.clearColor] && [shade.backgroundColor isEqual:UIColor.clearColor] &&
+            Find(entry,@"honggo.appearance.material")==material,
+            @"re-rendering the native entry keeps its glass and clears the repainted shade before the next layout");
         HGAppearanceSet(@"player.episodeGlass",@NO,nil);
         Check(!wrapper.clipsToBounds && !entry.clipsToBounds && !content.clipsToBounds &&
             fabs(entry.layer.cornerRadius-3)<0.01 && entry.layer.maskedCorners==kCALayerMinXMinYCorner &&
             [wrapper.backgroundColor isEqual:UIColor.darkGrayColor] &&
             [entry.backgroundColor isEqual:UIColor.grayColor] &&
-            [content.backgroundColor isEqual:UIColor.lightGrayColor],
-            @"disabling episode glass restores original fills, clipping and individual corners");
+            [content.backgroundColor isEqual:renderedBackground] && [shade.backgroundColor isEqual:nativeShade],
+            @"disabling episode glass restores the latest native fills, clipping and individual corners");
 
         HGAppearanceSet(@"player.episodeGlass",@YES,nil);Layout(entry);
         content.backgroundColor=UIColor.systemRedColor;entry.layer.cornerRadius=7;

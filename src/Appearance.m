@@ -272,8 +272,15 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName("refreshLayout"),"v16@0:8",NO);
             if([name isEqual:@"FQVShortVideoPlayerLandscapeBaseInfoView"])
                 HGAHook(cls,sel_registerName("setVideoDataModel:"),"v24@0:8@16",NO);
-            if([name isEqual:@"FQVShortVideoPlayerLandscapeBaseControlView"])
+            if([name isEqual:@"FQVShortVideoPlayerLandscapeBaseControlView"]) {
                 HGAHook(cls,sel_registerName("updateScreenLockButtonStyle"),"v16@0:8",NO);
+                HGAHook(cls,sel_registerName("showControlWithoutScreenLock"),"v16@0:8",NO);
+                HGAHook(cls,sel_registerName("showControlWithoutAnimation"),"v16@0:8",NO);
+            }
+            if([name isEqual:@"SSShortVideoBottomDistributionView"])
+                HGAHook(cls,sel_registerName("renderWithModel:"),"v24@0:8@16",NO);
+            if([name isEqual:@"SSShortVideoLandscapeBizInteractionView"])
+                HGAHook(cls,sel_registerName("refreshUI"),"v16@0:8",NO);
             if([name isEqual:@"SSHGBookStoreCategoryTitleCell"])
                 HGAHook(cls,sel_registerName("reloadData:"),"v24@0:8@16",NO);
             if([name isEqual:@"SSHGBookStoreCategoryTitleView"]) {

@@ -21,6 +21,7 @@ typedef NS_ENUM(NSUInteger, HGFeature) {
     HGSurvey,
     HGGlassControls,
     HGSidebarGameCenter,
+    HGScreenshotShopping,
     HGFeatureCount,
 };
 

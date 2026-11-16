@@ -69,7 +69,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
                 [@"隐藏顶部" stringByAppendingString:channelNames[i]]);
         [a addObject:HGADef(@"player.finderGlass",@"player",@"找剧搜索与快捷入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.mineGlass",@"player",@"我的页面控件玻璃",@"bool",@YES,nil)];
-        flag(@"player.episodeGlass",@"player",@"全集入口玻璃");
+        [a addObject:HGADef(@"player.episodeGlass",@"player",@"全集入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
         flag(@"player.fullscreen",@"player",@"横屏铺满");

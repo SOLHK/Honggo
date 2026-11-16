@@ -248,8 +248,8 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         name:@"settings title is Honggo with a separate plugin version"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
-    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount && HGFeatureCount == 17
-        name:@"settings preserves 16 switches and adds the sidebar Game Center option"];
+    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount && HGFeatureCount == 18
+        name:@"settings preserves 17 switches and adds the screenshot shopping option"];
     [self check:[settings.tableView numberOfRowsInSection:1] == 4
         name:@"settings exposes diagnostics export clear and compatibility"];
     [self check:[settings.tableView numberOfRowsInSection:2] == 3
@@ -263,7 +263,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self check:HGEnhancedDiagnostics() name:@"enhanced diagnostics switch takes effect without restart"];
     NSArray<NSString *> *keys = @[@"glass", @"splash", @"topview", @"feed", @"comment", @"pause", @"patch",
         @"commerce", @"marketing", @"redPacket", @"bookstoreAd", @"couponPendant", @"miniGamePendant",
-        @"welfareGuide", @"survey", @"glassControls", @"sidebarGameCenter"];
+        @"welfareGuide", @"survey", @"glassControls", @"sidebarGameCenter", @"screenshotShopping"];
     BOOL saved = YES;
     for (NSUInteger index = 0; index < HGFeatureCount; index++) {
         NSIndexPath *path = [NSIndexPath indexPathForRow:(NSInteger)index inSection:0];
@@ -440,6 +440,14 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self check:[settings.tableView numberOfRowsInSection:0] == 1 && sidebarGame.tag == HGSidebarGameCenter &&
         [sidebarGame.accessibilityIdentifier isEqual:@"hg.option.sidebarGameCenter"]
         name:@"search finds the independent sidebar Game Center switch"];
+
+    [self filterSettings:settings text:@"截图 找同款"];
+    UITableViewCell *screenshotRow = [self settingsCell:settings section:0 row:0];
+    UISwitch *screenshot = (UISwitch *)screenshotRow.accessoryView;
+    [self check:[settings.tableView numberOfRowsInSection:0] == 1 && screenshot.tag == HGScreenshotShopping &&
+        [screenshot.accessibilityIdentifier isEqual:@"hg.option.screenshotShopping"] &&
+        [screenshotRow.textLabel.text isEqual:@"隐藏截图识图找同款"]
+        name:@"search finds the independent screenshot shopping switch"];
 
     [self filterSettings:settings text:@"直播 领券"];
     UISwitch *marketing = (UISwitch *)[self settingsCell:settings section:0 row:0].accessoryView;
