@@ -253,6 +253,14 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
     CGRect strip = CGRectMake(CGRectGetMinX(feed.frame), edge, CGRectGetWidth(feed.frame),
         CGRectGetMaxY(parent.bounds) - edge);
     if (!CGRectEqualToRect(self.extension.frame, strip)) self.extension.frame = strip;
+    // Composite the mirror after its native source branch. Its clipped bounds
+    // begin at the feed's bottom edge, so no video/HUD pixels are covered.
+    // Restore only this plugin sibling if the host has reordered its feed;
+    // all native siblings retain their relative order and geometry.
+    NSUInteger feedIndex = [parent.subviews indexOfObjectIdenticalTo:feed];
+    NSUInteger backdropIndex = [parent.subviews indexOfObjectIdenticalTo:self.extension];
+    if (feedIndex != NSNotFound && backdropIndex != NSNotFound && backdropIndex != feedIndex + 1)
+        [parent insertSubview:self.extension aboveSubview:feed];
     if (!CGRectEqualToRect(self.canvas.frame, self.extension.bounds))
         self.canvas.frame = self.extension.bounds;
     CGRect source = [renderer convertRect:renderer.bounds toView:parent];
@@ -377,7 +385,7 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
                 self.portal = portal; self.canvas = canvas; self.extension = extension;
                 HGVideoBackdropLink *link = [HGVideoBackdropLink new]; link.owner = self;
                 objc_setAssociatedObject(candidate, &HGVideoBackdropLinkKey, link, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                [parent insertSubview:extension belowSubview:candidate];
+                [parent insertSubview:extension aboveSubview:candidate];
             } else {
                 self.root = root; self.bar = bar; self.owner = owner;
             }

@@ -177,7 +177,7 @@ static BOOL HGBackdropSetProbeSource(UIView *portal,UIView *source) {
         [signature getArgumentTypeAtIndex:2][0]!='@')return NO;
     ((void(*)(id,SEL,id))objc_msgSend)(portal,NSSelectorFromString(@"setSourceView:"),source);return YES;
 }
-static NSArray<NSDictionary *> *HGBackdropCreateDiagnosticProbes(UIView *page,TTPlayerView *renderer,UIView *metal) {
+static NSArray<NSDictionary *> *HGBackdropCreateDiagnosticProbes(UIView *page,TTPlayerView *renderer,UIView *metal,CGFloat feedHeight) {
     UIView *green=[[UIView alloc] initWithFrame:CGRectMake(8,MAX(36,page.safeAreaInsets.top+4),64,18)];
     green.backgroundColor=[UIColor colorWithRed:0.04 green:0.90 blue:0.12 alpha:1];
     green.userInteractionEnabled=NO;[page addSubview:green];
@@ -186,12 +186,14 @@ static NSArray<NSDictionary *> *HGBackdropCreateDiagnosticProbes(UIView *page,TT
         @{@"name":@"metal-identity",@"source":metal},
         @{@"name":@"metal-flipped",@"source":metal,@"flip":@YES},
         @{@"name":@"player-source-first",@"source":renderer,@"sourceFirst":@YES},
-        @{@"name":@"player-reinsert",@"source":renderer,@"reinsert":@YES}];
+        @{@"name":@"player-flipped-reinsert",@"source":renderer,@"flip":@YES,@"reinsert":@YES},
+        @{@"name":@"player-bottom-flipped-reinsert",@"source":renderer,@"flip":@YES,@"reinsert":@YES,@"bottom":@YES}];
     Class portalClass=NSClassFromString(@"_UIPortalView");
     NSMutableArray *probes=[NSMutableArray array];
     for(NSUInteger index=0;index<specs.count;index++) {
         NSDictionary *spec=specs[index];UIView *source=spec[@"source"];
-        UIView *clip=[[UIView alloc] initWithFrame:CGRectMake(8,MAX(72,page.safeAreaInsets.top+36)+index*56,64,40)];
+        CGFloat y=[spec[@"bottom"] boolValue]?feedHeight+8:MAX(72,page.safeAreaInsets.top+36)+index*56;
+        UIView *clip=[[UIView alloc] initWithFrame:CGRectMake(8,y,64,40)];
         // An opaque neutral backing prevents the native red/blue movie below
         // an empty portal from producing a false positive in these probes.
         clip.backgroundColor=[UIColor colorWithWhite:0.06 alpha:1];clip.opaque=YES;
@@ -399,8 +401,8 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
                 (unsigned long)cell.renderer.layer.sublayers.count);
         }
         Check(redPresented && extension && portal && HGBackdropPortalSource(portal)==cell.renderer &&
-            [page.view.subviews indexOfObject:extension]<[page.view.subviews indexOfObject:feed],
-            @"live reflected strip attaches behind the feed and mirrors only the renderer without its HUD");
+            [page.view.subviews indexOfObject:extension]>[page.view.subviews indexOfObject:feed],
+            @"live reflected strip attaches above the feed only in its uncovered area and excludes the native HUD");
         Check(extension.window==window && backdropCanvas.superview && backdropCanvas.window==window &&
             portal.window==window && [portal isDescendantOfView:extension],
             @"reflected edge canvas and portal are mounted in the live window hierarchy");
@@ -427,7 +429,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         if(!redPresented || !extension || !portal)return;
         CGRect nativeRect=CGRectMake(width*0.35,feedHeight*0.45,width*0.3,24);
         CGRect extensionRect=CGRectMake(width*0.35,feedHeight+14,width*0.3,24);
-        NSArray *probes=HGBackdropCreateDiagnosticProbes(page.view,cell.renderer,cell.metal);
+        NSArray *probes=HGBackdropCreateDiagnosticProbes(page.view,cell.renderer,cell.metal,feedHeight);
         UIImage *red=HGBackdropCompositorCapture(@"red",window,nativeRect,extensionRect,probes);
         HGBackdropRGB nativeRed=HGBackdropAverageColor(red,window,nativeRect);
         HGBackdropRGB extendedRed=HGBackdropAverageColor(red,window,extensionRect);
