@@ -123,6 +123,33 @@ static void HGBackdropFlushFrames(NSTimeInterval interval) {
     do {[CATransaction flush];CFRunLoopRunInMode(kCFRunLoopDefaultMode,1.0/60.0,false);}
     while(CACurrentMediaTime()<end);
 }
+static NSDictionary *HGBackdropViewGeometry(UIView *view,UIWindow *window) {
+    if(!view)return @{@"missing":@YES};
+    return @{@"class":NSStringFromClass(view.class),
+        @"superclass":NSStringFromClass(class_getSuperclass(view.class))?:@"",
+        @"parent":view.superview?NSStringFromClass(view.superview.class):@"none",
+        @"identifier":view.accessibilityIdentifier?:@"",
+        @"frame":NSStringFromCGRect(view.frame),@"bounds":NSStringFromCGRect(view.bounds),
+        @"windowRect":NSStringFromCGRect([view convertRect:view.bounds toView:window]),
+        @"safeArea":NSStringFromUIEdgeInsets(view.safeAreaInsets),
+        @"hidden":@(view.hidden),@"alpha":@(view.alpha),@"mounted":@(view.window==window)};
+}
+static NSDictionary *HGBackdropCaptureGeometry(UIWindow *window) {
+    UIView *extension=Find(window,@"honggo.video.backdrop");
+    UIView *canvas=Find(extension,@"honggo.video.backdrop.canvas");
+    UIView *portal=Find(extension,@"honggo.video.backdrop.portal");
+    SEL sourceSelector=NSSelectorFromString(@"sourceView");
+    UIView *source=[portal respondsToSelector:sourceSelector]?((id(*)(id,SEL))objc_msgSend)(portal,sourceSelector):nil;
+    NSMutableArray *subtree=[NSMutableArray array],*queue=[NSMutableArray array];
+    if(extension)[queue addObject:extension];
+    for(NSUInteger index=0;index<queue.count && index<16;index++) {
+        UIView *view=queue[index];[subtree addObject:HGBackdropViewGeometry(view,window)];
+        for(UIView *child in view.subviews){if(queue.count>=16)break;[queue addObject:child];}
+    }
+    return @{@"extension":HGBackdropViewGeometry(extension,window),@"canvas":HGBackdropViewGeometry(canvas,window),
+        @"portal":HGBackdropViewGeometry(portal,window),@"source":HGBackdropViewGeometry(source,window),
+        @"subtree":subtree};
+}
 static UIImage *HGBackdropCompositorCapture(NSString *stage,UIWindow *window,CGRect nativeRect,CGRect extensionRect) {
     NSURL *documents=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
     [NSFileManager.defaultManager createDirectoryAtURL:documents withIntermediateDirectories:YES attributes:nil error:nil];
@@ -130,18 +157,28 @@ static UIImage *HGBackdropCompositorCapture(NSString *stage,UIWindow *window,CGR
     NSURL *ready=[documents URLByAppendingPathComponent:[base stringByAppendingString:@"-ready.json"]];
     NSURL *captured=[documents URLByAppendingPathComponent:[base stringByAppendingString:@"-captured"]];
     NSURL *image=[documents URLByAppendingPathComponent:[base stringByAppendingString:@"-simulator.png"]];
+    NSURL *active=[documents URLByAppendingPathComponent:@"video-backdrop-active-phase.txt"];
     [NSFileManager.defaultManager removeItemAtURL:captured error:nil];
     [NSFileManager.defaultManager removeItemAtURL:image error:nil];
-    HGBackdropFlushFrames(0.20);
+    [window layoutIfNeeded];Layout(Find(window,@"honggo.video.backdrop"));
+    HGBackdropFlushFrames(0.35);
     NSDictionary *request=@{@"stage":stage,@"window":NSStringFromCGRect(window.bounds),
         @"nativeSample":NSStringFromCGRect(nativeRect),@"extensionSample":NSStringFromCGRect(extensionRect),
-        @"source":@"presented CAMetalDrawable; compositor capture required"};
+        @"source":@"presented CAMetalDrawable; compositor capture required",@"geometry":HGBackdropCaptureGeometry(window)};
+    [stage writeToURL:active atomically:YES encoding:NSUTF8StringEncoding error:nil];
     [[NSJSONSerialization dataWithJSONObject:request options:NSJSONWritingPrettyPrinted error:nil]
         writeToURL:ready atomically:YES];
-    CFTimeInterval deadline=CACurrentMediaTime()+15;
+    // The host transport has two attempts inside a 40s total budget. Keep the
+    // displayed Metal phase alive for 60s, running the UI loop throughout.
+    CFTimeInterval started=CACurrentMediaTime(),deadline=started+60;
     while(![NSFileManager.defaultManager fileExistsAtPath:captured.path] && CACurrentMediaTime()<deadline)
         CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.03,false);
-    return [UIImage imageWithContentsOfFile:image.path];
+    UIImage *result=[UIImage imageWithContentsOfFile:image.path];
+    NSLog(@"VIDEO_BACKDROP_CAPTURE %@ ack=%d image=%d elapsed=%.3f",stage,
+        [NSFileManager.defaultManager fileExistsAtPath:captured.path],result!=nil,CACurrentMediaTime()-started);
+    if([[NSString stringWithContentsOfURL:active encoding:NSUTF8StringEncoding error:nil] isEqual:stage])
+        [NSFileManager.defaultManager removeItemAtURL:active error:nil];
+    return result;
 }
 typedef struct {CGFloat red,green,blue;BOOL valid;} HGBackdropRGB;
 static HGBackdropRGB HGBackdropAverageColor(UIImage *image,UIWindow *window,CGRect rect) {
@@ -160,6 +197,16 @@ static HGBackdropRGB HGBackdropAverageColor(UIImage *image,UIWindow *window,CGRe
     CGFloat denominator=16*16*255.0;
     result.red/=denominator;result.green/=denominator;result.blue/=denominator;result.valid=YES;
     return result;
+}
+static void HGBackdropWriteColorEvidence(NSString *stage,HGBackdropRGB native,HGBackdropRGB extension) {
+    NSDictionary *sample=@{@"stage":stage,
+        @"native":@{@"valid":@(native.valid),@"r":@(native.red),@"g":@(native.green),@"b":@(native.blue)},
+        @"extension":@{@"valid":@(extension.valid),@"r":@(extension.red),@"g":@(extension.green),@"b":@(extension.blue)}};
+    NSURL *documents=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
+    NSURL *url=[documents URLByAppendingPathComponent:[NSString stringWithFormat:@"video-backdrop-%@-sample.json",stage]];
+    [[NSJSONSerialization dataWithJSONObject:sample options:NSJSONWritingPrettyPrinted error:nil] writeToURL:url atomically:YES];
+    NSLog(@"VIDEO_BACKDROP_SAMPLE %@ native=%.3f/%.3f/%.3f valid=%d extension=%.3f/%.3f/%.3f valid=%d",
+        stage,native.red,native.green,native.blue,native.valid,extension.red,extension.green,extension.blue,extension.valid);
 }
 static UIView *HGBackdropPortalSource(UIView *portal) {
     SEL selector=NSSelectorFromString(@"sourceView");
@@ -217,6 +264,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
         UIView *extension=Find(page.view,@"honggo.video.backdrop");
         UIView *portal=Find(page.view,@"honggo.video.backdrop.portal");
+        UIView *backdropCanvas=Find(page.view,@"honggo.video.backdrop.canvas");
         if(!extension || !portal) {
             HGBackdropLogPortalSignatures();
             NSLog(@"VIDEO_BACKDROP_FIXTURE window=%@ root=%@ parent=%@ feed=%@ bounds=%@ offset=%@ renderer=%@ child=%@ layers=%lu",
@@ -228,6 +276,9 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         Check(redPresented && extension && portal && HGBackdropPortalSource(portal)==cell.renderer &&
             [page.view.subviews indexOfObject:extension]<[page.view.subviews indexOfObject:feed],
             @"live video extension attaches behind the feed and mirrors only the renderer without its HUD");
+        Check(extension.window==window && backdropCanvas.superview && backdropCanvas.window==window &&
+            portal.window==window && [portal isDescendantOfView:extension],
+            @"background extension canvas and portal are mounted in the live window hierarchy");
         for(NSUInteger pass=0;pass<3;pass++)HGVideoBackdropRefreshForFeed(feed);
         Check(HGBackdropNativeUnchanged(geometry),
             @"enabling the backdrop preserves all native parents frames bounds transforms insets content size and page offset");
@@ -240,6 +291,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         UIImage *red=HGBackdropCompositorCapture(@"red",window,nativeRect,extensionRect);
         HGBackdropRGB nativeRed=HGBackdropAverageColor(red,window,nativeRect);
         HGBackdropRGB extendedRed=HGBackdropAverageColor(red,window,extensionRect);
+        HGBackdropWriteColorEvidence(@"red",nativeRed,extendedRed);
         Check(nativeRed.valid && nativeRed.red>nativeRed.blue+0.35 &&
             extendedRed.valid && extendedRed.red>extendedRed.blue+0.12,
             @"simulator compositor shows the red Metal video below the native viewport instead of a black bottom mask");
@@ -249,6 +301,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         UIImage *blue=HGBackdropCompositorCapture(@"blue",window,nativeRect,extensionRect);
         HGBackdropRGB nativeBlue=HGBackdropAverageColor(blue,window,nativeRect);
         HGBackdropRGB extendedBlue=HGBackdropAverageColor(blue,window,extensionRect);
+        HGBackdropWriteColorEvidence(@"blue",nativeBlue,extendedBlue);
         Check(bluePresented && nativeBlue.valid && nativeBlue.blue>nativeBlue.red+0.35 &&
             extendedBlue.valid && extendedBlue.blue>extendedBlue.red+0.12 &&
             Find(page.view,@"honggo.video.backdrop.portal")==portal && HGBackdropNativeUnchanged(geometry),

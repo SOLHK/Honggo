@@ -11,6 +11,8 @@
 // Public extension contract (iOS 26): automaticallyPlacesContentView = NO keeps
 // our explicitly laid-out content view and fills only the surrounding area.
 // https://developer.apple.com/documentation/uikit/uibackgroundextensionview/automaticallyplacescontentview
+// Apple's manual-layout example sets contentView before opting out of placement:
+// https://developer.apple.com/videos/play/wwdc2025/284/ (6:51)
 // The portal selectors are used by Telegram's UIKitRuntimeUtils/UIKitUtils.m;
 // every selector below is checked against the running Objective-C ABI first.
 // https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m
@@ -237,7 +239,8 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
     UIView *parent = self.parent;
     if (!HGVideoBackdropFeedGeometry(feed, parent, self.root, self.bar) ||
         self.owner.viewIfLoaded != parent || HGVideoBackdropHasTransition(self.owner) ||
-        self.extension.superview != parent) {
+        self.extension.superview != parent || !self.canvas.superview ||
+        ![self.canvas isDescendantOfView:self.extension] || self.portal.superview != self.canvas) {
         [self removeBackdrop]; return;
     }
     UIView *renderer = HGVideoBackdropRenderer(feed);
@@ -245,18 +248,29 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
         self.portal.sourceView = nil; self.renderer = nil; self.extension.hidden = YES;
         [self recordStatus:@"waiting-for-known-video-surface"]; return;
     }
-    CGRect source = [renderer convertRect:renderer.bounds toView:parent];
-    CGRect portalFrame = CGRectOffset(source, -feed.frame.origin.x, -feed.frame.origin.y);
     [CATransaction begin]; [CATransaction setDisableActions:YES];
-    if (!CGRectEqualToRect(self.extension.frame, parent.bounds)) self.extension.frame = parent.bounds;
-    if (!CGRectEqualToRect(self.canvas.frame, feed.frame)) self.canvas.frame = feed.frame;
-    if (!CGRectEqualToRect(self.portal.frame, portalFrame)) self.portal.frame = portalFrame;
+    BOOL needsLayout = NO;
+    if (!CGRectEqualToRect(self.extension.frame, parent.bounds)) {
+        self.extension.frame = parent.bounds; needsLayout = YES;
+    }
+    // UIKit may place content in an internal container. Convert to the actual
+    // canvas parent instead of assuming it is a direct child of the extension;
+    // its system-owned container is never moved or reparented.
+    CGRect canvasFrame = [parent convertRect:feed.frame toView:self.canvas.superview];
+    if (!CGRectEqualToRect(self.canvas.frame, canvasFrame)) {
+        self.canvas.frame = canvasFrame; needsLayout = YES;
+    }
+    CGRect portalFrame = [renderer convertRect:renderer.bounds toView:self.canvas];
+    if (!CGRectEqualToRect(self.portal.frame, portalFrame)) {
+        self.portal.frame = portalFrame; needsLayout = YES;
+    }
     UIColor *color = HGVideoBackdropLetterboxColor(renderer, feed);
     if (![self.canvas.backgroundColor isEqual:color]) self.canvas.backgroundColor = color;
     if (self.renderer != renderer || self.portal.sourceView != renderer) {
         self.portal.sourceView = renderer; self.renderer = renderer;
     }
     self.extension.hidden = NO;
+    if (needsLayout) [self.extension setNeedsLayout];
     [CATransaction commit];
     [self recordStatus:@"live-extension"];
 }
@@ -337,11 +351,18 @@ static UIColor *HGVideoBackdropLetterboxColor(UIView *renderer, UIScrollView *fe
                 canvas.clipsToBounds = YES; canvas.backgroundColor = UIColor.blackColor;
                 [canvas addSubview:portal];
                 UIBackgroundExtensionView *extension = [[UIBackgroundExtensionView alloc] initWithFrame:parent.bounds];
-                extension.automaticallyPlacesContentView = NO;
                 extension.userInteractionEnabled = NO; extension.accessibilityElementsHidden = YES;
                 extension.accessibilityIdentifier = @"honggo.video.backdrop";
                 extension.backgroundColor = UIColor.clearColor; extension.opaque = NO;
-                extension.clipsToBounds = YES; extension.contentView = canvas;
+                extension.clipsToBounds = YES;
+                // Follow Apple's WWDC25 manual-layout example: provide the
+                // content first, then opt out of automatic safe-area placement.
+                // Only our canvas is adopted; no host view can move here.
+                extension.contentView = canvas;
+                extension.automaticallyPlacesContentView = NO;
+                if (!canvas.superview) [extension addSubview:canvas];
+                canvas.frame = [extension convertRect:candidate.frame toView:canvas.superview];
+                [extension setNeedsLayout];
                 self.feed = candidate; self.parent = parent; self.owner = owner;
                 self.root = root; self.bar = bar;
                 self.portal = portal; self.canvas = canvas; self.extension = extension;

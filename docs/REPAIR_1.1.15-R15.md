@@ -48,11 +48,14 @@ view 的尺寸、分页步长、偏移、父视图和播放器业务回调均不
 调用未知接口。窗口、宿主页面、可见渲染器或设置改变时释放镜像来源。
 系统背景延展使用 iOS 26 的 `UIBackgroundExtensionView`，仅对插件创建
 的内容容器设置 `automaticallyPlacesContentView = NO`。原生视图不重新挂载。
+内容先交给系统延展视图，再关闭自动布局；插件自己的内容容器必须实际
+挂接到窗口中。合成器回归同时检查该挂接关系和下方区域的真实像素。
 
 参考的是接口事实与平台行为，实现由 Honggo 独立编写：
 
 - [Apple UIBackgroundExtensionView](https://developer.apple.com/documentation/uikit/uibackgroundextensionview)
 - [Apple automaticallyPlacesContentView](https://developer.apple.com/documentation/uikit/uibackgroundextensionview/automaticallyplacescontentview)
+- [Apple WWDC25 UIKit 手动布局示例](https://developer.apple.com/videos/play/wwdc2025/284/)
 - [Telegram UIKitRuntimeUtils 中的 portal 接口使用](https://github.com/TelegramMessenger/Telegram-iOS/blob/master/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m)
 
 ## 验证要求
