@@ -72,14 +72,14 @@ BOOL HGInstallRuntimeModules(void) {
 __attribute__((constructor)) static void HGStart(void) {
     @autoreleasepool {
         NSBundle *bundle = NSBundle.mainBundle;
-        id version = [bundle objectForInfoDictionaryKey:@"CFBundleVersion"];
-        if (![bundle.executableURL.lastPathComponent isEqualToString:@"Eggplant"] ||
-            ![version isEqual:@"7.4.3.33"]) {
+        if (![bundle.executableURL.lastPathComponent isEqualToString:@"Eggplant"]) {
             return;
         }
 
+        id build = [bundle objectForInfoDictionaryKey:@"CFBundleVersion"];
+        NSString *hostBuild = [build isKindOfClass:NSString.class] ? build : @"unknown";
         HGPrepareNativeGlass();
-        HGDiagnosticsStart(nil, @{@"hostBuild": version, @"os": NSProcessInfo.processInfo.operatingSystemVersionString,
+        HGDiagnosticsStart(nil, @{@"hostBuild": hostBuild, @"os": NSProcessInfo.processInfo.operatingSystemVersionString,
             @"executable": @"Eggplant"});
         HGInstallAdSceneDiagnostics();
         HGLoadStage(@"entry");

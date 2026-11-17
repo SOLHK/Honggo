@@ -114,7 +114,7 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     NSString *failure=@"加载失败，请稍后重试";
     [toast toast:failure];
     Check(toast.toastCount==1 && [toast.message isEqual:failure],
-        @"observing the landscape load failure preserves the native toast and its message");
+        @"an unrecognized executable retains the native landscape failure toast and its message");
     NSDictionary *saved=HGAppearanceValues();
     HGAppearanceApply(@{@"enabled":@YES,@"player.controlsGlass":@YES,@"player.material":@"blur"},nil);
     UIWindow *window=HGPlaybackFixtureWindow(host.view,CGSizeMake(820,360));

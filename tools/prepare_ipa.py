@@ -99,7 +99,7 @@ def dylib_basename(command):
 def is_honggo_library(name):
     """Recognize current/versioned names and the old shipped name to prevent double hooks."""
     lower = name.lower()
-    return lower == b"hongguoglass.dylib" or re.fullmatch(rb"honggo(?:-\d+\.\d+\.\d+)?\.dylib", lower) is not None
+    return lower == b"hongguoglass.dylib" or re.fullmatch(rb"honggo(?:-\d+\.\d+\.\d+(?:-r\d+)?)?\.dylib", lower) is not None
 
 
 def first_text_section(commands, file_size):
@@ -174,12 +174,10 @@ def prepare(original, plugin, destination):
         info = plistlib.loads(info_bytes)
         expected = {
             "CFBundleIdentifier": "com.phoenix.video",
-            "CFBundleShortVersionString": "7.4.3",
-            "CFBundleVersion": "7.4.3.33",
             "CFBundleExecutable": "Eggplant",
         }
         if not isinstance(info, dict) or any(info.get(key) != value for key, value in expected.items()):
-            raise ValueError("Expected Hongguo 7.4.3 (7.4.3.33), bundle com.phoenix.video.")
+            raise ValueError("Expected Hongguo bundle com.phoenix.video and executable Eggplant.")
         configured = configure_native_glass(info)
         # Preserve the original encoding and all other metadata values. If the
         # app already opts in explicitly, its plist need not be serialized again.

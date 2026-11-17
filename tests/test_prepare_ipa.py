@@ -66,6 +66,9 @@ class PrepareIPATest(unittest.TestCase):
             "FixtureData": b"unchanged plist data",
             "FixtureNumber": 12.5,
         }
+        if version is None:
+            del info["CFBundleShortVersionString"]
+            del info["CFBundleVersion"]
         if info_extra:
             info.update(info_extra)
         with zipfile.ZipFile(self.input, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -81,7 +84,7 @@ class PrepareIPATest(unittest.TestCase):
             archive.writestr(f"{prep.APP}/PlugIns/Widget.appex/Widget", b"extension")
             archive.writestr(EXTENSION_INFO, plistlib.dumps({
                 "CFBundleIdentifier": "com.phoenix.video.Widget",
-                "CFBundleVersion": version,
+                "CFBundleVersion": version or "1",
                 "UIDesignRequiresCompatibility": True,
                 "NSExtension": {"NSExtensionPointIdentifier": "com.apple.widgetkit-extension"},
             }, fmt=plistlib.FMT_BINARY))
@@ -144,6 +147,21 @@ class PrepareIPATest(unittest.TestCase):
                         self.assertIs(plistlib.loads(output.read(EXTENSION_INFO))["UIDesignRequiresCompatibility"], True)
                     self.output.unlink()
 
+    def test_accepts_host_versions_without_an_allowlist(self):
+        for version, build in (("6.9.0", "6.9.0.1"), ("7.4.5", "7.4.5.33"), ("9.0.0", "123"), (None, None)):
+            with self.subTest(version=version, build=build):
+                extra = {"UIDesignRequiresCompatibility": True}
+                if version is not None:
+                    extra["CFBundleShortVersionString"] = version
+                self.write_ipa(host_binary(), version=build, info_extra=extra)
+                prep.prepare(self.input, self.plugin, self.output)
+                with zipfile.ZipFile(self.output) as output:
+                    info = plistlib.loads(output.read(prep.INFO_PLIST))
+                    self.assertEqual((info.get("CFBundleShortVersionString"), info.get("CFBundleVersion")), (version, build))
+                    self.assertIs(info["UIDesignRequiresCompatibility"], False)
+                    self.assertEqual(output.read(prep.PLUGIN_ENTRY), self.plugin.read_bytes())
+                self.output.unlink()
+
     def test_native_design_configuration_returns_copy_without_mutating_metadata(self):
         for extra in ({}, {"UIDesignRequiresCompatibility": True}, {"UIDesignRequiresCompatibility": False}):
             with self.subTest(existing_flag=extra):
@@ -199,7 +217,7 @@ class PrepareIPATest(unittest.TestCase):
             self.assertEqual(output.read(prep.PLUGIN_ENTRY), versioned.read_bytes())
 
     def test_rejects_legacy_and_versioned_duplicate_loads(self):
-        for name in (b"HongguoGlass.dylib", b"Honggo-1.0.0.dylib", b"HONGGO.DYLIB"):
+        for name in (b"HongguoGlass.dylib", b"Honggo-1.0.0.dylib", b"Honggo-1.1.15-R26.dylib", b"HONGGO.DYLIB"):
             with self.subTest(name=name):
                 self.write_ipa(host_binary(duplicate_load=True, duplicate_name=name))
                 with self.assertRaisesRegex(ValueError, "already has a load command"):
@@ -207,7 +225,7 @@ class PrepareIPATest(unittest.TestCase):
                 self.assertFalse(self.output.exists())
 
     def test_rejects_legacy_and_versioned_embedded_plugins(self):
-        for name in ("HongguoGlass.dylib", "Honggo-1.0.0.dylib", "HONGGO.DYLIB"):
+        for name in ("HongguoGlass.dylib", "Honggo-1.0.0.dylib", "Honggo-1.1.15-R26.dylib", "HONGGO.DYLIB"):
             with self.subTest(name=name):
                 self.write_ipa(host_binary())
                 with zipfile.ZipFile(self.input, "a") as archive:
@@ -216,10 +234,7 @@ class PrepareIPATest(unittest.TestCase):
                     prep.prepare(self.input, self.plugin, self.output)
                 self.assertFalse(self.output.exists())
 
-    def test_rejects_wrong_host_version_or_simulator_dylib(self):
-        self.write_ipa(host_binary(), version="7.4.4")
-        with self.assertRaisesRegex(ValueError, "Expected Hongguo"):
-            prep.prepare(self.input, self.plugin, self.output)
+    def test_rejects_simulator_dylib(self):
         self.write_ipa(host_binary())
         self.plugin.write_bytes(macho(prep.MH_DYLIB, [self.identity], platform=7))
         with self.assertRaisesRegex(ValueError, "iOS device"):
@@ -229,8 +244,6 @@ class PrepareIPATest(unittest.TestCase):
     def test_rejects_unverified_host_before_configuring_native_design(self):
         for key, value in (
             ("CFBundleIdentifier", "com.example.different"),
-            ("CFBundleShortVersionString", "7.4.4"),
-            ("CFBundleVersion", "7.4.3.34"),
             ("CFBundleExecutable", "DifferentHost"),
         ):
             with self.subTest(key=key):

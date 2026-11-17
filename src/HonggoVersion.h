@@ -1,5 +1,5 @@
 #pragma once
 
-// The sole plugin-version source. Host version 7.4.3.33 is independent.
+// The sole plugin-version source. The host build is independent.
 #define HG_PLUGIN_NAME @"Honggo"
-#define HG_PLUGIN_VERSION @"1.1.15-R26"
+#define HG_PLUGIN_VERSION @"1.1.15-R27"

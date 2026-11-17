@@ -246,31 +246,57 @@ static void HGALandscapeApplyView(UIView *root) {
 }
 
 static IMP HGALandscapeToastOriginal;
+static const uintptr_t *HGALandscapeToastSites;
+
+static const uintptr_t *HGALandscapeToastSitesForExecutable(void) {
+    // These locations belong to the inspected executables, even if the IPA
+    // has been repackaged with different version metadata.
+    static const struct {
+        uint8_t uuid[16];
+        uintptr_t sites[6];
+    } known[] = {
+        {{0x43,0x0a,0xc0,0x1a,0x1a,0x01,0x3c,0x39,0xa3,0xfc,0xcc,0xb2,0x7f,0x7a,0x7b,0x0a},
+            {0xf5c5b54,0xf5c5da4,0xf5c6454,0xf5c6730,0xf6491ac,0xf649364}},
+        {{0xb0,0x67,0x06,0x6f,0xd7,0xf2,0x3d,0xf8,0x8e,0x5d,0xc1,0x81,0xf8,0xc7,0xce,0x1f},
+            {0xfa06cb0,0xfa06f04,0xfa075b0,0xfa07890,0xfa8ccb0,0xfa8ce64}},
+    };
+    const struct mach_header_64 *header=(const struct mach_header_64 *)_dyld_get_image_header(0);
+    if(!header || header->magic!=MH_MAGIC_64)return NULL;
+    const uint8_t *cursor=(const uint8_t *)(header+1);
+    for(uint32_t i=0;i<header->ncmds;i++) {
+        const struct load_command *command=(const struct load_command *)cursor;
+        if(command->cmd==LC_UUID && command->cmdsize==sizeof(struct uuid_command)) {
+            const struct uuid_command *uuid=(const struct uuid_command *)cursor;
+            for(NSUInteger index=0;index<sizeof(known)/sizeof(known[0]);index++)
+                if(!memcmp(uuid->uuid,known[index].uuid,sizeof(uuid->uuid)))return known[index].sites;
+            break;
+        }
+        cursor+=command->cmdsize;
+    }
+    return NULL;
+}
 
 static void HGALandscapeToast(id object,SEL command,id message) {
     if([message isKindOfClass:NSString.class] && [message isEqualToString:@"加载失败，请稍后重试"]) {
+        static NSString *const stages[]={@"prepare-switch",@"select-target",@"complete-switch",
+            @"prepare-direct",@"season-delegate-declined",@"season-route-failed"};
         uintptr_t executableBase=(uintptr_t)_dyld_get_image_header(0);
         NSArray<NSNumber *> *frames=NSThread.callStackReturnAddresses;
-        // Eggplant 7.4.3.33 return sites immediately after these verified toast
-        // calls. The addresses are only compared here and never exported.
-        for(NSUInteger i=0;i<MIN(frames.count,8);i++) {
-            NSString *stage=nil;
-            switch(frames[i].unsignedLongLongValue-executableBase) {
-                case 0xf5c5b54: stage=@"prepare-switch"; break;
-                case 0xf5c5da4: stage=@"select-target"; break;
-                case 0xf5c6454: stage=@"complete-switch"; break;
-                case 0xf5c6730: stage=@"prepare-direct"; break;
-                case 0xf6491ac: stage=@"season-delegate-declined"; break;
-                case 0xf649364: stage=@"season-route-failed"; break;
-                default: break;
+        NSString *stage=nil;
+        for(NSUInteger i=0;i<MIN(frames.count,8) && !stage;i++) {
+            uintptr_t offset=frames[i].unsignedLongLongValue-executableBase;
+            for(NSUInteger index=0;index<sizeof(stages)/sizeof(stages[0]);index++) {
+                if(offset==HGALandscapeToastSites[index]){stage=stages[index];break;}
             }
-            if(stage) {HGLog(@"playback.landscape-load-failed",@{@"stage":stage});break;}
         }
+        if(stage)HGLog(@"playback.landscape-load-failed",@{@"stage":stage});
     }
     ((void(*)(id,SEL,id))HGALandscapeToastOriginal)(object,command,message);
 }
 
 static void HGAInstallLandscapeLoadFailureDiagnostic(void) {
+    HGALandscapeToastSites=HGALandscapeToastSitesForExecutable();
+    if(!HGALandscapeToastSites)return;
     Class toast=NSClassFromString(@"FQVShortVideoListVCToastComponent");
     if(toast)HGALandscapeToastOriginal=HGReplaceMethod(toast,sel_registerName("toast:"),"v24@0:8@16",(IMP)HGALandscapeToast);
 }
