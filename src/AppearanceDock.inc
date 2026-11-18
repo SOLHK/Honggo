@@ -400,7 +400,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
     CGRect selectedFrame=CGRectNull;
     NSString *content=HGAppearanceString(@"dock.content");
-    CGFloat slotInset=MIN(14,MAX(0,(expanded.size.width-44*visible.count)/2));
+    CGFloat slotInset=MIN(14,MAX(0,(expanded.size.width-54*visible.count)/2));
     CGFloat slotWidth=(expanded.size.width-2*slotInset)/visible.count;
     CGFloat unselectedOpacity=self.traitCollection.accessibilityContrast==UIAccessibilityContrastHigh ? 0.94 : 0.80;
     CGFloat requestedIcon=HGAppearanceNumber(@"dock.iconSize");
@@ -422,7 +422,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         UIFont *font=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];
         if(HGAppearanceFlag(@"fonts.enabled"))font=HGAConfiguredFont(font);
         CGFloat iconHeight=title.length ? height-11-font.lineHeight : height*0.48;
-        CGFloat iconSize=MAX(12,MIN(requestedIcon,MIN(iconHeight,slotWidth-20)));
+        CGFloat iconSize=MAX(12,MIN(requestedIcon,MIN(iconHeight,slotWidth-16)));
         b.enabled=source.enabled;b.selected=active;
         HGADockConfigureButton(b,title,[content isEqual:@"text"]?nil:image,iconSize,font,color);
         if(active) {

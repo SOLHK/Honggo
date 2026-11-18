@@ -83,6 +83,8 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *checks;
 @property(nonatomic, strong) HGSearchTransitionRecorder *searchEvents;
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *searchStateTrace;
+- (HGSettingsController *)runOptionsChecks;
+- (void)runDockGeometrySubmenuCheck:(HGSettingsController *)settings completion:(dispatch_block_t)completion;
 @end
 
 @implementation HGSettingsTests
@@ -139,9 +141,15 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
             }
             dispatch_async(dispatch_get_main_queue(), ^{
                 @try {
-                    [self runOptionsChecks];
-                    [self capture:@"settings-options-simulator.png"];
-                    [self runSearchChecksWithCompletion:^{ [self finish]; }];
+                    HGSettingsController *settings = [self runOptionsChecks];
+                    if (!settings) {
+                        [self finish];
+                        return;
+                    }
+                    [self runDockGeometrySubmenuCheck:settings completion:^{
+                        [self capture:@"settings-options-simulator.png"];
+                        [self runSearchChecksWithCompletion:^{ [self finish]; }];
+                    }];
                 } @catch (NSException *exception) {
                     [self check:NO name:[@"options exception: " stringByAppendingString:exception.description]];
                     [self finish];
@@ -233,7 +241,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [child removeFromParentViewController];
     [self layoutHost];
 }
-- (void)runOptionsChecks {
+- (HGSettingsController *)runOptionsChecks {
     UIViewController *presented = self.host.presentedViewController;
     BOOL isNavigation = [presented isKindOfClass:UINavigationController.class];
     HGSettingsController *settings = isNavigation ? (HGSettingsController *)
@@ -241,7 +249,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     BOOL hasSettings = [settings isKindOfClass:HGSettingsController.class];
     [self check:hasSettings name:@"tapping the menu opens the real plugin settings controller"];
     if (!hasSettings) {
-        return;
+        return nil;
     }
     [settings loadViewIfNeeded];
     NSString *rootHeader = [settings tableView:settings.tableView titleForHeaderInSection:0];
@@ -328,24 +336,6 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     }
     [self check:restored name:@"fresh settings submenu controllers restore all 18 saved switch values"];
 
-    HGOpenAppearance(settings, @"dock.geometry");
-    UITableViewController *appearanceSub = (UITableViewController *)((UINavigationController *)presented).topViewController;
-    [appearanceSub loadViewIfNeeded];
-    BOOL openedDockGeom = appearanceSub != (UITableViewController *)settings &&
-        [[appearanceSub.tableView.dataSource tableView:appearanceSub.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："] &&
-        [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView numberOfRowsInSection:0] == 1;
-    UITableViewCell *geomCell = openedDockGeom ? [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView
-        cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]] : nil;
-    UISwitch *geomSwitch = [geomCell.accessoryView isKindOfClass:UISwitch.class] ? (UISwitch *)geomCell.accessoryView : nil;
-    geomSwitch.on = YES;
-    [geomSwitch sendActionsForControlEvents:UIControlEventValueChanged];
-    openedDockGeom &= [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView numberOfRowsInSection:0] == 6;
-    geomSwitch.on = NO;
-    [geomSwitch sendActionsForControlEvents:UIControlEventValueChanged];
-    openedDockGeom &= [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView numberOfRowsInSection:0] == 1;
-    [((UINavigationController *)presented) popToViewController:settings animated:NO];
-    [self check:openedDockGeom name:@"dock geometry level-3 submenu toggles its sliders inside the live settings stack"];
-
     [self check:[[NSUserDefaults.standardUserDefaults stringForKey:@"host.setting"] isEqualToString:@"preserved"]
         name:@"unrelated host preferences remain unchanged"];
     UIControl *menu = (UIControl *)HGFindMenus(self.host.tableView.tableHeaderView).firstObject;
@@ -353,6 +343,54 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self check:self.host.presentedViewController == presented && !presented.presentedViewController
         name:@"repeated menu action does not stack a second settings sheet"];
     [settings.tableView reloadData];
+    return settings;
+}
+- (void)runDockGeometrySubmenuCheck:(HGSettingsController *)settings completion:(dispatch_block_t)completion {
+    UINavigationController *navigation = settings.navigationController;
+    [self poll:^BOOL {
+        return self.window.windowScene.activationState == UISceneActivationStateForegroundActive &&
+            UIApplication.sharedApplication.applicationState == UIApplicationStateActive &&
+            self.window.isKeyWindow && settings.viewIfLoaded.window == self.window &&
+            navigation.topViewController == settings && navigation.presentingViewController != nil &&
+            !navigation.isBeingPresented && !navigation.isBeingDismissed &&
+            !settings.isBeingPresented && !settings.isBeingDismissed &&
+            !navigation.transitionCoordinator && !settings.transitionCoordinator;
+    } deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL ready) {
+        if (!ready) {
+            [self check:NO name:@"dock geometry level-3 submenu toggles its sliders inside the live settings stack"];
+            completion();
+            return;
+        }
+        HGOpenAppearance(settings, @"dock.geometry");
+        [self poll:^BOOL {
+            UIViewController *top = navigation.topViewController;
+            return top != settings && !navigation.transitionCoordinator && !top.transitionCoordinator &&
+                top.viewIfLoaded.window == self.window;
+        } deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL pushed) {
+            UITableViewController *appearanceSub = pushed ? (UITableViewController *)navigation.topViewController : nil;
+            [appearanceSub loadViewIfNeeded];
+            BOOL openedDockGeom = pushed && appearanceSub != (UITableViewController *)settings &&
+                [[appearanceSub.tableView.dataSource tableView:appearanceSub.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："] &&
+                [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView numberOfRowsInSection:0] == 1;
+            UITableViewCell *geomCell = openedDockGeom ? [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView
+                cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]] : nil;
+            UISwitch *geomSwitch = [geomCell.accessoryView isKindOfClass:UISwitch.class] ? (UISwitch *)geomCell.accessoryView : nil;
+            geomSwitch.on = YES;
+            [geomSwitch sendActionsForControlEvents:UIControlEventValueChanged];
+            openedDockGeom &= [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView numberOfRowsInSection:0] == 6;
+            geomSwitch.on = NO;
+            [geomSwitch sendActionsForControlEvents:UIControlEventValueChanged];
+            openedDockGeom &= [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView numberOfRowsInSection:0] == 1;
+            [self check:openedDockGeom name:@"dock geometry level-3 submenu toggles its sliders inside the live settings stack"];
+            [navigation popToViewController:settings animated:NO];
+            [self poll:^BOOL {
+                return navigation.topViewController == settings && !navigation.transitionCoordinator &&
+                    !settings.transitionCoordinator && settings.viewIfLoaded.window == self.window;
+            } deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL settled) {
+                completion();
+            }];
+        }];
+    }];
 }
 - (void)filterSettings:(HGSettingsController *)settings text:(NSString *)text {
     UISearchController *search = settings.navigationItem.searchController;
