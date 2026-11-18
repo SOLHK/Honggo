@@ -90,9 +90,14 @@ static void HGADockConfigureButton(UIButton *button,NSString *title,UIImage *ima
     config.baseBackgroundColor=UIColor.clearColor;
     config.baseForegroundColor=color;
     config.imageColorTransformer=^UIColor *(UIColor *incoming){return color;};
-    config.title=title;config.image=image;
-    config.preferredSymbolConfigurationForImage=[UIImageSymbolConfiguration
+    UIImageSymbolConfiguration *symbolConfig=[UIImageSymbolConfiguration
         configurationWithPointSize:iconSize weight:UIImageSymbolWeightMedium];
+    if(image.isSymbolImage) {
+        image=[image imageWithConfiguration:symbolConfig] ?:
+            [image imageByApplyingSymbolConfiguration:symbolConfig] ?: image;
+    }
+    config.title=title;config.image=image;
+    config.preferredSymbolConfigurationForImage=symbolConfig;
     config.imagePlacement=NSDirectionalRectEdgeTop;
     config.imagePadding=title.length && image ? 3 : 0;
     config.contentInsets=NSDirectionalEdgeInsetsMake(4,4,4,4);

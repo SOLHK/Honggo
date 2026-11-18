@@ -419,7 +419,8 @@ static void HGRunExpandedDockGeometryChecks(SSTabBarController *host) {
     HGAppearanceLayoutDock(bar,host);Layout(home);
     CGFloat oldIcon=MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height);
     BOOL iconScaled=oldIcon>0 && largeIcon>oldIcon+1 && largeIcon<=36;
-    if(!iconScaled)NSLog(@"DOCK_ICON_METRICS large=%.2f old=%.2f slot=%.2f",largeIcon,oldIcon,home.bounds.size.width);
+    if(!iconScaled)NSLog(@"DOCK_ICON_METRICS large=%.2f old=%.2f slot=%.2f img=%.2fx%.2f",
+        largeIcon,oldIcon,home.bounds.size.width,home.configuration.image.size.width,home.configuration.image.size.height);
     Check(iconScaled,
         @"the new navigation glyph grows proportionally within the new touch target");
 
