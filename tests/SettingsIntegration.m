@@ -1,8 +1,9 @@
 #import "Community.h"
 // Real UIKit integration checks with a controlled host, not the Hongguo IPA.
 #import "Honggo.h"
+#import "Appearance.h"
 #import <dispatch/dispatch.h>
-#import <math.h>
+#include <math.h>
 
 @interface SSSettingViewController : UIViewController <UITableViewDataSource>
 @property(nonatomic, strong) UITableView *tableView;
@@ -243,13 +244,25 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         return;
     }
     [settings loadViewIfNeeded];
+    NSString *rootHeader = [settings tableView:settings.tableView titleForHeaderInSection:0];
     [self check:[settings.title isEqualToString:@"Honggo"] &&
-        [[settings tableView:settings.tableView titleForHeaderInSection:0] containsString:HG_PLUGIN_VERSION]
-        name:@"settings title is Honggo with a separate plugin version"];
+        [rootHeader containsString:HG_PLUGIN_VERSION] &&
+        [rootHeader containsString:@"当前调节页面："]
+        name:@"settings title is Honggo with a separate plugin version and target page label"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
-    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount && HGFeatureCount == 18
-        name:@"settings preserves 17 switches and adds the screenshot shopping option"];
+    NSArray<NSString *> *expectedFolders = @[
+        @"honggo.folder.appearance.root", @"honggo.folder.appearance.dock",
+        @"honggo.folder.appearance.pages", @"honggo.folder.ads", @"honggo.folder.controls"
+    ];
+    BOOL folderStructure = [settings.tableView numberOfRowsInSection:0] == (NSInteger)expectedFolders.count && HGFeatureCount == 18;
+    for (NSUInteger i = 0; folderStructure && i < expectedFolders.count; i++) {
+        UITableViewCell *folderCell = [settings tableView:settings.tableView
+            cellForRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)i inSection:0]];
+        folderStructure &= [folderCell.accessibilityIdentifier isEqual:expectedFolders[i]] &&
+            [folderCell.detailTextLabel.text containsString:@"当前调节页面："];
+    }
+    [self check:folderStructure name:@"settings root exposes five categorized entry folders noting regulated pages"];
     [self check:[settings.tableView numberOfRowsInSection:1] == 4
         name:@"settings exposes diagnostics export clear and compatibility"];
     [self check:[settings.tableView numberOfRowsInSection:2] == 3
@@ -261,32 +274,78 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     enhanced.on = YES;
     [enhanced sendActionsForControlEvents:UIControlEventValueChanged];
     [self check:HGEnhancedDiagnostics() name:@"enhanced diagnostics switch takes effect without restart"];
+
+    HGSettingsController *adsHub = [[HGSettingsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [adsHub setValue:@"ads" forKey:@"menuPath"];
+    [adsHub loadViewIfNeeded];
+    [self check:[adsHub.tableView numberOfRowsInSection:0] == 4 &&
+        [[adsHub tableView:adsHub.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："]
+        name:@"ad filter level-2 folder organizes four page-scoped submenus"];
+
     NSArray<NSString *> *keys = @[@"glass", @"splash", @"topview", @"feed", @"comment", @"pause", @"patch",
         @"commerce", @"marketing", @"redPacket", @"bookstoreAd", @"couponPendant", @"miniGamePendant",
         @"welfareGuide", @"survey", @"glassControls", @"sidebarGameCenter", @"screenshotShopping"];
-    BOOL saved = YES;
-    for (NSUInteger index = 0; index < HGFeatureCount; index++) {
-        NSIndexPath *path = [NSIndexPath indexPathForRow:(NSInteger)index inSection:0];
-        UITableViewCell *cell = [settings tableView:settings.tableView cellForRowAtIndexPath:path];
-        UISwitch *toggle = (UISwitch *)cell.accessoryView;
-        BOOL desired = index % 2 == 0;
-        saved = saved && [toggle isKindOfClass:UISwitch.class] && !toggle.on;
-        toggle.on = desired;
-        [toggle sendActionsForControlEvents:UIControlEventValueChanged];
-        NSString *key = [@"HongguoGlass." stringByAppendingString:keys[index]];
-        saved = saved && [NSUserDefaults.standardUserDefaults boolForKey:key] == desired &&
-            HGIsEnabled((HGFeature)index) == desired;
+    NSArray<NSString *> *leafPaths = @[@"controls", @"ads.startup", @"ads.playback", @"ads.popup", @"ads.discovery"];
+    NSMutableSet<NSNumber *> *seenFeatures = [NSMutableSet set];
+    BOOL saved = YES, leafHeaders = YES;
+    for (NSString *path in leafPaths) {
+        HGSettingsController *sub = [[HGSettingsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+        [sub setValue:path forKey:@"menuPath"];
+        [sub loadViewIfNeeded];
+        leafHeaders &= [[sub tableView:sub.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："];
+        NSInteger rows = [sub.tableView numberOfRowsInSection:0];
+        for (NSInteger r = 0; r < rows; r++) {
+            UITableViewCell *cell = [sub tableView:sub.tableView
+                cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
+            UISwitch *toggle = (UISwitch *)cell.accessoryView;
+            saved = saved && [toggle isKindOfClass:UISwitch.class] && !toggle.on;
+            HGFeature feature = (HGFeature)toggle.tag;
+            [seenFeatures addObject:@(feature)];
+            BOOL desired = ((NSUInteger)feature) % 2 == 0;
+            toggle.on = desired;
+            [toggle sendActionsForControlEvents:UIControlEventValueChanged];
+            NSString *key = [@"HongguoGlass." stringByAppendingString:keys[(NSUInteger)feature]];
+            saved = saved && [NSUserDefaults.standardUserDefaults boolForKey:key] == desired &&
+                HGIsEnabled(feature) == desired;
+        }
     }
-    [self check:saved name:@"switch events write the existing preference keys"];
-    HGSettingsController *reopened = [[HGSettingsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
-    [reopened loadViewIfNeeded];
+    [self check:leafHeaders && seenFeatures.count == HGFeatureCount && saved
+        name:@"all 18 feature switches live in labeled submenus and write existing preference keys"];
+
     BOOL restored = YES;
-    for (NSUInteger index = 0; index < HGFeatureCount; index++) {
-        UITableViewCell *cell = [reopened tableView:reopened.tableView
-            cellForRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)index inSection:0]];
-        restored = restored && [(UISwitch *)cell.accessoryView isOn] == (index % 2 == 0);
+    for (NSString *path in leafPaths) {
+        HGSettingsController *reopened = [[HGSettingsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+        [reopened setValue:path forKey:@"menuPath"];
+        [reopened loadViewIfNeeded];
+        NSInteger rows = [reopened.tableView numberOfRowsInSection:0];
+        for (NSInteger r = 0; r < rows; r++) {
+            UITableViewCell *cell = [reopened tableView:reopened.tableView
+                cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
+            UISwitch *toggle = (UISwitch *)cell.accessoryView;
+            HGFeature feature = (HGFeature)toggle.tag;
+            restored = restored && toggle.isOn == (((NSUInteger)feature) % 2 == 0);
+        }
     }
-    [self check:restored name:@"a fresh settings controller restores saved switch values"];
+    [self check:restored name:@"fresh settings submenu controllers restore all 18 saved switch values"];
+
+    HGOpenAppearance(settings, @"dock.geometry");
+    UITableViewController *appearanceSub = (UITableViewController *)((UINavigationController *)presented).topViewController;
+    [appearanceSub loadViewIfNeeded];
+    BOOL openedDockGeom = appearanceSub != (UITableViewController *)settings &&
+        [[appearanceSub.tableView.dataSource tableView:appearanceSub.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："] &&
+        [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView numberOfRowsInSection:0] == 1;
+    UITableViewCell *geomCell = openedDockGeom ? [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView
+        cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]] : nil;
+    UISwitch *geomSwitch = [geomCell.accessoryView isKindOfClass:UISwitch.class] ? (UISwitch *)geomCell.accessoryView : nil;
+    geomSwitch.on = YES;
+    [geomSwitch sendActionsForControlEvents:UIControlEventValueChanged];
+    openedDockGeom &= [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView numberOfRowsInSection:0] == 6;
+    geomSwitch.on = NO;
+    [geomSwitch sendActionsForControlEvents:UIControlEventValueChanged];
+    openedDockGeom &= [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView numberOfRowsInSection:0] == 1;
+    [((UINavigationController *)presented) popToViewController:settings animated:NO];
+    [self check:openedDockGeom name:@"dock geometry level-3 submenu toggles its sliders inside the live settings stack"];
+
     [self check:[[NSUserDefaults.standardUserDefaults stringForKey:@"host.setting"] isEqualToString:@"preserved"]
         name:@"unrelated host preferences remain unchanged"];
     UIControl *menu = (UIControl *)HGFindMenus(self.host.tableView.tableHeaderView).firstObject;
@@ -446,8 +505,9 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     UISwitch *screenshot = (UISwitch *)screenshotRow.accessoryView;
     [self check:[settings.tableView numberOfRowsInSection:0] == 1 && screenshot.tag == HGScreenshotShopping &&
         [screenshot.accessibilityIdentifier isEqual:@"hg.option.screenshotShopping"] &&
-        [screenshotRow.textLabel.text isEqual:@"隐藏截图识图找同款"]
-        name:@"search finds the independent screenshot shopping switch"];
+        [screenshotRow.textLabel.text isEqual:@"隐藏截图识图找同款"] &&
+        [screenshotRow.detailTextLabel.text containsString:@"位置："]
+        name:@"search finds the independent screenshot shopping switch with its menu path"];
 
     [self filterSettings:settings text:@"直播 领券"];
     UISwitch *marketing = (UISwitch *)[self settingsCell:settings section:0 row:0].accessoryView;
@@ -494,13 +554,13 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [settings.tableView.backgroundView.accessibilityIdentifier isEqual:@"honggo.settings.search.empty"]
         name:@"unmatched search has no stale rows and exposes an accessible empty state"];
     [self filterSettings:settings text:@" \n\t "];
-    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount &&
+    [self check:[settings.tableView numberOfRowsInSection:0] == 5 &&
         [settings.tableView numberOfRowsInSection:1] == 4 && [settings.tableView numberOfRowsInSection:2] == 3 &&
         settings.tableView.backgroundView == nil
-        name:@"whitespace search restores every section and removes the empty state"];
+        name:@"whitespace search restores the root folder catalog and removes the empty state"];
     [self filterSettings:settings text:@""];
-    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount
-        name:@"clearing the query restores the full feature catalog"];
+    [self check:[settings.tableView numberOfRowsInSection:0] == 5
+        name:@"clearing the query restores the categorized root menu"];
     [self runSearchAction:0 settings:settings completion:completion];
 }
 - (void)runSearchAction:(NSUInteger)index settings:(HGSettingsController *)settings completion:(dispatch_block_t)completion {
@@ -571,10 +631,11 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
                 [[NSUserDefaults.standardUserDefaults stringForKey:@"host.setting"] isEqual:@"preserved"]
                 name:@"opening configuration tools does not change features host settings or diagnostic consent"];
             if (index == 0) {
-                UIViewController *compatibility = settings.navigationController.topViewController;
+                UITableViewController *compatibility = (UITableViewController *)settings.navigationController.topViewController;
                 [compatibility loadViewIfNeeded];
                 [self check:[compatibility.view.accessibilityIdentifier isEqual:@"honggo.compatibility"] &&
-                    [compatibility isKindOfClass:UITableViewController.class]
+                    [compatibility isKindOfClass:UITableViewController.class] &&
+                    [[compatibility.tableView.dataSource tableView:compatibility.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："]
                     name:@"compatibility action displays the dedicated native status table"];
                 [settings.navigationController popToViewController:settings animated:NO];
                 dispatch_async(dispatch_get_main_queue(), ^{

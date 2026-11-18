@@ -248,6 +248,18 @@ void HGAppearanceRefresh(void) {
         @"episodeSpacing":@([HGAppearanceString(@"player.separateProgress") isEqual:@"show"]),
         @"episodeGlass":@(HGAppearanceFlag(@"player.episodeGlass")),@"rightGlass":@(HGAppearanceFlag(@"player.rightGlass")),
         @"dock":@(HGAppearanceDockEnabled()),@"reason":@"scoped visual adapters; device behavior not verified"});
+    if(HGAppearanceEnabled() && (HGAppearanceFlag(@"player.seriesPillGlass") || HGAppearanceFlag(@"layout.seriesPill.hidden"))) {
+        HGRecordCapability(@"appearance.seriesPill",@{@"module":@"appearance",@"state":@"unavailable",
+            @"reason":@"awaiting host hierarchy log Honggo-log-...96CB.json for SSShortVideoOutterSeriesInfoView child pill"});
+    }
+    if(HGAppearanceEnabled() && (HGAppearanceFlag(@"player.goodsPillGlass") || HGAppearanceFlag(@"layout.goodsPill.hidden"))) {
+        HGRecordCapability(@"appearance.goodsPill",@{@"module":@"appearance",@"state":@"unavailable",
+            @"reason":@"awaiting host hierarchy log Honggo-log-...96CB.json for SSShortVideoDerivateInfoView child pill"});
+    }
+    if(HGAppearanceEnabled() && HGAppearanceFlag(@"player.defaultMaxQuality")) {
+        HGRecordCapability(@"appearance.defaultMaxQuality",@{@"module":@"appearance",@"state":@"unavailable",
+            @"reason":@"awaiting host clarity selection method log Honggo-log-...96CB.json"});
+    }
     if (!HGAppearanceEnabled() || !HGAppearanceFlag(@"fonts.enabled")) for (UIView *text in HGATexts.allObjects) HGARestoreText(text);
     for (UIView *view in HGAManaged.allObjects) HGAppearanceProcessView(view);
     for (UIViewController *controller in HGAControllers.allObjects) HGAppearanceProcessController(controller);

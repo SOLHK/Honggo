@@ -24,8 +24,8 @@
     if(self.window)[self setNeedsLayout];
 }
 - (NSString *)currentMaterialSignature {
-    return [NSString stringWithFormat:@"%@/%d/%ld/%d/%.3f",self.style,
-        HGNativeGlassConfigured(),(long)self.traitCollection.userInterfaceStyle,
+    return [NSString stringWithFormat:@"%@/%d/%d/%ld/%d/%.3f",self.style,
+        HGNativeGlassConfigured(),self.interactiveGlass,(long)self.traitCollection.userInterfaceStyle,
         UIAccessibilityIsReduceTransparencyEnabled(),self.overlayOpacity];
 }
 - (void)requestMaterialRefresh {
@@ -154,6 +154,7 @@ static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CG
     BOOL solid=[style isEqual:@"solid"];
     // Match the playback chrome while leaving host content traits alone.
     glass.overrideUserInterfaceStyle=solid ? UIUserInterfaceStyleUnspecified : UIUserInterfaceStyleDark;
+    if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];
     UIColor *color=tint ?: (solid ? UIColor.secondarySystemBackgroundColor : [UIColor colorWithWhite:0.10 alpha:1]);
     CGFloat opacity=solid || UIAccessibilityIsReduceTransparencyEnabled() ? 1 : (tint ? 0.30 : 0.12);
     glass.overlayColor=[color colorWithAlphaComponent:opacity];

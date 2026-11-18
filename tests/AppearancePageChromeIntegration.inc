@@ -280,12 +280,68 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         [finder.searchBgView.backgroundColor isEqual:UIColor.systemGrayColor];
     for(SSBookStoreEntranceView *shortcut in shortcuts)scoped&=!shortcut.bgImgView.hidden && shortcut.bgImgView.image!=nil;
     Check(scoped,@"finder glass targets the four shortcuts and restores native search backgrounds on disable");
-    [finder willMoveToParentViewController:nil];[finder.view removeFromSuperview];[finder removeFromParentViewController];
-    HGAppearanceSet(@"player.finderGlass",@YES,nil);
 
-    SSMyUser637TabsView *mine=[[SSMyUser637TabsView alloc] initWithFrame:CGRectMake(0,230,290,80)];
+    HGAppearanceSet(@"player.finderGlass",@YES,nil);
+    finder.view.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
+    UIView *searchInner=[[UIView alloc] initWithFrame:finder.searchBgView.bounds];
+    searchInner.backgroundColor=UIColor.systemGray5Color;
+    [finder.searchBgView addSubview:searchInner];
+    finder.normalImageSearchView.backgroundColor=UIColor.systemGray5Color;
+    HGAppearanceProcessController(finder);
+    UIVisualEffectView *lightSearchGlass=(id)Find(finder.searchBgView,material);
+    Layout(lightSearchGlass);
+    BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
+    UIColor *expectedLightOverlay=reduced ? [UIColor colorWithWhite:0.91 alpha:1] : [UIColor colorWithWhite:1 alpha:0];
+    Check(lightSearchGlass && [lightSearchGlass.contentView.backgroundColor isEqual:expectedLightOverlay] &&
+        (reduced || !HGNativeGlassConfigured() || fabs(lightSearchGlass.layer.borderWidth-0.5)<0.01) &&
+        [searchInner.backgroundColor isEqual:UIColor.clearColor] &&
+        [finder.normalImageSearchView.backgroundColor isEqual:UIColor.clearColor],
+        @"light-mode finder glass uses clear overlay and clears child neutral backings");
+    HGAppearanceSet(@"player.finderGlass",@NO,nil);
+    Check([searchInner.backgroundColor isEqual:UIColor.systemGray5Color] &&
+        [finder.normalImageSearchView.backgroundColor isEqual:UIColor.systemGray5Color],
+        @"disabling finder glass restores child neutral backing colors");
+
+    HGAppearanceSet(@"player.finderGlass",@YES,nil);
+    SSVideoSeriesFeedHeaderView *homeHeader=[[HGAObservedHeaderFixture alloc] initWithFrame:CGRectMake(0,0,280,44)];
+    [root addSubview:homeHeader];
+    UIView *homeTabContainer=PageChromeControl(homeHeader,CGRectMake(56,0,200,44));
+    homeHeader.tabContainer=homeTabContainer;
+    SSHGBookStoreCategoryTitleView *homeChannels=[[SSHGBookStoreCategoryTitleView alloc] initWithFrame:homeTabContainer.bounds];
+    homeChannels.titles=@[@"关注",@"推荐"];
+    [homeTabContainer addSubview:homeChannels];
+    SSHGBookStoreCategoryTitleView *finderChannels=[[SSHGBookStoreCategoryTitleView alloc] initWithFrame:CGRectMake(0,78,240,28)];
+    finderChannels.titles=@[@"找剧",@"真人剧",@"社区"];
+    [finder.view addSubview:finderChannels];
+    Layout(homeHeader);HGAppearanceProcessController(finder);
+    HGAppearanceSet(@"layout.finder.hide.channels",@YES,nil);
+    BOOL finderChannelsHidden=finderChannels.hidden && !homeChannels.hidden && !filterShortcut.hidden && !((UIView *)shortcuts[1]).hidden;
+    HGAppearanceSet(@"layout.finder.hide.channels",@NO,nil);
+    BOOL finderChannelsRestored=!finderChannels.hidden;
+    HGAppearanceSet(@"layout.finder.hide.shortcuts",@YES,nil);
+    BOOL finderShortcutsHidden=filterShortcut.hidden && !finderChannels.hidden &&
+        ((UIView *)shortcuts[0]).hidden && ((UIView *)shortcuts[1]).hidden &&
+        ((UIView *)shortcuts[2]).hidden && ((UIView *)shortcuts[3]).hidden && !((UIView *)shortcuts[4]).hidden;
+    HGAppearanceSet(@"layout.finder.hide.shortcuts",@NO,nil);
+    BOOL finderShortcutsRestored=!filterShortcut.hidden && !((UIView *)shortcuts[1]).hidden &&
+        Find(filterShortcut,material)!=nil && Find(shortcuts[1],material)!=nil;
+    Check(finderChannelsHidden && finderChannelsRestored && finderShortcutsHidden && finderShortcutsRestored,
+        @"finder channel and shortcut hide toggles act independently without affecting home channels");
+    [homeHeader removeFromSuperview];
+    [finder willMoveToParentViewController:nil];[finder.view removeFromSuperview];[finder removeFromParentViewController];
+
+    SSMyUser637TabsView *mine=[[SSMyUser637TabsView alloc] initWithFrame:CGRectMake(0,230,290,116)];
+    mine.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
     [root addSubview:mine];mine.searchBtn=[[UIButton alloc] initWithFrame:CGRectMake(255,0,30,32)];
+    UIImage *mineBtnBg=[UIImage systemImageNamed:@"rectangle.fill"];
+    [mine.searchBtn setBackgroundImage:mineBtnBg forState:UIControlStateNormal];
     [mine addSubview:mine.searchBtn];
+    FQRJXCategoryTitleView *topTabs=[[FQRJXCategoryTitleView alloc] initWithFrame:CGRectMake(0,0,250,34)];
+    [mine addSubview:topTabs];
+    NSMutableArray<FQRJXCategoryTitleCell *> *topTabCells=[NSMutableArray array];
+    NSArray *topTabTitles=@[@"作品",@"历史",@"收藏",@"点赞",@"预约"];
+    for(NSUInteger i=0;i<topTabTitles.count;i++)
+        [topTabCells addObject:PageChromeTitle(topTabs,topTabTitles[i],i*50)];
     UIView *toolbar=PageChromeControl(mine,CGRectMake(0,40,285,38));
     UIScrollView *categoryWrapper=[[UIScrollView alloc] initWithFrame:CGRectMake(0,0,190,34)];
     [toolbar addSubview:categoryWrapper];
@@ -301,10 +357,17 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     FQRJXCategoryTitleCell *watched=PageChromeTitle(categories,@"已看完",54);
     FQRJXCategoryTitleCell *unwatched=PageChromeTitle(categories,@"未看完",110);
     Layout(filter);Layout(mine);
-    BOOL history=Find(mine.searchBtn,material) && Find(filter,material) && filter.backgroundView.hidden && Find(edit,material) &&
-        Find(all,material) && Find(watched,material) && Find(unwatched,material);
+    BOOL topGlass=YES;
+    for(FQRJXCategoryTitleCell *tab in topTabCells)topGlass&=Find(tab,material)!=nil;
+    UIVisualEffectView *tabGlass=(id)Find(topTabCells.firstObject,material);
+    Layout(tabGlass);
+    BOOL history=Find(mine.searchBtn,material) && [mine.searchBtn backgroundImageForState:UIControlStateNormal]==nil &&
+        Find(filter,material) && filter.backgroundView.hidden && Find(edit,material) &&
+        Find(all,material) && Find(watched,material) && Find(unwatched,material) && topGlass &&
+        [tabGlass.contentView.backgroundColor isEqual:expectedLightOverlay];
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
-    Check(history && !Find(mine,material) && !filter.backgroundView.hidden,
-        @"Mine chrome follows native history controls and replaces and restores the filter background image");
+    Check(history && !Find(mine,material) && !filter.backgroundView.hidden &&
+        [mine.searchBtn backgroundImageForState:UIControlStateNormal]==mineBtnBg,
+        @"Mine chrome applies light liquid glass across top and history tabs and restores button backgrounds");
     HGAppearanceSet(@"player.mineGlass",@YES,nil);[mine removeFromSuperview];
 }

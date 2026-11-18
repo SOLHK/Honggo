@@ -159,6 +159,27 @@ static BOOL ImageContentEqual(UIImage *actual,UIImage *expected) {
     return equal;
 }
 static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
+static void (*HGOriginalMaterialSetEffect)(id,SEL,UIVisualEffect *);
+static char HGMaterialEffectCountKey;
+static NSUInteger HGMaterialEffectSetterCount(UIView *view) {
+    return [objc_getAssociatedObject(view,&HGMaterialEffectCountKey) unsignedIntegerValue];
+}
+static void HGSpyMaterialSetEffect(UIVisualEffectView *view,SEL selector,UIVisualEffect *effect) {
+    objc_setAssociatedObject(view,&HGMaterialEffectCountKey,
+        @(HGMaterialEffectSetterCount(view)+1),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    HGOriginalMaterialSetEffect(view,selector,effect);
+}
+static BOOL HGInstallMaterialEffectSpy(void) {
+    static BOOL installed=NO;
+    if(installed)return YES;
+    Class target=NSClassFromString(@"HGAAppearanceMaterial");
+    Method method=class_getInstanceMethod(target,@selector(setEffect:));
+    if(!target || ![target isSubclassOfClass:UIVisualEffectView.class] || !method)return NO;
+    HGOriginalMaterialSetEffect=(void (*)(id,SEL,UIVisualEffect *))method_getImplementation(method);
+    class_replaceMethod(target,@selector(setEffect:),(IMP)HGSpyMaterialSetEffect,method_getTypeEncoding(method));
+    installed=YES;
+    return YES;
+}
 #include "PlaybackAppearanceIntegration.inc"
 #include "AppearanceTransitionCoordinatorTests.inc"
 #include "DockAppearanceIntegration.inc"
@@ -179,6 +200,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     HGSetEnabled(HGGlass,YES);HGPrepareNativeGlass();
     Check(HGInstallTabBar(),@"legacy tab-bar adapter installs alongside appearance");
     HGInstallAppearance();HGInstallAppearance();
+    Check(HGInstallMaterialEffectSpy(),@"material effect setter spy installs");
     self.host=[SSTabBarController new];
     self.window=[[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];self.window.rootViewController=self.host;[self.window makeKeyAndVisible];
     dispatch_async(dispatch_get_main_queue(),^{
@@ -267,8 +289,11 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Check(!Find(capsule,@"honggo.appearance.dock.diffuser") && Count(capsule,@"honggo.appearance.material")==1,
         @"dock uses one native glass layer instead of stacking tinted system materials");
     UIVisualEffect *existingEffect=dockMaterial.effect;
+    NSUInteger effectWrites=HGMaterialEffectSetterCount(dockMaterial);
     for(NSUInteger pass=0;pass<3;pass++){HGAppearanceLayoutDock(self.host.customTabBar,self.host);Layout(dockMaterial);}
-    Check(dockMaterial.effect==existingEffect,@"stable dock layouts keep the same native glass effect");
+    Check(HGMaterialEffectSetterCount(dockMaterial)==effectWrites &&
+        (!existingEffect ? !dockMaterial.effect : [dockMaterial.effect isEqual:existingEffect]),
+        @"stable dock layouts keep the same native glass effect");
     RunEpisodeGlassChecks(root);
     RunEpisodeSpacingChecks(root);
     RunPlayerChromeChecks(self.host);
@@ -388,6 +413,36 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==1,@"appearance search finds the Telegram channel");
     UITableViewCell *channel=[page.tableView.dataSource tableView:page.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
     Check([channel.accessibilityIdentifier isEqual:@"honggo.appearance.setting.@community"],@"appearance channel keeps its stable action identity");
+    search.searchBar.text=@"";
+    [search.searchResultsUpdater updateSearchResultsForSearchController:search];
+    Check([[page.tableView.dataSource tableView:page.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："],
+        @"appearance root header names the regulated scope");
+    UITableViewController *geom=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [(id)geom setValue:@"dock.geometry" forKey:@"group"];[geom loadViewIfNeeded];
+    NSInteger geomInitial=[geom.tableView.dataSource tableView:geom.tableView numberOfRowsInSection:0];
+    UITableViewCell *geomToggleCell=[geom.tableView.dataSource tableView:geom.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
+    UISwitch *geomToggle=[geomToggleCell.accessoryView isKindOfClass:UISwitch.class]?(UISwitch *)geomToggleCell.accessoryView:nil;
+    geomToggle.on=YES;[geomToggle sendActionsForControlEvents:UIControlEventValueChanged];
+    NSInteger geomExpanded=[geom.tableView.dataSource tableView:geom.tableView numberOfRowsInSection:0];
+    BOOL geomHasSliders=geomExpanded==6;
+    for(NSInteger r=1;geomHasSliders && r<geomExpanded;r++) {
+        UITableViewCell *sliderCell=[geom.tableView.dataSource tableView:geom.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
+        geomHasSliders&=[sliderCell.accessoryView isKindOfClass:UISlider.class];
+    }
+    geomToggle.on=NO;[geomToggle sendActionsForControlEvents:UIControlEventValueChanged];
+    NSInteger geomCollapsed=[geom.tableView.dataSource tableView:geom.tableView numberOfRowsInSection:0];
+    Check(geomInitial==1 && [geomToggleCell.accessibilityIdentifier isEqual:@"honggo.appearance.setting.dock.geometry.enabled"] &&
+        geomHasSliders && geomCollapsed==1 &&
+        [[geom.tableView.dataSource tableView:geom.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："],
+        @"dock geometry level-3 submenu reveals its five sliders only when enabled");
+    BOOL subHeaders=YES;
+    for(NSString *sub in @[@"pages.finder",@"pages.mine",@"layout.like"]) {
+        UITableViewController *subPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
+        [(id)subPage setValue:sub forKey:@"group"];[subPage loadViewIfNeeded];
+        subHeaders&=[[subPage.tableView.dataSource tableView:subPage.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："];
+        if([sub isEqual:@"pages.finder"])subHeaders&=[subPage.tableView.dataSource tableView:subPage.tableView numberOfRowsInSection:0]==3;
+    }
+    Check(subHeaders,@"appearance submenus across levels 2 to 4 identify the target host page");
     HGAppearanceReset();
 }
 - (void)finish {

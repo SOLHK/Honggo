@@ -367,6 +367,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     BOOL light=translucent && surfaceStyle==UIUserInterfaceStyleLight;
     for(UIView *surface in @[self.capsule,self.extra,self.expand]) {
         surface.overrideUserInterfaceStyle=surfaceStyle;
+        if(@available(iOS 17.0,*))[surface updateTraitsIfNeeded];
         surface.layer.cornerCurve=kCACornerCurveContinuous;
     }
     UIColor *tint=HGAppearanceColor(HGAppearanceString(@"dock.tint"),nil);
@@ -421,7 +422,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         UIFont *font=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];
         if(HGAppearanceFlag(@"fonts.enabled"))font=HGAConfiguredFont(font);
         CGFloat iconHeight=title.length ? height-11-font.lineHeight : height*0.48;
-        CGFloat iconSize=MAX(12,MIN(requestedIcon,MIN(iconHeight,slotWidth-16)));
+        CGFloat iconSize=MAX(12,MIN(requestedIcon,MIN(iconHeight,slotWidth-20)));
         b.enabled=source.enabled;b.selected=active;
         HGADockConfigureButton(b,title,[content isEqual:@"text"]?nil:image,iconSize,font,color);
         if(active) {
@@ -444,6 +445,9 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     UIFont *accessoryFont=[UIFont systemFontOfSize:11];
     HGADockConfigureButton(self.extraButton,nil,[UIImage systemImageNamed:symbol],MIN(requestedIcon,circle*0.48),accessoryFont,accessoryColor);
     HGADockConfigureButton(self.expandButton,nil,[UIImage systemImageNamed:@"ellipsis"],MIN(requestedIcon,22),accessoryFont,accessoryColor);
+    if(@available(iOS 17.0,*)) {
+        for(UIView *surface in @[self.capsule,self.extra,self.expand])[surface updateTraitsIfNeeded];
+    }
     self.extraButton.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[[HGATabIDs() indexOfObject:action]]);
     CGRect occupied=self.collapsed?compact:(extra?CGRectUnion(expanded,self.extra.frame):expanded);
     occupied=[self convertRect:occupied toView:self.window];

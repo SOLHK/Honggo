@@ -21,6 +21,36 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     return HGFeatureTitle(feature);
 }
 
+static NSString *HGSettingsFeatureLocation(HGFeature feature) {
+    switch (feature) {
+        case HGGlass:
+        case HGGlassControls:
+            return @"基础玻璃与按钮";
+        case HGSplash:
+        case HGTopView:
+        case HGEcommerce:
+            return @"广告拦截 → 启动与首页";
+        case HGFeed:
+        case HGComment:
+        case HGPause:
+        case HGPatch:
+        case HGSurvey:
+            return @"广告拦截 → 播放流与插播";
+        case HGMarketing:
+        case HGRedPacket:
+        case HGCouponPendant:
+        case HGMiniGamePendant:
+            return @"广告拦截 → 弹窗与挂件";
+        case HGBookstoreAd:
+        case HGWelfareGuide:
+        case HGSidebarGameCenter:
+        case HGScreenshotShopping:
+            return @"广告拦截 → 书城与侧栏";
+        default:
+            return @"Honggo";
+    }
+}
+
 @interface HGCompatibilityController : UITableViewController
 @property(nonatomic, copy) NSArray<NSDictionary *> *rows;
 @end
@@ -66,6 +96,9 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     self.rows = rows;
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.rows.count; }
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    return @"当前调节页面：本次启动兼容状态与模块检查结果";
+}
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     return @"此页记录本次启动的适配检查，开关调整不会改写已经安装的入口。需要排查时，可返回设置导出日志，查看具体跳过原因。入口检查通过不代表已完成红果真机验收。";
 }
@@ -85,7 +118,9 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 @end
 
 @interface HGSettingsController () <UISearchResultsUpdating, UISearchControllerDelegate, UIDocumentPickerDelegate>
+@property(nonatomic, copy) NSString *menuPath;
 @property(nonatomic, strong) UISearchController *settingsSearch;
+@property(nonatomic, copy) NSArray<NSDictionary *> *visibleFolders;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleFeatures;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleDiagnostics;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleConfiguration;
@@ -97,55 +132,131 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 @implementation HGSettingsController
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = HG_PLUGIN_NAME;
-    HGDiagnosticsStart(nil, @{@"os": NSProcessInfo.processInfo.operatingSystemVersionString});
-    HGLog(@"settings.open", @{@"nativeGlass": @(HGNativeGlassConfigured())});
+    self.title = [self pageNavigationTitle];
+    if (!self.menuPath.length) {
+        HGDiagnosticsStart(nil, @{@"os": NSProcessInfo.processInfo.operatingSystemVersionString});
+        HGLog(@"settings.open", @{@"nativeGlass": @(HGNativeGlassConfigured())});
+    }
     self.tableView.accessibilityIdentifier = @"honggo.settings.options";
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 62;
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
-        initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeSettings)];
-    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"外观"
-        style:UIBarButtonItemStylePlain target:self action:@selector(openAppearance)];
-    self.navigationItem.leftBarButtonItem.accessibilityIdentifier = @"honggo.appearance.open";
+    if (self.navigationController.viewControllers.firstObject == self) {
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
+            initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeSettings)];
+        self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"外观"
+            style:UIBarButtonItemStylePlain target:self action:@selector(openAppearance)];
+        self.navigationItem.leftBarButtonItem.accessibilityIdentifier = @"honggo.appearance.open";
+    }
     self.settingsSearch = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.settingsSearch.searchResultsUpdater = self;
     self.settingsSearch.delegate = self;
     self.settingsSearch.obscuresBackgroundDuringPresentation = NO;
-    self.settingsSearch.searchBar.placeholder = @"搜索功能、广告位置或工具";
+    self.settingsSearch.searchBar.placeholder = @"搜索功能、页面、广告位置或工具";
     self.settingsSearch.searchBar.accessibilityIdentifier = @"honggo.settings.search";
     self.navigationItem.searchController = self.settingsSearch;
     self.navigationItem.hidesSearchBarWhenScrolling = NO;
     self.definesPresentationContext = YES;
     [self updateSearchResultsForSearchController:self.settingsSearch];
 }
+- (NSString *)pageNavigationTitle {
+    if ([self.menuPath isEqual:@"ads"]) return @"广告与推广拦截";
+    if ([self.menuPath isEqual:@"ads.startup"]) return @"启动与首页广告";
+    if ([self.menuPath isEqual:@"ads.playback"]) return @"播放流与插播";
+    if ([self.menuPath isEqual:@"ads.popup"]) return @"弹窗与挂件";
+    if ([self.menuPath isEqual:@"ads.discovery"]) return @"书城与侧栏";
+    if ([self.menuPath isEqual:@"controls"]) return @"基础玻璃与按钮";
+    return HG_PLUGIN_NAME;
+}
+- (NSString *)pageHeaderNote {
+    if ([self.menuPath isEqual:@"ads"]) return @"当前调节页面：广告与推广拦截分类（点击进入对应页面调节）";
+    if ([self.menuPath isEqual:@"ads.startup"]) return @"当前调节页面：冷启动流程与首页推荐页广告拦截";
+    if ([self.menuPath isEqual:@"ads.playback"]) return @"当前调节页面：短剧播放器、信息流混排、评论与暂停插播";
+    if ([self.menuPath isEqual:@"ads.popup"]) return @"当前调节页面：直播领券弹窗、福利红包与屏幕悬浮挂件";
+    if ([self.menuPath isEqual:@"ads.discovery"]) return @"当前调节页面：书城底部、福利引导、首页侧栏与全局截图卡片";
+    if ([self.menuPath isEqual:@"controls"]) return @"当前调节页面：全局启动期系统玻璃与原生液态玻璃按钮开关";
+    return @"当前调节页面：Honggo 主分类（版本 " HG_PLUGIN_VERSION @"）";
+}
+- (NSArray<NSDictionary *> *)foldersForCurrentPath {
+    if (!self.menuPath.length) {
+        return @[
+            @{@"id": @"appearance.root", @"title": @"外观总开关与快捷预设",
+              @"detail": @"当前调节页面：全插件外观总览、玻璃／专注预设与参数备份", @"target": @"appearance", @"group": @""},
+            @{@"id": @"appearance.dock", @"title": @"悬浮底栏设置（含三级尺寸调节）",
+              @"detail": @"当前调节页面：全局底部导航栏（材质、尺寸圆角开关、配色与行为）", @"target": @"appearance", @"group": @"dock"},
+            @{@"id": @"appearance.pages", @"title": @"页面外观与控件净化",
+              @"detail": @"当前调节页面：首页、详情全集、找剧、我的页面、图标与字体", @"target": @"appearance", @"group": @"pages.hub"},
+            @{@"id": @"ads", @"title": @"广告与推广拦截",
+              @"detail": @"当前调节页面：启动开屏、短剧流、商业弹窗、书城、侧栏与截图卡片", @"target": @"settings", @"path": @"ads"},
+            @{@"id": @"controls", @"title": @"基础玻璃底栏与按钮开关",
+              @"detail": @"当前调节页面：启动期系统玻璃底栏与原生液态玻璃按钮总开关", @"target": @"settings", @"path": @"controls"},
+        ];
+    }
+    if ([self.menuPath isEqual:@"ads"]) {
+        return @[
+            @{@"id": @"ads.startup", @"title": @"启动与首页广告",
+              @"detail": @"当前调节页面：开屏广告、首页 TopView 广告、启动电商推广", @"target": @"settings", @"path": @"ads.startup"},
+            @{@"id": @"ads.playback", @"title": @"播放流、暂停与插播",
+              @"detail": @"当前调节页面：信息流直播/小游戏、评论区、暂停、插播与问卷", @"target": @"settings", @"path": @"ads.playback"},
+            @{@"id": @"ads.popup", @"title": @"弹窗与悬浮挂件",
+              @"detail": @"当前调节页面：商业直播领券弹窗、福利红包、领券与小游戏挂件", @"target": @"settings", @"path": @"ads.popup"},
+            @{@"id": @"ads.discovery", @"title": @"书城、侧栏与截图卡片",
+              @"detail": @"当前调节页面：书城底部、福利引导气泡、侧栏游戏中心与截图找同款", @"target": @"settings", @"path": @"ads.discovery"},
+        ];
+    }
+    return @[];
+}
+- (NSArray<NSNumber *> *)featuresForCurrentPath {
+    if ([self.menuPath isEqual:@"controls"]) return @[@(HGGlass), @(HGGlassControls)];
+    if ([self.menuPath isEqual:@"ads.startup"]) return @[@(HGSplash), @(HGTopView), @(HGEcommerce)];
+    if ([self.menuPath isEqual:@"ads.playback"]) return @[@(HGFeed), @(HGComment), @(HGPause), @(HGPatch), @(HGSurvey)];
+    if ([self.menuPath isEqual:@"ads.popup"]) return @[@(HGMarketing), @(HGRedPacket), @(HGCouponPendant), @(HGMiniGamePendant)];
+    if ([self.menuPath isEqual:@"ads.discovery"]) return @[@(HGBookstoreAd), @(HGWelfareGuide), @(HGSidebarGameCenter), @(HGScreenshotShopping)];
+    return @[];
+}
 - (NSArray<NSString *> *)diagnosticTitles {
     return @[@"增强诊断", @"导出最近一小时日志", @"清除诊断日志", @"本次启动兼容状态"];
 }
 - (NSArray<NSString *> *)configurationTitles { return @[@"导出功能配置", @"从文件恢复配置", @"关闭全部功能开关"]; }
 - (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
-    NSString *query = searchController.searchBar.text ?: @"";
+    NSString *rawQuery = searchController.searchBar.text ?: @"";
+    NSString *trimmed = [rawQuery stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    BOOL searching = trimmed.length > 0;
+    NSMutableArray *folders = [NSMutableArray array];
     NSMutableArray *features = [NSMutableArray array], *diagnostics = [NSMutableArray array], *configuration = [NSMutableArray array];
-    for (HGFeature feature = 0; feature < HGFeatureCount; feature++) {
-        NSString *text = [HGFeatureSearchText(feature) stringByAppendingFormat:@" %@", HGSettingsFeatureTitle(feature)];
-        if (HGSettingsMatches(text, query)) [features addObject:@(feature)];
+    if (searching) {
+        for (HGFeature feature = 0; feature < HGFeatureCount; feature++) {
+            NSString *text = [NSString stringWithFormat:@"%@ %@ %@",
+                HGFeatureSearchText(feature), HGSettingsFeatureTitle(feature), HGSettingsFeatureLocation(feature)];
+            if (HGSettingsMatches(text, rawQuery)) [features addObject:@(feature)];
+        }
+        NSArray *diagnosticAliases = @[@"诊断 截屏 现场 排错 debug", @"导出 分享 日志 log", @"清除 删除 日志 log", @"兼容 状态 适配 版本 capability"];
+        NSArray *configurationAliases = @[@"备份 导出 配置 backup export", @"备份 导入 恢复 配置 restore import", @"恢复 默认 重置 关闭 全部 reset"];
+        for (NSUInteger index = 0; index < self.diagnosticTitles.count; index++) {
+            if (HGSettingsMatches([self.diagnosticTitles[index] stringByAppendingFormat:@" %@", diagnosticAliases[index]], rawQuery))
+                [diagnostics addObject:@(index)];
+        }
+        for (NSUInteger index = 0; index < self.configurationTitles.count; index++) {
+            if (HGSettingsMatches([self.configurationTitles[index] stringByAppendingFormat:@" %@", configurationAliases[index]], rawQuery))
+                [configuration addObject:@(index)];
+        }
+        self.communityVisible = HGCommunityMatchesQuery(rawQuery);
+    } else {
+        [folders addObjectsFromArray:[self foldersForCurrentPath]];
+        [features addObjectsFromArray:[self featuresForCurrentPath]];
+        if (!self.menuPath.length) {
+            for (NSUInteger index = 0; index < self.diagnosticTitles.count; index++) [diagnostics addObject:@(index)];
+            for (NSUInteger index = 0; index < self.configurationTitles.count; index++) [configuration addObject:@(index)];
+            self.communityVisible = YES;
+        } else {
+            self.communityVisible = NO;
+        }
     }
-    NSArray *diagnosticAliases = @[@"诊断 截屏 现场 排错 debug", @"导出 分享 日志 log", @"清除 删除 日志 log", @"兼容 状态 适配 版本 capability"];
-    NSArray *configurationAliases = @[@"备份 导出 配置 backup export", @"备份 导入 恢复 配置 restore import", @"恢复 默认 重置 关闭 全部 reset"];
-    for (NSUInteger index = 0; index < self.diagnosticTitles.count; index++) {
-        if (HGSettingsMatches([self.diagnosticTitles[index] stringByAppendingFormat:@" %@", diagnosticAliases[index]], query))
-            [diagnostics addObject:@(index)];
-    }
-    for (NSUInteger index = 0; index < self.configurationTitles.count; index++) {
-        if (HGSettingsMatches([self.configurationTitles[index] stringByAppendingFormat:@" %@", configurationAliases[index]], query))
-            [configuration addObject:@(index)];
-    }
+    self.visibleFolders = folders;
     self.visibleFeatures = features;
     self.visibleDiagnostics = diagnostics;
     self.visibleConfiguration = configuration;
-    self.communityVisible = HGCommunityMatchesQuery(query);
     UILabel *empty = nil;
-    if (features.count + diagnostics.count + configuration.count == 0 && !self.communityVisible) {
+    if (folders.count + features.count + diagnostics.count + configuration.count == 0 && !self.communityVisible) {
         empty = [[UILabel alloc] initWithFrame:self.tableView.bounds];
         empty.text = @"未找到匹配的设置\n试试“玻璃”“直播”或“日志”";
         empty.numberOfLines = 0;
@@ -197,18 +308,26 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 4; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 3) return self.communityVisible ? 1 : 0;
-    return section == 0 ? self.visibleFeatures.count : section == 1 ? self.visibleDiagnostics.count :
-        section == 2 ? self.visibleConfiguration.count : 0;
+    return section == 0 ? (NSInteger)(self.visibleFolders.count + self.visibleFeatures.count) :
+        section == 1 ? (NSInteger)self.visibleDiagnostics.count :
+        section == 2 ? (NSInteger)self.visibleConfiguration.count : 0;
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
-    return @[@"版本 " HG_PLUGIN_VERSION, @"诊断与兼容", @"配置管理", @"更新与频道"][section];
+    if (section == 0) {
+        NSString *trimmed = [self.settingsSearch.searchBar.text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        return trimmed.length ? @"匹配的功能开关（含所属页面路径）" : [self pageHeaderNote];
+    }
+    return @[@"", @"诊断与兼容", @"配置管理", @"更新与频道"][section];
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
     if (section == 3) return @"查看插件更新与测试版公告。只有点击打开或复制时才执行操作，不会自动加入频道。";
     if (section == 1) return @"增强诊断即时生效。复现广告或遮罩后截屏，再回来导出日志；仅记录控件结构，不读取截图像素或页面文字。本次启动保留最近 10 份现场，导出前不要退出应用。";
     if (section == 2) return @"配置文件仅保存 Honggo 的功能开关。恢复前会核对格式并显示变更数量；账号、宿主设置和增强诊断选择保持不变。恢复或关闭全部开关后，请完全退出再打开。";
+    if (!self.menuPath.length && self.visibleFolders.count > 0) {
+        return @"按类别进入二／三／四级页面，每个子菜单顶部注明当前调节的宿主界面。顶部搜索框可直接跨级检索任意功能、工具与频道。";
+    }
     NSString *mode = HGNativeGlassConfigured() ?
         @"本次启动已配置系统玻璃。关闭两个原有玻璃开关及外观定制并重启后，插件停止启用该配置。" :
         @"iOS 26 及以上打开玻璃开关并重启后，会在启动时请求系统玻璃；旧系统底栏使用模糊材质。";
@@ -230,6 +349,21 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
         return cell;
     }
     if (indexPath.section == 0) {
+        if ((NSUInteger)indexPath.row < self.visibleFolders.count) {
+            NSDictionary *folder = self.visibleFolders[indexPath.row];
+            UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+            cell.textLabel.text = folder[@"title"];
+            cell.detailTextLabel.text = folder[@"detail"];
+            cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+            cell.detailTextLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+            cell.textLabel.adjustsFontForContentSizeCategory = YES;
+            cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
+            cell.textLabel.numberOfLines = 0;
+            cell.detailTextLabel.numberOfLines = 0;
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.accessibilityIdentifier = [@"honggo.folder." stringByAppendingString:folder[@"id"]];
+            return cell;
+        }
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"HonggoOption"];
         if (!cell) {
             cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"HonggoOption"];
@@ -244,11 +378,15 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
             [toggle addTarget:self action:@selector(toggleChanged:) forControlEvents:UIControlEventValueChanged];
             cell.accessoryView = toggle;
         }
-        HGFeature feature = self.visibleFeatures[indexPath.row].unsignedIntegerValue;
+        NSUInteger featureIndex = (NSUInteger)indexPath.row - self.visibleFolders.count;
+        HGFeature feature = self.visibleFeatures[featureIndex].unsignedIntegerValue;
         NSString *title = HGSettingsFeatureTitle(feature);
         cell.textLabel.text = title;
-        cell.detailTextLabel.text = feature == HGGlassControls && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 ?
+        NSString *baseDetail = feature == HGGlassControls && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 ?
             @"需要 iOS 26 及以上；当前系统保留原按钮。" : @"更改后完全退出应用再打开";
+        NSString *trimmed = [self.settingsSearch.searchBar.text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        cell.detailTextLabel.text = trimmed.length ?
+            [NSString stringWithFormat:@"位置：%@ · %@", HGSettingsFeatureLocation(feature), baseDetail] : baseDetail;
         UISwitch *toggle = (UISwitch *)cell.accessoryView;
         toggle.tag = (NSInteger)feature;
         toggle.accessibilityIdentifier = [@"hg.option." stringByAppendingString:HGFeatureIdentifier(feature)];
@@ -403,9 +541,26 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     }]];
     [self presentViewController:alert animated:YES completion:nil];
 }
+- (void)openFolder:(NSDictionary *)folder {
+    NSString *target = folder[@"target"];
+    if ([target isEqual:@"appearance"]) {
+        NSString *group = folder[@"group"];
+        HGOpenAppearance(self, group.length ? group : nil);
+        return;
+    }
+    HGSettingsController *child = [[HGSettingsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    child.menuPath = folder[@"path"];
+    [self.navigationController pushViewController:child animated:YES];
+}
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (self.preferenceOperationInFlight || indexPath.section == 0) return;
+    if (self.preferenceOperationInFlight) return;
+    if (indexPath.section == 0) {
+        if ((NSUInteger)indexPath.row >= self.visibleFolders.count) return;
+        NSDictionary *folder = self.visibleFolders[indexPath.row];
+        [self performAfterSearchDismissal:^{ [self openFolder:folder]; }];
+        return;
+    }
     if (indexPath.section == 3) {
         [self performAfterSearchDismissal:^{ HGShowCommunity(self); }];
         return;

@@ -8,11 +8,20 @@
 @end
 @implementation HGAEpisodeInsetState @end
 static char HGAEpisodeInsetKey;
+static void HGALayoutEpisodeEntry(UIView *entry) {
+    [entry setNeedsLayout];
+    if(!entry.window)return;
+    BOOL was=HGAApplying;
+    HGAApplying=YES;
+    @try {[entry layoutIfNeeded];} @finally {HGAApplying=was;}
+}
 static void HGARestoreEpisodeInset(UIView *entry) {
     HGAEpisodeInsetState *state=objc_getAssociatedObject(entry,&HGAEpisodeInsetKey);
     if(!state)return;
-    if(CGRectEqualToRect(entry.bounds,state.appliedBounds))entry.bounds=state.sourceBounds;
+    BOOL changed=NO;
+    if(CGRectEqualToRect(entry.bounds,state.appliedBounds)){entry.bounds=state.sourceBounds;changed=YES;}
     objc_setAssociatedObject(entry,&HGAEpisodeInsetKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if(changed)HGALayoutEpisodeEntry(entry);
 }
 static void HGAApplyEpisodeInset(UIView *entry,BOOL enabled) {
     HGAEpisodeInsetState *state=objc_getAssociatedObject(entry,&HGAEpisodeInsetKey);
@@ -31,7 +40,7 @@ static void HGAApplyEpisodeInset(UIView *entry,BOOL enabled) {
     state.sourceBounds=source;state.parent=entry.superview;
     CGFloat inset=MAX(12,MIN(20,width*0.03));
     CGRect bounds=source;bounds.size.width-=inset*2;state.appliedBounds=bounds;
-    if(!CGRectEqualToRect(entry.bounds,bounds)){entry.bounds=bounds;[entry setNeedsLayout];}
+    if(!CGRectEqualToRect(entry.bounds,bounds)){entry.bounds=bounds;HGALayoutEpisodeEntry(entry);}
 }
 @interface HGAEpisodeSurfaceState : NSObject
 @property(nonatomic,weak) UIView *view;

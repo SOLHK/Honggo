@@ -660,8 +660,11 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         !Find(capsule,@"honggo.appearance.dock.diffuser"),
         @"classic blur uses one real blur effect in both shapes without a glass rim or opaque cover");
     UIVisualEffect *classicEffect=capsuleMaterial.effect;
+    NSUInteger classicWrites=HGMaterialEffectSetterCount(capsuleMaterial);
     for(NSUInteger pass=0;pass<3;pass++){HGAppearanceLayoutDock(host.customTabBar,host);Layout(capsuleMaterial);}
-    Check(capsuleMaterial.effect==classicEffect && HGADockGlyphMatches(home,NO) && HGADockGlyphMatches(extra,NO),
+    Check(HGMaterialEffectSetterCount(capsuleMaterial)==classicWrites &&
+        (!classicEffect ? !capsuleMaterial.effect : [capsuleMaterial.effect isEqual:classicEffect]) &&
+        HGADockGlyphMatches(home,NO) && HGADockGlyphMatches(extra,NO),
         @"classic blur survives repeated layout with readable foreground and stable effect identity");
     HGAppearanceSet(@"dock.material",@"clear",nil);Layout(capsuleMaterial);
     Check(reduceTransparency || !HGNativeGlassConfigured() ||

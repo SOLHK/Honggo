@@ -165,6 +165,13 @@ int main(void) {@autoreleasepool {
     HGAppearanceReset();
     Check(!HGAppearanceEnabled() && !HGAppearanceNeedsGlass(),@"reset stops the new appearance path");
     Check([[NSUserDefaults.standardUserDefaults stringForKey:@"host.fixture"] isEqual:@"preserve"],@"reset preserves unrelated host settings");
+    NSArray<NSString *> *r28Keys=@[@"dock.geometry.enabled",@"layout.finder.hide.channels",@"layout.finder.hide.shortcuts",
+        @"player.defaultMaxQuality",@"player.seriesPillGlass",@"layout.seriesPill.hidden",
+        @"player.goodsPillGlass",@"layout.goodsPill.hidden"];
+    BOOL r28OK=YES;
+    for(NSString *k in r28Keys)r28OK &= [keys containsObject:k] && !HGAppearanceFlag(k) && HGAppearanceSet(k,@YES,nil) && HGAppearanceFlag(k);
+    Check(r28OK,@"R28 dock geometry reveal, Finder hide switches, quality and pill toggles validate cleanly");
+    HGAppearanceReset();
     NSLog(@"Appearance preferences: %lu checks, %lu failures",(unsigned long)checks,(unsigned long)failures);
     return failures?1:0;
 }}

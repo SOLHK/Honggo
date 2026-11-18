@@ -41,6 +41,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"dock.enabled",@"dock",@"使用可定制悬浮底栏");
         choice(@"dock.material",@"dock",@"底栏材质",@[@"regular",@"clear",@"blur",@"solid"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）",@"纯色"]);
         choice(@"dock.content",@"dock",@"底栏显示",@[@"both",@"text",@"icon"],@[@"图标和文字",@"仅文字",@"仅图标"]);
+        flag(@"dock.geometry.enabled",@"dock",@"开启底栏尺寸与圆角调节");
         number(@"dock.width",@"dock",@"底栏宽度比例",HGADockDefaultWidth,0.55,1);
         number(@"dock.height",@"dock",@"底栏高度",HGADockDefaultHeight,44,80);
         number(@"dock.lift",@"dock",@"底栏上移距离",0,0,24);
@@ -68,9 +69,16 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             flag([@"layout.channels.hide." stringByAppendingString:channelIDs[i]],@"player",
                 [@"隐藏顶部" stringByAppendingString:channelNames[i]]);
         [a addObject:HGADef(@"player.finderGlass",@"player",@"找剧搜索与快捷入口玻璃",@"bool",@YES,nil)];
+        flag(@"layout.finder.hide.channels",@"player",@"关闭找剧顶部频道栏");
+        flag(@"layout.finder.hide.shortcuts",@"player",@"关闭找剧快捷入口栏");
         [a addObject:HGADef(@"player.mineGlass",@"player",@"我的页面控件玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.episodeGlass",@"player",@"全集入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];
+        flag(@"player.defaultMaxQuality",@"player",@"默认最高画质（待接入宿主画质日志）");
+        flag(@"player.seriesPillGlass",@"player",@"系列剧标签液态玻璃（待接入宿主日志）");
+        flag(@"layout.seriesPill.hidden",@"player",@"关闭系列剧标签按钮（待接入宿主日志）");
+        flag(@"player.goodsPillGlass",@"player",@"剧好物按钮液态玻璃（待接入宿主日志）");
+        flag(@"layout.goodsPill.hidden",@"player",@"关闭剧好物按钮（待接入宿主日志）");
         [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
         flag(@"player.fullscreen",@"player",@"横屏铺满");
         choice(@"player.separateProgress",@"player",@"合集与进度条分开布局",@[@"show",@"hide"],@[@"自动留出间距",@"原始布局"]);
@@ -208,7 +216,7 @@ BOOL HGAppearanceEnabled(void){return HGAppearanceFlag(@"enabled");}
 BOOL HGAppearanceNeedsGlass(void) {
     if(!HGAppearanceEnabled())return NO;
     if(HGAppearanceFlag(@"player.finderGlass") || HGAppearanceFlag(@"player.mineGlass"))return YES;
-    for(NSString *key in @[@"dock.enabled",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"])
+    for(NSString *key in @[@"dock.enabled",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"player.seriesPillGlass",@"player.goodsPillGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"])
         if(HGAppearanceFlag(key))return YES;
     return NO;
 }
