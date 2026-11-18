@@ -421,7 +421,9 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         NSString *title=[content isEqual:@"icon"]?nil:HGATabTitles()[index];
         UIFont *font=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];
         if(HGAppearanceFlag(@"fonts.enabled"))font=HGAConfiguredFont(font);
-        CGFloat iconHeight=title.length ? height-11-font.lineHeight : height*0.48;
+        // Wide SF Symbols (such as house.fill) render ~1.25x wider than pointSize;
+        // 0.385x capsule height scales cleanly while staying within <=36pt on 70pt docks.
+        CGFloat iconHeight=title.length ? height-11-font.lineHeight : height*0.385;
         CGFloat iconSize=MAX(12,MIN(requestedIcon,MIN(iconHeight,slotWidth-16)));
         b.enabled=source.enabled;b.selected=active;
         HGADockConfigureButton(b,title,[content isEqual:@"text"]?nil:image,iconSize,font,color);

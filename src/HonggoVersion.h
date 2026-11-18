@@ -2,4 +2,4 @@
 
 // The sole plugin-version source. The host build is independent.
 #define HG_PLUGIN_NAME @"Honggo"
-#define HG_PLUGIN_VERSION @"1.1.15-R29"
+#define HG_PLUGIN_VERSION @"1.1.15-R30"
