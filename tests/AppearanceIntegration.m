@@ -226,7 +226,28 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     [home loadViewIfNeeded];
     [window layoutIfNeeded];
     BOOL routed = [home isKindOfClass:settings] && home.view.window == window && !home.navigationItem.searchController;
-    Check(routed && HGMenuPath(home, @"enabled"), @"the real settings entry mounts the appearance menu in the visible navigation stack");
+    NSIndexPath *enable = HGMenuPath(home, @"enabled");
+    Check(routed && enable, @"the real settings entry mounts the appearance menu in the visible navigation stack");
+
+    // Observe the two writes while home is visible. No action sheet has been
+    // presented, so a modal here is a preference error from the actual row.
+    BOOL original = HGAppearanceEnabled();
+    if (enable) [home tableView:home.tableView didSelectRowAtIndexPath:enable];
+    BOOL first = HGAppearanceEnabled();
+    NSNumber *firstStored = [NSUserDefaults.standardUserDefaults dictionaryForKey:@"Honggo.Appearance.v1"][@"enabled"];
+    UIViewController *firstModal = home.presentedViewController;
+    if (enable && !firstModal) [home tableView:home.tableView didSelectRowAtIndexPath:enable];
+    BOOL restored = HGAppearanceEnabled();
+    NSNumber *lastStored = [NSUserDefaults.standardUserDefaults dictionaryForKey:@"Honggo.Appearance.v1"][@"enabled"];
+    UIViewController *lastModal = home.presentedViewController;
+    NSLog(@"MASTER_ROW path=%@ original=%d first=%d storedFirst=%@ restored=%d storedLast=%@ firstModal=%@/%@ lastModal=%@/%@",
+        enable, original, first, firstStored, restored, lastStored, NSStringFromClass(firstModal.class),
+        firstModal.title, NSStringFromClass(lastModal.class), lastModal.title);
+    Check(enable && first != original && [firstStored isEqual:@(first)],
+        @"tapping the appearance master row changes its persisted preference");
+    Check(enable && first != original && restored == original && [lastStored isEqual:@(original)],
+        @"tapping the appearance master row again restores its persisted preference");
+    Check(!firstModal && !lastModal, @"both valid appearance switch edits complete without a save error sheet");
     BOOL rolesRouted = YES, choiceOpened = NO;
     NSUInteger visitedRoles = 0;
     for (NSString *group in @[@"dock", @"chrome", @"panels", @"icons", @"fonts", @"backup", @"player"]) {
@@ -263,15 +284,6 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(rolesRouted && visitedRoles == HGAppearanceRoles().count,
         @"every playback control opens its own editor through the table delegate");
     Check(choiceOpened, @"a pushed playback menu presents its layout choice sheet");
-    // Run preference edits after the independent routes. A save error presents
-    // an alert and must not mask the results of unrelated navigation checks.
-    BOOL original = HGAppearanceEnabled();
-    NSIndexPath *enable = HGMenuPath(home, @"enabled");
-    if (enable) [home tableView:home.tableView didSelectRowAtIndexPath:enable];
-    BOOL changed = HGAppearanceEnabled() != original && !home.presentedViewController;
-    if (changed) [home tableView:home.tableView didSelectRowAtIndexPath:enable];
-    Check(enable && changed && HGAppearanceEnabled() == original && !home.presentedViewController,
-        @"tapping the appearance master row changes its preference");
     window.rootViewController = previousRoot;
     [window makeKeyAndVisible];
 }
