@@ -213,25 +213,23 @@ static NSIndexPath *HGMenuPath(UITableViewController *menu, NSString *key) {
     return nil;
 }
 
-static void HGRunAppearanceMenuNavigationChecks(UIWindowScene *scene, Class settings) {
-    UIViewController *parent = [UIViewController new];
+static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings) {
+    UIViewController *previousRoot = window.rootViewController;
+    HGSettingsController *parent = [[HGSettingsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
     HGMenuTestNavigation *navigation = [[HGMenuTestNavigation alloc] initWithRootViewController:parent];
-    UIWindow *window = [[UIWindow alloc] initWithWindowScene:scene];
     window.rootViewController = navigation;
-    window.hidden = NO;
-    UITableViewController *home = [(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
-    [navigation pushViewController:home animated:NO];
+    [window makeKeyAndVisible];
+    [parent loadViewIfNeeded];
     [window layoutIfNeeded];
-    BOOL toggled = HGAppearanceEnabled();
-    NSIndexPath *enable = HGMenuPath(home, @"enabled");
-    if (enable) [home tableView:home.tableView didSelectRowAtIndexPath:enable];
-    Check(enable && toggled != HGAppearanceEnabled(), @"tapping the appearance master row changes its preference");
-    if (enable) [home tableView:home.tableView didSelectRowAtIndexPath:enable];
-
-    BOOL routed = !home.navigationItem.searchController;
+    HGOpenAppearance(parent, nil);
+    UITableViewController *home = (id)navigation.topViewController;
+    [home loadViewIfNeeded];
+    [window layoutIfNeeded];
+    BOOL routed = [home isKindOfClass:settings] && home.view.window == window && !home.navigationItem.searchController;
+    Check(routed && HGMenuPath(home, @"enabled"), @"the real settings entry mounts the appearance menu in the visible navigation stack");
     BOOL rolesRouted = YES, choiceOpened = NO;
     NSUInteger visitedRoles = 0;
-    for (NSString *group in @[@"dock", @"chrome", @"player", @"panels", @"icons", @"fonts", @"backup"]) {
+    for (NSString *group in @[@"dock", @"chrome", @"panels", @"icons", @"fonts", @"backup", @"player"]) {
         NSIndexPath *path = HGMenuPath(home, [@"@group." stringByAppendingString:group]);
         if (path) [home tableView:home.tableView didSelectRowAtIndexPath:path];
         UITableViewController *detail = (id)navigation.topViewController;
@@ -265,7 +263,17 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindowScene *scene, Class sett
     Check(rolesRouted && visitedRoles == HGAppearanceRoles().count,
         @"every playback control opens its own editor through the table delegate");
     Check(choiceOpened, @"a pushed playback menu presents its layout choice sheet");
-    window.hidden = YES;
+    // Run preference edits after the independent routes. A save error presents
+    // an alert and must not mask the results of unrelated navigation checks.
+    BOOL original = HGAppearanceEnabled();
+    NSIndexPath *enable = HGMenuPath(home, @"enabled");
+    if (enable) [home tableView:home.tableView didSelectRowAtIndexPath:enable];
+    BOOL changed = HGAppearanceEnabled() != original && !home.presentedViewController;
+    if (changed) [home tableView:home.tableView didSelectRowAtIndexPath:enable];
+    Check(enable && changed && HGAppearanceEnabled() == original && !home.presentedViewController,
+        @"tapping the appearance master row changes its preference");
+    window.rootViewController = previousRoot;
+    [window makeKeyAndVisible];
 }
 @interface HGAAppearanceTests : UIResponder <UIWindowSceneDelegate>
 @property(nonatomic,strong) UIWindow *window;
@@ -528,7 +536,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindowScene *scene, Class sett
     Check([channel.accessibilityIdentifier isEqual:@"honggo.appearance.setting.@community"],@"appearance channel keeps its stable action identity");
     BOOL wasAnimating = UIView.areAnimationsEnabled;
     [UIView setAnimationsEnabled:NO];
-    HGRunAppearanceMenuNavigationChecks(self.window.windowScene,settings);
+    HGRunAppearanceMenuNavigationChecks(self.window,settings);
     [UIView setAnimationsEnabled:wasAnimating];
     HGAppearanceReset();
 }

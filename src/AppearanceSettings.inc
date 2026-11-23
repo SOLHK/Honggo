@@ -414,7 +414,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     [tableView deselectRowAtIndexPath:path animated:YES];
     NSDictionary *row=self.sections[path.section][path.row];
     if ([row[@"kind"] isEqual:@"bool"]) {
-        [self save:row[@"key"] value:@(!HGAppearanceFlag(row[@"key"]))];
+        // Logical negation in Objective-C yields int; this preference requires CFBoolean.
+        [self save:row[@"key"] value:HGAppearanceFlag(row[@"key"]) ? @NO : @YES];
         [tableView reloadRowsAtIndexPaths:@[path] withRowAnimation:UITableViewRowAnimationNone];
     } else if (![row[@"kind"] isEqual:@"number"]) {
         [self afterSearch:^{[self openRow:row];}];
