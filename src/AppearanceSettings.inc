@@ -377,7 +377,7 @@ static BOOL HGAIsBlurPercentKey(NSString *key) {
         objc_setAssociatedObject(stepper,&HGABlurSliderAssocKey,slider,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [stepper addTarget:self action:@selector(blurStepperChanged:) forControlEvents:UIControlEventValueChanged];
         [slider addTarget:self action:@selector(blurSliderChanged:) forControlEvents:UIControlEventValueChanged];
-        [slider addTarget:self action:@selector(blurSliderEnded:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchOutside|UIControlEventTouchCancel];
+        [slider addTarget:self action:@selector(blurSliderEnded:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
         UIView *content=cell.contentView;
         for(UIView *v in @[title,value,slider,stepper]) {
             v.translatesAutoresizingMaskIntoConstraints=NO;

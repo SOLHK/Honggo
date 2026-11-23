@@ -141,22 +141,22 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     }
     [controls addObject:search.searchButtonSlotView];
     Layout(header);Layout(channels);HGAppearanceLayoutDock(bar,host);
-    UIView *sideGlass=nil,*centerGlass=nil,*searchGlass=nil;
+    UIView *sideGlass=nil,*centerGlass=nil,*headerSearchGlass=nil;
     for(UIView *sub in header.subviews) {
         if(![sub.accessibilityIdentifier isEqual:material])continue;
         if([sub.accessibilityLabel isEqual:@"header.sidebar"])sideGlass=sub;
         else if([sub.accessibilityLabel isEqual:@"header.channels"])centerGlass=sub;
-        else if([sub.accessibilityLabel isEqual:@"header.search"])searchGlass=sub;
+        else if([sub.accessibilityLabel isEqual:@"header.search"])headerSearchGlass=sub;
     }
     CGRect left=[header.sideBar convertRect:header.sideBar.bounds toView:header];
     CGRect right=[search.searchButtonSlotView convertRect:search.searchButtonSlotView.bounds toView:header];
-    Check(sideGlass && centerGlass && searchGlass &&
+    Check(sideGlass && centerGlass && headerSearchGlass &&
         fabs(CGRectGetWidth(sideGlass.frame)-CGRectGetHeight(sideGlass.frame))<0.5 &&
-        fabs(CGRectGetWidth(searchGlass.frame)-CGRectGetHeight(searchGlass.frame))<0.5 &&
+        fabs(CGRectGetWidth(headerSearchGlass.frame)-CGRectGetHeight(headerSearchGlass.frame))<0.5 &&
         fabs(CGRectGetMidX(sideGlass.frame)-CGRectGetMidX(left))<1.0 &&
-        fabs(CGRectGetMidX(searchGlass.frame)-CGRectGetMidX(right))<1.0 &&
+        fabs(CGRectGetMidX(headerSearchGlass.frame)-CGRectGetMidX(right))<1.0 &&
         CGRectGetMaxX(sideGlass.frame)<CGRectGetMinX(centerGlass.frame) &&
-        CGRectGetMaxX(centerGlass.frame)<CGRectGetMinX(searchGlass.frame),
+        CGRectGetMaxX(centerGlass.frame)<CGRectGetMinX(headerSearchGlass.frame),
         @"home header uses three detached FanqieX Liquid Glass surfaces for sidebar, channels and search");
     UIView *headerPill=Find(centerGlass,@"honggo.appearance.header.pill");
     Check(headerPill && !headerPill.hidden && underline.alpha<0.02 &&
