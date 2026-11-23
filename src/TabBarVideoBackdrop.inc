@@ -512,6 +512,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UICollecti
 @end
 
 BOOL HGVideoBackdropRefreshForFeed(UIScrollView *feed) {
+    if (HGFeedSidebarOwnsLayout(feed.window)) return NO;
     HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
     HGVideoBackdrop *owner = link.owner;
     if (!owner) return NO;

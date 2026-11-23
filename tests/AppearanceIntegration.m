@@ -190,6 +190,83 @@ static BOOL HGInstallMaterialEffectSpy(void) {
 #include "AppearanceLandscapeChromeIntegration.inc"
 #include "DockVideoBackdropIntegration.inc"
 #include "AppearancePageChromeIntegration.inc"
+// Use UIKit's normal stack and table delegate, with synchronous pushes so
+// every catalog destination can be exercised independently of animation timing.
+@interface HGMenuTestNavigation : UINavigationController
+@end
+@implementation HGMenuTestNavigation
+- (void)pushViewController:(UIViewController *)controller animated:(BOOL)animated {
+    [super pushViewController:controller animated:NO];
+}
+@end
+
+static NSIndexPath *HGMenuPath(UITableViewController *menu, NSString *key) {
+    NSString *identifier = [@"honggo.appearance.setting." stringByAppendingString:key];
+    UITableView *table = menu.tableView;
+    for (NSInteger section = 0; section < table.numberOfSections; section++) {
+        for (NSInteger row = 0; row < [table numberOfRowsInSection:section]; row++) {
+            NSIndexPath *path = [NSIndexPath indexPathForRow:row inSection:section];
+            UITableViewCell *cell = [menu tableView:table cellForRowAtIndexPath:path];
+            if ([cell.accessibilityIdentifier isEqual:identifier]) return path;
+        }
+    }
+    return nil;
+}
+
+static void HGRunAppearanceMenuNavigationChecks(UIWindowScene *scene, Class settings) {
+    UIViewController *parent = [UIViewController new];
+    HGMenuTestNavigation *navigation = [[HGMenuTestNavigation alloc] initWithRootViewController:parent];
+    UIWindow *window = [[UIWindow alloc] initWithWindowScene:scene];
+    window.rootViewController = navigation;
+    window.hidden = NO;
+    UITableViewController *home = [(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [navigation pushViewController:home animated:NO];
+    [window layoutIfNeeded];
+    BOOL toggled = HGAppearanceEnabled();
+    NSIndexPath *enable = HGMenuPath(home, @"enabled");
+    if (enable) [home tableView:home.tableView didSelectRowAtIndexPath:enable];
+    Check(enable && toggled != HGAppearanceEnabled(), @"tapping the appearance master row changes its preference");
+    if (enable) [home tableView:home.tableView didSelectRowAtIndexPath:enable];
+
+    BOOL routed = !home.navigationItem.searchController;
+    BOOL rolesRouted = YES, choiceOpened = NO;
+    NSUInteger visitedRoles = 0;
+    for (NSString *group in @[@"dock", @"chrome", @"player", @"panels", @"icons", @"fonts", @"backup"]) {
+        NSIndexPath *path = HGMenuPath(home, [@"@group." stringByAppendingString:group]);
+        if (path) [home tableView:home.tableView didSelectRowAtIndexPath:path];
+        UITableViewController *detail = (id)navigation.topViewController;
+        if (!path || detail == home || ![[detail valueForKey:@"group"] isEqual:group]) {
+            routed = NO;
+            continue;
+        }
+        [window layoutIfNeeded];
+        if ([group isEqual:@"player"]) {
+            for (NSString *role in HGAppearanceRoles()) {
+                NSString *destination = [@"role." stringByAppendingString:role];
+                NSIndexPath *entry = HGMenuPath(detail, [@"@group." stringByAppendingString:destination]);
+                if (entry) [detail tableView:detail.tableView didSelectRowAtIndexPath:entry];
+                if (entry && navigation.topViewController != detail &&
+                        [[navigation.topViewController valueForKey:@"group"] isEqual:destination]) {
+                    visitedRoles++;
+                    [navigation popViewControllerAnimated:NO];
+                    [window layoutIfNeeded];
+                } else rolesRouted = NO;
+            }
+            NSIndexPath *choice = HGMenuPath(detail, @"player.separateProgress");
+            if (choice) [detail tableView:detail.tableView didSelectRowAtIndexPath:choice];
+            choiceOpened = [detail.presentedViewController isKindOfClass:UIAlertController.class] &&
+                [detail.presentedViewController.title isEqual:@"合集与进度条分开布局"];
+            [detail dismissViewControllerAnimated:NO completion:nil];
+        }
+        [navigation popToViewController:home animated:NO];
+        [window layoutIfNeeded];
+    }
+    Check(routed, @"every category opens from a pushed appearance menu without a search controller");
+    Check(rolesRouted && visitedRoles == HGAppearanceRoles().count,
+        @"every playback control opens its own editor through the table delegate");
+    Check(choiceOpened, @"a pushed playback menu presents its layout choice sheet");
+    window.hidden = YES;
+}
 @interface HGAAppearanceTests : UIResponder <UIWindowSceneDelegate>
 @property(nonatomic,strong) UIWindow *window;
 @property(nonatomic,strong) SSTabBarController *host;
@@ -392,7 +469,9 @@ static BOOL HGInstallMaterialEffectSpy(void) {
     HGAppearanceApply(HGAppearancePreset(@"glass"),nil);HGAppearanceProcessView(unrelated);
     Check(unrelated.subviews.count==0 && [unrelated.backgroundColor isEqual:UIColor.purpleColor],@"unknown views remain untouched");
     Class settings=NSClassFromString(@"HGAAppearanceController");UITableViewController *page=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
-    [page loadViewIfNeeded];Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==8,@"appearance level-2 home exposes clean category entries");
+    [page loadViewIfNeeded];
+    Check(page.tableView.numberOfSections==4 && HGMenuPath(page,@"enabled") && HGMenuPath(page,@"@group.player"),
+        @"appearance home separates the master switch, playback, assets and backup");
     // Level 3 general page removes presets and pushed subpages never attach a nested UISearchController.
     UITableViewController *generalPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [generalPage setValue:@"general" forKey:@"group"];[generalPage loadViewIfNeeded];
@@ -402,27 +481,31 @@ static BOOL HGInstallMaterialEffectSpy(void) {
     // Level 3 playback layout shows clean per-role rows without inline offset/scale sliders.
     UITableViewController *playerPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [playerPage setValue:@"player" forKey:@"group"];[playerPage loadViewIfNeeded];
-    NSInteger playerRows=[playerPage.tableView.dataSource tableView:playerPage.tableView numberOfRowsInSection:0];
     BOOL noInlineRoleSliders=YES;
-    for(NSInteger r=0;r<playerRows;r++) {
-        UITableViewCell *c=[playerPage.tableView.dataSource tableView:playerPage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
-        if([c.accessoryView isKindOfClass:UISlider.class])noInlineRoleSliders=NO;
-    }
-    Check(playerRows==4+(NSInteger)HGAppearanceRoles().count && noInlineRoleSliders,
-        @"level-3 playback layout lists per-control subpages instead of inline offset/scale sliders");
-    // Level 4 single-control page exposes hide switch + three 1-100% sliders.
-    UITableViewController *rolePage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
-    [rolePage setValue:@"role.avatar" forKey:@"group"];[rolePage loadViewIfNeeded];
-    NSInteger roleRows=[rolePage.tableView.dataSource tableView:rolePage.tableView numberOfRowsInSection:0];
-    NSUInteger pctSliders=0;
-    for(NSInteger r=0;r<roleRows;r++) {
-        UITableViewCell *c=[rolePage.tableView.dataSource tableView:rolePage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
-        if([c.accessoryView isKindOfClass:UISlider.class]) {
-            UISlider *sl=(UISlider *)c.accessoryView;
-            if(sl.minimumValue==1 && sl.maximumValue==100 && [c.detailTextLabel.text containsString:@"%"])pctSliders++;
+    NSInteger playerRows=0;
+    for (NSInteger section=0; section<playerPage.tableView.numberOfSections; section++) {
+        NSInteger count=[playerPage.tableView numberOfRowsInSection:section];
+        playerRows+=count;
+        for (NSInteger r=0; r<count; r++) {
+            UITableViewCell *cell=[playerPage tableView:playerPage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:section]];
+            if ([cell.accessoryView isKindOfClass:UISlider.class]) noInlineRoleSliders=NO;
         }
     }
-    Check(roleRows==5 && pctSliders==3,@"level-4 control page exposes three 1-100% percentage sliders and a reset action");
+    Check(playerPage.tableView.numberOfSections==4 && playerRows==4+(NSInteger)HGAppearanceRoles().count && noInlineRoleSliders,
+        @"playback settings group all switches and per-control subpages");
+    UITableViewController *rolePage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [rolePage setValue:@"role.avatar" forKey:@"group"];[rolePage loadViewIfNeeded];
+    NSUInteger pctSliders=0;
+    for (NSString *key in @[@"layout.avatar.x", @"layout.avatar.y", @"layout.avatar.scale"]) {
+        NSIndexPath *path = HGMenuPath(rolePage,key);
+        if (!path) continue;
+        UITableViewCell *cell = [rolePage tableView:rolePage.tableView cellForRowAtIndexPath:path];
+        UISlider *slider = (UISlider *)cell.accessoryView;
+        if ([slider isKindOfClass:UISlider.class] && slider.minimumValue==1 && slider.maximumValue==100 &&
+            !slider.continuous && [cell.detailTextLabel.text containsString:@"%"]) pctSliders++;
+    }
+    Check(rolePage.tableView.numberOfSections==3 && pctSliders==3 && HGMenuPath(rolePage,@"@role.reset.avatar"),
+        @"each control editor separates visibility, three commit-on-release sliders and reset");
     UISearchController *search=page.navigationItem.searchController;search.searchBar.text=@"layout.like";
     [search.searchResultsUpdater updateSearchResultsForSearchController:search];
     Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==4,@"appearance search resolves stable per-control keys");
@@ -443,6 +526,10 @@ static BOOL HGInstallMaterialEffectSpy(void) {
     Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==1,@"appearance search finds the Telegram channel");
     UITableViewCell *channel=[page.tableView.dataSource tableView:page.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
     Check([channel.accessibilityIdentifier isEqual:@"honggo.appearance.setting.@community"],@"appearance channel keeps its stable action identity");
+    BOOL wasAnimating = UIView.areAnimationsEnabled;
+    [UIView setAnimationsEnabled:NO];
+    HGRunAppearanceMenuNavigationChecks(self.window.windowScene,settings);
+    [UIView setAnimationsEnabled:wasAnimating];
     HGAppearanceReset();
 }
 - (void)finish {

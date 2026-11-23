@@ -289,3 +289,22 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL finder
     }
     HGARemoveGlass(header);
 }
+
+void HGAppearanceUpdateSidebarLayout(UIWindow *window, BOOL suspended) {
+    if (!window) return;
+    for (UIView *view in HGAManaged.allObjects) {
+        if (view.window != window) continue;
+        if (HGAIsHeaderView(view)) {
+            if (suspended) {
+                HGARemoveHeaderDetachedGlass(view);
+                HGARemoveGlass(view);
+                HGARestoreGeometry(view);
+            } else {
+                [view setNeedsLayout];
+            }
+        } else if (HGAIsBottomControl(view)) {
+            if (suspended) HGARelinquishBottomLayout(view);
+            else [view setNeedsLayout];
+        }
+    }
+}

@@ -21,6 +21,15 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     return HGFeatureTitle(feature);
 }
 
+static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
+    UIView *accessory = [table cellForRowAtIndexPath:path].accessoryView;
+    if (![accessory isKindOfClass:UISwitch.class]) return NO;
+    UISwitch *toggle = (UISwitch *)accessory;
+    [toggle setOn:!toggle.on animated:YES];
+    [toggle sendActionsForControlEvents:UIControlEventValueChanged];
+    return YES;
+}
+
 @interface HGCompatibilityController : UITableViewController
 @property(nonatomic, copy) NSArray<NSDictionary *> *rows;
 @end
@@ -235,7 +244,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 @interface HGSettingsController () <UISearchResultsUpdating, UISearchControllerDelegate, UIDocumentPickerDelegate>
 @property(nonatomic, strong) UISearchController *settingsSearch;
 @property(nonatomic, copy) NSString *activeQuery;
-@property(nonatomic, copy) NSArray<NSDictionary *> *rootCategories;
+@property(nonatomic, copy) NSArray<NSArray<NSDictionary *> *> *rootCategories;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleFeatures;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleDiagnostics;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleConfiguration;
@@ -306,7 +315,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
         self.title = @"诊断与其他";
         [rows addObject:@{@"kind": @"enhanced", @"title": @"增强诊断", @"id": @"honggo.diagnostics.enhanced"}];
         [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @1, @"title": @"诊断日志", @"id": @"honggo.diagnostics.export"}];
-        [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @2, @"title": @"清除全部日志", @"id": @"honggo.diagnostics.clear"}];
+        [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @2, @"title": @"清除全部日志", @"id": @"honggo.diagnostics.clear", @"destructive": @YES}];
         [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @3, @"title": @"本次启动兼容状态", @"id": @"honggo.compatibility.open"}];
     } else if ([pid isEqual:@"community"]) {
         self.title = @"作者与频道";
@@ -332,7 +341,6 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
         return [@"功能开关更改后请完全退出红果短剧，再重新打开。" stringByAppendingString:mode];
     }
     if ([pid hasPrefix:@"ads."]) return @"功能开关更改后请完全退出红果短剧，再重新打开。";
-    if ([pid isEqual:@"ads"]) return @"按场景进入三级页面管理拦截开关，更改后请完全退出红果短剧再打开。";
     return nil;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -341,11 +349,10 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     if ([kind isEqual:@"feature"]) {
         HGFeature feature = [row[@"feature"] unsignedIntegerValue];
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
         NSString *title = HGSettingsFeatureTitle(feature);
         cell.textLabel.text = title;
         cell.detailTextLabel.text = feature == HGGlassControls && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 ?
-            @"需要 iOS 26 及以上；当前系统保留原按钮。" : @"更改后完全退出应用再打开";
+            @"需要 iOS 26 及以上" : nil;
         cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
         cell.detailTextLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
         cell.textLabel.adjustsFontForContentSizeCategory = YES;
@@ -378,7 +385,6 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
         toggle.accessibilityLabel = row[@"title"];
         [toggle addTarget:self.rootSettings action:@selector(enhancedChanged:) forControlEvents:UIControlEventValueChanged];
         cell.accessoryView = toggle;
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
     } else if ([kind isEqual:@"info"]) {
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
     } else {
@@ -389,6 +395,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (HGActivateSwitchRow(tableView, indexPath)) return;
     NSDictionary *row = self.rows[indexPath.row];
     NSString *kind = row[@"kind"];
     if ([kind isEqual:@"subpage"]) {
@@ -420,14 +427,14 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
         initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeSettings)];
     // Level 1 mirrors FanqieX: clean category entries only, zero inline switches.
     self.rootCategories = @[
-        @{@"kind": @"appearance", @"group": @"", @"title": @"外观", @"id": @"honggo.settings.category.appearance"},
+        @[@{@"kind": @"appearance", @"group": @"", @"title": @"外观", @"id": @"honggo.settings.category.appearance"},
         @{@"kind": @"appearance", @"group": @"dock", @"title": @"悬浮底栏", @"id": @"honggo.settings.category.dock"},
-        @{@"kind": @"appearance", @"group": @"player", @"title": @"播放布局与玻璃", @"id": @"honggo.settings.category.player"},
-        @{@"kind": @"subpage", @"page": @"ads", @"title": @"广告与推广拦截", @"id": @"honggo.settings.category.ads"},
-        @{@"kind": @"subpage", @"page": @"base", @"title": @"基础与兼容开关", @"id": @"honggo.settings.category.base"},
-        @{@"kind": @"subpage", @"page": @"backup", @"title": @"导出与备份", @"id": @"honggo.settings.category.backup"},
+        @{@"kind": @"appearance", @"group": @"player", @"title": @"播放布局与玻璃", @"id": @"honggo.settings.category.player"}],
+        @[@{@"kind": @"subpage", @"page": @"ads", @"title": @"广告与推广拦截", @"id": @"honggo.settings.category.ads"},
+        @{@"kind": @"subpage", @"page": @"base", @"title": @"基础与兼容开关", @"id": @"honggo.settings.category.base"}],
+        @[@{@"kind": @"subpage", @"page": @"backup", @"title": @"导出与备份", @"id": @"honggo.settings.category.backup"},
         @{@"kind": @"subpage", @"page": @"diagnostics", @"title": @"诊断与其他", @"id": @"honggo.settings.category.diagnostics"},
-        @{@"kind": @"subpage", @"page": @"community", @"title": @"作者与频道", @"id": @"honggo.settings.category.community"}
+        @{@"kind": @"subpage", @"page": @"community", @"title": @"作者与频道", @"id": @"honggo.settings.category.community"}]
     ];
     self.settingsSearch = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.settingsSearch.searchResultsUpdater = self;
@@ -499,8 +506,8 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     [self performAfterSearchDismissal:^{ [presenter dismissViewControllerAnimated:YES completion:nil]; }];
 }
 - (void)performAfterSearchDismissal:(dispatch_block_t)action {
-    if (self.settingsSearch.active || self.settingsSearch.isBeingDismissed ||
-            self.presentedViewController == self.settingsSearch) {
+    if (self.settingsSearch && (self.settingsSearch.active || self.settingsSearch.isBeingDismissed ||
+            self.presentedViewController == self.settingsSearch)) {
         // Search owns a presentation until its dismissal completes. Keep the
         // resolved action, not its old row index, while the result list resets.
         self.afterSearchDismissal = action;
@@ -527,17 +534,17 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     });
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return self.isFiltering ? 4 : 1;
+    return self.isFiltering ? 4 : self.rootCategories.count;
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (!self.isFiltering) return section == 0 ? self.rootCategories.count : 0;
+    if (!self.isFiltering) return self.rootCategories[section].count;
     if (section == 3) return self.communityVisible ? 1 : 0;
     return section == 0 ? self.visibleFeatures.count : section == 1 ? self.visibleDiagnostics.count :
         section == 2 ? self.visibleConfiguration.count : 0;
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
-    if (!self.isFiltering) return @"版本 " HG_PLUGIN_VERSION;
+    if (!self.isFiltering) return @[@"外观与播放 · " HG_PLUGIN_VERSION, @"宿主功能", @"维护与支持"][section];
     return @[@"版本 " HG_PLUGIN_VERSION, @"诊断与兼容", @"配置管理", @"更新与频道"][section];
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
@@ -550,7 +557,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (!self.isFiltering) {
-        NSDictionary *category = self.rootCategories[indexPath.row];
+        NSDictionary *category = self.rootCategories[indexPath.section][indexPath.row];
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.textLabel.text = category[@"title"];
         cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
@@ -578,7 +585,6 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"HonggoOption"];
         if (!cell) {
             cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"HonggoOption"];
-            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             cell.textLabel.numberOfLines = 0;
             cell.detailTextLabel.numberOfLines = 0;
             cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
@@ -593,7 +599,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
         NSString *title = HGSettingsFeatureTitle(feature);
         cell.textLabel.text = title;
         cell.detailTextLabel.text = feature == HGGlassControls && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 ?
-            @"需要 iOS 26 及以上；当前系统保留原按钮。" : @"更改后完全退出应用再打开";
+            @"需要 iOS 26 及以上" : nil;
         UISwitch *toggle = (UISwitch *)cell.accessoryView;
         toggle.tag = (NSInteger)feature;
         toggle.accessibilityIdentifier = [@"hg.option." stringByAppendingString:HGFeatureIdentifier(feature)];
@@ -615,7 +621,6 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
             toggle.accessibilityLabel = cell.textLabel.text;
             [toggle addTarget:self action:@selector(enhancedChanged:) forControlEvents:UIControlEventValueChanged];
             cell.accessoryView = toggle;
-            cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     } else {
         NSUInteger action = self.visibleConfiguration[indexPath.row].unsignedIntegerValue;
@@ -757,9 +762,9 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (self.preferenceOperationInFlight) return;
+    if (self.preferenceOperationInFlight || HGActivateSwitchRow(tableView, indexPath)) return;
     if (!self.isFiltering) {
-        NSDictionary *category = self.rootCategories[indexPath.row];
+        NSDictionary *category = self.rootCategories[indexPath.section][indexPath.row];
         NSString *kind = category[@"kind"];
         if ([kind isEqual:@"appearance"]) {
             NSString *group = [category[@"group"] length] ? category[@"group"] : nil;

@@ -22,6 +22,34 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
 @end
 @implementation SSTabBarTextButton
 @end
+@interface SSVideoSeriesFeedViewController : UIViewController
+@property(nonatomic) NSUInteger sidebarCalls;
+@property(nonatomic) NSUInteger sidebarTaps;
+@property(nonatomic) BOOL layoutGuardDuringToggle;
+@property(nonatomic) BOOL layoutGuardAtTap;
+@property(nonatomic, getter=isSidebarOpen) BOOL sidebarOpen;
+@property(nonatomic, weak) UIView *observedViewport;
+@property(nonatomic) CGRect viewportAtToggle;
+@property(nonatomic) CGRect viewportAtTap;
+@property(nonatomic, copy) void (^moveBar)(BOOL opening);
+- (void)simpleSideBarViewDidClicked;
+- (void)toggleSidebar:(BOOL)opening toggleType:(id)type duration:(double)duration;
+@end
+@implementation SSVideoSeriesFeedViewController
+- (void)simpleSideBarViewDidClicked {
+    self.sidebarTaps++;
+    self.layoutGuardAtTap=HGFeedSidebarOwnsLayout(self.view.window);
+    self.viewportAtTap=self.observedViewport.frame;
+    [self toggleSidebar:!self.isSidebarOpen toggleType:@"tap" duration:0];
+}
+- (void)toggleSidebar:(BOOL)opening toggleType:(id)type duration:(double)duration {
+    self.sidebarCalls++;
+    self.layoutGuardDuringToggle=HGFeedSidebarOwnsLayout(self.view.window);
+    self.viewportAtToggle=self.observedViewport.frame;
+    self.moveBar(opening);
+    self.sidebarOpen=opening;
+}
+@end
 @interface SSNestedContainerScrollView : UIScrollView
 @property(nonatomic, strong) UIView *contentView;
 @end
@@ -520,10 +548,21 @@ static UIImage *HGWhiteImage(void) {
 @property(nonatomic) BOOL mediaAppearance;
 @property(nonatomic) NSUInteger originalLayouts;
 @property(nonatomic) NSUInteger originalAppearances;
+@property(nonatomic) NSUInteger sidebarBarMoves;
+@property(nonatomic) BOOL sidebarBarMoveGuard;
 - (void)setCustomTabBarAppearance;
+- (void)toggleVideoSeriesFeedSideBarInAnimation:(double)offset;
 @end
 
 @implementation SSTabBarController
+- (void)toggleVideoSeriesFeedSideBarInAnimation:(double)offset {
+    self.sidebarBarMoves++;
+    self.sidebarBarMoveGuard=HGFeedSidebarOwnsLayout(self.view.window);
+    CGRect frame=self.customTabBar.frame;
+    frame.origin.x=offset;
+    self.customTabBar.frame=frame;
+    [self.customTabBar layoutSubviews];
+}
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.whiteColor;
@@ -784,7 +823,52 @@ static UIImage *HGWhiteImage(void) {
         // return. A capture would force layout and could repair the old defect
         // before it is observed, so this mode does not enter the capture path.
         if (self.backgroundResetOnly || self.nestedOnly) [self finish];
+        else if (!self.legacyControl && !self.glassDisabled && !self.compatibilityFallbackOnly)
+            [self checkSidebarHandoffBeforeCapture];
         else [self runSystemCaptureAtIndex:0];
+    });
+}
+- (void)checkSidebarHandoffBeforeCapture {
+    SSTabBarController *host = self.host;
+    SSTabBar *bar = host.customTabBar;
+    SSVideoSeriesFeedViewController *page = [SSVideoSeriesFeedViewController new];
+    [host addChildViewController:page];
+    page.view.frame = CGRectMake(0, 0, 1, 1);
+    [host.view addSubview:page.view];
+    [page didMoveToParentViewController:host];
+    page.observedViewport = host.viewport;
+    page.moveBar = ^(BOOL opening) {
+        [host toggleVideoSeriesFeedSideBarInAnimation:opening ? 252 : 0];
+    };
+    [self layoutHost];
+    CGFloat extended = CGRectGetHeight(host.viewport.frame);
+    UIButton *menu = [UIButton new];
+    [menu addTarget:page action:@selector(simpleSideBarViewDidClicked) forControlEvents:UIControlEventTouchUpInside];
+    [menu sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [self check:page.sidebarTaps == 1 && page.sidebarCalls == 1 && host.sidebarBarMoves == 1 &&
+        page.layoutGuardAtTap && page.layoutGuardDuringToggle && host.sidebarBarMoveGuard &&
+        CGRectEqualToRect(page.viewportAtTap, page.viewportAtToggle) &&
+        extended > CGRectGetHeight(page.viewportAtTap) && HGEffects(bar).count == 0
+        name:@"home menu returns native viewport before tap, toggle and synchronous tab-bar layout"];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        // Even a centered bar (before the next host motion) must remain yielded
+        // after the opening callback's duration has elapsed.
+        [self layoutHost];
+        [self check:page.isSidebarOpen && HGFeedSidebarOwnsLayout(host.view.window) &&
+            CGRectEqualToRect(host.viewport.frame, page.viewportAtTap) && HGEffects(bar).count == 0
+            name:@"an open sidebar retains native layout beyond its animation"];
+        [page toggleSidebar:NO toggleType:@"gesture" duration:0];
+        [self check:page.sidebarCalls == 2 && host.sidebarBarMoves == 2 && host.sidebarBarMoveGuard &&
+            !page.isSidebarOpen && HGEffects(bar).count == 0
+            name:@"native sidebar dismissal runs once without reentering plugin layout"];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            [self layoutHost];
+            [self check:!HGFeedSidebarOwnsLayout(host.view.window) && [self mainFeedReachesBottom] &&
+                HGEffects(bar).count == 1 name:@"closing the sidebar restores normal viewport and glass"];
+            [page willMoveToParentViewController:nil];
+            [page.view removeFromSuperview]; [page removeFromParentViewController];
+            [self runSystemCaptureAtIndex:0];
+        });
     });
 }
 - (void)runNestedChecks {

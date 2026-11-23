@@ -31,6 +31,7 @@ build_variant() {
     printf '#import "Honggo.h"\n#import "Appearance.h"\n' > "$historical_compat"
     if [ "$variant" != current ]; then
         cat >> "$historical_compat" <<'OBJC'
+BOOL HGFeedSidebarOwnsLayout(UIWindow *window) { (void)window; return NO; }
 UIColor *HGOriginalTabTitleColor(UILabel *label) { return label.textColor; }
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) { (void)feed; }
 void HGRefreshVideoBackdropForPlayer(UIView *view) { (void)view; }

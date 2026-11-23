@@ -52,6 +52,12 @@ static void HGARestoreBottomState(HGABottomLayoutState *state) {
     for(HGABottomPosition *position in state.groups)HGARestoreBottomPosition(position);
     state.groups=nil;state.lastLift=0;state.lastProgressLift=0;
 }
+// Before the drawer starts moving the feed, give back only centers still
+// owned by this adapter. The host may already have laid out a reused cell.
+static void HGARelinquishBottomLayout(UIView *view) {
+    HGABottomLayoutState *state = objc_getAssociatedObject(view, &HGABottomLayoutKey);
+    if (state) HGARestoreBottomState(state);
+}
 static void HGARestoreBottomLayoutForView(UIView *view) {
     UIView *control=HGABottomControlForView(view);
     HGARestoreBottomState(objc_getAssociatedObject(control,&HGABottomLayoutKey));
@@ -195,6 +201,7 @@ static HGABottomRailResult HGABottomProgressRail(UIView *progress,UIView *contro
     return HGABottomRailMeasured;
 }
 static void HGAUpdateBottomLayoutForView(UIView *view) {
+    if (HGFeedSidebarOwnsLayout(view.window)) return;
     UIView *control=HGABottomControlForView(view);
     if(!control)return;
     HGABottomLayoutState *state=objc_getAssociatedObject(control,&HGABottomLayoutKey);

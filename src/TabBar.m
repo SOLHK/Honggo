@@ -15,6 +15,30 @@ BOOL HGAppearanceDockIsMutating(UIView *bar);
 static Class HGTabBarClass;
 static BOOL HGGlassEnabled;
 static char HGStateKey, HGObservedOwnerKey, HGObservedBaseKey;
+// The home feed and tab controller both mutate geometry during the same
+// native transition. Publish ownership before invoking either original.
+@interface HGSidebarTransition : NSObject
+@property(nonatomic, weak) UIViewController *page;
+@property(nonatomic) BOOL pending;
+@end
+@implementation HGSidebarTransition @end
+
+static char HGSidebarTransitionKey;
+static SEL HGSidebarOpenGetter;
+static __weak UIWindow *HGSidebarMotionWindow;
+
+static BOOL HGSidebarIsOpen(UIViewController *page) {
+    return page && HGSidebarOpenGetter && ((BOOL (*)(id, SEL))objc_msgSend)(page, HGSidebarOpenGetter);
+}
+
+BOOL HGFeedSidebarOwnsLayout(UIWindow *window) {
+    if (!window) return NO;
+    if (HGSidebarMotionWindow == window) return YES;
+    HGSidebarTransition *transition = objc_getAssociatedObject(window, &HGSidebarTransitionKey);
+    UIViewController *page = transition.page;
+    return page && page.viewIfLoaded.window == window && (transition.pending || HGSidebarIsOpen(page));
+}
+
 static void (*HGOriginalControllerLayout)(id, SEL);
 static void (*HGOriginalSetAppearance)(id, SEL);
 static void (*HGOriginalResetRatio)(id, SEL, double);
@@ -808,7 +832,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     [self.glass removeFromSuperview];
 }
 - (void)refresh {
-    if (self.refreshing) return;
+    if (self.refreshing || HGFeedSidebarOwnsLayout(self.bar.window)) return;
     UIView *currentBar = self.bar;
     // Never open a disabled-actions CATransaction or mutate viewports/dock while
     // customTabBar is displaced horizontally (sidebar slide or nav push to search).
@@ -993,8 +1017,9 @@ static HGTabState *HGState(UIView *bar) {
     return state;
 }
 static void HGRefreshTabBar(UIViewController *controller) {
+    if (HGFeedSidebarOwnsLayout(controller.viewIfLoaded.window)) return;
     UIView *bar = HGView(controller, "customTabBar");
-    if (![bar isKindOfClass:HGTabBarClass]) return;
+    if (![bar isKindOfClass:HGTabBarClass] || HGFeedSidebarOwnsLayout(bar.window)) return;
     HGAttachSettings(bar);
     if (HGGlassEnabled || HGAppearanceDockEnabled()) {
         HGTabState *state = HGState(bar);
@@ -1005,7 +1030,7 @@ static void HGRefreshTabBar(UIViewController *controller) {
 static char HGVideoBackdropDiscoveryTimeKey;
 
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
-    if (!NSThread.isMainThread) return;
+    if (!NSThread.isMainThread || HGFeedSidebarOwnsLayout(feed.window)) return;
     if (HGVideoBackdropRefreshForFeed(feed) || !HGAppearanceDockEnabled() || !feed.window) return;
     if (feed.dragging || feed.decelerating) return;
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
@@ -1026,17 +1051,18 @@ static void HGControllerLayout(id self, SEL cmd) {
     HGRefreshTabBar(self);
 }
 
-static void HGRefreshContainingTabBar(UIViewController *page) {
+static UIViewController *HGContainingTabController(UIViewController *page) {
     for (UIViewController *owner = page; owner; owner = owner.parentViewController) {
-        if ([HGView(owner, "customTabBar") isKindOfClass:HGTabBarClass]) {
-            HGRefreshTabBar(owner);
-            return;
-        }
+        if ([HGView(owner, "customTabBar") isKindOfClass:HGTabBarClass]) return owner;
     }
-    HGRefreshTabBar(page.tabBarController);
+    return page.tabBarController;
+}
+static void HGRefreshContainingTabBar(UIViewController *page) {
+    if (HGFeedSidebarOwnsLayout(page.viewIfLoaded.window)) return;
+    HGRefreshTabBar(HGContainingTabController(page));
 }
 static void HGRefreshMine(UIViewController *page) {
-    if (!page.viewIfLoaded.window) return;
+    if (!page.viewIfLoaded.window || HGFeedSidebarOwnsLayout(page.viewIfLoaded.window)) return;
     UIScrollView *mineScroll = (UIScrollView *)HGView(page, "scrollView");
     if ([mineScroll isKindOfClass:UIScrollView.class]) HGApplyMineClip(mineScroll);
     HGRefreshContainingTabBar(page);
@@ -1074,48 +1100,124 @@ static void HGSetAppearance(id self, SEL cmd) {
     HGOriginalSetAppearance(self, cmd);
     HGRefreshTabBar(self);
 }
+static void HGRefreshBar(UIView *bar) {
+    if (!HGFeedSidebarOwnsLayout(bar.window)) [HGState(bar) refresh];
+}
 static void HGResetRatio(id self, SEL cmd, double ratio) {
     HGOriginalResetRatio(self, cmd, ratio);
-    [HGState(self) refresh];
+    HGRefreshBar(self);
 }
 static void HGBarLayout(id self, SEL cmd) {
     HGOriginalBarLayout(self, cmd);
-    [HGState(self) refresh];
+    HGRefreshBar(self);
 }
 static void HGBarMove(id self, SEL cmd) {
     HGOriginalBarMove(self, cmd);
-    [HGState(self) refresh];
+    HGRefreshBar(self);
 }
 static void HGBarAdd(id self, SEL cmd, UIView *child) {
     HGOriginalBarAdd(self, cmd, child);
-    [HGState(self) refresh];
+    HGRefreshBar(self);
 }
 static void HGBarHidden(id self, SEL cmd, BOOL hidden) {
     HGOriginalBarHidden(self, cmd, hidden);
-    [HGState(self) refresh];
+    HGRefreshBar(self);
 }
 static void HGBarAlpha(id self, SEL cmd, CGFloat alpha) {
     HGOriginalBarAlpha(self, cmd, alpha);
-    [HGState(self) refresh];
+    HGRefreshBar(self);
 }
 static void HGBarTraits(id self, SEL cmd, id previous) {
     HGOriginalBarTraits(self, cmd, previous);
-    [HGState(self) refresh];
+    HGRefreshBar(self);
 }
-static void HGToggleFeedSidebar(UIViewController *self, SEL cmd, double offset) {
-    if (HGOriginalToggleFeedSidebar) HGOriginalToggleFeedSidebar(self, cmd, offset);
-    if (!NSThread.isMainThread) return;
-    UIView *bar = HGView(self, "customTabBar");
-    HGTabState *state = HGState(bar);
-    if (fabs(offset) > 2.0) {
-        [state.videoBackdrop restore];
+static HGSidebarTransition *HGSuspendSidebarAppearance(UIViewController *page, UIWindow *window) {
+    BOOL wasSuspended = HGFeedSidebarOwnsLayout(window);
+    HGSidebarTransition *transition = [HGSidebarTransition new];
+    transition.page = page;
+    transition.pending = YES;
+    objc_setAssociatedObject(window, &HGSidebarTransitionKey, transition, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (!wasSuspended) {
+        [UIView performWithoutAnimation:^{
+            UIView *bar = HGView(HGContainingTabController(page), "customTabBar");
+            HGTabState *state = objc_getAssociatedObject(bar, &HGStateKey);
+            HGAppearanceSuspendDockForSidebar(bar);
+            [state restore];
+            HGAppearanceUpdateSidebarLayout(window, YES);
+        }];
+    }
+    return transition;
+}
+
+static void HGSettleSidebarAppearance(HGSidebarTransition *transition, UIWindow *window, double duration) {
+    __weak UIWindow *weakWindow = window;
+    double delay = isfinite(duration) ? MAX(0, MIN(duration, 2.0)) : 0;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIWindow *window = weakWindow;
+        if (!window || objc_getAssociatedObject(window, &HGSidebarTransitionKey) != transition) return;
+        transition.pending = NO;
+        UIViewController *page = transition.page;
+        if (page.viewIfLoaded.window == window && HGSidebarIsOpen(page)) return;
+        objc_setAssociatedObject(window, &HGSidebarTransitionKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [HGView(HGContainingTabController(page), "customTabBar") setNeedsLayout];
+        HGAppearanceUpdateSidebarLayout(window, NO);
+    });
+}
+
+static void (*HGOriginalSidebarTap)(UIViewController *, SEL);
+static void HGSidebarTap(UIViewController *page, SEL cmd) {
+    UIWindow *window = NSThread.isMainThread ? page.viewIfLoaded.window : nil;
+    if (!window || (!HGGlassEnabled && !HGAppearanceEnabled())) {
+        HGOriginalSidebarTap(page, cmd);
         return;
     }
-    __weak UIViewController *weakController = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.32 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        UIViewController *strong = weakController;
-        if (strong) HGRefreshTabBar(strong);
-    });
+    HGLog(@"appearance.sidebar", @{@"phase": @"tap.enter"});
+    HGSidebarTransition *transition = HGSuspendSidebarAppearance(page, window);
+    HGLog(@"appearance.sidebar", @{@"phase": @"tap.native-ready"});
+    @try {
+        HGOriginalSidebarTap(page, cmd);
+        HGLog(@"appearance.sidebar", @{@"phase": @"tap.return"});
+    } @finally {
+        // A nested toggle owns its actual animation duration. If the native
+        // tap did not toggle (e.g. it was declined), release this handoff.
+        if (objc_getAssociatedObject(window, &HGSidebarTransitionKey) == transition)
+            HGSettleSidebarAppearance(transition, window, 0);
+    }
+}
+
+static void (*HGOriginalToggleSidebar)(UIViewController *, SEL, BOOL, id, double);
+static void HGToggleSidebar(UIViewController *page, SEL cmd, BOOL opening, id type, double duration) {
+    UIWindow *window = NSThread.isMainThread ? page.viewIfLoaded.window : nil;
+    if (!window || (!HGGlassEnabled && !HGAppearanceEnabled())) {
+        HGOriginalToggleSidebar(page, cmd, opening, type, duration);
+        return;
+    }
+    HGLog(@"appearance.sidebar", @{@"phase": @"toggle.enter", @"opening": @(opening)});
+    HGSidebarTransition *transition = HGSuspendSidebarAppearance(page, window);
+    @try {
+        HGOriginalToggleSidebar(page, cmd, opening, type, duration);
+        HGLog(@"appearance.sidebar", @{@"phase": @"toggle.return", @"open": @(HGSidebarIsOpen(page))});
+    } @finally {
+        HGSettleSidebarAppearance(transition, window, duration);
+    }
+}
+
+static void HGToggleFeedSidebar(UIViewController *controller, SEL cmd, double offset) {
+    if (!NSThread.isMainThread) {
+        HGOriginalToggleFeedSidebar(controller, cmd, offset);
+        return;
+    }
+    UIWindow *previous = HGSidebarMotionWindow;
+    HGSidebarMotionWindow = controller.viewIfLoaded.window;
+    @try {
+        HGOriginalToggleFeedSidebar(controller, cmd, offset);
+    } @finally {
+        HGSidebarMotionWindow = previous;
+    }
+    // A motion without the three-argument feed entry still needs a fresh
+    // layout when the host restores the tab bar to its original position.
+    if (fabs(offset) <= 2.0 && !HGFeedSidebarOwnsLayout(controller.viewIfLoaded.window))
+        [HGView(controller, "customTabBar") setNeedsLayout];
 }
 
 #import "MaskScene.inc"
@@ -1153,6 +1255,18 @@ BOOL HGInstallTabBar(void) {
         }
         HGGlassEnabled = HGIsEnabled(HGGlass);
         HGOriginalControllerLayout = (void (*)(id, SEL))HGReplaceMethod(controller, selectors[0], encodings[0], (IMP)HGControllerLayout);
+        Class feed = objc_lookUpClass("SSVideoSeriesFeedViewController");
+        SEL getter = sel_registerName("isSidebarOpen");
+        Method method = class_getInstanceMethod(feed, getter);
+        if ([feed isSubclassOfClass:UIViewController.class] && method &&
+                !strcmp(method_getTypeEncoding(method), "B16@0:8")) {
+            HGSidebarOpenGetter = getter;
+            HGOriginalToggleSidebar = (void (*)(UIViewController *, SEL, BOOL, id, double))HGReplaceMethod(feed,
+                sel_registerName("toggleSidebar:toggleType:duration:"), "v36@0:8B16@20d28", (IMP)HGToggleSidebar);
+            if (HGOriginalToggleSidebar)
+                HGOriginalSidebarTap = (void (*)(UIViewController *, SEL))HGReplaceMethod(feed,
+                    sel_registerName("simpleSideBarViewDidClicked"), "v16@0:8", (IMP)HGSidebarTap);
+        }
         HGOriginalToggleFeedSidebar = (void (*)(id, SEL, double))HGReplaceMethod(controller,
             sel_registerName("toggleVideoSeriesFeedSideBarInAnimation:"), "v24@0:8d16", (IMP)HGToggleFeedSidebar);
         Class mall = objc_lookUpClass("FQMSEcomXTabMallViewController");

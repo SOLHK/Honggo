@@ -249,15 +249,18 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         name:@"settings title is Honggo with version header and clean level-1 navigation bar"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
-    BOOL level1HasNoInlineSwitches = [settings.tableView numberOfSections] == 1 &&
-        [settings.tableView numberOfRowsInSection:0] == 8;
-    for (NSInteger r = 0; r < [settings.tableView numberOfRowsInSection:0]; r++) {
-        UITableViewCell *row = [settings tableView:settings.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
-        if ([row.accessoryView isKindOfClass:UISwitch.class] || row.accessoryType != UITableViewCellAccessoryDisclosureIndicator)
-            level1HasNoInlineSwitches = NO;
+    BOOL level1HasNoInlineSwitches = settings.tableView.numberOfSections == 3;
+    NSMutableSet *categories = [NSMutableSet set];
+    for (NSInteger section = 0; section < settings.tableView.numberOfSections; section++) {
+        for (NSInteger r = 0; r < [settings.tableView numberOfRowsInSection:section]; r++) {
+            UITableViewCell *row = [settings tableView:settings.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:section]];
+            if ([row.accessoryView isKindOfClass:UISwitch.class] || row.accessoryType != UITableViewCellAccessoryDisclosureIndicator)
+                level1HasNoInlineSwitches = NO;
+            if (row.accessibilityIdentifier) [categories addObject:row.accessibilityIdentifier];
+        }
     }
-    [self check:level1HasNoInlineSwitches
-        name:@"level-1 home displays only clean FanqieX-style category entries with zero inline switches"];
+    [self check:level1HasNoInlineSwitches && categories.count == 8
+        name:@"all eight home shortcuts remain available in three native sections"];
 
     // Verify Level-2 and Level-3 subpages expose all 18 switches, diagnostics, backup, and channel.
     Class subpageClass = NSClassFromString(@"HGSettingsSubpageController");
@@ -267,12 +270,24 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [diagPage loadViewIfNeeded];
     [self check:[diagPage.tableView numberOfRowsInSection:0] == 4
         name:@"diagnostics subpage exposes enhanced diagnostics export clear and compatibility"];
-    UITableViewCell *diagnostics = [diagPage tableView:diagPage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
-    UISwitch *enhanced = (UISwitch *)diagnostics.accessoryView;
+    [settings.navigationController pushViewController:diagPage animated:NO];
+    [diagPage.tableView layoutIfNeeded];
+    NSIndexPath *diagnosticPath = [NSIndexPath indexPathForRow:0 inSection:0];
+    UISwitch *enhanced = (UISwitch *)[diagPage.tableView cellForRowAtIndexPath:diagnosticPath].accessoryView;
     [self check:[enhanced isKindOfClass:UISwitch.class] && !enhanced.on name:@"enhanced diagnostics is opt-in"];
+    __block NSUInteger changes = 0;
+    [enhanced addAction:[UIAction actionWithHandler:^(UIAction *action) { changes++; }]
+        forControlEvents:UIControlEventValueChanged];
+    [diagPage tableView:diagPage.tableView didSelectRowAtIndexPath:diagnosticPath];
+    [self check:changes == 1 && enhanced.on && HGEnhancedDiagnostics()
+        name:@"the diagnostics title delivers one value change to the real switch"];
+    enhanced.on = NO;
+    [enhanced sendActionsForControlEvents:UIControlEventValueChanged];
+    [self check:changes == 2 && !HGEnhancedDiagnostics()
+        name:@"the switch accessory delivers one change through the same settings handler"];
     enhanced.on = YES;
     [enhanced sendActionsForControlEvents:UIControlEventValueChanged];
-    [self check:HGEnhancedDiagnostics() name:@"enhanced diagnostics switch takes effect without restart"];
+    [settings.navigationController popViewControllerAnimated:NO];
 
     UITableViewController *backupPage = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [backupPage setValue:@"backup" forKey:@"pageID"];
@@ -490,6 +505,14 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [sidebarGame.accessibilityIdentifier isEqual:@"hg.option.sidebarGameCenter"]
         name:@"search finds the independent sidebar Game Center switch"];
 
+    [settings.tableView layoutIfNeeded];
+    NSIndexPath *sidebarResult = [NSIndexPath indexPathForRow:0 inSection:0];
+    BOOL enabledBeforeTap = HGIsEnabled(HGSidebarGameCenter);
+    [settings tableView:settings.tableView didSelectRowAtIndexPath:sidebarResult];
+    [self check:HGIsEnabled(HGSidebarGameCenter) != enabledBeforeTap
+        name:@"the filtered switch row title toggles the same feature as its accessory"];
+    [settings tableView:settings.tableView didSelectRowAtIndexPath:sidebarResult];
+
     [self filterSettings:settings text:@"截图 找同款"];
     UITableViewCell *screenshotRow = [self settingsCell:settings section:0 row:0];
     UISwitch *screenshot = (UISwitch *)screenshotRow.accessoryView;
@@ -543,13 +566,13 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [settings.tableView.backgroundView.accessibilityIdentifier isEqual:@"honggo.settings.search.empty"]
         name:@"unmatched search has no stale rows and exposes an accessible empty state"];
     [self filterSettings:settings text:@" \n\t "];
-    [self check:[settings.tableView numberOfSections] == 1 &&
-        [settings.tableView numberOfRowsInSection:0] == 8 &&
+    [self check:[settings.tableView numberOfSections] == 3 &&
+        [settings.tableView numberOfRowsInSection:0] == 3 &&
         settings.tableView.backgroundView == nil
         name:@"whitespace search restores the clean level-1 category list and removes the empty state"];
     [self filterSettings:settings text:@""];
-    [self check:[settings.tableView numberOfSections] == 1 &&
-        [settings.tableView numberOfRowsInSection:0] == 8
+    [self check:[settings.tableView numberOfSections] == 3 &&
+        [settings.tableView numberOfRowsInSection:0] == 3
         name:@"clearing the query restores the clean level-1 category list"];
     [self runSearchAction:0 settings:settings completion:completion];
 }

@@ -438,7 +438,8 @@ static void HGAApplyPanel(UIView *root,NSString *kind) {
 #include "AppearanceLandscapeChrome.inc"
 
 void HGAppearanceProcessView(UIView *view) {
-    if(!NSThread.isMainThread || HGAApplying || ![view isKindOfClass:UIView.class] || HGAOwnView(view))return;
+    if(!NSThread.isMainThread || HGAApplying || ![view isKindOfClass:UIView.class] ||
+       HGAOwnView(view) || HGFeedSidebarOwnsLayout(view.window))return;
     HGAApplying=YES;
     @try {
         HGARegisterView(view);
@@ -509,6 +510,7 @@ void HGAppearanceProcessController(UIViewController *controller) {
         if(!HGAControllers)HGAControllers=[NSHashTable weakObjectsHashTable];[HGAControllers addObject:controller];
         NSString *name=NSStringFromClass(controller.class);
         if([name isEqual:@"SSTabBarController"]) {
+            if(HGFeedSidebarOwnsLayout(controller.viewIfLoaded.window))return;
             UIView *bar=HGAViewGetter(controller,"customTabBar",controller.view);
             if(bar)HGAppearanceLayoutDock(bar,controller);
             return;

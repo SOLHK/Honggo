@@ -25,6 +25,8 @@ static void HGARefreshDock(UIView *bar);
 static NSArray<NSString *> *HGABottomControlClasses(void);
 static void HGAUpdateBottomLayoutForView(UIView *view);
 static void HGARestoreBottomLayoutForView(UIView *view);
+static void HGARelinquishBottomLayout(UIView *view);
+static BOOL HGAIsBottomControl(UIView *view);
 
 static void HGARefreshBackdropAfterScroll(id scroll) {
     if ([scroll isKindOfClass:NSClassFromString(@"FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class])

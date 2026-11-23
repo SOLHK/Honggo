@@ -3,7 +3,8 @@
 
 @interface HGAAppearanceController : UITableViewController <UISearchResultsUpdating,UISearchControllerDelegate,PHPickerViewControllerDelegate,UIDocumentPickerDelegate,UIFontPickerViewControllerDelegate,UIColorPickerViewControllerDelegate>
 @property(nonatomic,copy) NSString *group;
-@property(nonatomic,copy) NSArray<NSDictionary *> *rows;
+@property(nonatomic,copy) NSArray<NSArray<NSDictionary *> *> *sections;
+@property(nonatomic,copy) NSArray<NSString *> *sectionTitles;
 @property(nonatomic,strong) UISearchController *search;
 @property(nonatomic,copy) dispatch_block_t pendingAction;
 @property(nonatomic,copy) NSString *assetKey;
@@ -157,15 +158,21 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     [self afterSearch:^{[presenter dismissViewControllerAnimated:YES completion:nil];}];
 }
 - (void)afterSearch:(dispatch_block_t)action {
-    if(self.search.active || self.search.isBeingDismissed || self.presentedViewController==self.search) {
+    UISearchController *search = self.search;
+    if(search && (search.active || search.isBeingDismissed || self.presentedViewController == search)) {
         self.pendingAction=action;
         if(!self.search.isBeingDismissed) HGAfterViewTransition(self.search, ^{
             if(self.pendingAction)self.search.active=NO;
         });
-    }else if(!self.presentedViewController) HGAfterViewTransition(self, ^{
-        if(self.viewIfLoaded.window && !self.presentedViewController &&
-            !self.isBeingDismissed && !self.navigationController.isBeingDismissed)action();
-    });
+    } else {
+        dispatch_block_t perform = ^{
+            UINavigationController *navigation = self.navigationController;
+            if (self.viewIfLoaded.window && !self.presentedViewController && !self.isBeingDismissed &&
+                    !navigation.isBeingDismissed && (!navigation || navigation.topViewController == self)) action();
+        };
+        if (self.transitionCoordinator.isAnimated) HGAfterViewTransition(self, perform);
+        else perform();
+    }
 }
 - (void)didDismissSearchController:(UISearchController *)searchController {
     HGAfterViewTransition(self, ^{
@@ -177,7 +184,18 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 - (void)updateSearchResultsForSearchController:(UISearchController *)controller {[self reloadRows];}
 - (void)reloadRows {
     NSString *query=[self.search.searchBar.text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSMutableArray *rows=[NSMutableArray array];
+    __block NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
+    NSMutableArray *sections = [NSMutableArray arrayWithObject:rows];
+    NSMutableArray *titles = [NSMutableArray arrayWithObject:@""];
+    void (^section)(NSString *) = ^(NSString *title) {
+        if (rows.count) {
+            rows = [NSMutableArray array];
+            [sections addObject:rows];
+            [titles addObject:title];
+        } else {
+            titles[titles.count - 1] = title;
+        }
+    };
     if(query.length) {
         for(NSDictionary *def in HGAppearanceCatalog()) {
             NSString *key=def[@"key"];
@@ -191,19 +209,22 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         if(!self.group && HGCommunityMatchesQuery(query))
             [rows addObject:HGATool(@"@community",@"TG 更新频道 · @Naloiafeed")];
     } else if(!self.group.length) {
-        // Level 2: clean category list mirroring FanqieX hierarchy.
-        [rows addObject:HGASubpage(@"@group.general",@"外观总开关",HGAppearanceEnabled()?@"已开启":@"未开启")];
+        HGAAddDefs(rows, @[@"enabled"]);
+        section(@"界面与播放");
         [rows addObject:HGASubpage(@"@group.dock",@"悬浮底栏",HGAppearanceFlag(@"dock.enabled")?@"已开启":@"默认")];
         [rows addObject:HGASubpage(@"@group.chrome",@"顶部与页面玻璃",@"独立顶栏按钮、找剧与我的页面")];
-        [rows addObject:HGASubpage(@"@group.player",@"播放布局与玻璃",@"点开单项按 1–100% 调节")];
+        [rows addObject:HGASubpage(@"@group.player",@"播放布局与玻璃",@"播放方式、控件位置与大小")];
         [rows addObject:HGASubpage(@"@group.panels",@"弹出面板",@"评论、选集、分享与倍速面板")];
+        section(@"图标与文字");
         [rows addObject:HGASubpage(@"@group.icons",@"动作图标",HGAppearanceFlag(@"icons.enabled")?@"已开启":@"默认")];
         [rows addObject:HGASubpage(@"@group.fonts",@"字体与字号",HGAppearanceFlag(@"fonts.enabled")?@"已开启":@"默认")];
+        section(@"配置管理");
         [rows addObject:HGASubpage(@"@group.backup",@"外观参数备份与重置",@"导出、恢复或重置外观")];
     } else if([self.group isEqual:@"general"]) {
         HGAAddDefs(rows,@[@"enabled"]);
     } else if([self.group isEqual:@"dock"]) {
         HGAAddDefs(rows,@[@"dock.enabled",@"dock.material",@"dock.content",@"dock.haptics"]);
+        section(@"布局与交互");
         [rows addObject:HGASubpage(@"@group.dock.extra",@"独立圆形按钮",HGAppearanceFlag(@"dock.extra")?@"已开启":@"已关闭")];
         [rows addObject:HGASubpage(@"@group.dock.geometry",@"底栏尺寸与圆角",@"宽度、高度、圆角与图标大小（1–100%）")];
         [rows addObject:HGASubpage(@"@group.dock.colors",@"底栏配色",@"底色、选中与未选中颜色")];
@@ -220,32 +241,45 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     } else if([self.group isEqual:@"dock.hide"]) {
         HGAAddDefs(rows,@[@"dock.hide.home",@"dock.hide.theater",@"dock.hide.store",@"dock.hide.mine"]);
     } else if([self.group isEqual:@"chrome"]) {
-        HGAAddDefs(rows,@[@"player.headerGlass",@"player.finderGlass",@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass"]);
-        [rows addObject:HGASubpage(@"@group.chrome.hide",@"顶部按钮与频道隐藏",@"菜单、关注、漫剧、真人剧、推荐、搜索")];
+        section(@"顶部导航");
+        HGAAddDefs(rows,@[@"player.headerGlass"]);
+        [rows addObject:HGASubpage(@"@group.chrome.hide",@"顶部按钮与频道隐藏",@"菜单、频道与搜索")];
+        section(@"页面与播放控件");
+        HGAAddDefs(rows,@[@"player.finderGlass",@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass"]);
     } else if([self.group isEqual:@"chrome.hide"]) {
         HGAAddDefs(rows,@[@"layout.channels.hide.sidebar",@"layout.channels.hide.follow",@"layout.channels.hide.comic",
             @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search"]);
     } else if([self.group isEqual:@"player"]) {
-        HGAAddDefs(rows,@[@"player.rightGlass",@"player.material",@"player.fullscreen",@"player.separateProgress"]);
-        NSArray *roles=HGAppearanceRoles(),*titles=HGAppearanceRoleTitles();
-        for(NSUInteger i=0;i<roles.count;i++) {
-            NSString *role=roles[i];
-            [rows addObject:HGASubpage([@"@group.role." stringByAppendingString:role],titles[i],HGARoleSummary(role))];
+        section(@"播放与材质");
+        HGAAddDefs(rows,@[@"player.fullscreen",@"player.separateProgress",@"player.rightGlass",@"player.material"]);
+        NSArray *roles = HGAppearanceRoles(), *roleTitles = HGAppearanceRoleTitles();
+        for (NSUInteger i = 0; i < roles.count; i++) {
+            NSString *role = roles[i];
+            if ([role isEqual:@"avatar"]) section(@"右侧按钮");
+            if ([role isEqual:@"channels"]) section(@"频道与剧集信息");
+            if ([role isEqual:@"progress"]) section(@"进度与播放入口");
+            [rows addObject:HGASubpage([@"@group.role." stringByAppendingString:role], roleTitles[i], HGARoleSummary(role))];
         }
     } else if([self.group hasPrefix:@"role."]) {
         NSString *role=[self.group substringFromIndex:5];
         NSString *prefix=[@"layout." stringByAppendingString:role];
+        HGAAddDefs(rows,@[[prefix stringByAppendingString:@".hidden"]]);
+        section(@"位置与大小");
         HGAAddDefs(rows,@[
-            [prefix stringByAppendingString:@".hidden"],
             [prefix stringByAppendingString:@".x"],
             [prefix stringByAppendingString:@".y"],
             [prefix stringByAppendingString:@".scale"]
         ]);
+        section(@"");
         [rows addObject:HGATool([@"@role.reset." stringByAppendingString:role],@"恢复此项默认")];
     } else if([self.group isEqual:@"panels"]) {
-        HGAAddDefs(rows,@[@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed",@"panels.material",@"panels.opacity"]);
+        section(@"启用玻璃的面板");
+        HGAAddDefs(rows,@[@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"]);
+        section(@"材质");
+        HGAAddDefs(rows,@[@"panels.material",@"panels.opacity"]);
     } else if([self.group isEqual:@"icons"]) {
         HGAAddDefs(rows,@[@"icons.enabled",@"icons.preset",@"icons.size"]);
+        section(@"单独设置图标");
         for(NSString *role in @[@"like",@"collect",@"comment",@"share"]) {
             NSUInteger idx=[HGAppearanceRoles() indexOfObject:role];
             NSString *title=[HGAppearanceRoleTitles()[idx] stringByAppendingString:@"图标"];
@@ -262,35 +296,53 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         }
         HGAAddDefs(rows,keys);
     } else if([self.group isEqual:@"fonts"]) {
-        HGAAddDefs(rows,@[@"fonts.enabled",@"fonts.scale",@"fonts.name",@"fonts.asset"]);
+        HGAAddDefs(rows,@[@"fonts.enabled",@"fonts.scale"]);
+        section(@"字体来源");
+        HGAAddDefs(rows,@[@"fonts.name",@"fonts.asset"]);
+        section(@"");
         [rows addObject:HGATool(@"@fonts.reset",@"恢复宿主原字体与字号")];
     } else if([self.group isEqual:@"backup"]) {
         [rows addObject:HGATool(@"@export",@"导出外观参数")];
         [rows addObject:HGATool(@"@import",@"从文件恢复外观参数")];
+        section(@"");
         [rows addObject:HGATool(@"@reset",@"恢复全部外观默认值")];
     }
-    self.rows=rows;
+    self.sections = sections;
+    self.sectionTitles = titles;
     UILabel *empty=nil;
     if(!rows.count){empty=[UILabel new];empty.text=@"没有匹配的外观设置";empty.textAlignment=NSTextAlignmentCenter;empty.textColor=UIColor.secondaryLabelColor;}
     self.tableView.backgroundView=empty;[self.tableView reloadData];
 }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section{return self.rows.count;}
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return self.sections.count; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return self.sections[section].count;
+}
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    NSString *title = self.sectionTitles[section];
+    return title.length ? title : nil;
+}
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if([self.group isEqual:@"fonts"])return @"只改变已适配播放页、面板及底栏的原生文字，不修改视频内字幕、网页或自绘文字。字号滑块以 1–100% 调节，50% 为原始比例。";
-    if([self.group isEqual:@"player"])return @"点击下方任意控件进入四级页面单独设置隐藏、水平／垂直偏移与大小（统一 1–100% 调节，50% 为默认）。";
-    if([self.group hasPrefix:@"role."])return @"偏移与大小统一按 1–100% 调节，50% 对应原始默认位置与比例。";
-    if([self.group isEqual:@"dock.extra"])return @"开启独立圆形按钮并选择任意底栏页（如「我的」）后，该入口会从主胶囊独立分离为右侧圆形液态玻璃按钮，并保留选中高亮。";
-    if([self.group isEqual:@"dock.geometry"])return @"所有尺寸滑块统一按 1–100% 在安全范围内平滑映射，优先保留至少 44 点可点击区域。";
-    if([self.group isEqual:@"dock"])return @"底栏材质支持普通／清透液态玻璃与经典磨砂；可点开下方子项按需调节尺寸、配色、独立圆钮与收缩手势。";
-    if([self.group isEqual:@"chrome"])return @"开启「顶部频道玻璃」后，左上角菜单按钮与右上角搜索按钮会各自独立成圆形液态玻璃，与中间频道胶囊分离。";
-    if([self.group isEqual:@"icons"])return @"点开各动作子项可分别设置 SF Symbol 或相册图片；收藏与点赞支持单独设置选中状态图标。";
-    if([self.group isEqual:@"panels"])return @"仅处理已识别面板，不隐藏绘制内容、输入框或点击遮罩。面板底色不透明度按 1–100% 调节。";
-    return @"先进入「外观总开关」开启外观定制。首次开启原生玻璃后请完全退出红果再打开。";
+    if (self.search.searchBar.text.length) return nil;
+    if (!self.group.length && section == 0)
+        return @"首次启用原生玻璃后，请完全退出红果再打开。";
+    if ([self.group hasPrefix:@"role."] && section == 1)
+        return @"50% 对应控件原来的位置和大小。";
+    if ([self.group isEqual:@"fonts"] && section == 0)
+        return @"字号适用于已适配的播放页、面板和底栏文字。";
+    if ([self.group isEqual:@"dock.extra"])
+        return @"选择底栏页面后，对应入口将移到独立按钮。";
+    return nil;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
-    NSDictionary *row=self.rows[path.row];NSString *kind=row[@"kind"],*key=row[@"key"];
+    NSDictionary *row=self.sections[path.section][path.row];NSString *kind=row[@"kind"],*key=row[@"key"];
     UITableViewCell *cell=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-    cell.textLabel.text=row[@"title"];cell.textLabel.numberOfLines=0;cell.detailTextLabel.numberOfLines=0;
+    NSString *title = row[@"title"];
+    if ([self.group hasPrefix:@"role."]) {
+        NSString *label = @{@"hidden": @"隐藏此控件", @"x": @"水平偏移", @"y": @"垂直偏移",
+            @"scale": @"大小"}[key.pathExtension];
+        if (label) title = label;
+    }
+    cell.textLabel.text=title;cell.textLabel.numberOfLines=0;cell.detailTextLabel.numberOfLines=0;
     cell.textLabel.font=[UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     cell.detailTextLabel.font=[UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
     cell.textLabel.adjustsFontForContentSizeCategory=YES;cell.detailTextLabel.adjustsFontForContentSizeCategory=YES;
@@ -300,12 +352,13 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         UISwitch *toggle=[UISwitch new];toggle.on=HGAppearanceFlag(key);toggle.accessibilityIdentifier=key;
         toggle.accessibilityLabel=row[@"title"];
         [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView=toggle;cell.selectionStyle=UITableViewCellSelectionStyleNone;
+        cell.accessoryView=toggle;
         if([key isEqual:@"player.fullscreen"])
             cell.detailTextLabel.text=@"仅横屏播放横向视频时铺满，竖屏保持原比例";
     }else if([kind isEqual:@"number"]) {
         UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(0,0,136,44)];
         slider.minimumValue=1;slider.maximumValue=100;
+        slider.continuous = NO; // Apply the appearance refresh once when the user releases the slider.
         NSInteger pct=HGAPercentFromValue(row,HGAppearanceNumber(key));
         slider.value=(float)pct;slider.accessibilityIdentifier=key;slider.accessibilityLabel=row[@"title"];
         [slider addTarget:self action:@selector(slider:) forControlEvents:UIControlEventValueChanged];
@@ -315,7 +368,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     }else if([kind isEqual:@"subpage"]) {
         cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;
         NSString *detail=row[@"detail"];
-        if(detail.length)cell.detailTextLabel.text=detail;
+        if(detail.length && ![detail isEqual:@"默认"] && ![detail isEqual:@"跟随预设"])cell.detailTextLabel.text=detail;
     }else {
         cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;
         NSString *value=HGAppearanceString(key);
@@ -359,8 +412,13 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path {
     [tableView deselectRowAtIndexPath:path animated:YES];
-    NSDictionary *row=self.rows[path.row];
-    [self afterSearch:^{[self openRow:row];}];
+    NSDictionary *row=self.sections[path.section][path.row];
+    if ([row[@"kind"] isEqual:@"bool"]) {
+        [self save:row[@"key"] value:@(!HGAppearanceFlag(row[@"key"]))];
+        [tableView reloadRowsAtIndexPaths:@[path] withRowAnimation:UITableViewRowAnimationNone];
+    } else if (![row[@"kind"] isEqual:@"number"]) {
+        [self afterSearch:^{[self openRow:row];}];
+    }
 }
 - (void)confirm:(NSString *)title detail:(NSString *)detail action:(dispatch_block_t)action {
     UIAlertController *a=[UIAlertController alertControllerWithTitle:title message:detail preferredStyle:UIAlertControllerStyleAlert];

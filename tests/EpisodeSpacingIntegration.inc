@@ -160,6 +160,17 @@ static void RunOutterEpisodeSpacingChecks(UIView *root) {
             fabs(wrapper.center.y-beforeEntry.y+8)<0.01,
             @"moving the dock up moves the rail, entry and metadata as one bounded clearance adjustment");
         CGPoint adjustedProgress=progress.center,adjustedEntry=wrapper.center,adjustedRight=right.center;
+        // The host starts its horizontal drawer animation using the original
+        // HUD geometry. A last-minute native change must survive the handoff.
+        CGRect hostRight = CGRectOffset(nativeRight, 3, 0);
+        right.frame = hostRight;
+        HGAppearanceUpdateSidebarLayout(screen.window, YES);
+        Check(CGRectEqualToRect(progress.frame, nativeProgress) && fabs(wrapper.frame.origin.y-822)<0.01 &&
+            CGRectEqualToRect(right.frame, hostRight) && CGRectEqualToRect(above.frame, nativeAbove),
+            @"sidebar handoff restores owned HUD centers and preserves the host's last native write");
+        right.frame = nativeRight;
+        HGAppearanceUpdateSidebarLayout(screen.window, NO);
+        HGAppearanceLayoutDock(bar,nil);
         for(NSUInteger i=0;i<8;i++){Layout(control);Layout(info);Layout(entry);Layout(progress);}
         Check(CGPointEqualToPoint(progress.center,adjustedProgress) &&
             CGPointEqualToPoint(wrapper.center,adjustedEntry) && CGPointEqualToPoint(right.center,adjustedRight),

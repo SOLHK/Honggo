@@ -304,7 +304,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     return self.targets.count>0;
 }
 - (void)refresh {
-    if(self.rendering || self.restoring)return;self.rendering=YES;
+    if(self.rendering || self.restoring || HGFeedSidebarOwnsLayout(self.hostBar.window))return;
+    self.rendering=YES;
     @try {
         UIView *bar=self.hostBar;
         if(!HGAppearanceDockEnabled() || !bar.window || !HGAVisible(bar)) {[self restore];return;}
@@ -664,7 +665,7 @@ BOOL HGAppearanceDockIsMutating(UIView *bar) {
     return dock.rendering || dock.restoring;
 }
 void HGAppearanceLayoutDock(UIView *bar,UIViewController *controller) {
-    if(!NSThread.isMainThread || !bar)return;
+    if(!NSThread.isMainThread || !bar || HGFeedSidebarOwnsLayout(bar.window))return;
     if(!HGABars)HGABars=[NSHashTable weakObjectsHashTable];[HGABars addObject:bar];
     HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
     if(!HGAppearanceDockEnabled()){[dock restore];return;}
@@ -675,6 +676,13 @@ void HGAppearanceLayoutDock(UIView *bar,UIViewController *controller) {
     [dock refresh];
 }
 void HGAppearanceRestoreDock(UIView *bar) {[(HGAAppearanceDock *)objc_getAssociatedObject(bar,&HGADockKey) restore];}
+void HGAppearanceSuspendDockForSidebar(UIView *bar) {
+    HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
+    if(dock.superview!=bar)return;
+    BOOL collapsed=dock.collapsed;
+    [dock restore];
+    dock.collapsed=collapsed;
+}
 static void HGARefreshDock(UIView *bar){HGAppearanceLayoutDock(bar,nil);}
 @interface HGADockScrollObserver : NSObject
 + (instancetype)shared;
@@ -692,7 +700,7 @@ static void HGARefreshDock(UIView *bar){HGAppearanceLayoutDock(bar,nil);}
     __weak UIWindow *weakWin=win;
     dispatch_async(dispatch_get_main_queue(),^{
         UIWindow *targetWin=weakWin;
-        if(!targetWin)return;
+        if(!targetWin || HGFeedSidebarOwnsLayout(targetWin))return;
         for(UIView *bar in HGABars.allObjects)
             if(bar.window==targetWin && fabs(bar.frame.origin.x)<=2.0)
                 [(HGAAppearanceDock *)objc_getAssociatedObject(bar,&HGADockKey) setCollapsed:collapse animated:YES];
