@@ -255,22 +255,23 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     NSString *rootHeader = [settings tableView:settings.tableView titleForHeaderInSection:0];
     [self check:[settings.title isEqualToString:@"Honggo"] &&
         [rootHeader containsString:HG_PLUGIN_VERSION] &&
-        [rootHeader containsString:@"当前调节页面："]
-        name:@"settings title is Honggo with a separate plugin version and target page label"];
+        settings.navigationItem.leftBarButtonItem == nil
+        name:@"settings title is Honggo with version header and no duplicate left appearance button"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
     NSArray<NSString *> *expectedFolders = @[
-        @"honggo.folder.appearance.root", @"honggo.folder.appearance.dock",
-        @"honggo.folder.appearance.pages", @"honggo.folder.ads", @"honggo.folder.controls"
+        @"honggo.folder.nav", @"honggo.folder.drama", @"honggo.folder.comment",
+        @"honggo.folder.finder", @"honggo.folder.mine", @"honggo.folder.appearance",
+        @"honggo.folder.ads", @"honggo.folder.videoExport"
     ];
     BOOL folderStructure = [settings.tableView numberOfRowsInSection:0] == (NSInteger)expectedFolders.count && HGFeatureCount == 18;
     for (NSUInteger i = 0; folderStructure && i < expectedFolders.count; i++) {
         UITableViewCell *folderCell = [settings tableView:settings.tableView
             cellForRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)i inSection:0]];
         folderStructure &= [folderCell.accessibilityIdentifier isEqual:expectedFolders[i]] &&
-            [folderCell.detailTextLabel.text containsString:@"当前调节页面："];
+            folderCell.textLabel.text.length > 0 && folderCell.detailTextLabel.text.length == 0;
     }
-    [self check:folderStructure name:@"settings root exposes five categorized entry folders noting regulated pages"];
+    [self check:folderStructure name:@"settings root exposes eight clean FanqieX-unified single-line folders"];
     [self check:[settings.tableView numberOfRowsInSection:1] == 4
         name:@"settings exposes diagnostics export clear and compatibility"];
     [self check:[settings.tableView numberOfRowsInSection:2] == 3
@@ -287,7 +288,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [adsHub setValue:@"ads" forKey:@"menuPath"];
     [adsHub loadViewIfNeeded];
     [self check:[adsHub.tableView numberOfRowsInSection:0] == 4 &&
-        [[adsHub tableView:adsHub.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："]
+        [[adsHub tableView:adsHub.tableView titleForHeaderInSection:0] isEqual:@"广告与拦截"]
         name:@"ad filter level-2 folder organizes four page-scoped submenus"];
 
     NSArray<NSString *> *keys = @[@"glass", @"splash", @"topview", @"feed", @"comment", @"pause", @"patch",
@@ -300,7 +301,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         HGSettingsController *sub = [[HGSettingsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
         [sub setValue:path forKey:@"menuPath"];
         [sub loadViewIfNeeded];
-        leafHeaders &= [[sub tableView:sub.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："];
+        leafHeaders &= [sub tableView:sub.tableView titleForHeaderInSection:0].length > 0;
         NSInteger rows = [sub.tableView numberOfRowsInSection:0];
         for (NSInteger r = 0; r < rows; r++) {
             UITableViewCell *cell = [sub tableView:sub.tableView
@@ -370,7 +371,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
             UITableViewController *appearanceSub = pushed ? (UITableViewController *)navigation.topViewController : nil;
             [appearanceSub loadViewIfNeeded];
             BOOL openedDockGeom = pushed && appearanceSub != (UITableViewController *)settings &&
-                [[appearanceSub.tableView.dataSource tableView:appearanceSub.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："] &&
+                [[appearanceSub.tableView.dataSource tableView:appearanceSub.tableView titleForHeaderInSection:0] isEqual:@"底栏尺寸与圆角"] &&
                 [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView numberOfRowsInSection:0] == 1;
             UITableViewCell *geomCell = openedDockGeom ? [appearanceSub.tableView.dataSource tableView:appearanceSub.tableView
                 cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]] : nil;
@@ -585,6 +586,10 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self check:[settings.tableView numberOfRowsInSection:2] == 1 &&
         [[self settingsCell:settings section:2 row:0].accessibilityIdentifier isEqual:@"honggo.preferences.reset"]
         name:@"reset search result keeps its destructive action identity"];
+    [self filterSettings:settings text:@"双指捏合"];
+    [self check:[settings.tableView numberOfSections] == 5 &&
+        [settings.tableView numberOfRowsInSection:4] >= 1
+        name:@"root unified search resolves FanqieX appearance features in section 4"];
     [self filterSettings:settings text:@"not-a-honggo-setting-123"];
     [self check:[settings.tableView numberOfRowsInSection:0] == 0 &&
         [settings.tableView numberOfRowsInSection:1] == 0 &&
@@ -592,12 +597,12 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [settings.tableView.backgroundView.accessibilityIdentifier isEqual:@"honggo.settings.search.empty"]
         name:@"unmatched search has no stale rows and exposes an accessible empty state"];
     [self filterSettings:settings text:@" \n\t "];
-    [self check:[settings.tableView numberOfRowsInSection:0] == 5 &&
+    [self check:[settings.tableView numberOfRowsInSection:0] == 8 &&
         [settings.tableView numberOfRowsInSection:1] == 4 && [settings.tableView numberOfRowsInSection:2] == 3 &&
         settings.tableView.backgroundView == nil
         name:@"whitespace search restores the root folder catalog and removes the empty state"];
     [self filterSettings:settings text:@""];
-    [self check:[settings.tableView numberOfRowsInSection:0] == 5
+    [self check:[settings.tableView numberOfRowsInSection:0] == 8
         name:@"clearing the query restores the categorized root menu"];
     [self runSearchAction:0 settings:settings completion:completion];
 }
@@ -673,7 +678,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
                 [compatibility loadViewIfNeeded];
                 [self check:[compatibility.view.accessibilityIdentifier isEqual:@"honggo.compatibility"] &&
                     [compatibility isKindOfClass:UITableViewController.class] &&
-                    [[compatibility.tableView.dataSource tableView:compatibility.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："]
+                    [[compatibility.tableView.dataSource tableView:compatibility.tableView titleForHeaderInSection:0] isEqual:@"模块兼容状态"]
                     name:@"compatibility action displays the dedicated native status table"];
                 [settings.navigationController popToViewController:settings animated:NO];
                 dispatch_async(dispatch_get_main_queue(), ^{

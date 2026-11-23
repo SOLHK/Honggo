@@ -9,6 +9,8 @@
 @property(nonatomic,strong) UIView *capsule;
 @property(nonatomic,strong) UIView *selection;
 @property(nonatomic,strong) UIView *extra;
+@property(nonatomic,strong) UIView *extraSelection;
+@property(nonatomic,strong) UIView *extraBadge;
 @property(nonatomic,strong) UIView *expand;
 @property(nonatomic,strong) UIButton *extraButton;
 @property(nonatomic,strong) UIButton *expandButton;
@@ -53,21 +55,6 @@ static CGFloat HGAExpandedDockWidth(CGFloat width,CGFloat controlHeight,NSUInteg
     CGFloat reserve=HGAppearanceFlag(@"dock.extra") ?
         MIN(HGAppearanceNumber(@"dock.extraSize"),controlHeight)+HGADockAccessoryGap : 0;
     return MIN(width-8,MAX(visibleCount*44+reserve,HGAppearanceNumber(@"dock.width")*width));
-}
-static CGFloat HGAExpandedDockWidthForHeader(UIView *header) {
-    CGFloat width=CGRectGetWidth(header.bounds);
-    if(!HGAppearanceDockEnabled() || width<180)return width;
-    CGFloat controlHeight=HGAppearanceNumber(@"dock.extraSize");
-    for(UIView *bar in HGABars.allObjects) {
-        if(bar.window==header.window && HGAVisible(bar) && HGADockControlHeight(bar)>=44) {
-            controlHeight=HGADockControlHeight(bar);
-            break;
-        }
-    }
-    NSUInteger visibleCount=0;
-    for(NSString *key in HGATabIDs())
-        if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))visibleCount++;
-    return HGAExpandedDockWidth(width,controlHeight,visibleCount);
 }
 static NSArray *HGATabTitles(void){return @[@"首页",@"剧场",@"商城",@"我的"];}
 static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@"person"];}
@@ -157,15 +144,49 @@ static UIUserInterfaceStyle HGADockPageStyle(UIViewController *controller,UIView
     }
     return bar.traitCollection.userInterfaceStyle;
 }
-static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat radius,UIColor *fill) {
+static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat radius,UIColor *fill,BOOL darkSurface) {
     HGAInstallGlass(surface,style,radius,0);
     HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
-    // Native regular glass already diffuses its backdrop. A second system
-    // material below it made light pages opaque and white in R21.
+    BOOL isNativeGlass = ![style isEqual:@"blur"] && ![style isEqual:@"solid"] &&
+                         !UIAccessibilityIsReduceTransparencyEnabled() && HGNativeGlassConfigured();
+    // Native regular/clear glass already diffuses its backdrop. Keep interactive
+    // Liquid Glass enabled on iOS 26/27 with native UICornerConfiguration while
+    // retaining layer.cornerRadius for layout parity.
+    glass.interactiveGlass=isNativeGlass;
+    if(@available(iOS 26.0,*)) {
+        BOOL capsule = radius >= MIN(surface.bounds.size.width, surface.bounds.size.height) * 0.49;
+        HGApplyNativeCornerConfig(glass, radius, capsule);
+    }
     glass.userInteractionEnabled=YES;
     glass.accessibilityElementsHidden=NO;
     glass.overlayColor=fill;
+    HGApplySurfaceBackdropBlur(surface, surface, glass, surface.bounds, radius,
+                               darkSurface, style, HGAppearanceNumber(@"dock.blur"));
     return glass.contentView ?: surface;
+}
+
+static BOOL HGADockSourceHasUnreadBadge(UIView *source, NSInteger depth) {
+    if (!source || depth > 4) return NO;
+    for (UIView *sub in source.subviews) {
+        if (sub.hidden || sub.alpha < 0.05) continue;
+        CGRect b = sub.bounds;
+        if (CGRectGetWidth(b) >= 4.0 && CGRectGetWidth(b) <= 22.0 &&
+            CGRectGetHeight(b) >= 4.0 && CGRectGetHeight(b) <= 22.0) {
+            NSString *cn = NSStringFromClass(sub.class);
+            if ([cn containsString:@"RedDot"] || [cn containsString:@"Badge"] || [cn containsString:@"Dot"]) {
+                return YES;
+            }
+            if (sub.backgroundColor) {
+                CGFloat r = 0, g = 0, bCol = 0, a = 0;
+                if ([sub.backgroundColor getRed:&r green:&g blue:&bCol alpha:&a] &&
+                    a > 0.6 && r > 0.72 && g < 0.45 && bCol < 0.45) {
+                    return YES;
+                }
+            }
+        }
+        if (HGADockSourceHasUnreadBadge(sub, depth + 1)) return YES;
+    }
+    return NO;
 }
 static CGRect HGADockSelectionFrame(CGFloat center,CGFloat width,CGFloat height,CGFloat preferredWidth) {
     CGFloat halfWidth=MIN(preferredWidth/2,MIN(center,width-center)-4);
@@ -202,10 +223,27 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.selectionPan.delegate=self;
         self.selectionPan.maximumNumberOfTouches=1;
         self.extra=[UIView new];
+        self.extraSelection=[UIView new];
+        self.extraSelection.accessibilityIdentifier=@"honggo.appearance.dock.extra.selection";
+        self.extraSelection.userInteractionEnabled=NO;
+        self.extraSelection.accessibilityElementsHidden=YES;
+        self.extraSelection.layer.cornerCurve=kCACornerCurveContinuous;
+        self.extraSelection.hidden=YES;
+        [self.extra addSubview:self.extraSelection];
         self.extraButton=HGADockButton();
         self.extraButton.accessibilityIdentifier=@"honggo.appearance.dock.extra";
+        [self.extraButton addTarget:self action:@selector(extraTouchDown:) forControlEvents:UIControlEventTouchDown];
+        [self.extraButton addTarget:self action:@selector(extraTouchUp:) forControlEvents:UIControlEventTouchUpOutside|UIControlEventTouchCancel|UIControlEventTouchDragExit];
         [self.extraButton addTarget:self action:@selector(extraTapped:) forControlEvents:UIControlEventTouchUpInside];
         [self.extra addSubview:self.extraButton];
+        self.extraBadge=[UIView new];
+        self.extraBadge.accessibilityIdentifier=@"honggo.appearance.dock.extra.badge";
+        self.extraBadge.userInteractionEnabled=NO;
+        self.extraBadge.accessibilityElementsHidden=YES;
+        self.extraBadge.backgroundColor=[UIColor colorWithRed:1.0 green:0.231 blue:0.188 alpha:1.0];
+        self.extraBadge.layer.cornerRadius=4.0;
+        self.extraBadge.hidden=YES;
+        [self.extra addSubview:self.extraBadge];
         [self addSubview:self.extra];
         self.expand=[UIView new];
         self.expandButton=HGADockButton();
@@ -311,6 +349,11 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         }
         NSUInteger visibleCount=0;
         for(NSString *key in HGATabIDs()) if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))visibleCount++;
+        NSString *action=HGAppearanceString(@"dock.action");
+        if(HGAppearanceFlag(@"dock.extra") && [HGATabIDs() indexOfObject:action]!=NSNotFound &&
+           !HGAppearanceFlag([@"dock.hide." stringByAppendingString:action]) && visibleCount>1) {
+            visibleCount--;
+        }
         CGFloat extraWidth=HGAppearanceFlag(@"dock.extra") ?
             MIN(HGAppearanceNumber(@"dock.extraSize"),controlHeight)+HGADockAccessoryGap : 0;
         if(bar.bounds.size.width-8 < visibleCount*44+extraWidth) {
@@ -343,8 +386,18 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     CGFloat controlHeight=HGADockControlHeight(self.hostBar);
     if(width<180 || controlHeight<44)return;
     NSMutableArray *visible=[NSMutableArray array];
-    for(NSString *key in HGATabIDs())if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))[visible addObject:key];
     BOOL extra=HGAppearanceFlag(@"dock.extra");
+    NSString *action=HGAppearanceString(@"dock.action");
+    NSUInteger detachedTabIndex=extra ? [HGATabIDs() indexOfObject:action] : NSNotFound;
+    for(NSString *key in HGATabIDs()) {
+        if(HGAppearanceFlag([@"dock.hide." stringByAppendingString:key])) continue;
+        [visible addObject:key];
+    }
+    // FanqieX-unified detached module: if the detached circular orb represents a bottom
+    // navigation tab, move it exclusively out of the main capsule when >= 2 tabs exist.
+    if(detachedTabIndex!=NSNotFound && visible.count>1 && [visible containsObject:action]) {
+        [visible removeObject:action];
+    }
     CGFloat circle=MIN(HGAppearanceNumber(@"dock.extraSize"),controlHeight);
     CGFloat height=MIN(HGAppearanceNumber(@"dock.height"),controlHeight);
     CGFloat reserve=extra ? circle+HGADockAccessoryGap : 0;
@@ -379,15 +432,21 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
     UIColor *base=tint ?: (translucent ? [UIColor colorWithWhite:light?1:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor);
     UIColor *fill=[base colorWithAlphaComponent:!translucent || reduced ? 1 : (tint ? 0.30 : 0)];
-    UIView *capsuleContent=HGADockMaterialContent(self.capsule,style,self.collapsed?22:radius,fill);
-    UIView *extraContent=HGADockMaterialContent(self.extra,style,circle/2,fill);
-    UIView *expandContent=HGADockMaterialContent(self.expand,style,22,fill);
+    BOOL darkForBlur=!light;
+    UIView *capsuleContent=HGADockMaterialContent(self.capsule,style,self.collapsed?22:radius,fill,darkForBlur);
+    UIView *extraContent=HGADockMaterialContent(self.extra,style,circle/2,fill,darkForBlur);
+    UIView *expandContent=HGADockMaterialContent(self.expand,style,22,fill,darkForBlur);
     // UIKit can adapt dynamic label colors to the material's own background
     // when the foreground belongs to the visual effect's contentView.
     if(self.selection.superview!=capsuleContent)[capsuleContent insertSubview:self.selection atIndex:0];
+    if(self.extraSelection.superview!=extraContent)[extraContent insertSubview:self.extraSelection atIndex:0];
     if(self.extraButton.superview!=extraContent)[extraContent addSubview:self.extraButton];
+    if(self.extraBadge.superview!=extraContent)[extraContent addSubview:self.extraBadge];
     if(self.expandButton.superview!=expandContent)[expandContent addSubview:self.expandButton];
     self.extraButton.frame=self.extra.bounds;
+    self.extraSelection.frame=CGRectInset(self.extra.bounds,4,4);
+    self.extraSelection.layer.cornerRadius=MIN(CGRectGetWidth(self.extraSelection.bounds),CGRectGetHeight(self.extraSelection.bounds))*0.5;
+    self.extraBadge.frame=CGRectMake(CGRectGetWidth(self.extra.bounds)-14,8,8,8);
     self.expandButton.frame=self.expand.bounds;
     self.extraButton.hidden=self.extra.hidden;
     self.expandButton.hidden=self.expand.hidden;
@@ -397,12 +456,12 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.capsule.layer.borderWidth=translucent && !classicBlur ? 0.5 : 0;
     self.capsule.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
     BOOL darkSurface=self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-    if(!self.dragLens) {
-        self.selection.backgroundColor=classicBlur && !reduced ?
-            [UIColor colorWithWhite:light?0:1 alpha:light?0.08:0.12] : (translucent && !reduced ?
-            [UIColor colorWithWhite:0 alpha:(light?0.12:0.30)] :
-            [UIColor colorWithWhite:darkSurface?1:0 alpha:(darkSurface?0.18:0.08)]);
-    }
+    UIColor *selectionFill=classicBlur && !reduced ?
+        [UIColor colorWithWhite:light?0:1 alpha:light?0.08:0.12] : (translucent && !reduced ?
+        [UIColor colorWithWhite:0 alpha:(light?0.12:0.30)] :
+        [UIColor colorWithWhite:darkSurface?1:0 alpha:(darkSurface?0.18:0.08)]);
+    if(!self.dragLens) self.selection.backgroundColor=selectionFill;
+    self.extraSelection.backgroundColor=selectionFill;
     CGRect selectedFrame=CGRectNull;
     NSString *content=HGAppearanceString(@"dock.content");
     CGFloat slotInset=MIN(14,MAX(0,(expanded.size.width-54*visible.count)/2));
@@ -441,22 +500,31 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         b.accessibilityLabel=HGATabTitles()[index];
         b.accessibilityTraits=UIAccessibilityTraitButton | (active?UIAccessibilityTraitSelected:0);
     }
+    BOOL detachedSelected=NO;
+    UIControl *detachedSource=detachedTabIndex!=NSNotFound ? [self.targets objectForKey:action] : nil;
+    if(detachedTabIndex!=NSNotFound) {
+        detachedSelected=selected!=NSNotFound ? (selected==(NSInteger)detachedTabIndex) : detachedSource.selected;
+    }
+    self.extraSelection.hidden=self.extra.hidden || !detachedSelected;
+    self.extraBadge.hidden=self.extra.hidden || !HGADockSourceHasUnreadBadge(detachedSource, 0);
     if(self.selectionDragging && !self.collapsed)[self positionDragSelection:self.selectionDragX];
     else {
-        self.selection.hidden=CGRectIsNull(selectedFrame);
+        self.selection.hidden=detachedSelected || CGRectIsNull(selectedFrame);
         if(!self.selection.hidden)[self placeSelection:selectedFrame];
     }
-    NSString *action=HGAppearanceString(@"dock.action");
-    NSString *symbol=[action isEqual:@"settings"]?@"slider.horizontal.3":([action isEqual:@"search"]?@"magnifyingglass":HGATabSymbols()[[HGATabIDs() indexOfObject:action]]);
-    UIColor *customColor=HGAppearanceColor(HGAppearanceString(@"dock.normal"),nil);
+    NSString *baseSymbol=[action isEqual:@"settings"]?@"slider.horizontal.3":([action isEqual:@"search"]?@"magnifyingglass":(detachedTabIndex!=NSNotFound?HGATabSymbols()[detachedTabIndex]:@"slider.horizontal.3"));
+    NSString *symbol=detachedSelected && detachedTabIndex!=NSNotFound ? [baseSymbol stringByAppendingString:@".fill"] : baseSymbol;
+    UIImage *extraImage=[UIImage systemImageNamed:symbol] ?: [UIImage systemImageNamed:baseSymbol];
+    UIColor *customColor=HGAppearanceColor(HGAppearanceString(detachedSelected?@"dock.selected":@"dock.normal"),nil);
     UIColor *accessoryColor=customColor ?: UIColor.labelColor;
     UIFont *accessoryFont=[UIFont systemFontOfSize:11];
-    HGADockConfigureButton(self.extraButton,nil,[UIImage systemImageNamed:symbol],MIN(requestedIcon,circle*0.48),accessoryFont,accessoryColor);
+    HGADockConfigureButton(self.extraButton,nil,extraImage,MIN(requestedIcon,circle*0.48),accessoryFont,accessoryColor);
     HGADockConfigureButton(self.expandButton,nil,[UIImage systemImageNamed:@"ellipsis"],MIN(requestedIcon,22),accessoryFont,accessoryColor);
     if(@available(iOS 17.0,*)) {
         for(UIView *surface in @[self.capsule,self.extra,self.expand])[surface updateTraitsIfNeeded];
     }
-    self.extraButton.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[[HGATabIDs() indexOfObject:action]]);
+    self.extraButton.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 设置":([action isEqual:@"search"]?@"搜索":(detachedTabIndex!=NSNotFound?HGATabTitles()[detachedTabIndex]:@"Honggo 设置"));
+    self.extraButton.accessibilityTraits=UIAccessibilityTraitButton | (detachedSelected?UIAccessibilityTraitSelected:0);
     CGRect occupied=self.collapsed?compact:(extra?CGRectUnion(expanded,self.extra.frame):expanded);
     occupied=[self convertRect:occupied toView:self.window];
     if(!CGRectEqualToRect(self.lastOccupiedRect,occupied)) {
@@ -488,6 +556,10 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         UIColor *background=self.hostBackground;
         self.backgroundOwned=NO;self.collapsed=NO;
         [self clearSelectionDrag];
+        HGClearSurfaceBackdropBlur(self.capsule);
+        HGClearSurfaceBackdropBlur(self.extra);
+        HGClearSurfaceBackdropBlur(self.expand);
+        self.extra.transform=CGAffineTransformIdentity;
         [self.selectionPan.view removeGestureRecognizer:self.selectionPan];
         self.lastOccupiedRect=CGRectNull;
         for(NSArray *entry in restorations) {
@@ -578,7 +650,22 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
             animations:^{[self renderGeometry];} completion:nil];
     }
 }
+- (void)extraTouchDown:(UIButton *)sender {
+    (void)sender;
+    if(UIAccessibilityIsReduceMotionEnabled()) return;
+    [UIView animateWithDuration:0.14 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0
+                        options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
+                     animations:^{ self.extra.transform=CGAffineTransformMakeScale(0.92,0.92); } completion:nil];
+}
+- (void)extraTouchUp:(UIButton *)sender {
+    (void)sender;
+    if(UIAccessibilityIsReduceMotionEnabled()) { self.extra.transform=CGAffineTransformIdentity; return; }
+    [UIView animateWithDuration:0.32 delay:0 usingSpringWithDamping:0.68 initialSpringVelocity:0
+                        options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
+                     animations:^{ self.extra.transform=CGAffineTransformIdentity; } completion:nil];
+}
 - (void)extraTapped:(UIButton *)sender {
+    [self extraTouchUp:sender];
     NSString *action=HGAppearanceString(@"dock.action");
     if([action isEqual:@"settings"]) { HGOpenAppearance(self.hostController ?: HGAOwner(self.hostBar),nil);return; }
     NSUInteger index=[HGATabIDs() indexOfObject:action];

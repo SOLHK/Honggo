@@ -141,25 +141,35 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     }
     [controls addObject:search.searchButtonSlotView];
     Layout(header);Layout(channels);HGAppearanceLayoutDock(bar,host);
-    UIView *capsule=Find(bar,@"honggo.appearance.dock.capsule");
-    UIView *accessory=Find(bar,@"honggo.appearance.dock.extra");
-    CGRect dock=CGRectUnion([capsule convertRect:capsule.bounds toView:header],
-        [accessory convertRect:accessory.bounds toView:header]);
-    UIView *headerGlass=Find(header,material);
-    Check(capsule && accessory && headerGlass && fabs(CGRectGetWidth(dock)-CGRectGetWidth(headerGlass.frame))<0.5 &&
-        fabs(CGRectGetMidX(dock)-CGRectGetMidX(headerGlass.frame))<0.5,
-        @"the top capsule matches the expanded bottom dock including its round button");
+    UIView *sideGlass=nil,*centerGlass=nil,*searchGlass=nil;
+    for(UIView *sub in header.subviews) {
+        if(![sub.accessibilityIdentifier isEqual:material])continue;
+        if([sub.accessibilityLabel isEqual:@"header.sidebar"])sideGlass=sub;
+        else if([sub.accessibilityLabel isEqual:@"header.channels"])centerGlass=sub;
+        else if([sub.accessibilityLabel isEqual:@"header.search"])searchGlass=sub;
+    }
     CGRect left=[header.sideBar convertRect:header.sideBar.bounds toView:header];
     CGRect right=[search.searchButtonSlotView convertRect:search.searchButtonSlotView.bounds toView:header];
-    Check(headerGlass && fabs(CGRectGetMidX(left)-CGRectGetMinX(headerGlass.frame)-23)<0.5 &&
-        fabs(CGRectGetMaxX(headerGlass.frame)-CGRectGetMidX(right)-23)<0.5 &&
-        left.size.width==24 && right.size.width==24 && CGRectEqualToRect(search.frame,nativeSearch) &&
-        CGRectEqualToRect(tabContainer.frame,nativeTabs),
-        @"the two native header slots get equal capsule insets without resizing their hit areas or moving channels");
+    Check(sideGlass && centerGlass && searchGlass &&
+        fabs(CGRectGetWidth(sideGlass.frame)-CGRectGetHeight(sideGlass.frame))<0.5 &&
+        fabs(CGRectGetWidth(searchGlass.frame)-CGRectGetHeight(searchGlass.frame))<0.5 &&
+        fabs(CGRectGetMidX(sideGlass.frame)-CGRectGetMidX(left))<1.0 &&
+        fabs(CGRectGetMidX(searchGlass.frame)-CGRectGetMidX(right))<1.0 &&
+        CGRectGetMaxX(sideGlass.frame)<CGRectGetMinX(centerGlass.frame) &&
+        CGRectGetMaxX(centerGlass.frame)<CGRectGetMinX(searchGlass.frame),
+        @"home header uses three detached FanqieX Liquid Glass surfaces for sidebar, channels and search");
+    UIView *headerPill=Find(centerGlass,@"honggo.appearance.header.pill");
+    Check(headerPill && !headerPill.hidden && underline.alpha<0.02 &&
+        CGAffineTransformIsIdentity(header.sideBar.transform) &&
+        CGAffineTransformIsIdentity(search.searchButtonSlotView.transform) &&
+        left.size.width==24 && right.size.width==24 &&
+        CGRectEqualToRect(search.frame,nativeSearch) && CGRectEqualToRect(tabContainer.frame,nativeTabs),
+        @"detached header keeps native slot transforms and hit targets intact while showing a channel pill");
     HGAppearanceSet(@"player.headerGlass",@NO,nil);
-    Check(CGAffineTransformIsIdentity(header.sideBar.transform) &&
+    Check(!Find(header,material) && underline.alpha>0.9 &&
+        CGAffineTransformIsIdentity(header.sideBar.transform) &&
         CGAffineTransformIsIdentity(search.searchButtonSlotView.transform),
-        @"disabling the home capsule restores both header slot positions");
+        @"disabling header glass removes all three detached surfaces and restores native underline alpha");
     HGAppearanceSet(@"player.headerGlass",@YES,nil);
 
     NSArray *keys=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
@@ -181,19 +191,19 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     NSMutableDictionary *allHidden=[NSMutableDictionary dictionary];
     for(NSString *key in keys)allHidden[[@"layout.channels.hide." stringByAppendingString:key]]=@YES;
     HGAppearanceApply(allHidden,nil);
-    Check(header.hidden && !Find(header,material),@"hiding all six native home controls also removes the empty capsule");
+    Check(header.hidden && !Find(header,material),@"hiding all six native home controls also removes all header glass");
     HGAppearanceSet(@"layout.channels.hide.search",@NO,nil);
-    Check(!header.hidden && Find(header,material) && !search.searchButtonSlotView.hidden && header.sideBar.hidden && underline.hidden,
-        @"the R22 five-hidden combination preserves the native search as the only top control");
-    headerGlass=Find(header,material);
+    Check(!header.hidden && Count(header,material)==1 && !search.searchButtonSlotView.hidden && header.sideBar.hidden && underline.hidden,
+        @"five-hidden combination preserves the native search with one round glass surface");
+    UIView *loneGlass=Find(header,material);
     right=[search.searchButtonSlotView convertRect:search.searchButtonSlotView.bounds toView:header];
-    Check(fabs(CGRectGetWidth(headerGlass.frame)-44)<0.5 &&
-        fabs(CGRectGetMidX(headerGlass.frame)-CGRectGetMidX(right))<0.5 &&
+    Check(fabs(CGRectGetWidth(loneGlass.frame)-CGRectGetHeight(loneGlass.frame))<0.5 &&
+        fabs(CGRectGetMidX(loneGlass.frame)-CGRectGetMidX(right))<1.0 &&
         CGRectEqualToRect(search.frame,nativeSearch) && right.size.width==24,
-        @"a lone search uses one round glass surface around the unchanged native target");
+        @"a lone search uses one circular glass surface centered on the unchanged native target");
     HGAppearanceSet(@"layout.channels.hide.follow",@NO,nil);
-    Check(CGRectGetWidth(Find(header,material).frame)>44,
-        @"restoring a channel expands the same material back to the shared header capsule");
+    Check(Count(header,material)==2,
+        @"restoring a channel restores the center channel capsule alongside the detached search circle");
     for(NSString *key in allHidden.allKeys)allHidden[key]=@NO;
     HGAppearanceApply(allHidden,nil);
 

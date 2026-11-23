@@ -260,7 +260,102 @@ static UIImage *HGAActionPresetImage(NSString *role,BOOL selected,NSString *pres
     return image;
 }
 
+static UIImage *HGARoundedDramaOutlineIcon(NSString *role,BOOL selected,CGFloat size) {
+    static NSMutableDictionary<NSString *,UIImage *> *cache;
+    if(!cache)cache=[NSMutableDictionary dictionary];
+    CGFloat clamped=MAX(18.0,MIN(40.0,round(size)));
+    NSString *key=[NSString stringWithFormat:@"outline/%@/%d/%.0f",role,selected,clamped];
+    UIImage *cached=cache[key];
+    if(cached)return cached;
+
+    UIBezierPath *outline=[UIBezierPath bezierPath];
+    BOOL comment=[role isEqual:@"comment"];
+    if([role isEqual:@"collect"]) {
+        CGPoint vertices[10];
+        for(NSUInteger i=0;i<10;i++) {
+            CGFloat angle=-M_PI_2+i*M_PI/5.0;
+            CGFloat radius=(i%2)?6.5:13.0;
+            vertices[i]=CGPointMake(16.0+radius*cos(angle),16.5+radius*sin(angle));
+        }
+        for(NSUInteger i=0;i<10;i++) {
+            CGPoint point=vertices[i];
+            CGPoint previous=vertices[(i+9)%10];
+            CGPoint next=vertices[(i+1)%10];
+            CGFloat roundness=(i%2)?0.16:0.27;
+            CGPoint entry=CGPointMake(point.x+(previous.x-point.x)*roundness,
+                                      point.y+(previous.y-point.y)*roundness);
+            CGPoint exit=CGPointMake(point.x+(next.x-point.x)*roundness,
+                                     point.y+(next.y-point.y)*roundness);
+            if(i==0)[outline moveToPoint:entry];
+            else [outline addLineToPoint:entry];
+            [outline addQuadCurveToPoint:exit controlPoint:point];
+        }
+    } else if(comment) {
+        [outline moveToPoint:CGPointMake(7.8,23.0)];
+        [outline addCurveToPoint:CGPointMake(3.3,15.0) controlPoint1:CGPointMake(4.8,21.2) controlPoint2:CGPointMake(3.3,18.5)];
+        [outline addCurveToPoint:CGPointMake(16.0,4.8) controlPoint1:CGPointMake(3.3,9.1) controlPoint2:CGPointMake(8.8,4.8)];
+        [outline addCurveToPoint:CGPointMake(28.7,15.0) controlPoint1:CGPointMake(23.2,4.8) controlPoint2:CGPointMake(28.7,9.1)];
+        [outline addCurveToPoint:CGPointMake(16.0,25.1) controlPoint1:CGPointMake(28.7,20.9) controlPoint2:CGPointMake(23.2,25.1)];
+        [outline addQuadCurveToPoint:CGPointMake(12.8,24.7) controlPoint:CGPointMake(14.3,25.1)];
+        [outline addQuadCurveToPoint:CGPointMake(7.7,28.0) controlPoint:CGPointMake(10.6,27.2)];
+        [outline addQuadCurveToPoint:CGPointMake(6.6,26.9) controlPoint:CGPointMake(6.1,28.5)];
+        [outline addQuadCurveToPoint:CGPointMake(7.8,23.0) controlPoint:CGPointMake(7.7,24.7)];
+    } else if([role isEqual:@"like"]) {
+        [outline moveToPoint:CGPointMake(16.0,9.1)];
+        [outline addCurveToPoint:CGPointMake(3.4,13.2) controlPoint1:CGPointMake(11.7,2.5) controlPoint2:CGPointMake(3.4,5.1)];
+        [outline addCurveToPoint:CGPointMake(15.1,26.5) controlPoint1:CGPointMake(3.4,19.0) controlPoint2:CGPointMake(9.6,23.5)];
+        [outline addQuadCurveToPoint:CGPointMake(16.9,26.5) controlPoint:CGPointMake(16.0,27.1)];
+        [outline addCurveToPoint:CGPointMake(28.6,13.2) controlPoint1:CGPointMake(22.4,23.5) controlPoint2:CGPointMake(28.6,19.0)];
+        [outline addCurveToPoint:CGPointMake(16.0,9.1) controlPoint1:CGPointMake(28.6,5.1) controlPoint2:CGPointMake(20.3,2.5)];
+    } else if([role isEqual:@"share"]) {
+        [outline moveToPoint:CGPointMake(4.8,12.9)];
+        [outline addLineToPoint:CGPointMake(25.6,4.7)];
+        [outline addQuadCurveToPoint:CGPointMake(28.0,7.1) controlPoint:CGPointMake(29.3,3.2)];
+        [outline addLineToPoint:CGPointMake(20.2,27.1)];
+        [outline addQuadCurveToPoint:CGPointMake(17.4,27.2) controlPoint:CGPointMake(18.7,30.7)];
+        [outline addLineToPoint:CGPointMake(14.0,18.4)];
+        [outline addLineToPoint:CGPointMake(4.9,15.7)];
+        [outline addQuadCurveToPoint:CGPointMake(4.8,12.9) controlPoint:CGPointMake(1.3,14.6)];
+    } else {
+        return nil;
+    }
+    [outline closePath];
+    if([role isEqual:@"share"]) {
+        [outline moveToPoint:CGPointMake(14.0,18.4)];
+        [outline addLineToPoint:CGPointMake(26.9,5.8)];
+    }
+    outline.lineWidth=2.3;
+    outline.lineCapStyle=kCGLineCapRound;
+    outline.lineJoinStyle=kCGLineJoinRound;
+
+    UIGraphicsImageRendererFormat *format=[UIGraphicsImageRendererFormat defaultFormat];
+    format.opaque=NO;
+    format.scale=4;
+    UIColor *color=HGAActionIconColor(role,selected);
+    UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(clamped,clamped) format:format];
+    UIImage *image=[[renderer imageWithActions:^(UIGraphicsImageRendererContext *context){
+        CGContextScaleCTM(context.CGContext,clamped/32.0,clamped/32.0);
+        if(selected && ([role isEqual:@"like"] || [role isEqual:@"collect"])) {
+            [[color colorWithAlphaComponent:0.22] setFill];
+            [outline fill];
+        }
+        [color setStroke];
+        [outline stroke];
+        if(comment) {
+            [color setFill];
+            for(CGFloat x=10.0;x<=20.0;x+=5.0)
+                [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(x,13.7,2.2,2.2)] fill];
+        }
+    }] imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+    cache[key]=image;
+    return image;
+}
+
 static UIImage *HGAIcon(NSString *role,BOOL selected,BOOL *drawnPreset) {
+    if(HGAppearanceFlag(@"player.outlineActions")) {
+        *drawnPreset=YES;
+        return HGARoundedDramaOutlineIcon(role,selected,HGAppearanceNumber(@"icons.size"));
+    }
     NSString *slot=[NSString stringWithFormat:@"icons.%@.%@",role,selected?@"selected":@"normal"];
     NSString *token=HGAppearanceString([slot stringByAppendingString:@".asset"]);
     UIImage *image=token.length ? [HGAImages objectForKey:token] : nil;

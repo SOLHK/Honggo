@@ -415,8 +415,8 @@ static BOOL HGInstallMaterialEffectSpy(void) {
     Check([channel.accessibilityIdentifier isEqual:@"honggo.appearance.setting.@community"],@"appearance channel keeps its stable action identity");
     search.searchBar.text=@"";
     [search.searchResultsUpdater updateSearchResultsForSearchController:search];
-    Check([[page.tableView.dataSource tableView:page.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："],
-        @"appearance root header names the regulated scope");
+    Check([[page.tableView.dataSource tableView:page.tableView titleForHeaderInSection:0] isEqual:@"外观"],
+        @"appearance root header uses clean FanqieX-unified title");
     UITableViewController *geom=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [(id)geom setValue:@"dock.geometry" forKey:@"group"];[geom loadViewIfNeeded];
     NSInteger geomInitial=[geom.tableView.dataSource tableView:geom.tableView numberOfRowsInSection:0];
@@ -433,16 +433,62 @@ static BOOL HGInstallMaterialEffectSpy(void) {
     NSInteger geomCollapsed=[geom.tableView.dataSource tableView:geom.tableView numberOfRowsInSection:0];
     Check(geomInitial==1 && [geomToggleCell.accessibilityIdentifier isEqual:@"honggo.appearance.setting.dock.geometry.enabled"] &&
         geomHasSliders && geomCollapsed==1 &&
-        [[geom.tableView.dataSource tableView:geom.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："],
-        @"dock geometry level-3 submenu reveals its five sliders only when enabled");
+        [[geom.tableView.dataSource tableView:geom.tableView titleForHeaderInSection:0] isEqual:@"底栏尺寸与圆角"],
+        @"dock geometry submenu reveals its five sliders only when enabled");
     BOOL subHeaders=YES;
-    for(NSString *sub in @[@"pages.finder",@"pages.mine",@"layout.like"]) {
+    NSDictionary<NSString *,NSString *> *expectedSubTitles=@{
+        @"pages.finder":@"找剧与剧场",@"pages.mine":@"我的页面净化",@"layout.like":@"点赞",
+        @"comment":@"评论区净化",@"nav":@"页面与导航",@"drama":@"短剧"};
+    for(NSString *sub in expectedSubTitles) {
         UITableViewController *subPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
         [(id)subPage setValue:sub forKey:@"group"];[subPage loadViewIfNeeded];
-        subHeaders&=[[subPage.tableView.dataSource tableView:subPage.tableView titleForHeaderInSection:0] containsString:@"当前调节页面："];
+        subHeaders&=[[subPage.tableView.dataSource tableView:subPage.tableView titleForHeaderInSection:0] isEqual:expectedSubTitles[sub]];
         if([sub isEqual:@"pages.finder"])subHeaders&=[subPage.tableView.dataSource tableView:subPage.tableView numberOfRowsInSection:0]==3;
+        if([sub isEqual:@"comment"])subHeaders&=[subPage.tableView.dataSource tableView:subPage.tableView numberOfRowsInSection:0]==8;
     }
-    Check(subHeaders,@"appearance submenus across levels 2 to 4 identify the target host page");
+    Check(subHeaders,@"FanqieX-unified appearance submenus across levels 2 to 4 expose clean titles and rows");
+
+    // R33 regression: FanqieX outline right-side icons + glass disc suppression + clean restore
+    HGAppearanceApply(@{@"enabled":@YES,@"player.rightGlass":@YES,@"player.outlineActions":@YES},nil);
+    Layout(like);
+    Check(Find(like,@"honggo.appearance.material")==nil && like.iconImageView.image!=nativeImage &&
+        like.iconImageView.layer.shadowOpacity>0.1f,
+        @"outline action mode renders FanqieX stroke icon with shadow and suppresses circular glass disc");
+    HGAppearanceSet(@"player.outlineActions",@NO,nil);Layout(like);
+    Check(Find(like,@"honggo.appearance.material")!=nil && like.iconImageView.layer.shadowOpacity==0.0f,
+        @"disabling outline action mode restores circular Liquid Glass disc and removes outline shadow");
+
+    // R33 regression: comment section blur, light override, dark dimmer zero-masking and clean restore
+    HGAppearanceApply(@{@"enabled":@YES,@"panels.comment":@YES,@"comment.material":@"clear",
+        @"comment.appearance":@"light",@"comment.blur":@45},nil);
+    UIView *modalHost=[[UIView alloc] initWithFrame:root.bounds];
+    UIView *darkDimmer=[[UIView alloc] initWithFrame:modalHost.bounds];
+    darkDimmer.backgroundColor=[UIColor colorWithWhite:0 alpha:0.5];
+    [modalHost addSubview:darkDimmer];
+    FQCShortVideoCommentPanelViewController *cPanel=[FQCShortVideoCommentPanelViewController new];
+    [self.host addChildViewController:cPanel];[cPanel loadViewIfNeeded];
+    cPanel.view.frame=CGRectMake(0,260,root.bounds.size.width,300);cPanel.view.backgroundColor=UIColor.whiteColor;
+    [modalHost addSubview:cPanel.view];[root addSubview:modalHost];[cPanel didMoveToParentViewController:self.host];
+    Layout(cPanel.view);[cPanel viewDidLayoutSubviews];
+    Check(Find(cPanel.view,@"honggo.appearance.material")!=nil && Find(cPanel.view,@"honggo.appearance.blur")!=nil &&
+        cPanel.view.overrideUserInterfaceStyle==UIUserInterfaceStyleLight && darkDimmer.layer.mask!=nil,
+        @"comment sheet applies Clear glass, backdrop blur, Light appearance and zero-masks dark modal scrim");
+    HGAppearanceSet(@"panels.comment",@NO,nil);
+    Check(Find(cPanel.view,@"honggo.appearance.material")==nil && Find(cPanel.view,@"honggo.appearance.blur")==nil &&
+        darkDimmer.layer.mask==nil && [cPanel.view.backgroundColor isEqual:UIColor.whiteColor],
+        @"disabling comment sheet styling removes glass/blur and restores modal dimmer mask and host background");
+    [cPanel.view removeFromSuperview];[cPanel removeFromParentViewController];[modalHost removeFromSuperview];
+
+    // R33 regression: detached circular dock module deduplicates selected tab and tracks exclusive highlight
+    HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.extra":@YES,@"dock.action":@"mine",
+        @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@NO,@"dock.hide.mine":@NO},nil);
+    self.host.selectedIndex=3;HGAppearanceLayoutDock(self.host.customTabBar,self.host);Layout(self.host.customTabBar);
+    UIView *dedupDock=Find(self.host.customTabBar,@"honggo.appearance.dock");
+    UIView *mineInCapsule=Find(dedupDock,@"honggo.appearance.tab.mine");
+    UIView *capsuleSel=Find(dedupDock,@"honggo.appearance.dock.selection");
+    UIView *extraSel=Find(dedupDock,@"honggo.appearance.dock.extra.selection");
+    Check(mineInCapsule.hidden && capsuleSel.hidden && !extraSel.hidden,
+        @"detached circular module removes duplicate tab from capsule and owns selection exclusively");
     HGAppearanceReset();
 }
 - (void)finish {

@@ -1446,6 +1446,49 @@ static UIImage *HGWhiteImage(void) {
     [self runNonBottomInsetChecks];
     [self runAutomaticInsetChecks];
     [self runWindowChecks];
+    if (!self.legacyControl) {
+        [self runSidebarDrawerIsolationChecks];
+    }
+}
+- (void)runSidebarDrawerIsolationChecks {
+    UIView *root = self.host.view;
+    SSTabBar *bar = self.host.customTabBar;
+    CGFloat w = root.bounds.size.width, h = root.bounds.size.height;
+    UIView *dimBackdrop = [[UIView alloc] initWithFrame:root.bounds];
+    dimBackdrop.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
+    UIView *drawer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, round(w * 0.80), h)];
+    UICollectionViewFlowLayout *layout = [UICollectionViewFlowLayout new];
+    UICollectionView *list = [[UICollectionView alloc] initWithFrame:drawer.bounds collectionViewLayout:layout];
+    list.contentInset = UIEdgeInsetsMake(0, 0, 14, 0);
+    [drawer addSubview:list];
+    [root addSubview:dimBackdrop];
+    [root addSubview:drawer];
+    CGRect origDrawerFrame = drawer.frame;
+    CGRect origListFrame = list.frame;
+    UIEdgeInsets origInsets = list.contentInset;
+    for (NSUInteger i = 0; i < 6; i++) {
+        [drawer setNeedsLayout];
+        [drawer layoutIfNeeded];
+        [self layoutHost];
+    }
+    [self check:CGRectEqualToRect(drawer.frame, origDrawerFrame) &&
+        CGRectEqualToRect(list.frame, origListFrame) &&
+        UIEdgeInsetsEqualToEdgeInsets(list.contentInset, origInsets)
+        name:@"sidebar drawer mounted above SSTabBar is never captured or mutated by tab bar layout"];
+    [drawer removeFromSuperview];
+    [dimBackdrop removeFromSuperview];
+
+    objc_setAssociatedObject(bar, @selector(hg_dockHiddenByCommentSheet), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    bar.alpha = 0.002;
+    [bar setNeedsLayout];
+    [bar layoutIfNeeded];
+    BOOL keptGlass = HGEffects(bar).count == 1;
+    objc_setAssociatedObject(bar, @selector(hg_dockHiddenByCommentSheet), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    bar.alpha = 1.0;
+    [bar setNeedsLayout];
+    [bar layoutIfNeeded];
+    [self check:keptGlass && HGEffects(bar).count == 1
+        name:@"hiding SSTabBar with alpha 0.002 during comment sheet preserves glass without teardown"];
 }
 - (BOOL)originalFlexibleGeometryRestored {
     CGFloat originalHeight = self.host.view.bounds.size.height - 88;

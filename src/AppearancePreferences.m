@@ -39,8 +39,10 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             [a addObject:HGADef(key,group,title,@"choice",values.firstObject,@{@"choices":values,@"labels":titles})]; };
         flag(@"enabled",@"general",@"启用外观定制");
         flag(@"dock.enabled",@"dock",@"使用可定制悬浮底栏");
-        choice(@"dock.material",@"dock",@"底栏材质",@[@"regular",@"clear",@"blur",@"solid"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）",@"纯色"]);
-        choice(@"dock.content",@"dock",@"底栏显示",@[@"both",@"text",@"icon"],@[@"图标和文字",@"仅文字",@"仅图标"]);
+        choice(@"dock.material",@"dock",@"Dock 材质",@[@"regular",@"clear",@"frosted",@"blur",@"solid"],@[@"老液态玻璃",@"新液态玻璃",@"模糊玻璃",@"高斯模糊",@"纯色"]);
+        number(@"dock.blur",@"dock",@"Dock 模糊程度",0,0,100);
+        flag(@"glass.darkTint",@"dock",@"液态玻璃深色底色");
+        choice(@"dock.content",@"dock",@"底栏样式",@[@"both",@"text",@"icon"],@[@"图标与文字",@"仅文字",@"仅图标"]);
         flag(@"dock.geometry.enabled",@"dock",@"开启底栏尺寸与圆角调节");
         number(@"dock.width",@"dock",@"底栏宽度比例",HGADockDefaultWidth,0.55,1);
         number(@"dock.height",@"dock",@"底栏高度",HGADockDefaultHeight,44,80);
@@ -55,14 +57,16 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"dock.collapse",@"dock",@"开启上滑收缩／下滑展开");
         flag(@"dock.autoCollapse",@"dock",@"跟随播放器滑动收缩");
         choice(@"dock.anchor",@"dock",@"收缩位置",@[@"right",@"left",@"center"],@[@"右侧",@"左侧",@"中间"]);
-        flag(@"dock.extra",@"dock",@"显示独立圆形按钮");
+        flag(@"dock.extra",@"dock",@"启用 Dock 独立圆形模块");
         number(@"dock.extraSize",@"dock",@"独立按钮直径",HGADockDefaultHeight,44,80);
-        choice(@"dock.action",@"dock",@"独立按钮操作",@[@"settings",@"search",@"home",@"theater",@"store",@"mine"],@[@"Honggo 设置",@"搜索",@"首页",@"剧场",@"商城",@"我的"]);
+        choice(@"dock.action",@"dock",@"选择独立模块",@[@"settings",@"search",@"home",@"theater",@"store",@"mine"],@[@"Honggo 设置",@"搜索",@"首页",@"剧场",@"商城",@"我的"]);
         NSArray *tabIDs = @[@"home",@"theater",@"store",@"mine"];
         NSArray *tabNames = @[@"首页",@"剧场",@"商城",@"我的"];
         for (NSUInteger i=0; i<tabIDs.count; i++) flag([@"dock.hide." stringByAppendingString:tabIDs[i]],@"dock",[@"隐藏" stringByAppendingString:tabNames[i]]);
         flag(@"player.rightGlass",@"player",@"右侧动作按钮玻璃");
+        flag(@"player.outlineActions",@"player",@"右侧互动按钮线条图标");
         flag(@"player.headerGlass",@"player",@"顶部频道玻璃");
+        number(@"header.blur",@"player",@"短剧顶部按钮模糊程度",0,0,100);
         NSArray *channelIDs=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
         NSArray *channelNames=@[@"菜单",@"关注",@"漫剧",@"真人剧",@"推荐",@"搜索"];
         for(NSUInteger i=0;i<channelIDs.count;i++)
@@ -74,15 +78,19 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         [a addObject:HGADef(@"player.mineGlass",@"player",@"我的页面控件玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.episodeGlass",@"player",@"全集入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];
-        flag(@"player.defaultMaxQuality",@"player",@"默认最高画质（待接入宿主画质日志）");
-        flag(@"player.seriesPillGlass",@"player",@"系列剧标签液态玻璃（待接入宿主日志）");
-        flag(@"layout.seriesPill.hidden",@"player",@"关闭系列剧标签按钮（待接入宿主日志）");
-        flag(@"player.goodsPillGlass",@"player",@"剧好物按钮液态玻璃（待接入宿主日志）");
-        flag(@"layout.goodsPill.hidden",@"player",@"关闭剧好物按钮（待接入宿主日志）");
+        flag(@"player.defaultMaxQuality",@"player",@"默认最高画质");
+        flag(@"player.pinchClean",@"player",@"双指捏合清屏");
+        flag(@"player.pinchHaptic",@"player",@"捏合清屏触感反馈");
+        flag(@"player.doubleTapComment",@"player",@"双击屏幕打开评论区");
+        flag(@"player.hideExitCollectAlert",@"player",@"隐藏退出收藏弹窗");
+        flag(@"player.seriesPillGlass",@"player",@"系列剧标签液态玻璃");
+        flag(@"layout.seriesPill.hidden",@"player",@"关闭系列剧标签按钮");
+        flag(@"player.goodsPillGlass",@"player",@"剧好物按钮液态玻璃");
+        flag(@"layout.goodsPill.hidden",@"player",@"关闭剧好物按钮");
         [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
         flag(@"player.fullscreen",@"player",@"横屏铺满");
         choice(@"player.separateProgress",@"player",@"合集与进度条分开布局",@[@"show",@"hide"],@[@"自动留出间距",@"原始布局"]);
-        choice(@"player.material",@"player",@"播放控件材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）"]);
+        choice(@"player.material",@"player",@"播放控件材质",@[@"regular",@"clear",@"frosted",@"blur"],@[@"老液态玻璃",@"新液态玻璃",@"模糊玻璃",@"高斯模糊"]);
         NSArray *roles = HGAppearanceRoles(), *titles = HGAppearanceRoleTitles();
         for (NSUInteger i=0; i<roles.count; i++) {
             NSString *prefix = [@"layout." stringByAppendingString:roles[i]];
@@ -91,11 +99,18 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             number([prefix stringByAppendingString:@".y"],@"player",[titles[i] stringByAppendingString:@" · 垂直偏移"],0,-240,240);
             number([prefix stringByAppendingString:@".scale"],@"player",[titles[i] stringByAppendingString:@" · 大小比例"],1,0.65,1.5);
         }
+        choice(@"comment.material",@"panels",@"评论区材质",@[@"native",@"clear",@"regular",@"gaussian"],@[@"原版默认",@"清透玻璃",@"模糊玻璃",@"高斯模糊"]);
+        choice(@"comment.appearance",@"panels",@"评论区外观",@[@"follow",@"light",@"dark"],@[@"跟随软件",@"浅色",@"深色"]);
+        number(@"comment.blur",@"panels",@"评论区模糊程度",0,0,100);
+        choice(@"comment.composer",@"panels",@"发评论输入框样式",@[@"native",@"docked",@"floating"],@[@"原生样式",@"贴底液态玻璃",@"悬浮分离卡片"]);
+        flag(@"comment.noVideoShift",@"panels",@"评论区画面不上移");
+        flag(@"comment.hideActivityBanner",@"panels",@"隐藏评论区活动横幅");
+        flag(@"comment.hideSearchEntrance",@"panels",@"隐藏评论区大家都在搜");
         for (NSString *kind in @[@"comment",@"share",@"longpress",@"speed"]) {
             NSString *title = [@{@"comment":@"评论面板玻璃",@"share":@"分享面板玻璃",@"longpress":@"长按／更多面板玻璃",@"speed":@"倍速面板玻璃"} objectForKey:kind];
             flag([@"panels." stringByAppendingString:kind],@"panels",title);
         }
-        choice(@"panels.material",@"panels",@"面板材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）"]);
+        choice(@"panels.material",@"panels",@"面板材质",@[@"regular",@"clear",@"frosted",@"blur"],@[@"老液态玻璃",@"新液态玻璃",@"模糊玻璃",@"高斯模糊"]);
         number(@"panels.opacity",@"panels",@"面板底色不透明度",0.28,0.08,0.85);
         flag(@"icons.enabled",@"icons",@"使用自定义动作图标");
         choice(@"icons.preset",@"icons",@"动作图标样式",@[@"filled",@"square",@"circle"],
@@ -216,6 +231,8 @@ BOOL HGAppearanceEnabled(void){return HGAppearanceFlag(@"enabled");}
 BOOL HGAppearanceNeedsGlass(void) {
     if(!HGAppearanceEnabled())return NO;
     if(HGAppearanceFlag(@"player.finderGlass") || HGAppearanceFlag(@"player.mineGlass"))return YES;
+    if(![HGAppearanceString(@"comment.material") isEqual:@"native"] ||
+        ![HGAppearanceString(@"comment.composer") isEqual:@"native"])return YES;
     for(NSString *key in @[@"dock.enabled",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"player.seriesPillGlass",@"player.goodsPillGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"])
         if(HGAppearanceFlag(key))return YES;
     return NO;
@@ -224,6 +241,9 @@ NSDictionary *HGAppearancePreset(NSString *name) {
     NSMutableDictionary *d=[NSMutableDictionary dictionary]; for(NSDictionary *def in HGAppearanceCatalog()) d[def[@"key"]]=def[@"default"];
     if([name isEqual:@"glass"] || [name isEqual:@"focus"]) {
         for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"dock.haptics",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed",@"icons.enabled"])d[key]=@YES;
+        d[@"dock.material"]=@"clear";
+        d[@"comment.material"]=@"clear";
+        d[@"comment.composer"]=@"docked";
         if([name isEqual:@"focus"]) {d[@"dock.collapse"]=@YES; d[@"dock.autoCollapse"]=@YES; for(NSString *role in @[@"avatar",@"tags",@"notice"])d[[NSString stringWithFormat:@"layout.%@.hidden",role]]=@YES; }
     }
     return d.copy;

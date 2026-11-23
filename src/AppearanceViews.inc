@@ -24,8 +24,9 @@
     if(self.window)[self setNeedsLayout];
 }
 - (NSString *)currentMaterialSignature {
-    return [NSString stringWithFormat:@"%@/%d/%d/%ld/%d/%.3f",self.style,
-        HGNativeGlassConfigured(),self.interactiveGlass,(long)self.traitCollection.userInterfaceStyle,
+    BOOL darkTint = [self.style isEqual:@"clear"] && HGAppearanceFlag(@"glass.darkTint");
+    return [NSString stringWithFormat:@"%@/%d/%d/%d/%ld/%d/%.3f",self.style,
+        HGNativeGlassConfigured(),self.interactiveGlass,darkTint,(long)self.traitCollection.userInterfaceStyle,
         UIAccessibilityIsReduceTransparencyEnabled(),self.overlayOpacity];
 }
 - (void)requestMaterialRefresh {
@@ -39,8 +40,16 @@
     self.materialSignature=signature;
     UIVisualEffect *effect=HGAppearanceMaterial(self.style);
     if(@available(iOS 26.0,*)) {
-        if(self.interactiveGlass && [effect isKindOfClass:UIGlassEffect.class])
-            ((UIGlassEffect *)effect).interactive=YES;
+        if([effect isKindOfClass:UIGlassEffect.class]) {
+            UIGlassEffect *glassEffect=(UIGlassEffect *)effect;
+            if(self.interactiveGlass)glassEffect.interactive=YES;
+            BOOL dark=self.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+            if([self.style isEqual:@"clear"] && HGAppearanceFlag(@"glass.darkTint") && dark) {
+                glassEffect.tintColor=[UIColor colorWithWhite:0.0 alpha:0.30];
+            } else if([self.style isEqual:@"frosted"]) {
+                glassEffect.tintColor=[UIColor colorWithWhite:dark ? 0.0 : 1.0 alpha:dark ? 0.24 : 0.20];
+            }
+        }
     }
     self.effect=effect;
     UIColor *color=self.overlayColor ?: [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
@@ -109,6 +118,7 @@ static void HGASetHidden(UIView *view,BOOL hide) {
 static void HGARemoveGlass(UIView *view) {
     HGAViewState *state=HGAState(view,NO);
     if(!state)return;
+    HGClearSurfaceBackdropBlur(view);
     [state.glass removeFromSuperview];state.glass=nil;
     if(state.clearsBackground && [view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=state.background;
     state.clearsBackground=NO;state.background=nil;
@@ -152,11 +162,17 @@ static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CG
     HGAInstallGlassInRect(view,style,frame,radius,0);
     HGAAppearanceMaterial *glass=HGAState(view,NO).glass;
     BOOL solid=[style isEqual:@"solid"];
+    BOOL clearGlass=[style isEqual:@"clear"];
     // Match the playback chrome while leaving host content traits alone.
     glass.overrideUserInterfaceStyle=solid ? UIUserInterfaceStyleUnspecified : UIUserInterfaceStyleDark;
+    glass.interactiveGlass=!solid && ![style isEqual:@"blur"] && !UIAccessibilityIsReduceTransparencyEnabled();
+    if(@available(iOS 26.0,*)) {
+        BOOL isCapsule = radius >= MIN(frame.size.width, frame.size.height) * 0.49;
+        HGApplyNativeCornerConfig(glass, radius, isCapsule);
+    }
     if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];
     UIColor *color=tint ?: (solid ? UIColor.secondarySystemBackgroundColor : [UIColor colorWithWhite:0.10 alpha:1]);
-    CGFloat opacity=solid || UIAccessibilityIsReduceTransparencyEnabled() ? 1 : (tint ? 0.30 : 0.12);
+    CGFloat opacity=solid || UIAccessibilityIsReduceTransparencyEnabled() ? 1 : (tint ? 0.30 : (clearGlass ? 0.0 : 0.12));
     glass.overlayColor=[color colorWithAlphaComponent:opacity];
 }
 static NSDictionary<NSString *,NSString *> *HGAViewRoles(void) {
@@ -205,6 +221,10 @@ static BOOL HGAHasRoleAncestor(UIView *view,NSString *role) {
 @property(nonatomic) BOOL ownsContentMode;
 @property(nonatomic,strong) UIImageSymbolConfiguration *symbolConfiguration;
 @property(nonatomic,strong) UIImageSymbolConfiguration *appliedSymbolConfiguration;
+@property(nonatomic) BOOL ownsOutlineShadow;
+@property(nonatomic) float sourceShadowOpacity;
+@property(nonatomic) CGFloat sourceShadowRadius;
+@property(nonatomic) CGSize sourceShadowOffset;
 @end
 @implementation HGAIconState @end
 static char HGAIconKey;
@@ -216,6 +236,11 @@ static void HGARestoreIcon(UIView *root) {
     if(s.ownsContentMode && s.imageView.contentMode==UIViewContentModeScaleAspectFit)s.imageView.contentMode=s.contentMode;
     if(s.appliedSymbolConfiguration && [s.imageView.preferredSymbolConfiguration isEqual:s.appliedSymbolConfiguration])
         s.imageView.preferredSymbolConfiguration=s.symbolConfiguration;
+    if(s.ownsOutlineShadow) {
+        s.imageView.layer.shadowOpacity=s.sourceShadowOpacity;
+        s.imageView.layer.shadowRadius=s.sourceShadowRadius;
+        s.imageView.layer.shadowOffset=s.sourceShadowOffset;
+    }
     if(ownedImage)s.imageView.image=s.source;
     objc_setAssociatedObject(root,&HGAIconKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
@@ -236,7 +261,8 @@ static UIImageView *HGAFindIcon(UIView *root) {
 }
 static void HGAApplyIcon(UIView *root,NSString *role) {
     if(![@[@"like",@"collect",@"comment",@"share"] containsObject:role])return;
-    if(!HGAppearanceEnabled() || !HGAppearanceFlag(@"icons.enabled") || !root.window) {HGARestoreIcon(root);return;}
+    BOOL outline=HGAppearanceFlag(@"player.outlineActions");
+    if(!HGAppearanceEnabled() || (!outline && !HGAppearanceFlag(@"icons.enabled")) || !root.window) {HGARestoreIcon(root);return;}
     BOOL selected=NO;
     if([role isEqual:@"like"] || [role isEqual:@"collect"]) {
         NSString *getter=[role isEqual:@"like"]?@"isLiked":@"isCollected";
@@ -291,6 +317,23 @@ static void HGAApplyIcon(UIView *root,NSString *role) {
     // bookmark/share image views a tall rectangle. Scaling their shortest side
     // made those glyphs and their glass discs visibly larger than the heart.
     // Only the image transform changes; native hit targets and counts stay put.
+    if(outline) {
+        if(!state.ownsOutlineShadow) {
+            state.sourceShadowOpacity=icon.layer.shadowOpacity;
+            state.sourceShadowRadius=icon.layer.shadowRadius;
+            state.sourceShadowOffset=icon.layer.shadowOffset;
+            state.ownsOutlineShadow=YES;
+        }
+        icon.layer.shadowColor=UIColor.blackColor.CGColor;
+        icon.layer.shadowOpacity=0.28f;
+        icon.layer.shadowRadius=3.0;
+        icon.layer.shadowOffset=CGSizeMake(0,1);
+    } else if(state.ownsOutlineShadow) {
+        icon.layer.shadowOpacity=state.sourceShadowOpacity;
+        icon.layer.shadowRadius=state.sourceShadowRadius;
+        icon.layer.shadowOffset=state.sourceShadowOffset;
+        state.ownsOutlineShadow=NO;
+    }
     CGFloat side=MAX(icon.bounds.size.width,icon.bounds.size.height);
     CGFloat ownerLimit=MAX(20,root.bounds.size.width-8);
     CGFloat requested=MIN(HGAppearanceNumber(@"icons.size"),ownerLimit);
@@ -401,10 +444,14 @@ static NSArray<NSString *> *HGACommentSurfaces(void) {
         @"FQCShortVideoNewEditorView"];
 }
 #include "AppearanceShare.inc"
+#include "AppearanceComments.inc"
 static char HGAPanelCoversKey;
 static void HGAApplyPanel(UIView *root,NSString *kind) {
     if([@[@"share",@"longpress",@"speed"] containsObject:kind]) {
         HGAApplyActionSheet(root,kind);return;
+    }
+    if([kind isEqual:@"comment"]) {
+        HGAApplyCommentSheetView(root);return;
     }
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag([@"panels." stringByAppendingString:kind]) && root.window;
     NSMapTable<UIView *,UIColor *> *covers=objc_getAssociatedObject(root,&HGAPanelCoversKey);
@@ -454,13 +501,35 @@ void HGAppearanceProcessView(UIView *view) {
             HGAApplyTypography(view);HGRefreshVideoBackdropForPlayer(view);return;
         }
         if([HGACommentSurfaces() containsObject:name]) {
+            if([name isEqual:@"FQCShortVideoCommentTitleView"]) {
+                [HGACommentTrackedBanners() addObject:view];
+                BOOL hideBanner=HGAppearanceEnabled() && HGAppearanceFlag(@"comment.hideActivityBanner");
+                HGACommentSetBannerCollapsed(view,hideBanner);
+                if(!hideBanner){HGAApplyCommentSheetView(view);HGAApplyTypography(view);}
+                return;
+            }
+            if(([name isEqual:@"FQCShortVideoBottomToolBar"] || [name isEqual:@"FQCShortVideoNewEditorView"]) &&
+               ![HGAppearanceString(@"comment.composer") isEqual:@"native"]) {
+                HGACommentStyleBar(view);HGAApplyTypography(view);return;
+            }
             HGAApplyPanel(view,@"comment");HGAApplyTypography(view);return;
         }
         if(HGAIsActionPanelSurface(view)) {HGAUpdateActionPanelSurface(view);return;}
         BOOL enabled=HGAppearanceEnabled() && view.window;
         BOOL header=HGAIsHeaderView(view);
         BOOL headerShowsFinder=header && HGAApplyHeaderChrome(view,enabled);
-        if(!role){HGAApplyNativePageChrome(view,name,enabled);return;}
+        if(!role) {
+            HGAApplyNativePageChrome(view,name,enabled);
+            if(HGAIsHomeChannel(view)) {
+                UIView *parentHeader=HGAAncestorNamed(view,@"SSVideoSeriesFeedHeaderView");
+                if(parentHeader) {
+                    BOOL finder=HGAHeaderShowsFinder(parentHeader);
+                    BOOL headerGlass=enabled && !finder && !parentHeader.hidden && HGAppearanceFlag(@"player.headerGlass");
+                    HGAApplyDetachedHeaderGlass(parentHeader,headerGlass,finder,HGAppearanceString(@"player.material"));
+                }
+            }
+            return;
+        }
         BOOL outer=!HGAHasRoleAncestor(view,role);
         NSString *prefix=[@"layout." stringByAppendingString:role];
         HGASetHidden(view,enabled && outer && (HGAppearanceFlag([prefix stringByAppendingString:@".hidden"]) ||
@@ -469,28 +538,35 @@ void HGAppearanceProcessView(UIView *view) {
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".y"]):0,
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".scale"]):1);
         BOOL action=[@[@"avatar",@"collect",@"comment",@"like",@"share",@"more"] containsObject:role];
-        BOOL glass=enabled && outer && ((action && HGAppearanceFlag(@"player.rightGlass")) ||
+        BOOL outlineSuppressesDisc=HGAppearanceFlag(@"player.outlineActions") &&
+            [@[@"collect",@"comment",@"like",@"share"] containsObject:role];
+        BOOL glass=enabled && outer && ((action && HGAppearanceFlag(@"player.rightGlass") && !outlineSuppressesDisc) ||
             ([role isEqual:@"channels"] && !headerShowsFinder && HGAppearanceFlag(@"player.headerGlass")) ||
             ([role isEqual:@"episodes"] && HGAppearanceFlag(@"player.episodeGlass")));
-        if(header)HGAApplyHeaderInsets(view,glass && !view.hidden,headerShowsFinder,HGAExpandedDockWidthForHeader(view));
         BOOL episode=[role isEqual:@"episodes"];
         if(episode && outer)HGAApplyEpisodeInset(view,glass && !view.hidden);
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
         if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
         HGAApplyIcon(view,role);
-        if(glass && !view.hidden) {
+        BOOL detachedHeader=header && HGAApplyDetachedHeaderGlass(view,glass && !view.hidden,headerShowsFinder,HGAppearanceString(@"player.material"));
+        if(detachedHeader) {
+            // Detached 3-piece header glass (left sidebar circle, center channel pill, right search circle)
+        } else if(glass && !view.hidden) {
             CGRect glassFrame=view.bounds;CGFloat radius=episode ? episodeRadius : 20;
             if(header) {
-                glassFrame=HGAHeaderGlassFrame(view,HGAExpandedDockWidthForHeader(view));
                 radius=CGRectGetHeight(glassFrame)/2;
             } else if(action) {
                 UIImageView *icon=HGAFindIcon(view);
                 CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
-                CGFloat side=MIN(view.bounds.size.width,MAX(34,MIN(40,MAX(rect.size.width,rect.size.height)+8)));
+                CGFloat side=MIN(view.bounds.size.width,MAX(36,MIN(42,MAX(rect.size.width,rect.size.height)+10)));
                 glassFrame=CGRectMake((view.bounds.size.width-side)/2,MAX(0,CGRectGetMidY(rect)-side/2),side,side);
                 radius=side/2;
             }
             HGAInstallPlaybackGlass(view,HGAppearanceString(@"player.material"),glassFrame,radius,nil);
+            if(header) {
+                NSString *hStyle=HGAppearanceString(@"player.material");
+                HGApplySurfaceBackdropBlur(view,view,HGAState(view,NO).glass,glassFrame,radius,![hStyle isEqual:@"solid"],hStyle,HGAppearanceNumber(@"header.blur"));
+            }
         }
         else HGARemoveGlass(view);
         HGAApplyTypography(view);
@@ -515,6 +591,7 @@ void HGAppearanceProcessController(UIViewController *controller) {
         if(HGAIsFinderController(controller)){HGAApplyFinderChrome(controller);return;}
         NSString *kind=HGAPanelKind(controller);
         if([kind isEqual:@"episodes"])HGAApplyEpisodeController(controller);
+        else if([kind isEqual:@"comment"]){HGAApplyCommentController(controller);HGAApplyTypography(controller.view);}
         else if(kind){HGAApplyPanel(controller.view,kind);HGAApplyTypography(controller.view);}
     }@finally {HGAApplying=NO;}
 }

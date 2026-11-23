@@ -61,14 +61,24 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
         Class glassClass = NSClassFromString(@"UIGlassEffect");
         SEL factory = sel_registerName("effectWithStyle:");
         self.nativeGlass = HGNativeGlassConfigured();
+        NSInteger glassStyle = 0;
+        if (HGAppearanceEnabled() && [HGAppearanceString(@"dock.material") isEqualToString:@"clear"]) {
+            glassStyle = 1;
+        }
         UIVisualEffect *effect = self.nativeGlass ?
-            ((id (*)(id, SEL, NSInteger))objc_msgSend)(glassClass, factory, 0) : nil;
+            ((id (*)(id, SEL, NSInteger))objc_msgSend)(glassClass, factory, glassStyle) : nil;
         if (!effect) {
             self.nativeGlass = NO;
             effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
         }
         if (self.nativeGlass && [effect respondsToSelector:sel_registerName("setInteractive:")])
             ((void (*)(id, SEL, BOOL))objc_msgSend)(effect, sel_registerName("setInteractive:"), YES);
+        if (self.nativeGlass && glassStyle == 1 && HGAppearanceEnabled() && HGAppearanceFlag(@"glass.darkTint") &&
+            self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark &&
+            [effect respondsToSelector:sel_registerName("setTintColor:")]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(effect, sel_registerName("setTintColor:"),
+                [UIColor colorWithWhite:0.0 alpha:0.30]);
+        }
         // UIGlassEffect is created in a real, attached layout pass. Creating it in
         // didMoveToWindow can leave it unrendered when a host view is recycled.
         self.effect = effect;
@@ -246,36 +256,75 @@ static Class HGObservedClass(id object) {
 static Class HGObservedBase(id object) {
     return (Class)objc_getAssociatedObject(HGObservedClass(object), &HGObservedBaseKey);
 }
-static void HGObservedRefresh(UIView *view) {
+static BOOL HGIsOverlayOrDrawerView(UIView *view);
+
+static void HGObservedRefresh(UIView *view, BOOL immediate) {
     HGObserverOwner *owner = objc_getAssociatedObject(view, &HGObservedOwnerKey);
-    [owner.state refresh];
+    HGTabState *state = owner.state;
+    if (!state) return;
+    if (immediate || view == state.bar || [view isDescendantOfView:state.bar]) {
+        [state refresh];
+        return;
+    }
+    // UILayoutContainerView runs layoutSubviews on every frame of sidebar/drawer
+    // transitions. Coalesce those notifications asynchronously so sidebar open
+    // never re-enters viewport mutation synchronously inside a UIKit transition.
+    if (state.refreshPending) return;
+    state.refreshPending = YES;
+    __weak HGTabState *weakState = state;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        HGTabState *strong = weakState;
+        if (!strong) return;
+        strong.refreshPending = NO;
+        [strong refresh];
+    });
 }
 static void HGObservedLayout(UIView *view, SEL cmd) {
     struct objc_super parent = {view, HGObservedBase(view)};
     ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&parent, cmd);
-    HGObservedRefresh(view);
+    BOOL isSystemLayoutContainer = [NSStringFromClass(HGObservedBase(view)) isEqualToString:@"UILayoutContainerView"];
+    HGObservedRefresh(view, !isSystemLayoutContainer);
 }
 static void HGObservedAdd(UIView *view, SEL cmd, UIView *child) {
     struct objc_super parent = {view, HGObservedBase(view)};
     ((void (*)(struct objc_super *, SEL, id))objc_msgSendSuper)(&parent, cmd, child);
-    HGObservedRefresh(view);
+    HGObserverOwner *owner = objc_getAssociatedObject(view, &HGObservedOwnerKey);
+    HGTabState *state = owner.state;
+    if (state && child && view != state.bar && ![view isDescendantOfView:state.bar]) {
+        if (HGIsOverlayOrDrawerView(child)) return;
+        NSArray<UIView *> *subs = view.subviews;
+        NSUInteger childIdx = [subs indexOfObjectIdenticalTo:child];
+        NSUInteger barIdx = [subs indexOfObjectIdenticalTo:state.bar];
+        if (childIdx != NSNotFound && barIdx != NSNotFound && childIdx > barIdx) return;
+    }
+    HGObservedRefresh(view, YES);
 }
 static void HGObservedColor(UIView *view, SEL cmd, UIColor *color) {
     struct objc_super parent = {view, HGObservedBase(view)};
     ((void (*)(struct objc_super *, SEL, id))objc_msgSendSuper)(&parent, cmd, color);
-    HGObservedRefresh(view);
+    HGObservedRefresh(view, YES);
 }
 static void HGObservedHidden(UIView *view, SEL cmd, BOOL hidden) {
     struct objc_super parent = {view, HGObservedBase(view)};
     ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&parent, cmd, hidden);
-    HGObservedRefresh(view);
+    HGObservedRefresh(view, YES);
 }
 static void HGObservedAlpha(UIView *view, SEL cmd, CGFloat alpha) {
     struct objc_super parent = {view, HGObservedBase(view)};
     ((void (*)(struct objc_super *, SEL, CGFloat))objc_msgSendSuper)(&parent, cmd, alpha);
-    HGObservedRefresh(view);
+    HGObservedRefresh(view, YES);
 }
 static Class HGReportedClass(id object, SEL cmd) { return HGObservedBase(object); }
+
+static BOOL HGIsPrivateSystemContainerName(NSString *name) {
+    if (!name.length) return YES;
+    if ([name hasPrefix:@"NSKVONotifying_"] || [name hasPrefix:@"_UI"] || [name hasPrefix:@"UIKit."])
+        return YES;
+    return [name isEqualToString:@"UINavigationTransitionView"] ||
+        [name isEqualToString:@"UIViewControllerWrapperView"] ||
+        [name isEqualToString:@"UIDropShadowView"] ||
+        [name isEqualToString:@"UITransitionView"];
+}
 
 static void HGObserveView(UIView *view, HGTabState *state, BOOL knownBackground) {
     if (!view || view == state.bar || [view isKindOfClass:UIVisualEffectView.class] ||
@@ -287,9 +336,9 @@ static void HGObserveView(UIView *view, HGTabState *state, BOOL knownBackground)
     Class base = object_getClass(view);
     Class observed = HGObservedClass(view);
     if (!observed) {
-        // Do not replace a KVO observation class, or a system material's internals.
+        // Do not replace a KVO observation class, or private UIKit transition/container internals.
         NSString *name = NSStringFromClass(base);
-        if ([name hasPrefix:@"NSKVONotifying_"] || [name hasPrefix:@"_UI"])
+        if (HGIsPrivateSystemContainerName(name))
             return;
         NSString *subclassName = [@"HGObserved_" stringByAppendingString:name];
         observed = NSClassFromString(subclassName);
@@ -530,10 +579,24 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
             for (UIView *child in item.subviews) { if (queue.count >= 64) break; [queue addObject:child]; }
     }
 }
+static BOOL HGIsOverlayOrDrawerView(UIView *view) {
+    UIResponder *resp = view.nextResponder;
+    if ([resp isKindOfClass:UIViewController.class]) {
+        NSString *vcName = NSStringFromClass(resp.class);
+        if ([vcName containsString:@"SideBar"] || [vcName containsString:@"Drawer"] ||
+            [vcName containsString:@"Comment"] || [vcName containsString:@"Share"] ||
+            [vcName containsString:@"Alert"] || [vcName containsString:@"Popup"]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
 - (void)collectViewports:(UIView *)view root:(UIView *)root barTop:(CGFloat)barTop
         bottom:(CGFloat)bottom records:(NSMutableArray<HGViewportRecord *> *)records depth:(NSUInteger)depth {
     if (view == self.bar || [self.bar isDescendantOfView:view] || view.hidden || view.alpha < 0.01 ||
         depth > 10 || !CGAffineTransformIsIdentity(view.transform) || view.layer.mask ||
+        HGIsOverlayOrDrawerView(view) ||
         [view isKindOfClass:UIControl.class] || [view isKindOfClass:UITableViewCell.class] ||
         [view isKindOfClass:UICollectionViewCell.class] || [view isKindOfClass:UIVisualEffectView.class]) return;
     Class mineRoot = objc_lookUpClass("SSMine737KMPRootView");
@@ -547,7 +610,9 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     }
     CGRect actual = [view convertRect:view.bounds toView:root];
     CGFloat rootWidth = CGRectGetWidth(root.bounds), rootHeight = CGRectGetHeight(root.bounds);
-    if (CGRectGetWidth(actual) < rootWidth * 0.80 || CGRectGetMinX(actual) < -2 ||
+    // Require full-width page content (>= 92% rootWidth); sidebar drawers are 80% wide and
+    // must never be captured or mutated by tab-bar viewport extension.
+    if (CGRectGetWidth(actual) < rootWidth * 0.92 || CGRectGetMinX(actual) < -2 ||
         CGRectGetMaxX(actual) > CGRectGetMaxX(root.bounds) + 2 ||
         CGRectGetMinY(actual) > barTop - 100 || CGRectGetHeight(actual) < rootHeight * 0.35) return;
     HGViewportRecord *record = [self.viewports objectForKey:view];
@@ -618,11 +683,21 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     UIView *path = bar;
     while (path.superview && path != root) {
         UIView *parent = path.superview;
-        for (UIView *child in parent.subviews) if (child != path) [branches addObject:child];
+        NSArray<UIView *> *siblings = parent.subviews;
+        NSUInteger pathIndex = [siblings indexOfObjectIdenticalTo:path];
+        // Only walk content branches stacked BELOW the tab bar. Overlays and
+        // side-drawer containers (e.g. SSVideoSeriesFeedSideBarViewController)
+        // are mounted above SSTabBar and must never be mutated here.
+        NSUInteger limit = pathIndex == NSNotFound ? siblings.count : pathIndex;
+        for (NSUInteger i = 0; i < limit; i++) {
+            UIView *child = siblings[i];
+            if (child != path && !HGIsOverlayOrDrawerView(child)) [branches addObject:child];
+        }
         path = parent;
     }
-    if (self.customDock && !self.videoBackdrop) self.videoBackdrop = [HGVideoBackdrop new];
-    [self.videoBackdrop refreshWithBranches:branches root:root bar:bar active:self.customDock];
+    BOOL backdropActive = self.customDock || HGGlassEnabled;
+    if (backdropActive && !self.videoBackdrop) self.videoBackdrop = [HGVideoBackdrop new];
+    [self.videoBackdrop refreshWithBranches:branches root:root bar:bar active:backdropActive];
     for (UIView *branch in branches) {
         if (!HGContainsVisibleVerticalPager(branch, root))
             [self collectViewports:branch root:root barTop:barTop bottom:bottom records:records depth:0];
@@ -676,7 +751,13 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
                     record.edgeWasHidden = [edge respondsToSelector:hidden] &&
                         ((BOOL (*)(id, SEL))objc_msgSend)(edge, hidden);
                 }
-                if (record.edge) ((void (*)(id, SEL, BOOL))objc_msgSend)(record.edge, @selector(setHidden:), YES);
+                if (record.edge) {
+                    SEL hidden = sel_registerName("isHidden");
+                    BOOL alreadyHidden = [record.edge respondsToSelector:hidden] &&
+                        ((BOOL (*)(id, SEL))objc_msgSend)(record.edge, hidden);
+                    if (!alreadyHidden)
+                        ((void (*)(id, SEL, BOOL))objc_msgSend)(record.edge, @selector(setHidden:), YES);
+                }
                 if (HGContainerScroll(scroll)) {
                     id top = HGObject(scroll, "topEdgeEffect");
                     if (top != record.topEdge && [top respondsToSelector:@selector(setHidden:)] &&
@@ -686,7 +767,13 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
                         record.topEdge = top;
                         record.topEdgeWasHidden = ((BOOL (*)(id, SEL))objc_msgSend)(top, sel_registerName("isHidden"));
                     }
-                    if (record.topEdge) ((void (*)(id, SEL, BOOL))objc_msgSend)(record.topEdge, @selector(setHidden:), YES);
+                    if (record.topEdge) {
+                        SEL hidden = sel_registerName("isHidden");
+                        BOOL topAlreadyHidden = [record.topEdge respondsToSelector:hidden] &&
+                            ((BOOL (*)(id, SEL))objc_msgSend)(record.topEdge, hidden);
+                        if (!topAlreadyHidden)
+                            ((void (*)(id, SEL, BOOL))objc_msgSend)(record.topEdge, @selector(setHidden:), YES);
+                    }
                 }
             }
         }
@@ -754,6 +841,9 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     [CATransaction setDisableActions:YES];
     @try {
         UIView *bar = self.bar;
+        if ([objc_getAssociatedObject(bar, sel_registerName("hg_dockHiddenByCommentSheet")) boolValue]) {
+            return;
+        }
         BOOL customDock = HGAppearanceDockEnabled();
         if (customDock != self.customDock) {
             // Release the old mode once before taking new baselines. Do not
@@ -925,7 +1015,7 @@ static void HGRefreshTabBar(UIViewController *controller) {
 }
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
     if (!NSThread.isMainThread) return;
-    if (HGVideoBackdropRefreshForFeed(feed) || !HGAppearanceDockEnabled() || !feed.window) return;
+    if (HGVideoBackdropRefreshForFeed(feed) || (!HGAppearanceDockEnabled() && !HGGlassEnabled) || !feed.window) return;
     // The feed can attach after the tab controller's first layout. Find the
     // owning bar once and use the feed's weak link on later layouts.
     UIResponder *responder = feed.nextResponder;

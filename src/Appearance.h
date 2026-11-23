@@ -13,5 +13,6 @@ void HGRefreshVideoBackdropForPlayer(UIView *view);
 void HGVideoBackdropPrepareRendererTransfer(UIView *view);
 BOOL HGAppearancePlayerIsTransferring(UIView *view);
 void HGOpenAppearance(UIViewController *presenter, NSString *group);
+void HGPresentVideoExport(UIViewController *owner);
 UIVisualEffect *HGAppearanceMaterial(NSString *style);
 UIColor *HGAppearanceColor(NSString *hex, UIColor *fallback);

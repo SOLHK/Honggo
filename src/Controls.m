@@ -155,13 +155,16 @@ void HGStyleControl(UIView *control) {
             glass.backgroundImages = images;
         }
         glass.attached = YES;
-        glass.frame = control.bounds;
-        glass.overrideUserInterfaceStyle = HGGlassForegroundStyle(control, control.traitCollection);
+        if (!CGRectEqualToRect(glass.frame, control.bounds)) glass.frame = control.bounds;
+        UIUserInterfaceStyle style = HGGlassForegroundStyle(control, control.traitCollection);
+        if (glass.overrideUserInterfaceStyle != style) glass.overrideUserInterfaceStyle = style;
         glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         if (glass.superview != control) [control insertSubview:glass atIndex:0];
-        else [control sendSubviewToBack:glass];
-        [glass setNeedsLayout];
-        [glass layoutIfNeeded];
+        else if (control.subviews.firstObject != glass) [control sendSubviewToBack:glass];
+        if (!glass.effect) {
+            [glass setNeedsLayout];
+            [glass layoutIfNeeded];
+        }
         [CATransaction commit];
     } @finally {
         objc_setAssociatedObject(control, &HGControlBusyKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);

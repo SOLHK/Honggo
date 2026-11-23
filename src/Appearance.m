@@ -22,7 +22,6 @@ static void HGARefreshAssets(void);
 static void HGAApplyTypography(UIView *root);
 static void HGAObserveFeed(UIScrollView *feed);
 static void HGARefreshDock(UIView *bar);
-static CGFloat HGAExpandedDockWidthForHeader(UIView *header);
 static NSArray<NSString *> *HGABottomControlClasses(void);
 static void HGAUpdateBottomLayoutForView(UIView *view);
 static void HGARestoreBottomLayoutForView(UIView *view);
@@ -105,8 +104,11 @@ static NSError *HGAAssetError(NSString *message) {
     return [NSError errorWithDomain:@"Honggo.AppearanceAssets" code:1
         userInfo:@{NSLocalizedDescriptionKey:message}];
 }
+#include "AppearanceBlur.inc"
 #include "AppearanceAssets.inc"
 #include "AppearanceViews.inc"
+#include "AppearanceDramaExtras.inc"
+#include "AppearanceVideoExport.inc"
 #include "AppearanceBottomLayout.inc"
 #include "AppearanceDock.inc"
 #include "AppearanceSettings.inc"
@@ -250,20 +252,18 @@ void HGAppearanceRefresh(void) {
         @"dock":@(HGAppearanceDockEnabled()),@"reason":@"scoped visual adapters; device behavior not verified"});
     if(HGAppearanceEnabled() && (HGAppearanceFlag(@"player.seriesPillGlass") || HGAppearanceFlag(@"layout.seriesPill.hidden"))) {
         HGRecordCapability(@"appearance.seriesPill",@{@"module":@"appearance",@"state":@"unavailable",
-            @"reason":@"awaiting host hierarchy log Honggo-log-...96CB.json for SSShortVideoOutterSeriesInfoView child pill"});
+            @"reason":@"awaiting host hierarchy log for SSShortVideoOutterSeriesInfoView child pill"});
     }
     if(HGAppearanceEnabled() && (HGAppearanceFlag(@"player.goodsPillGlass") || HGAppearanceFlag(@"layout.goodsPill.hidden"))) {
         HGRecordCapability(@"appearance.goodsPill",@{@"module":@"appearance",@"state":@"unavailable",
-            @"reason":@"awaiting host hierarchy log Honggo-log-...96CB.json for SSShortVideoDerivateInfoView child pill"});
-    }
-    if(HGAppearanceEnabled() && HGAppearanceFlag(@"player.defaultMaxQuality")) {
-        HGRecordCapability(@"appearance.defaultMaxQuality",@{@"module":@"appearance",@"state":@"unavailable",
-            @"reason":@"awaiting host clarity selection method log Honggo-log-...96CB.json"});
+            @"reason":@"awaiting host hierarchy log for SSShortVideoDerivateInfoView child pill"});
     }
     if (!HGAppearanceEnabled() || !HGAppearanceFlag(@"fonts.enabled")) for (UIView *text in HGATexts.allObjects) HGARestoreText(text);
     for (UIView *view in HGAManaged.allObjects) HGAppearanceProcessView(view);
     for (UIViewController *controller in HGAControllers.allObjects) HGAppearanceProcessController(controller);
     for (UIView *bar in HGABars.allObjects) { HGARefreshDock(bar); [bar setNeedsLayout]; }
+    HGACommentRefreshAll();
+    HGADramaExtrasRefresh();
 }
 void HGInstallAppearance(void) {
     @synchronized(NSClassFromString(@"HGSettingsController")) {
@@ -391,6 +391,9 @@ void HGInstallAppearance(void) {
         if ([dockController isSubclassOfClass:UIViewController.class])
             HGAHook(dockController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
         HGAInstallLandscapeLoadFailureDiagnostic();
+        HGAInstallCommentHooks();
+        HGAInstallDramaExtras();
+        HGAInstallVideoExport();
         static dispatch_once_t once;
         dispatch_once(&once, ^{
             dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();});

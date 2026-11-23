@@ -171,6 +171,20 @@ int main(void) {@autoreleasepool {
     BOOL r28OK=YES;
     for(NSString *k in r28Keys)r28OK &= [keys containsObject:k] && !HGAppearanceFlag(k) && HGAppearanceSet(k,@YES,nil) && HGAppearanceFlag(k);
     Check(r28OK,@"R28 dock geometry reveal, Finder hide switches, quality and pill toggles validate cleanly");
+
+    NSArray<NSString *> *r33BoolKeys=@[@"glass.darkTint",@"player.outlineActions",@"player.pinchClean",
+        @"player.pinchHaptic",@"player.doubleTapComment",@"player.hideExitCollectAlert",
+        @"comment.noVideoShift",@"comment.hideActivityBanner",@"comment.hideSearchEntrance"];
+    BOOL r33BoolsOK=YES;
+    for(NSString *k in r33BoolKeys)r33BoolsOK &= [keys containsObject:k] && !HGAppearanceFlag(k) && HGAppearanceSet(k,@YES,nil) && HGAppearanceFlag(k);
+    BOOL r33ChoicesOK=HGAppearanceSet(@"dock.material",@"frosted",nil) && [HGAppearanceString(@"dock.material") isEqual:@"frosted"] &&
+        HGAppearanceSet(@"dock.blur",@42,nil) && HGAppearanceNumber(@"dock.blur")==42 && !HGAppearanceSet(@"dock.blur",@101,nil) &&
+        HGAppearanceSet(@"header.blur",@35,nil) && HGAppearanceNumber(@"header.blur")==35 &&
+        HGAppearanceSet(@"comment.material",@"clear",nil) && [HGAppearanceString(@"comment.material") isEqual:@"clear"] &&
+        HGAppearanceSet(@"comment.appearance",@"light",nil) && [HGAppearanceString(@"comment.appearance") isEqual:@"light"] &&
+        HGAppearanceSet(@"comment.blur",@60,nil) && HGAppearanceNumber(@"comment.blur")==60 &&
+        HGAppearanceSet(@"comment.composer",@"floating",nil) && [HGAppearanceString(@"comment.composer") isEqual:@"floating"];
+    Check(r33BoolsOK && r33ChoicesOK,@"R33 FanqieX-unified dock blur, frosted glass, outline actions, pinch/double-tap and comment options validate cleanly");
     HGAppearanceReset();
     NSLog(@"Appearance preferences: %lu checks, %lu failures",(unsigned long)checks,(unsigned long)failures);
     return failures?1:0;

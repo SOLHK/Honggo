@@ -515,7 +515,7 @@ BOOL HGVideoBackdropRefreshForFeed(UIScrollView *feed) {
     HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
     HGVideoBackdrop *owner = link.owner;
     if (!owner) return NO;
-    if (HGAppearanceDockEnabled()) [owner refreshFeed];
+    if (HGAppearanceDockEnabled() || HGGlassEnabled) [owner refreshFeed];
     else [owner restore];
     return YES;
 }

@@ -25,4 +25,5 @@ UIColor *HGOriginalTabTitleColor(UILabel *label);
 @interface HGSettingsController : UITableViewController
 + (void)openFromController:(UIViewController *)presenter;
 + (void)openFromTabBar:(UILongPressGestureRecognizer *)gesture;
++ (void)openPath:(NSString *)path fromController:(UIViewController *)presenter;
 @end
