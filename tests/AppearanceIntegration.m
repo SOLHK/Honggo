@@ -449,6 +449,7 @@ static BOOL HGInstallMaterialEffectSpy(void) {
     Check(subHeaders,@"FanqieX-unified appearance submenus across levels 2 to 4 expose clean titles and rows");
 
     // R33 regression: FanqieX outline right-side icons + glass disc suppression + clean restore
+    like.model=[HGAActionModel new];
     HGAppearanceApply(@{@"enabled":@YES,@"player.rightGlass":@YES,@"player.outlineActions":@YES},nil);
     Layout(like);
     Check(Find(like,@"honggo.appearance.material")==nil && like.iconImageView.image!=nativeImage &&

@@ -521,7 +521,10 @@ void HGAppearanceProcessView(UIView *view) {
         if(!role) {
             HGAApplyNativePageChrome(view,name,enabled);
             if(HGAIsHomeChannel(view)) {
-                UIView *parentHeader=HGAAncestorNamed(view,@"SSVideoSeriesFeedHeaderView");
+                UIView *parentHeader=nil;
+                for(UIView *p=view.superview;p;p=p.superview) {
+                    if(HGAIsHeaderView(p)){parentHeader=p;break;}
+                }
                 if(parentHeader) {
                     BOOL finder=HGAHeaderShowsFinder(parentHeader);
                     BOOL headerGlass=enabled && !finder && !parentHeader.hidden && HGAppearanceFlag(@"player.headerGlass");
