@@ -218,6 +218,11 @@ static void HGAApplyChannelIndicators(UIView *categories,BOOL enabled) {
     }
     for(id indicator in indicators)
         if([indicator isKindOfClass:UIView.class] && [indicator isDescendantOfView:categories])HGASetHidden(indicator,hide);
+    if(enabled && HGAIsHomeChannel(categories)) {
+        for(UIView *p=categories.superview;p;p=p.superview) {
+            if(HGAIsHeaderView(p)){[p setNeedsLayout];break;}
+        }
+    }
 }
 
 static void HGAApplyChannelOrHistoryTitle(UIView *cell,BOOL enabled) {

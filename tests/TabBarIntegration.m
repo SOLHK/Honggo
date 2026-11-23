@@ -1439,6 +1439,36 @@ static UIImage *HGWhiteImage(void) {
     [self check:edgeSuppressed name:@"the supported main scroll bottom edge effect cannot add a mask"];
     [self capture:@"tabbar-scroll-simulator.png"];
 
+    // Verify sidebar overlay drawer mounted above SSTabBar and horizontal tab-bar
+    // slides (+352 sidebar open / -252 search push) never mutate drawer viewports.
+    UIView *drawer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, round(self.host.view.bounds.size.width * 0.80), self.host.view.bounds.size.height)];
+    UIScrollView *drawerList = [[UIScrollView alloc] initWithFrame:drawer.bounds];
+    drawerList.contentSize = CGSizeMake(drawer.bounds.size.width, drawer.bounds.size.height * 2);
+    drawerList.contentInset = UIEdgeInsetsMake(0, 0, 16, 0);
+    [drawer addSubview:drawerList];
+    [self.host.view addSubview:drawer];
+    CGRect origDrawerFrame = drawer.frame;
+    UIEdgeInsets origDrawerInsets = drawerList.contentInset;
+    [self layoutHost];
+    BOOL overlaySafe = CGRectEqualToRect(drawer.frame, origDrawerFrame) &&
+        UIEdgeInsetsEqualToEdgeInsets(drawerList.contentInset, origDrawerInsets);
+    CGRect origBarFrame = bar.frame;
+    [self.host.view bringSubviewToFront:bar];
+    for (NSNumber *dx in @[@(round(self.host.view.bounds.size.width * 0.80)), @(-252)]) {
+        bar.frame = CGRectOffset(origBarFrame, dx.doubleValue, 0);
+        [bar setNeedsLayout];
+        [bar layoutIfNeeded];
+        [self layoutHost];
+        overlaySafe &= CGRectEqualToRect(drawer.frame, origDrawerFrame) &&
+            UIEdgeInsetsEqualToEdgeInsets(drawerList.contentInset, origDrawerInsets) &&
+            HGEffects(bar).count == 1;
+    }
+    bar.frame = origBarFrame;
+    [drawer removeFromSuperview];
+    [self layoutHost];
+    [self check:overlaySafe && HGEffects(bar).count == 1
+        name:@"overlay drawers and horizontal sidebar/search bar slides never mutate drawer viewports or drop glass"];
+
     [self runAutoresizingChecks];
     [self runNestedChecks];
     for (NSDictionary *result in HGRunControlTests(self.host.view))

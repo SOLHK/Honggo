@@ -308,6 +308,9 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     @try {
         UIView *bar=self.hostBar;
         if(!HGAppearanceDockEnabled() || !bar.window || !HGAVisible(bar)) {[self restore];return;}
+        // Preserve the live dock untouched while customTabBar slides horizontally
+        // during sidebar presentation or search push navigation.
+        if(fabs(bar.frame.origin.x)>2.0)return;
         CGFloat controlHeight=HGADockControlHeight(bar);
         if(bar.bounds.size.width<180 || controlHeight<44 || ![self resolveTargets]) {
             [self restore];
@@ -612,18 +615,30 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     NSUInteger index=[HGATabIDs() indexOfObject:action];
     if(index!=NSNotFound){UIButton *proxy=[UIButton new];proxy.tag=index;[self tabTapped:proxy];return;}
     if(![action isEqual:@"search"])return;
-    NSMutableArray *queue=[NSMutableArray array];
-    UIViewController *root=self.hostBar.window.rootViewController;if(root)[queue addObject:root];
-    for(NSUInteger i=0;i<queue.count && i<40;i++) {
-        UIViewController *vc=queue[i];
-        if([NSStringFromClass(vc.class) isEqual:@"SSVideoSeriesFeedViewController"] && HGAVisible(vc.viewIfLoaded)) {
-            SEL sel=NSSelectorFromString(@"simpleSearchViewDidClicked");Method m=class_getInstanceMethod(vc.class,sel);
-            if(m && !strcmp(method_getTypeEncoding(m),"v16@0:8")){((void(*)(id,SEL))objc_msgSend)(vc,sel);[self feedback];return;}
+    UIWindow *win=self.hostBar.window;
+    if(!win)return;
+    // Dispatch search presentation on the next main-loop turn so touch delivery
+    // on the circular dock button settles before UINavigationController pushes.
+    __weak HGAAppearanceDock *weakSelf=self;
+    __weak UIWindow *weakWin=win;
+    dispatch_async(dispatch_get_main_queue(),^{
+        HGAAppearanceDock *dock=weakSelf;
+        UIWindow *targetWin=weakWin;
+        if(!dock || !targetWin)return;
+        NSMutableArray *queue=[NSMutableArray array];
+        UIViewController *root=targetWin.rootViewController;if(root)[queue addObject:root];
+        for(NSUInteger i=0;i<queue.count && i<40;i++) {
+            UIViewController *vc=queue[i];
+            if([NSStringFromClass(vc.class) isEqual:@"SSVideoSeriesFeedViewController"] && HGAVisible(vc.viewIfLoaded)) {
+                if(vc.presentedViewController || vc.navigationController.transitionCoordinator)return;
+                SEL sel=NSSelectorFromString(@"simpleSearchViewDidClicked");Method m=class_getInstanceMethod(vc.class,sel);
+                if(m && !strcmp(method_getTypeEncoding(m),"v16@0:8")){((void(*)(id,SEL))objc_msgSend)(vc,sel);[dock feedback];return;}
+            }
+            for(UIViewController *child in vc.childViewControllers)if(queue.count<40 && ![queue containsObject:child])[queue addObject:child];
+            if(vc.presentedViewController && queue.count<40 && ![queue containsObject:vc.presentedViewController])[queue addObject:vc.presentedViewController];
         }
-        for(UIViewController *child in vc.childViewControllers)if(queue.count<40 && ![queue containsObject:child])[queue addObject:child];
-        if(vc.presentedViewController && queue.count<40 && ![queue containsObject:vc.presentedViewController])[queue addObject:vc.presentedViewController];
-    }
-    UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification,@"当前页面没有已适配的搜索入口，请返回首页搜索。");
+        UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification,@"当前页面没有已适配的搜索入口，请返回首页搜索。");
+    });
 }
 - (void)expandTapped:(UIButton *)button {[self setCollapsed:NO animated:YES];}
 - (void)swipe:(UISwipeGestureRecognizer *)gesture {
@@ -632,7 +647,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 - (void)setCollapsed:(BOOL)value animated:(BOOL)animated {
     if(!HGAppearanceFlag(@"dock.collapse") || UIAccessibilityIsVoiceOverRunning())value=NO;
     if(self.collapsed==value)return;
-    [self layoutIfNeeded];self.collapsed=value;
+    self.collapsed=value;
     if(value)[self clearSelectionDrag];
     // Public UIKit animation; no private platter/visual-provider dependency.
     if(animated && !UIAccessibilityIsReduceMotionEnabled()) {
@@ -668,8 +683,17 @@ static void HGARefreshDock(UIView *bar){HGAppearanceLayoutDock(bar,nil);}
     if(!HGAppearanceDockEnabled() || !HGAppearanceFlag(@"dock.autoCollapse") || !HGAppearanceFlag(@"dock.collapse") ||
         UIAccessibilityIsVoiceOverRunning() || gesture.state!=UIGestureRecognizerStateEnded)return;
     CGFloat y=[gesture translationInView:gesture.view].y;if(fabs(y)<40)return;
-    for(UIView *bar in HGABars.allObjects)if(bar.window==gesture.view.window)
-        [(HGAAppearanceDock *)objc_getAssociatedObject(bar,&HGADockKey) setCollapsed:y<0 animated:YES];
+    BOOL collapse=(y<0);
+    UIWindow *win=gesture.view.window;
+    if(!win)return;
+    __weak UIWindow *weakWin=win;
+    dispatch_async(dispatch_get_main_queue(),^{
+        UIWindow *targetWin=weakWin;
+        if(!targetWin)return;
+        for(UIView *bar in HGABars.allObjects)
+            if(bar.window==targetWin && fabs(bar.frame.origin.x)<=2.0)
+                [(HGAAppearanceDock *)objc_getAssociatedObject(bar,&HGADockKey) setCollapsed:collapse animated:YES];
+    });
 }
 @end
 static char HGAFollowsFeed;

@@ -182,6 +182,23 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     }
     Check(independent,@"each of the six header controls hides and restores independently");
 
+    // Verify hiding non-adjacent channels (关注 & 真人剧) compacts remaining tabs
+    // (漫剧 & 推荐) with an even ~20pt gap and tightens the center pill.
+    HGAppearanceApply(@{@"layout.channels.hide.follow":@YES,@"layout.channels.hide.live":@YES},nil);
+    Layout(header);
+    UIView *comicCell=controls[2],*recCell=controls[4];
+    CGRect comicInHeader=[comicCell convertRect:comicCell.bounds toView:header];
+    CGRect recInHeader=[recCell convertRect:recCell.bounds toView:header];
+    CGFloat compactedGap=CGRectGetMinX(recInHeader)-CGRectGetMaxX(comicInHeader);
+    UIView *compactedPill=Find(header,material);
+    Check(compactedPill && fabs(compactedGap-20.0)<1.5 &&
+        CGRectGetWidth(compactedPill.frame)<CGRectGetWidth(tabContainer.bounds)-20.0,
+        @"hiding intermediate top channels compacts visible tabs to a 20pt gap and tightens the center capsule");
+    HGAppearanceApply(@{@"layout.channels.hide.follow":@NO,@"layout.channels.hide.live":@NO},nil);
+    Layout(header);
+    Check(CGAffineTransformIsIdentity(comicCell.transform) && CGAffineTransformIsIdentity(recCell.transform),
+        @"restoring all top channels restores identity cell transforms");
+
     NSMutableDictionary *allHidden=[NSMutableDictionary dictionary];
     for(NSString *key in keys)allHidden[[@"layout.channels.hide." stringByAppendingString:key]]=@YES;
     HGAppearanceApply(allHidden,nil);

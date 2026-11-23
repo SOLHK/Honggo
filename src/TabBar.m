@@ -27,6 +27,7 @@ static void (*HGOriginalBarTraits)(id, SEL, id);
 static void (*HGOriginalMineLayout)(id, SEL);
 static void (*HGOriginalMineAppear)(id, SEL, BOOL);
 static void (*HGOriginalMallMount)(id, SEL);
+static void (*HGOriginalToggleFeedSidebar)(id, SEL, double);
 static char HGMineRefreshPendingKey;
 
 static id HGObject(id object, const char *name) {
@@ -277,6 +278,69 @@ static void HGObservedAlpha(UIView *view, SEL cmd, CGFloat alpha) {
 }
 static Class HGReportedClass(id object, SEL cmd) { return HGObservedBase(object); }
 
+static BOOL HGIsPrivateSystemContainerName(NSString *name) {
+    if (!name.length) return YES;
+    if ([name hasPrefix:@"NSKVONotifying_"] || [name hasPrefix:@"_UI"] || [name hasPrefix:@"UIKit."])
+        return YES;
+    return [name isEqualToString:@"UILayoutContainerView"] ||
+        [name isEqualToString:@"UINavigationTransitionView"] ||
+        [name isEqualToString:@"UIViewControllerWrapperView"] ||
+        [name isEqualToString:@"UIDropShadowView"] ||
+        [name isEqualToString:@"UITransitionView"];
+}
+
+static BOOL HGIsOverlayOrDrawerView(UIView *view) {
+    if (!view) return NO;
+    NSString *viewName = NSStringFromClass(view.class);
+    if ([viewName containsString:@"SideBar"] || [viewName containsString:@"Drawer"]) return YES;
+    UIResponder *resp = view.nextResponder;
+    if ([resp isKindOfClass:UIViewController.class]) {
+        NSString *vcName = NSStringFromClass(resp.class);
+        if ([vcName containsString:@"SideBar"] || [vcName containsString:@"Drawer"] ||
+            [vcName containsString:@"Popup"] || [vcName containsString:@"Modal"] ||
+            [vcName containsString:@"Search"]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+static BOOL HGTabBarBoolGetter(id obj, const char *name) {
+    if (!obj || !name) return NO;
+    SEL sel = sel_registerName(name);
+    Method m = class_getInstanceMethod(object_getClass(obj), sel);
+    const char *enc = m ? method_getTypeEncoding(m) : NULL;
+    if (!enc || (strcmp(enc, "B16@0:8") != 0 && strcmp(enc, "c16@0:8") != 0)) return NO;
+    return ((BOOL (*)(id, SEL))objc_msgSend)(obj, sel);
+}
+
+static BOOL HGTabControllerHasOpenSidebar(UIViewController *controller) {
+    if (!controller) return NO;
+    Class feedCls = NSClassFromString(@"SSVideoSeriesFeedViewController");
+    if (!feedCls) return NO;
+    NSMutableArray<UIViewController *> *queue = [NSMutableArray arrayWithObject:controller];
+    for (NSUInteger i = 0; i < queue.count && i < 16; i++) {
+        UIViewController *vc = queue[i];
+        if ([vc isKindOfClass:feedCls] && HGTabBarBoolGetter(vc, "isSidebarOpen")) return YES;
+        for (UIViewController *child in vc.childViewControllers) {
+            if (queue.count < 16) [queue addObject:child];
+        }
+    }
+    return NO;
+}
+
+static BOOL HGTabBarIsInTransitionOrDisplaced(UIView *bar, UIViewController *controller) {
+    if (!bar) return NO;
+    if (fabs(bar.frame.origin.x) > 2.0) return YES;
+    UIView *root = controller.viewIfLoaded;
+    if (root && bar.window && root.window == bar.window && [bar isDescendantOfView:root]) {
+        CGRect rect = [bar convertRect:bar.bounds toView:root];
+        if (fabs(CGRectGetMinX(rect)) > 2.0) return YES;
+    }
+    if (controller.transitionCoordinator || controller.navigationController.transitionCoordinator) return YES;
+    return HGTabControllerHasOpenSidebar(controller);
+}
+
 static void HGObserveView(UIView *view, HGTabState *state, BOOL knownBackground) {
     if (!view || view == state.bar || [view isKindOfClass:UIVisualEffectView.class] ||
         [view isKindOfClass:UIControl.class] || [view isKindOfClass:UILabel.class] ||
@@ -287,9 +351,10 @@ static void HGObserveView(UIView *view, HGTabState *state, BOOL knownBackground)
     Class base = object_getClass(view);
     Class observed = HGObservedClass(view);
     if (!observed) {
-        // Do not replace a KVO observation class, or a system material's internals.
+        // Never isa-swizzle KVO classes, private UIKit views, or system
+        // navigation/tab transition containers (causes freezes on iOS 26/27).
         NSString *name = NSStringFromClass(base);
-        if ([name hasPrefix:@"NSKVONotifying_"] || [name hasPrefix:@"_UI"])
+        if (HGIsPrivateSystemContainerName(name))
             return;
         NSString *subclassName = [@"HGObserved_" stringByAppendingString:name];
         observed = NSClassFromString(subclassName);
@@ -534,6 +599,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
         bottom:(CGFloat)bottom records:(NSMutableArray<HGViewportRecord *> *)records depth:(NSUInteger)depth {
     if (view == self.bar || [self.bar isDescendantOfView:view] || view.hidden || view.alpha < 0.01 ||
         depth > 10 || !CGAffineTransformIsIdentity(view.transform) || view.layer.mask ||
+        HGIsOverlayOrDrawerView(view) ||
         [view isKindOfClass:UIControl.class] || [view isKindOfClass:UITableViewCell.class] ||
         [view isKindOfClass:UICollectionViewCell.class] || [view isKindOfClass:UIVisualEffectView.class]) return;
     Class mineRoot = objc_lookUpClass("SSMine737KMPRootView");
@@ -608,17 +674,23 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     CGFloat bottom = MIN(CGRectGetMaxY(root.bounds), CGRectGetMaxY(windowRect));
     CGRect barRect = [bar convertRect:bar.bounds toView:root];
     CGFloat barTop = CGRectGetMinY(barRect);
-    if (bottom - barTop < 20 || bottom - barTop > 160) {
+    if (HGTabBarIsInTransitionOrDisplaced(bar, self.controller) ||
+        bottom - barTop < 20 || bottom - barTop > 160) {
         [self.videoBackdrop restore]; return;
     }
     NSMutableArray<HGViewportRecord *> *records = [NSMutableArray array];
-    // Walk only sibling content branches under the known tab controller.
-    // Transparent intermediate containers can also enclose the tab bar.
+    // Walk only sibling content branches below the tab bar in z-order; ignore
+    // overlay/drawer siblings mounted above the tab bar.
     NSMutableArray<UIView *> *branches = [NSMutableArray array];
     UIView *path = bar;
     while (path.superview && path != root) {
         UIView *parent = path.superview;
-        for (UIView *child in parent.subviews) if (child != path) [branches addObject:child];
+        NSUInteger pathIndex = [parent.subviews indexOfObjectIdenticalTo:path];
+        for (NSUInteger idx = 0; idx < parent.subviews.count; idx++) {
+            if (idx >= pathIndex) break;
+            UIView *child = parent.subviews[idx];
+            if (!HGIsOverlayOrDrawerView(child)) [branches addObject:child];
+        }
         path = parent;
     }
     if (self.customDock && !self.videoBackdrop) self.videoBackdrop = [HGVideoBackdrop new];
@@ -737,7 +809,14 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
 }
 - (void)refresh {
     if (self.refreshing) return;
-    if (HGAppearanceDockIsMutating(self.bar)) {
+    UIView *currentBar = self.bar;
+    // Never open a disabled-actions CATransaction or mutate viewports/dock while
+    // customTabBar is displaced horizontally (sidebar slide or nav push to search).
+    if (HGTabBarIsInTransitionOrDisplaced(currentBar, self.controller)) {
+        [self.videoBackdrop restore];
+        return;
+    }
+    if (HGAppearanceDockIsMutating(currentBar)) {
         if (!self.refreshPending) {
             self.refreshPending = YES;
             __weak HGTabState *weak = self;
@@ -923,9 +1002,16 @@ static void HGRefreshTabBar(UIViewController *controller) {
         [state refresh];
     }
 }
+static char HGVideoBackdropDiscoveryTimeKey;
+
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
     if (!NSThread.isMainThread) return;
     if (HGVideoBackdropRefreshForFeed(feed) || !HGAppearanceDockEnabled() || !feed.window) return;
+    if (feed.dragging || feed.decelerating) return;
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    NSNumber *lastAttempt = objc_getAssociatedObject(feed, &HGVideoBackdropDiscoveryTimeKey);
+    if (lastAttempt && (now - lastAttempt.doubleValue) < 0.5) return;
+    objc_setAssociatedObject(feed, &HGVideoBackdropDiscoveryTimeKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     // The feed can attach after the tab controller's first layout. Find the
     // owning bar once and use the feed's weak link on later layouts.
     UIResponder *responder = feed.nextResponder;
@@ -1016,6 +1102,21 @@ static void HGBarTraits(id self, SEL cmd, id previous) {
     HGOriginalBarTraits(self, cmd, previous);
     [HGState(self) refresh];
 }
+static void HGToggleFeedSidebar(UIViewController *self, SEL cmd, double offset) {
+    if (HGOriginalToggleFeedSidebar) HGOriginalToggleFeedSidebar(self, cmd, offset);
+    if (!NSThread.isMainThread) return;
+    UIView *bar = HGView(self, "customTabBar");
+    HGTabState *state = HGState(bar);
+    if (fabs(offset) > 2.0) {
+        [state.videoBackdrop restore];
+        return;
+    }
+    __weak UIViewController *weakController = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.32 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIViewController *strong = weakController;
+        if (strong) HGRefreshTabBar(strong);
+    });
+}
 
 #import "MaskScene.inc"
 
@@ -1052,6 +1153,8 @@ BOOL HGInstallTabBar(void) {
         }
         HGGlassEnabled = HGIsEnabled(HGGlass);
         HGOriginalControllerLayout = (void (*)(id, SEL))HGReplaceMethod(controller, selectors[0], encodings[0], (IMP)HGControllerLayout);
+        HGOriginalToggleFeedSidebar = (void (*)(id, SEL, double))HGReplaceMethod(controller,
+            sel_registerName("toggleVideoSeriesFeedSideBarInAnimation:"), "v24@0:8d16", (IMP)HGToggleFeedSidebar);
         Class mall = objc_lookUpClass("FQMSEcomXTabMallViewController");
         if ([mall isSubclassOfClass:UIViewController.class])
             HGOriginalMallMount = (void (*)(id, SEL))HGReplaceMethod(mall,

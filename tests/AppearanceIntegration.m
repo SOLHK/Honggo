@@ -393,6 +393,12 @@ static BOOL HGInstallMaterialEffectSpy(void) {
     Check(unrelated.subviews.count==0 && [unrelated.backgroundColor isEqual:UIColor.purpleColor],@"unknown views remain untouched");
     Class settings=NSClassFromString(@"HGAAppearanceController");UITableViewController *page=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [page loadViewIfNeeded];Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==8,@"appearance level-2 home exposes clean category entries");
+    // Level 3 general page removes presets and pushed subpages never attach a nested UISearchController.
+    UITableViewController *generalPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [generalPage setValue:@"general" forKey:@"group"];[generalPage loadViewIfNeeded];
+    Check([generalPage.tableView.dataSource tableView:generalPage.tableView numberOfRowsInSection:0]==1 &&
+        generalPage.navigationItem.searchController==nil,
+        @"appearance general page removes both presets and avoids nested UISearchController on pushed pages");
     // Level 3 playback layout shows clean per-role rows without inline offset/scale sliders.
     UITableViewController *playerPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [playerPage setValue:@"player" forKey:@"group"];[playerPage loadViewIfNeeded];

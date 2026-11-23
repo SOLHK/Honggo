@@ -92,7 +92,7 @@ static NSString *HGAIconRoleSummary(NSString *role) {
 static NSString *HGAGroupDisplayTitle(NSString *group) {
     if(!group.length)return @"外观";
     NSDictionary<NSString *,NSString *> *titles=@{
-        @"general":@"外观总开关与预设",
+        @"general":@"外观总开关",
         @"dock":@"悬浮底栏",
         @"dock.geometry":@"底栏尺寸与圆角",
         @"dock.colors":@"底栏配色",
@@ -134,12 +134,19 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     self.title=HGAGroupDisplayTitle(self.group);
     self.tableView.accessibilityIdentifier=@"honggo.appearance.settings";
     self.tableView.rowHeight=UITableViewAutomaticDimension;self.tableView.estimatedRowHeight=62;
-    self.search=[[UISearchController alloc] initWithSearchResultsController:nil];
-    self.search.searchResultsUpdater=self;self.search.delegate=self;
-    self.search.obscuresBackgroundDuringPresentation=NO;
-    self.search.searchBar.placeholder=@"搜索外观、底栏、图标、字体或控件";
-    self.navigationItem.searchController=self.search;self.navigationItem.hidesSearchBarWhenScrolling=NO;
-    self.definesPresentationContext=YES;
+    // Only attach a UISearchController when this controller is standalone/root
+    // of its own navigation stack. Stacking a second UISearchController on pushed
+    // Level 2/3/4 pages causes a UIKit pop transition freeze on iOS 26/27.
+    BOOL ownsSearch=!self.group.length &&
+        (!self.navigationController || self.navigationController.viewControllers.firstObject==self);
+    if(ownsSearch) {
+        self.search=[[UISearchController alloc] initWithSearchResultsController:nil];
+        self.search.searchResultsUpdater=self;self.search.delegate=self;
+        self.search.obscuresBackgroundDuringPresentation=NO;
+        self.search.searchBar.placeholder=@"搜索外观、底栏、图标、字体或控件";
+        self.navigationItem.searchController=self.search;self.navigationItem.hidesSearchBarWhenScrolling=NO;
+        self.definesPresentationContext=YES;
+    }
     if(self.navigationController.viewControllers.firstObject==self)
         self.navigationItem.rightBarButtonItem=[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)];
     [self reloadRows];
@@ -185,7 +192,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             [rows addObject:HGATool(@"@community",@"TG 更新频道 · @Naloiafeed")];
     } else if(!self.group.length) {
         // Level 2: clean category list mirroring FanqieX hierarchy.
-        [rows addObject:HGASubpage(@"@group.general",@"外观总开关与预设",HGAppearanceEnabled()?@"已开启":@"未开启")];
+        [rows addObject:HGASubpage(@"@group.general",@"外观总开关",HGAppearanceEnabled()?@"已开启":@"未开启")];
         [rows addObject:HGASubpage(@"@group.dock",@"悬浮底栏",HGAppearanceFlag(@"dock.enabled")?@"已开启":@"默认")];
         [rows addObject:HGASubpage(@"@group.chrome",@"顶部与页面玻璃",@"独立顶栏按钮、找剧与我的页面")];
         [rows addObject:HGASubpage(@"@group.player",@"播放布局与玻璃",@"点开单项按 1–100% 调节")];
@@ -195,8 +202,6 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         [rows addObject:HGASubpage(@"@group.backup",@"外观参数备份与重置",@"导出、恢复或重置外观")];
     } else if([self.group isEqual:@"general"]) {
         HGAAddDefs(rows,@[@"enabled"]);
-        [rows addObject:HGATool(@"@preset.glass",@"应用「玻璃外观」预设")];
-        [rows addObject:HGATool(@"@preset.focus",@"应用「专注播放」预设")];
     } else if([self.group isEqual:@"dock"]) {
         HGAAddDefs(rows,@[@"dock.enabled",@"dock.material",@"dock.content",@"dock.haptics"]);
         [rows addObject:HGASubpage(@"@group.dock.extra",@"独立圆形按钮",HGAppearanceFlag(@"dock.extra")?@"已开启":@"已关闭")];
@@ -280,7 +285,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     if([self.group isEqual:@"chrome"])return @"开启「顶部频道玻璃」后，左上角菜单按钮与右上角搜索按钮会各自独立成圆形液态玻璃，与中间频道胶囊分离。";
     if([self.group isEqual:@"icons"])return @"点开各动作子项可分别设置 SF Symbol 或相册图片；收藏与点赞支持单独设置选中状态图标。";
     if([self.group isEqual:@"panels"])return @"仅处理已识别面板，不隐藏绘制内容、输入框或点击遮罩。面板底色不透明度按 1–100% 调节。";
-    return @"先进入「外观总开关与预设」开启外观定制或应用预设。首次开启原生玻璃后请完全退出红果再打开。";
+    return @"先进入「外观总开关」开启外观定制。首次开启原生玻璃后请完全退出红果再打开。";
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *row=self.rows[path.row];NSString *kind=row[@"kind"],*key=row[@"key"];
@@ -379,11 +384,6 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         },nil);
         [self reloadRows];
         return;
-    }
-    if([key hasPrefix:@"@preset."]) {
-        NSString *preset=[key substringFromIndex:8];
-        [self confirm:row[@"title"] detail:@"会重置本页外观参数并开启这套预设，不改变去广告开关。首次开启原生玻璃后请重启红果。"
-            action:^{HGAppearanceApply(HGAppearancePreset(preset),nil);}];return;
     }
     if([key isEqual:@"@reset"]){[self confirm:@"恢复外观默认值？" detail:@"关闭新外观定制并恢复宿主控件。原有去广告设置不变。" action:^{HGAppearanceReset();}];return;}
     if([key isEqual:@"@fonts.reset"]){HGAppearanceApply(@{@"fonts.enabled":@NO,@"fonts.name":@"",@"fonts.asset":@"",@"fonts.scale":@1},nil);[self reloadRows];return;}
