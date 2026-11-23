@@ -1,0 +1,1788 @@
+{
+  "schema": 1,
+  "sourceArchive": {
+    "bytes": 311558144,
+    "sha256": "c525aeed5df0d0f826ecaf346b68df699e43014e51939480553757bba194eee5",
+    "centralDirectoryValid": false,
+    "recovery": {
+      "failures": [
+        [
+          "Payload/Eggplant.app/Assets.car",
+          "Error -3 while decompressing data: invalid distance code",
+          261050692
+        ],
+        [
+          "Payload/Eggplant.app/growth_incentive-monorepo_novel-lite.zst",
+          "Error -3 while decompressing data: invalid stored block lengths",
+          297646705
+        ],
+        [
+          "Payload/Eggplant.app/DanceUIRenderBox.bundle/DanceUIRenderBoxShader-iphonesimulator.metallib",
+          "unfinished deflate stream",
+          310756583
+        ],
+        [
+          "Payload/Eggplant.app/book-upload.zip",
+          "truncated",
+          311487708
+        ]
+      ],
+      "offsets": {
+        "Payload/Eggplant.app/Info.plist": {
+          "start": 399564,
+          "end": 403628,
+          "sha256": "b91dd3b6b4668313c375e2b074efd0a944e20244702d4ae383a6e78790edfc64",
+          "size": 19615
+        },
+        "Payload/Eggplant.app/Eggplant": {
+          "start": 403699,
+          "end": 246517916,
+          "sha256": "40edce7297acca3d4f5fedba2c3299354a5fb3b7841036f4da298403bd711bd7",
+          "size": 527025520
+        }
+      },
+      "records": 4027,
+      "resync": [
+        [
+          311071675,
+          311427616
+        ]
+      ],
+      "recovered": 4023,
+      "last_claimed_offset": 311637973
+    }
+  },
+  "rebuiltArchive": {
+    "sha256": "04fa7974eafedd76a7a9cb0047f2e0bcad45342ddda001165ce8e404411dc950",
+    "validatedEntries": 4023,
+    "fileTypeCounts": {
+      ".actionsdata": {
+        "files": 1,
+        "uncompressedBytes": 8857
+      },
+      ".bin": {
+        "files": 10,
+        "uncompressedBytes": 148309
+      },
+      ".car": {
+        "files": 53,
+        "uncompressedBytes": 9610168
+      },
+      ".cer": {
+        "files": 1,
+        "uncompressedBytes": 577
+      },
+      ".css": {
+        "files": 15,
+        "uncompressedBytes": 70463
+      },
+      ".cvr": {
+        "files": 31,
+        "uncompressedBytes": 102000
+      },
+      ".dat": {
+        "files": 9,
+        "uncompressedBytes": 3358712
+      },
+      ".gif": {
+        "files": 1,
+        "uncompressedBytes": 512
+      },
+      ".html": {
+        "files": 2,
+        "uncompressedBytes": 7429
+      },
+      ".intentdefinition": {
+        "files": 1,
+        "uncompressedBytes": 12347
+      },
+      ".jpg": {
+        "files": 11,
+        "uncompressedBytes": 50541
+      },
+      ".js": {
+        "files": 17,
+        "uncompressedBytes": 473604
+      },
+      ".json": {
+        "files": 295,
+        "uncompressedBytes": 4723079
+      },
+      ".m4a": {
+        "files": 2,
+        "uncompressedBytes": 4885
+      },
+      ".metallib": {
+        "files": 14,
+        "uncompressedBytes": 1528732
+      },
+      ".model": {
+        "files": 6,
+        "uncompressedBytes": 41736
+      },
+      ".mp3": {
+        "files": 1,
+        "uncompressedBytes": 5325
+      },
+      ".mp4": {
+        "files": 2,
+        "uncompressedBytes": 282453
+      },
+      ".net": {
+        "files": 2,
+        "uncompressedBytes": 11907
+      },
+      ".nib": {
+        "files": 6,
+        "uncompressedBytes": 31932
+      },
+      ".plist": {
+        "files": 155,
+        "uncompressedBytes": 587563
+      },
+      ".png": {
+        "files": 2563,
+        "uncompressedBytes": 6524693
+      },
+      ".shape": {
+        "files": 2,
+        "uncompressedBytes": 2548
+      },
+      ".strings": {
+        "files": 32,
+        "uncompressedBytes": 79589
+      },
+      ".svg": {
+        "files": 137,
+        "uncompressedBytes": 120582
+      },
+      ".ttf": {
+        "files": 1,
+        "uncompressedBytes": 330356
+      },
+      ".txt": {
+        "files": 1,
+        "uncompressedBytes": 60
+      },
+      ".webp": {
+        "files": 114,
+        "uncompressedBytes": 518584
+      },
+      ".weights": {
+        "files": 2,
+        "uncompressedBytes": 9444
+      },
+      ".xcprivacy": {
+        "files": 18,
+        "uncompressedBytes": 20966
+      },
+      ".xcstrings": {
+        "files": 1,
+        "uncompressedBytes": 152963
+      },
+      ".xml": {
+        "files": 102,
+        "uncompressedBytes": 116868
+      },
+      ".zip": {
+        "files": 6,
+        "uncompressedBytes": 36359
+      },
+      ".zst": {
+        "files": 16,
+        "uncompressedBytes": 3493387
+      },
+      "<none>": {
+        "files": 13,
+        "uncompressedBytes": 531480177
+      }
+    }
+  },
+  "rea": {
+    "version": "6.7.0",
+    "inventoryEvidenceId": "ev_f106ce872eec8b848e307a2d58d9813f72f6509881224841998676aa866b7d52",
+    "inventoryNodes": 3737,
+    "inventoryOccurrences": 4024,
+    "appleGraphEvidenceId": "ev_434252264208bd080429311da3f886d77b2d09fccc1d994addcabe85b908d839",
+    "appleProjectionId": "aap_47f93dc5ec5cf827e3a161e538ebcf891813bbbf268f417c763a93d96bc43e9c",
+    "appleProjectionCoverage": {
+      "status": "complete-within-inventory",
+      "inventory_complete": true
+    },
+    "bundleCount": 137,
+    "componentCounts": {
+      "bundle_metadata": 124,
+      "executables": 3,
+      "frameworks": 0,
+      "native_libraries": 0,
+      "javascript": 17,
+      "signing": 3,
+      "privileged_helpers": 0,
+      "launchd_plists": 0,
+      "helpers": 0
+    },
+    "rizinVersion": "0.9.1",
+    "arm64Windows": {
+      "sidebar-tap": {
+        "mainExecutableFileOffset": "0x105550dc",
+        "byteCount": 80,
+        "windowSha256": "70ddbf3d2e096e8982f0e13d68279db7a88b5f18ed7657d1ffa1ae1ada9c17b2",
+        "evidenceId": "ev_a4a1a5765e5eb061f051cdd9e0e5b798290fd4fbb975c910811a88e770fb2310"
+      },
+      "sidebar-toggle": {
+        "mainExecutableFileOffset": "0x10554940",
+        "byteCount": 292,
+        "windowSha256": "4aa0cdcab0480f4ee66ed7dc923077a79096f2af5eac0c5c75acc9e88c4e18fe",
+        "evidenceId": "ev_0b2cbad9e4606768ba265f1a69b5dab8057d61885d9b47f39efb445e2f5f7cb0"
+      },
+      "share-header": {
+        "mainExecutableFileOffset": "0xfa41a44",
+        "byteCount": 180,
+        "windowSha256": "8f442ed19abc2e1442368b694b6893989baf0e13d2b958f523ac7b972b0eefd7",
+        "evidenceId": "ev_a007f4c5993246f17a69e5861a0a4f44b01e4da80b1277dd8ffcd69aae9c8aba"
+      },
+      "comment-toolbar": {
+        "mainExecutableFileOffset": "0x8145ea4",
+        "byteCount": 100,
+        "windowSha256": "0b9581ad57ec0fee5dd1bdb37c13b518e17e6dcce963acf8c8449fb518d04d98",
+        "evidenceId": "ev_0a9eefd4b5fe9e426d5ddc20ec479279d954b98750474c127210a1f6a752625a"
+      }
+    }
+  },
+  "bundles": [
+    {
+      "path": "Payload/Eggplant.app",
+      "CFBundleIdentifier": "com.phoenix.video",
+      "CFBundleExecutable": "Eggplant",
+      "CFBundleShortVersionString": "7.4.5",
+      "CFBundleVersion": "7.4.5.33",
+      "MinimumOSVersion": "15.0.1",
+      "DTSDKName": "iphoneos26.0",
+      "DTXcode": "2600",
+      "UIDesignRequiresCompatibility": true
+    },
+    {
+      "path": "Payload/Eggplant.app/PlugIns/EggplantNotificationExtension.appex",
+      "CFBundleIdentifier": "com.phoenix.video.appPushExtension",
+      "CFBundleExecutable": "EggplantNotificationExtension",
+      "CFBundleShortVersionString": "7.4.5",
+      "CFBundleVersion": "7.4.5.33",
+      "MinimumOSVersion": "15.0",
+      "DTSDKName": "iphoneos26.0",
+      "DTXcode": "2600",
+      "extensionPoint": "com.apple.usernotifications.service"
+    },
+    {
+      "path": "Payload/Eggplant.app/PlugIns/EggplantWidgetExtension.appex",
+      "CFBundleIdentifier": "com.phoenix.video.WidgetExtension",
+      "CFBundleExecutable": "EggplantWidgetExtension",
+      "CFBundleShortVersionString": "7.4.5",
+      "CFBundleVersion": "7.4.5.33",
+      "MinimumOSVersion": "15.0",
+      "DTSDKName": "iphoneos26.0",
+      "DTXcode": "2600",
+      "extensionPoint": "com.apple.widgetkit-extension"
+    }
+  ],
+  "executables": {
+    "Payload/Eggplant.app/Eggplant": {
+      "bytes": 527025520,
+      "sha256": "40edce7297acca3d4f5fedba2c3299354a5fb3b7841036f4da298403bd711bd7",
+      "magic": "0xfeedfacf",
+      "cputype": "0x100000c",
+      "cpusubtype": 0,
+      "filetype": 2,
+      "flags": "0x4a10085",
+      "loadCommands": 167,
+      "loadCommandBytes": 21816,
+      "dependencies": [
+        {
+          "name": "AAASSOptimizer",
+          "kind": "0xc"
+        },
+        {
+          "name": "ByteRTCNICOExtension",
+          "kind": "0xc"
+        },
+        {
+          "name": "CLMEngineKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "RealXBase",
+          "kind": "0xc"
+        },
+        {
+          "name": "TTFFmpeg",
+          "kind": "0xc"
+        },
+        {
+          "name": "TXStartSDK",
+          "kind": "0xc"
+        },
+        {
+          "name": "VolcEngineRTC",
+          "kind": "0xc"
+        },
+        {
+          "name": "boringssl",
+          "kind": "0xc"
+        },
+        {
+          "name": "byteaudio",
+          "kind": "0xc"
+        },
+        {
+          "name": "bytevc0",
+          "kind": "0xc"
+        },
+        {
+          "name": "bytevc1enc",
+          "kind": "0xc"
+        },
+        {
+          "name": "isecgm",
+          "kind": "0xc"
+        },
+        {
+          "name": "libvcn",
+          "kind": "0xc"
+        },
+        {
+          "name": "phcpad",
+          "kind": "0xc"
+        },
+        {
+          "name": "MessageUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "GLKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreMotion",
+          "kind": "0xc"
+        },
+        {
+          "name": "SceneKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "AdSupport",
+          "kind": "0xc"
+        },
+        {
+          "name": "SystemConfiguration",
+          "kind": "0xc"
+        },
+        {
+          "name": "EventKitUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreTelephony",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreLocation",
+          "kind": "0xc"
+        },
+        {
+          "name": "AVFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreMedia",
+          "kind": "0xc"
+        },
+        {
+          "name": "MediaPlayer",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "PhotosUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "WebKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "MobileCoreServices",
+          "kind": "0xc"
+        },
+        {
+          "name": "EventKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "ReplayKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "ARKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "LinkPresentation",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libcompression.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libresolv.9.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "Security",
+          "kind": "0xc"
+        },
+        {
+          "name": "libz.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "StoreKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreServices",
+          "kind": "0xc"
+        },
+        {
+          "name": "Accelerate",
+          "kind": "0xc"
+        },
+        {
+          "name": "AudioToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "AppTrackingTransparency",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libbz2.1.0.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libsqlite3.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libxml2.2.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++abi.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libiconv.2.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "MapKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "AssetsLibrary",
+          "kind": "0xc"
+        },
+        {
+          "name": "MetalPerformanceShaders",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CFNetwork",
+          "kind": "0xc"
+        },
+        {
+          "name": "JavaScriptCore",
+          "kind": "0xc"
+        },
+        {
+          "name": "MetricKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "Contacts",
+          "kind": "0xc"
+        },
+        {
+          "name": "Photos",
+          "kind": "0xc"
+        },
+        {
+          "name": "QuartzCore",
+          "kind": "0xc"
+        },
+        {
+          "name": "OpenAL",
+          "kind": "0xc"
+        },
+        {
+          "name": "OpenGLES",
+          "kind": "0xc"
+        },
+        {
+          "name": "ImageIO",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreAudio",
+          "kind": "0xc"
+        },
+        {
+          "name": "IOKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "libicucore.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreGraphics",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreVideo",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "VideoToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "CryptoKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "AdServices",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreHaptics",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "Metal",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "MetalKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreText",
+          "kind": "0xc"
+        },
+        {
+          "name": "DeviceCheck",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "LocalAuthentication",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "AVFAudio",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "MediaToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreImage",
+          "kind": "0xc"
+        },
+        {
+          "name": "Vision",
+          "kind": "0xc"
+        },
+        {
+          "name": "NaturalLanguage",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreML",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "GameplayKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "AVKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "NetworkExtension",
+          "kind": "0xc"
+        },
+        {
+          "name": "Network",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "SafariServices",
+          "kind": "0xc"
+        },
+        {
+          "name": "AuthenticationServices",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "ModelIO",
+          "kind": "0xc"
+        },
+        {
+          "name": "liblzma.5.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "AppIntents",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "ActivityKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CallKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "Combine",
+          "kind": "0xc"
+        },
+        {
+          "name": "ContactsUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreBluetooth",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreSpotlight",
+          "kind": "0xc"
+        },
+        {
+          "name": "IOSurface",
+          "kind": "0xc"
+        },
+        {
+          "name": "Intents",
+          "kind": "0xc"
+        },
+        {
+          "name": "SwiftUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "UniformTypeIdentifiers",
+          "kind": "0xc"
+        },
+        {
+          "name": "UserNotifications",
+          "kind": "0xc"
+        },
+        {
+          "name": "WidgetKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftAVFoundation.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftAccelerate.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftCallKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCompression.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCore.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftCoreAudio.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreFoundation.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftCoreImage.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreLocation.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreMIDI.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreMedia.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftDarwin.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftDataDetection.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftDispatch.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftGLKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftGameplayKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftIntents.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftMapKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftMetal.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftMetalKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftModelIO.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftOSLog.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftObjectiveC.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftQuartzCore.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftSceneKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftSpatial.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftSpriteKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftUniformTypeIdentifiers.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftVideoToolbox.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftXPC.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswift_Concurrency.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftos.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftsimd.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreGraphics.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftFileProvider.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftFoundation.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftUIKit.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "segments": [
+        {
+          "name": "__PAGEZERO",
+          "vmAddress": "0x0",
+          "vmSize": 4294967296,
+          "fileOffset": 0,
+          "fileSize": 0,
+          "sections": 0
+        },
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x100000000",
+          "vmSize": 400654336,
+          "fileOffset": 0,
+          "fileSize": 400654336,
+          "sections": 29
+        },
+        {
+          "name": "__DATA_CONST",
+          "vmAddress": "0x117e18000",
+          "vmSize": 52330496,
+          "fileOffset": 400654336,
+          "fileSize": 52330496,
+          "sections": 15
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x11b000000",
+          "vmSize": 62324736,
+          "fileOffset": 452984832,
+          "fileSize": 55885824,
+          "sections": 73
+        },
+        {
+          "name": "Data",
+          "vmAddress": "0x11eb70000",
+          "vmSize": 16384,
+          "fileOffset": 508870656,
+          "fileSize": 16384,
+          "sections": 1
+        },
+        {
+          "name": "__LYNX__DATA",
+          "vmAddress": "0x11eb74000",
+          "vmSize": 16384,
+          "fileOffset": 508887040,
+          "fileSize": 16384,
+          "sections": 1
+        },
+        {
+          "name": "__DATA_ADAPTER",
+          "vmAddress": "0x11eb78000",
+          "vmSize": 16384,
+          "fileOffset": 508903424,
+          "fileSize": 16384,
+          "sections": 1
+        },
+        {
+          "name": "__DATA_DYNAMIC",
+          "vmAddress": "0x11eb7c000",
+          "vmSize": 16384,
+          "fileOffset": 508919808,
+          "fileSize": 16384,
+          "sections": 1
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x11eb80000",
+          "vmSize": 18104320,
+          "fileOffset": 508936192,
+          "fileSize": 18089328,
+          "sections": 0
+        }
+      ],
+      "uuid": "b067066f-d7f2-3df8-8e5d-c181f8c7ce1f",
+      "buildVersion": {
+        "platform": 2,
+        "minimum": "15.0.1",
+        "sdk": "26.0.0"
+      },
+      "entryOffset": "0x65278b0",
+      "encryption": {
+        "offset": 32768,
+        "bytes": 400605184,
+        "cryptid": 0
+      },
+      "embeddedCodeSignature": {
+        "offset": 513955376,
+        "bytes": 13070144
+      }
+    },
+    "Payload/Eggplant.app/PlugIns/EggplantNotificationExtension.appex/EggplantNotificationExtension": {
+      "bytes": 181104,
+      "sha256": "6abc0a8fe3e029afdc1c060ab7d90f80e06084a47c414f65adcdd07a6e49d4f2",
+      "magic": "0xfeedfacf",
+      "cputype": "0x100000c",
+      "cpusubtype": 0,
+      "filetype": 2,
+      "flags": "0x200085",
+      "loadCommands": 28,
+      "loadCommandBytes": 3632,
+      "dependencies": [
+        {
+          "name": "UserNotifications",
+          "kind": "0xc"
+        },
+        {
+          "name": "Intents",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        }
+      ],
+      "segments": [
+        {
+          "name": "__PAGEZERO",
+          "vmAddress": "0x0",
+          "vmSize": 4294967296,
+          "fileOffset": 0,
+          "fileSize": 0,
+          "sections": 0
+        },
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x100000000",
+          "vmSize": 114688,
+          "fileOffset": 0,
+          "fileSize": 114688,
+          "sections": 10
+        },
+        {
+          "name": "__DATA_CONST",
+          "vmAddress": "0x10001c000",
+          "vmSize": 16384,
+          "fileOffset": 114688,
+          "fileSize": 16384,
+          "sections": 10
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x100020000",
+          "vmSize": 16384,
+          "fileOffset": 131072,
+          "fileSize": 16384,
+          "sections": 8
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x100024000",
+          "vmSize": 49152,
+          "fileOffset": 147456,
+          "fileSize": 33648,
+          "sections": 0
+        }
+      ],
+      "uuid": "240e2784-1bce-3dae-9638-d2db21851265",
+      "buildVersion": {
+        "platform": 2,
+        "minimum": "15.0.0",
+        "sdk": "26.0.0"
+      },
+      "entryOffset": "0x141ac",
+      "encryption": {
+        "offset": 16384,
+        "bytes": 98304,
+        "cryptid": 0
+      },
+      "embeddedCodeSignature": {
+        "offset": 157648,
+        "bytes": 23456
+      }
+    },
+    "Payload/Eggplant.app/PlugIns/EggplantWidgetExtension.appex/EggplantWidgetExtension": {
+      "bytes": 2422864,
+      "sha256": "421dcedff6834cdbfa602ccc4518759b9ecb64971c85eb4eb9eebdf3752b07bb",
+      "magic": "0xfeedfacf",
+      "cputype": "0x100000c",
+      "cpusubtype": 0,
+      "filetype": 2,
+      "flags": "0x4210085",
+      "loadCommands": 66,
+      "loadCommandBytes": 8168,
+      "dependencies": [
+        {
+          "name": "SwiftUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "WidgetKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "Intents",
+          "kind": "0xc"
+        },
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "Security",
+          "kind": "0xc"
+        },
+        {
+          "name": "libsqlite3.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libz.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++abi.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "SystemConfiguration",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreTelephony",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "CryptoKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "AppIntents",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "ActivityKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreData",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreGraphics",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreText",
+          "kind": "0xc"
+        },
+        {
+          "name": "ImageIO",
+          "kind": "0xc"
+        },
+        {
+          "name": "_AppIntents_SwiftUI",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCore.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftCoreFoundation.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftCoreImage.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreLocation.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftDarwin.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftDataDetection.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftDispatch.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftIntents.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftMetal.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftOSLog.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftObjectiveC.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftQuartzCore.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftSpatial.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftUniformTypeIdentifiers.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftXPC.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswift_Concurrency.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftos.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftsimd.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftFoundation.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftUIKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftFileProvider.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreGraphics.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "segments": [
+        {
+          "name": "__PAGEZERO",
+          "vmAddress": "0x0",
+          "vmSize": 4294967296,
+          "fileOffset": 0,
+          "fileSize": 0,
+          "sections": 0
+        },
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x100000000",
+          "vmSize": 1916928,
+          "fileOffset": 0,
+          "fileSize": 1916928,
+          "sections": 27
+        },
+        {
+          "name": "__DATA_CONST",
+          "vmAddress": "0x1001d4000",
+          "vmSize": 81920,
+          "fileOffset": 1916928,
+          "fileSize": 81920,
+          "sections": 12
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x1001e8000",
+          "vmSize": 180224,
+          "fileOffset": 1998848,
+          "fileSize": 114688,
+          "sections": 12
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x100214000",
+          "vmSize": 311296,
+          "fileOffset": 2113536,
+          "fileSize": 309328,
+          "sections": 0
+        }
+      ],
+      "uuid": "7fb22183-0bf0-3e90-9e4f-d2c38f877750",
+      "buildVersion": {
+        "platform": 2,
+        "minimum": "15.0.0",
+        "sdk": "26.0.0"
+      },
+      "entryOffset": "0x16acfc",
+      "encryption": {
+        "offset": 16384,
+        "bytes": 1884160,
+        "cryptid": 0
+      },
+      "embeddedCodeSignature": {
+        "offset": 2343888,
+        "bytes": 78976
+      }
+    }
+  },
+  "objectiveC": {
+    "counts": {
+      "classlistPointers": 79471,
+      "namedClasses": 79471,
+      "decodedInstanceMethods": 1244534
+    },
+    "selectedInstanceMethods": {
+      "FQCCommentBottomToolBar": [
+        {
+          "selector": "layoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x7fb7d3c"
+        },
+        {
+          "selector": "refreshBottomToolBarUI",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x7fb91ec"
+        },
+        {
+          "selector": "bgView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x7fba0cc"
+        },
+        {
+          "selector": "topLineView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x7fba220"
+        },
+        {
+          "selector": "effectView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x7fba664"
+        }
+      ],
+      "FQCShortVideoBottomToolBar": [
+        {
+          "selector": "layoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x8145ea4"
+        },
+        {
+          "selector": "sendButtonBackgroundImageview",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x814792c"
+        }
+      ],
+      "FQCShortVideoCommentListViewController": [
+        {
+          "selector": "viewDidLayoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x817a13c"
+        },
+        {
+          "selector": "viewDidDisappear:",
+          "encoding": "v20@0:8B16",
+          "fileOffset": "0x817a450"
+        },
+        {
+          "selector": "collectionView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x818c864"
+        }
+      ],
+      "FQCShortVideoCommentPanelViewController": [
+        {
+          "selector": "viewDidLayoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x81a6c14"
+        },
+        {
+          "selector": "tabContentVCs",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x81a77e4"
+        },
+        {
+          "selector": "categeoryContainerView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x81a80b8"
+        },
+        {
+          "selector": "onVCWillShow",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x81a8580"
+        },
+        {
+          "selector": "onVCDismiss",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x81a867c"
+        },
+        {
+          "selector": "fqc_headerView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x81a89a4"
+        },
+        {
+          "selector": "tabGestureTransitionView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x81a9230"
+        }
+      ],
+      "FQCShortVideoNewEditorView": [
+        {
+          "selector": "layoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x81d821c"
+        },
+        {
+          "selector": "onBgPan:",
+          "encoding": "v24@0:8@16",
+          "fileOffset": "0x81dbd4c"
+        },
+        {
+          "selector": "onBgClick",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x81dbd70"
+        },
+        {
+          "selector": "bgView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x81dfab0"
+        },
+        {
+          "selector": "contentView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x81dfab8"
+        }
+      ],
+      "FQVShortVideoPlayerCellView": [
+        {
+          "selector": "layoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x8784914"
+        },
+        {
+          "selector": "resetToRecycle",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x8784938"
+        },
+        {
+          "selector": "setModel:",
+          "encoding": "v24@0:8@16",
+          "fileOffset": "0x8785d04"
+        },
+        {
+          "selector": "refreshBgColor",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x87865d8"
+        }
+      ],
+      "FQVShortVideoSettingsViewController": [
+        {
+          "selector": "configureCustomHeaderView:height:",
+          "encoding": "v32@0:8@16d24",
+          "fileOffset": "0x87b5ae4"
+        },
+        {
+          "selector": "viewDidLayoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x87b5f80"
+        },
+        {
+          "selector": "collectionView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x87b7a8c"
+        },
+        {
+          "selector": "tableView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x87b7b20"
+        },
+        {
+          "selector": "effectViewContentView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x87b844c"
+        },
+        {
+          "selector": "panelSolidBackgroundColor",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x87b84c4"
+        },
+        {
+          "selector": "useBlurBackground",
+          "encoding": "B16@0:8",
+          "fileOffset": "0x87b99fc"
+        },
+        {
+          "selector": "customHeaderView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x87b9a14"
+        }
+      ],
+      "FQVShortVideoVPlayerControlView": [
+        {
+          "selector": "handleOutterFeedClipBounds:",
+          "encoding": "v20@0:8B16",
+          "fileOffset": "0x87c17d8"
+        },
+        {
+          "selector": "bottomGradientView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x87caf08"
+        },
+        {
+          "selector": "progressPanGesture",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x87cbd58"
+        }
+      ],
+      "FQVTransitionView": [
+        {
+          "selector": "bgView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x86ba2b8"
+        },
+        {
+          "selector": "effectView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x86ba378"
+        },
+        {
+          "selector": "setTopContentView:",
+          "encoding": "v24@0:8@16",
+          "fileOffset": "0x86ba41c"
+        },
+        {
+          "selector": "showInView:animated:completion:",
+          "encoding": "v36@0:8@16B24@?28",
+          "fileOffset": "0x86ba478"
+        },
+        {
+          "selector": "dismissAnimated:completion:",
+          "encoding": "v28@0:8B16@?20",
+          "fileOffset": "0x86bab34"
+        },
+        {
+          "selector": "contentView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x86bb39c"
+        }
+      ],
+      "SSShortVideoMorePanelShareHeaderView": [
+        {
+          "selector": "layoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x103a101c"
+        },
+        {
+          "selector": "collectionView:didSelectItemAtIndexPath:",
+          "encoding": "v32@0:8@16@24",
+          "fileOffset": "0x103a1524"
+        },
+        {
+          "selector": "collectionView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x103a15a8"
+        }
+      ],
+      "SSShortVideoPlayerMorePanelController": [
+        {
+          "selector": "show",
+          "encoding": "v16@0:8",
+          "fileOffset": "0xfa41178"
+        },
+        {
+          "selector": "tryShowCustomShareHeaderWithShortVideoVC:",
+          "encoding": "B24@0:8@16",
+          "fileOffset": "0xfa41768"
+        },
+        {
+          "selector": "showCustomShareHeaderWithShortVideoVC:channels:dataModel:",
+          "encoding": "v40@0:8@16@24@32",
+          "fileOffset": "0xfa41a44"
+        }
+      ],
+      "SSTabBar": [
+        {
+          "selector": "setSelectedItem:",
+          "encoding": "v24@0:8@16",
+          "fileOffset": "0xac1858c"
+        },
+        {
+          "selector": "backgroundImageView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0xac0ec54"
+        },
+        {
+          "selector": "contentView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0xac0ecbc"
+        },
+        {
+          "selector": "lightView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0xac0e764"
+        },
+        {
+          "selector": "darkView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0xac0ea74"
+        },
+        {
+          "selector": "lineView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0xac0eaec"
+        }
+      ],
+      "SSTabBarController": [
+        {
+          "selector": "setCustomTabBarAppearance",
+          "encoding": "v16@0:8",
+          "fileOffset": "0xac10c44"
+        },
+        {
+          "selector": "viewDidLayoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0xac95d00"
+        },
+        {
+          "selector": "customTabBar",
+          "encoding": "@16@0:8",
+          "fileOffset": "0xac0e2f0"
+        }
+      ],
+      "SSVideoSeriesFeedHeaderView": [
+        {
+          "selector": "sideBarAnchorView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x1057ca7c"
+        },
+        {
+          "selector": "setupSideBarViewIfNeeded",
+          "encoding": "v16@0:8",
+          "fileOffset": "0xac21df4"
+        },
+        {
+          "selector": "relayoutHeaderWithSearchBar",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x1057cc54"
+        },
+        {
+          "selector": "sideBar",
+          "encoding": "@16@0:8",
+          "fileOffset": "0xac21fb4"
+        }
+      ],
+      "SSVideoSeriesFeedSideBarV725ViewController": [
+        {
+          "selector": "sideBarDidShow",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x1056b1e4"
+        },
+        {
+          "selector": "sideBarDidClosed",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x1056b358"
+        },
+        {
+          "selector": "viewDidLayoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x1056c5d0"
+        },
+        {
+          "selector": "collectionView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0x1056dda4"
+        }
+      ],
+      "SSVideoSeriesFeedViewController": [
+        {
+          "selector": "dismissSideBar",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x1055493c"
+        },
+        {
+          "selector": "toggleSidebar:toggleType:duration:",
+          "encoding": "v36@0:8B16@20d28",
+          "fileOffset": "0x10554940"
+        },
+        {
+          "selector": "simpleSideBarViewDidClicked",
+          "encoding": "v16@0:8",
+          "fileOffset": "0x105550dc"
+        },
+        {
+          "selector": "toggleSidebar:toggleType:",
+          "encoding": "v28@0:8B16@20",
+          "fileOffset": "0x1058f2cc"
+        },
+        {
+          "selector": "contentView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0xac1dcdc"
+        },
+        {
+          "selector": "isSidebarOpen",
+          "encoding": "B16@0:8",
+          "fileOffset": "0xac965b4"
+        },
+        {
+          "selector": "sideBarVc",
+          "encoding": "@16@0:8",
+          "fileOffset": "0xac352a4"
+        },
+        {
+          "selector": "maskView",
+          "encoding": "@16@0:8",
+          "fileOffset": "0xac35c88"
+        }
+      ],
+      "TTMetalView": [
+        {
+          "selector": "layoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0xad60c80"
+        }
+      ],
+      "TTPlayerView": [
+        {
+          "selector": "setRenderType:",
+          "encoding": "v24@0:8q16",
+          "fileOffset": "0x61925a0"
+        },
+        {
+          "selector": "layoutSubviews",
+          "encoding": "v16@0:8",
+          "fileOffset": "0xac6f960"
+        }
+      ]
+    }
+  },
+  "deviceLogSummary": {
+    "pluginVersion": "1.1.15-R35",
+    "hostBuild": "7.4.5.33",
+    "os": "Version 27.3 (Build 24C5049f)",
+    "eventCounts": {
+      "startup.stage": 13,
+      "glass.startup": 3,
+      "hook.installed": 759,
+      "appearance.player-transfer": 879,
+      "ad.decision": 558,
+      "tabbar.layout": 16,
+      "appearance.episode-spacing": 127,
+      "patch.presentation": 178,
+      "playback.finish-gate": 274,
+      "playback.model-updated": 62,
+      "mask.transition": 15,
+      "mine.appear": 13,
+      "control.glass": 5,
+      "control.touch": 5,
+      "settings.open": 5
+    },
+    "maskSceneCounts": {
+      "did.appear": 1,
+      "appear.settled": 1,
+      "user.screenshot": 4,
+      "before.leave": 1
+    },
+    "sidebarScreenshots": 2,
+    "tailEventNames": [
+      "appearance.player-transfer",
+      "appearance.player-transfer",
+      "mask.transition",
+      "mine.appear",
+      "control.glass",
+      "control.touch",
+      "settings.open"
+    ],
+    "settingsOpenWithNativeGlass": 5,
+    "nativeGlassDockRecords": 16
+  }
+}
