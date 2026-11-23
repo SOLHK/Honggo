@@ -127,8 +127,10 @@ static void HGInstallMaskScenes(void) {
         void (*original)(id, SEL, BOOL) = (void *)method_getImplementation(m);
         IMP hook = imp_implementationWithBlock(^(UIViewController *page, BOOL animated) {
             HGScenePage = page;
+            HGLog(@"page.lifecycle", @{@"class": NSStringFromClass(page.class), @"selector": name, @"phase": @"enter"});
             if ([name isEqual:@"viewWillDisappear:"]) HGCaptureMask(page, @"before.leave", NO);
             original(page, sel, animated);
+            HGLog(@"page.lifecycle", @{@"class": NSStringFromClass(page.class), @"selector": name, @"phase": @"return"});
             if ([name isEqual:@"viewWillAppear:"]) {
                 HGCaptureMask(page, @"will.appear", NO);
                 id<UIViewControllerTransitionCoordinator> transition = page.transitionCoordinator;

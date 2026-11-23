@@ -84,6 +84,154 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 }
 @end
 
+
+@interface HGDiagnosticSessionsController : UITableViewController
+@property(nonatomic, copy) NSArray<NSDictionary *> *sessions;
+@property(nonatomic, copy) NSArray<NSDictionary *> *events;
+@property(nonatomic, copy) NSDictionary *session;
+@property(nonatomic, strong) NSDateFormatter *formatter;
+@property(nonatomic) BOOL exporting;
+@property(nonatomic) BOOL hasUnexpected;
+@property(nonatomic, copy) NSString *statusMessage;
+@end
+
+@implementation HGDiagnosticSessionsController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = self.session ? @"会话日志" : @"诊断日志";
+    self.tableView.accessibilityIdentifier = self.session ? @"honggo.diagnostics.session" : @"honggo.diagnostics.sessions";
+    self.tableView.rowHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight = 64;
+    self.formatter = [NSDateFormatter new];
+    self.formatter.dateStyle = NSDateFormatterShortStyle;
+    self.formatter.timeStyle = NSDateFormatterMediumStyle;
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh
+        target:self action:@selector(reloadLogs)];
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self reloadLogs];
+}
+- (void)reloadLogs {
+    self.navigationItem.rightBarButtonItem.enabled = NO;
+    if (self.session) {
+        HGReadDiagnosticSession(self.session[@"session"], ^(NSArray<NSDictionary *> *events, NSError *error) {
+            self.events = events;
+            self.statusMessage = error.localizedDescription;
+            if (!error && !events.count) self.statusMessage = @"此会话暂无日志。";
+            self.navigationItem.rightBarButtonItem.enabled = YES;
+            [self.tableView reloadData];
+        });
+    } else {
+        HGListDiagnosticSessions(^(NSArray<NSDictionary *> *sessions, NSError *error) {
+            self.sessions = sessions.reverseObjectEnumerator.allObjects;
+            self.hasUnexpected = [[sessions valueForKey:@"state"] containsObject:@"unexpected"];
+            self.statusMessage = error ? @"日志存储发生过错误，部分记录可能未保存。" : nil;
+            self.navigationItem.rightBarButtonItem.enabled = YES;
+            [self.tableView reloadData];
+        });
+    }
+}
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 2; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return section == 0 ? (self.session ? 1 : 2) : (NSInteger)(self.session ? self.events.count : self.sessions.count);
+}
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    return section == 0 ? @"导出" : self.session ? @"最近事件" : @"启动会话";
+}
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    if (section != 1) return nil;
+    if (self.statusMessage) return self.statusMessage;
+    return self.session ? @"页面显示最近最多 120 条事件。导出文件包含该会话保留的完整记录。" :
+        @"日志保留最近 7 天，达到 50 MB 时优先清理最旧的会话。结束原因未知也可能是手动退出或系统终止。";
+}
+- (NSString *)timeLabel:(NSNumber *)timestamp {
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:timestamp.doubleValue];
+    return [self.formatter stringFromDate:date];
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    cell.textLabel.numberOfLines = 0;
+    cell.detailTextLabel.numberOfLines = 0;
+    cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    cell.detailTextLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    cell.textLabel.adjustsFontForContentSizeCategory = YES;
+    cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
+    if (path.section == 0) {
+        BOOL available = self.session || path.row == 0 || self.hasUnexpected;
+        cell.textLabel.text = self.session ? @"导出此会话" : path.row == 0 ? @"导出全部日志" : @"导出上一次异常结束的会话";
+        if (!available) cell.detailTextLabel.text = @"暂无结束原因未知的历史会话";
+        cell.textLabel.enabled = available;
+        cell.selectionStyle = available ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
+    } else if (!self.session) {
+        NSDictionary *item = self.sessions[path.row];
+        NSString *state = item[@"state"];
+        NSString *label = [state isEqual:@"current"] ? @"当前会话" : [state isEqual:@"ended"] ? @"已记录结束" : @"结束原因未知";
+        cell.textLabel.text = [NSString stringWithFormat:@"%@ · %@", label, [self timeLabel:item[@"startedAt"]]];
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"%@ · %@\n%@", item[@"pluginVersion"] ?: @"", item[@"device"] ?: @"", item[@"session"]];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    } else {
+        NSDictionary *row = self.events[path.row];
+        cell.textLabel.text = row[@"event"];
+        NSString *detail = [self timeLabel:row[@"time"]];
+        NSDictionary *fields = row[@"fields"];
+        NSString *context = fields[@"selector"] ?: fields[@"phase"] ?: fields[@"stage"] ?: fields[@"class"];
+        if ([context isKindOfClass:NSString.class]) detail = [detail stringByAppendingFormat:@" · %@", context];
+        if ([fields[@"durationSeconds"] isKindOfClass:NSNumber.class])
+            detail = [detail stringByAppendingFormat:@" · %.2f 秒", [fields[@"durationSeconds"] doubleValue]];
+        cell.detailTextLabel.text = detail;
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    }
+    return cell;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path {
+    [tableView deselectRowAtIndexPath:path animated:YES];
+    if (path.section == 1) {
+        if (!self.session) {
+            HGDiagnosticSessionsController *detail = [[HGDiagnosticSessionsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+            detail.session = self.sessions[path.row];
+            [self.navigationController pushViewController:detail animated:YES];
+        } else {
+            NSDictionary *row = self.events[path.row];
+            NSData *data = [NSJSONSerialization dataWithJSONObject:row options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:nil];
+            UIViewController *detail = [UIViewController new];
+            detail.title = row[@"event"];
+            UITextView *text = [UITextView new];
+            text.backgroundColor = UIColor.systemBackgroundColor;
+            text.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+            text.adjustsFontForContentSizeCategory = YES;
+            text.editable = NO;
+            text.text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            detail.view = text;
+            [self.navigationController pushViewController:detail animated:YES];
+        }
+        return;
+    }
+    if (self.exporting || (!self.session && path.row == 1 && !self.hasUnexpected)) return;
+    self.exporting = YES;
+    HGDiagnosticScope scope = self.session ? HGDiagnosticScopeSession :
+        path.row == 0 ? HGDiagnosticScopeAll : HGDiagnosticScopePreviousUnexpected;
+    NSDictionary *snapshot = scope == HGDiagnosticScopeAll || [self.session[@"state"] isEqual:@"current"] ? HGInterfaceSnapshot() : nil;
+    HGExportDiagnosticSessions(scope, self.session[@"session"], snapshot, ^(NSURL *url, NSError *error) {
+        self.exporting = NO;
+        if (self.navigationController.topViewController != self || !self.viewIfLoaded.window) return;
+        if (error) {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"无法导出诊断日志"
+                message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+        } else {
+            UIActivityViewController *share = [[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
+            share.popoverPresentationController.sourceView = self.tableView;
+            share.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.tableView.bounds),
+                CGRectGetMidY(self.tableView.bounds), 1, 1);
+            [self presentViewController:share animated:YES completion:nil];
+        }
+    });
+}
+@end
+
+
 @interface HGSettingsController () <UISearchResultsUpdating, UISearchControllerDelegate, UIDocumentPickerDelegate>
 @property(nonatomic, strong) UISearchController *settingsSearch;
 @property(nonatomic, copy) NSString *activeQuery;
@@ -116,7 +264,12 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 }
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    HGLog(@"settings.page", @{@"stage": self.pageID ?: @"unknown", @"phase": @"enter"});
     [self reloadPage];
+}
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    HGLog(@"settings.page", @{@"stage": self.pageID ?: @"unknown", @"phase": @"leave"});
 }
 - (void)reloadPage {
     NSString *pid = self.pageID ?: @"";
@@ -152,8 +305,8 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     } else if ([pid isEqual:@"diagnostics"]) {
         self.title = @"诊断与其他";
         [rows addObject:@{@"kind": @"enhanced", @"title": @"增强诊断", @"id": @"honggo.diagnostics.enhanced"}];
-        [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @1, @"title": @"导出最近一小时日志", @"id": @"honggo.diagnostics.export"}];
-        [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @2, @"title": @"清除诊断日志", @"id": @"honggo.diagnostics.clear"}];
+        [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @1, @"title": @"诊断日志", @"id": @"honggo.diagnostics.export"}];
+        [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @2, @"title": @"清除全部日志", @"id": @"honggo.diagnostics.clear"}];
         [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @3, @"title": @"本次启动兼容状态", @"id": @"honggo.compatibility.open"}];
     } else if ([pid isEqual:@"community"]) {
         self.title = @"作者与频道";
@@ -167,7 +320,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     NSString *pid = self.pageID ?: @"";
     if ([pid isEqual:@"diagnostics"])
-        return @"增强诊断即时生效。复现广告或遮罩后截屏，再回来导出日志；仅记录控件结构，不读取截图像素或页面文字。本次启动保留最近 10 份现场，导出前不要退出应用。";
+        return @"增强诊断即时生效。复现广告或遮罩后可截屏记录控件结构，随后在诊断日志中查看或导出对应会话。";
     if ([pid isEqual:@"backup"])
         return @"配置文件仅保存 Honggo 的功能开关。恢复前会核对格式并显示变更数量；账号、宿主设置和增强诊断选择保持不变。恢复或关闭全部开关后，请完全退出再打开。";
     if ([pid isEqual:@"community"])
@@ -291,7 +444,7 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
     return self.activeQuery.length > 0;
 }
 - (NSArray<NSString *> *)diagnosticTitles {
-    return @[@"增强诊断", @"导出最近一小时日志", @"清除诊断日志", @"本次启动兼容状态"];
+    return @[@"增强诊断", @"诊断日志", @"清除全部日志", @"本次启动兼容状态"];
 }
 - (NSArray<NSString *> *)configurationTitles { return @[@"导出功能配置", @"从文件恢复配置", @"关闭全部功能开关"]; }
 - (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
@@ -649,20 +802,20 @@ static NSString *HGSettingsFeatureTitle(HGFeature feature) {
         [host.navigationController pushViewController:[[HGCompatibilityController alloc] initWithStyle:UITableViewStyleInsetGrouped] animated:YES];
         return;
     }
-    UITableView *tableView = [host isKindOfClass:UITableViewController.class] ? ((UITableViewController *)host).tableView : self.tableView;
-    tableView.userInteractionEnabled = NO;
-    if (action == 2) {
-        HGClearDiagnostics(^(NSError *error) {
-            tableView.userInteractionEnabled = YES;
-            if (error) [self showDiagnosticError:error on:host];
-        });
-    } else {
-        HGExportDiagnostics(HGInterfaceSnapshot(), ^(NSURL *url, NSError *error) {
-            tableView.userInteractionEnabled = YES;
-            if (error) [self showDiagnosticError:error on:host];
-            else [self shareURL:url on:host];
-        });
+    if (action == 1) {
+        [host.navigationController pushViewController:[[HGDiagnosticSessionsController alloc]
+            initWithStyle:UITableViewStyleInsetGrouped] animated:YES];
+        return;
     }
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"清除全部日志"
+        message:@"将删除当前会话、历史会话及本机的临时导出文件。" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"清除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *item) {
+        HGClearDiagnostics(^(NSError *error) {
+            if (error && host.viewIfLoaded.window) [self showDiagnosticError:error on:host];
+        });
+    }]];
+    [host presentViewController:alert animated:YES completion:nil];
 }
 + (void)openFromController:(UIViewController *)presenter {
     if (!presenter || presenter.presentedViewController) return;

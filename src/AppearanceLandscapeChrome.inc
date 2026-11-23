@@ -289,7 +289,7 @@ static void HGALandscapeToast(id object,SEL command,id message) {
                 if(offset==HGALandscapeToastSites[index]){stage=stages[index];break;}
             }
         }
-        if(stage)HGLog(@"playback.landscape-load-failed",@{@"stage":stage});
+        if(stage)HGLogCritical(@"playback.landscape-load-failed",@{@"stage":stage});
     }
     ((void(*)(id,SEL,id))HGALandscapeToastOriginal)(object,command,message);
 }

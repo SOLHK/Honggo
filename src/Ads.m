@@ -277,6 +277,7 @@ static void HGAdDecision(id object, SEL selector, BOOL result) {
         // First hit and powers of two preserve useful counts without logging a hot path per call.
         if ((count & (count - 1)) == 0 || HGEnhancedDiagnostics())
             HGLog(@"ad.decision", @{@"rule": @(i), @"class": @(gate->className),
+                @"requestGate": @(strstr(gate->selector, "Request") != NULL),
                 @"selector": @(gate->selector), @"count": @(count), @"returnOrSkip": @(result)});
         return;
     }

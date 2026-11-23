@@ -78,11 +78,24 @@ __attribute__((constructor)) static void HGStart(void) {
 
         id build = [bundle objectForInfoDictionaryKey:@"CFBundleVersion"];
         NSString *hostBuild = [build isKindOfClass:NSString.class] ? build : @"unknown";
-        HGPrepareNativeGlass();
         HGDiagnosticsStart(nil, @{@"hostBuild": hostBuild, @"os": NSProcessInfo.processInfo.operatingSystemVersionString,
             @"executable": @"Eggplant"});
-        HGInstallAdSceneDiagnostics();
+        NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+        [center addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            HGDiagnosticsSetForeground(UIApplication.sharedApplication.applicationState != UIApplicationStateBackground);
+        }];
+        [center addObserverForName:UIApplicationWillEnterForegroundNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            HGDiagnosticsSetForeground(YES);
+        }];
+        [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            HGDiagnosticsSetForeground(NO);
+        }];
+        [center addObserverForName:UIApplicationWillTerminateNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            HGDiagnosticsEnd();
+        }];
         HGLoadStage(@"entry");
+        HGPrepareNativeGlass();
+        HGInstallAdSceneDiagnostics();
         HGLog(@"glass.startup", @{@"processOverride": @(HGNativeGlassStartupOverride()),
             @"compatibility": [bundle objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] ?: NSNull.null});
         BOOL complete = HGInstallRuntimeModules();

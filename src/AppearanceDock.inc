@@ -542,7 +542,10 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     UIControl *target=[self.targets objectForKey:HGATabIDs()[sender.tag]];
     if(!target || !target.enabled)return;
     UIControlEvents event=(target.allControlEvents & UIControlEventTouchUpInside)?UIControlEventTouchUpInside:UIControlEventPrimaryActionTriggered;
-    [target sendActionsForControlEvents:event];[self feedback];
+    HGLog(@"navigation.dock", @{@"tab": HGATabIDs()[sender.tag], @"phase": @"enter"});
+    [target sendActionsForControlEvents:event];
+    HGLog(@"navigation.dock", @{@"tab": HGATabIDs()[sender.tag], @"phase": @"return"});
+    [self feedback];
     dispatch_async(dispatch_get_main_queue(),^{[self refresh];});
 }
 - (void)placeSelection:(CGRect)frame {
