@@ -660,8 +660,11 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         !Find(capsule,@"honggo.appearance.dock.diffuser"),
         @"classic blur uses one real blur effect in both shapes without a glass rim or opaque cover");
     UIVisualEffect *classicEffect=capsuleMaterial.effect;
+    NSUInteger classicWrites=HGMaterialEffectSetterCount(capsuleMaterial);
     for(NSUInteger pass=0;pass<3;pass++){HGAppearanceLayoutDock(host.customTabBar,host);Layout(capsuleMaterial);}
-    Check(capsuleMaterial.effect==classicEffect && HGADockGlyphMatches(home,NO) && HGADockGlyphMatches(extra,NO),
+    Check(HGMaterialEffectSetterCount(capsuleMaterial)==classicWrites &&
+        (!classicEffect ? !capsuleMaterial.effect : [capsuleMaterial.effect isEqual:classicEffect]) &&
+        HGADockGlyphMatches(home,NO) && HGADockGlyphMatches(extra,NO),
         @"classic blur survives repeated layout with readable foreground and stable effect identity");
     HGAppearanceSet(@"dock.material",@"clear",nil);Layout(capsuleMaterial);
     Check(reduceTransparency || !HGNativeGlassConfigured() ||
@@ -686,6 +689,19 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
     [extra sendActionsForControlEvents:UIControlEventTouchUpInside];
     Check(host.nativeTaps==taps+3 && host.selectedIndex==3,@"dock and accessory each forward one native navigation action");
+    // FanqieX-style auto-detach: when all 4 tabs are unhidden and dock.action is a tab,
+    // that tab moves out of the main capsule into the separate circular glass button.
+    HGAppearanceApply(@{@"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@NO,@"dock.hide.mine":@NO,
+        @"dock.extra":@YES,@"dock.action":@"mine"},nil);
+    host.selectedIndex=3;HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
+    UIView *mineInCapsule=Find(dock,@"honggo.appearance.tab.mine");
+    UIView *extraSel=Find(dock,@"honggo.appearance.dock.extra.selection");
+    Check(mineInCapsule.hidden && !extra.hidden && extra.selected &&
+        (extra.accessibilityTraits & UIAccessibilityTraitSelected)!=0 &&
+        extraSel && !extraSel.hidden && selection.hidden,
+        @"detaching a tab into the circular dock button removes it from the capsule and highlights selection on the circle");
+    HGAppearanceApply(@{@"dock.hide.store":@YES,@"dock.hide.mine":@YES},nil);
+    host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
     HGRunDockDragChecks(host,(id)dock,capsule,selection,home,theater);
     host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
     HGAppearanceApply(@{@"dock.material":@"solid",@"dock.selected":@""},nil);Layout(dock);

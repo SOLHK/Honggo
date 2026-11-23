@@ -9,6 +9,7 @@
 @property(nonatomic,strong) UIView *capsule;
 @property(nonatomic,strong) UIView *selection;
 @property(nonatomic,strong) UIView *extra;
+@property(nonatomic,strong) UIView *extraSelection;
 @property(nonatomic,strong) UIView *expand;
 @property(nonatomic,strong) UIButton *extraButton;
 @property(nonatomic,strong) UIButton *expandButton;
@@ -49,25 +50,23 @@ static CGRect HGADockRectInView(UIView *coordinateView) {
     return result;
 }
 static NSArray *HGATabIDs(void){return @[@"home",@"theater",@"store",@"mine"];}
+static NSString *HGADockDetachedTabKey(NSArray<NSString *> *visible) {
+    if(!HGAppearanceFlag(@"dock.extra") || visible.count<2)return nil;
+    NSString *action=HGAppearanceString(@"dock.action");
+    return [HGATabIDs() containsObject:action] && [visible containsObject:action] ? action : nil;
+}
+static NSMutableArray<NSString *> *HGADockCapsuleTabs(void) {
+    NSMutableArray<NSString *> *visible=[NSMutableArray array];
+    for(NSString *key in HGATabIDs())
+        if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))[visible addObject:key];
+    NSString *detached=HGADockDetachedTabKey(visible);
+    if(detached)[visible removeObject:detached];
+    return visible;
+}
 static CGFloat HGAExpandedDockWidth(CGFloat width,CGFloat controlHeight,NSUInteger visibleCount) {
     CGFloat reserve=HGAppearanceFlag(@"dock.extra") ?
         MIN(HGAppearanceNumber(@"dock.extraSize"),controlHeight)+HGADockAccessoryGap : 0;
     return MIN(width-8,MAX(visibleCount*44+reserve,HGAppearanceNumber(@"dock.width")*width));
-}
-static CGFloat HGAExpandedDockWidthForHeader(UIView *header) {
-    CGFloat width=CGRectGetWidth(header.bounds);
-    if(!HGAppearanceDockEnabled() || width<180)return width;
-    CGFloat controlHeight=HGAppearanceNumber(@"dock.extraSize");
-    for(UIView *bar in HGABars.allObjects) {
-        if(bar.window==header.window && HGAVisible(bar) && HGADockControlHeight(bar)>=44) {
-            controlHeight=HGADockControlHeight(bar);
-            break;
-        }
-    }
-    NSUInteger visibleCount=0;
-    for(NSString *key in HGATabIDs())
-        if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))visibleCount++;
-    return HGAExpandedDockWidth(width,controlHeight,visibleCount);
 }
 static NSArray *HGATabTitles(void){return @[@"首页",@"剧场",@"商城",@"我的"];}
 static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@"person"];}
@@ -90,9 +89,14 @@ static void HGADockConfigureButton(UIButton *button,NSString *title,UIImage *ima
     config.baseBackgroundColor=UIColor.clearColor;
     config.baseForegroundColor=color;
     config.imageColorTransformer=^UIColor *(UIColor *incoming){return color;};
-    config.title=title;config.image=image;
-    config.preferredSymbolConfigurationForImage=[UIImageSymbolConfiguration
+    UIImageSymbolConfiguration *symbolConfig=[UIImageSymbolConfiguration
         configurationWithPointSize:iconSize weight:UIImageSymbolWeightMedium];
+    if(image.isSymbolImage) {
+        image=[image imageWithConfiguration:symbolConfig] ?:
+            [image imageByApplyingSymbolConfiguration:symbolConfig] ?: image;
+    }
+    config.title=title;config.image=image;
+    config.preferredSymbolConfigurationForImage=symbolConfig;
     config.imagePlacement=NSDirectionalRectEdgeTop;
     config.imagePadding=title.length && image ? 3 : 0;
     config.contentInsets=NSDirectionalEdgeInsetsMake(4,4,4,4);
@@ -197,9 +201,15 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.selectionPan.delegate=self;
         self.selectionPan.maximumNumberOfTouches=1;
         self.extra=[UIView new];
+        self.extraSelection=[UIView new];
+        self.extraSelection.accessibilityIdentifier=@"honggo.appearance.dock.extra.selection";
+        self.extraSelection.userInteractionEnabled=NO;self.extraSelection.accessibilityElementsHidden=YES;
+        self.extraSelection.layer.cornerCurve=kCACornerCurveContinuous;
+        self.extraSelection.hidden=YES;
         self.extraButton=HGADockButton();
         self.extraButton.accessibilityIdentifier=@"honggo.appearance.dock.extra";
         [self.extraButton addTarget:self action:@selector(extraTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [self.extra addSubview:self.extraSelection];
         [self.extra addSubview:self.extraButton];
         [self addSubview:self.extra];
         self.expand=[UIView new];
@@ -304,8 +314,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
             HGRecordCapability(@"appearance.dock.navigation",@{@"module":@"appearance",@"state":@"unavailable",@"reason":@"native tab actions could not be mapped; original navigation retained"});
             return;
         }
-        NSUInteger visibleCount=0;
-        for(NSString *key in HGATabIDs()) if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))visibleCount++;
+        NSUInteger visibleCount=HGADockCapsuleTabs().count;
         CGFloat extraWidth=HGAppearanceFlag(@"dock.extra") ?
             MIN(HGAppearanceNumber(@"dock.extraSize"),controlHeight)+HGADockAccessoryGap : 0;
         if(bar.bounds.size.width-8 < visibleCount*44+extraWidth) {
@@ -337,8 +346,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     CGFloat width=self.bounds.size.width,availableHeight=self.bounds.size.height;
     CGFloat controlHeight=HGADockControlHeight(self.hostBar);
     if(width<180 || controlHeight<44)return;
-    NSMutableArray *visible=[NSMutableArray array];
-    for(NSString *key in HGATabIDs())if(!HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))[visible addObject:key];
+    NSMutableArray *visible=HGADockCapsuleTabs();
     BOOL extra=HGAppearanceFlag(@"dock.extra");
     CGFloat circle=MIN(HGAppearanceNumber(@"dock.extraSize"),controlHeight);
     CGFloat height=MIN(HGAppearanceNumber(@"dock.height"),controlHeight);
@@ -365,22 +373,34 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     UIUserInterfaceStyle surfaceStyle=translucent ? HGADockPageStyle(self.hostController,self.hostBar,selected) :
         UIUserInterfaceStyleUnspecified;
     BOOL light=translucent && surfaceStyle==UIUserInterfaceStyleLight;
+    BOOL styleChangedAny=NO;
     for(UIView *surface in @[self.capsule,self.extra,self.expand]) {
-        surface.overrideUserInterfaceStyle=surfaceStyle;
+        BOOL styleChanged=(surface.overrideUserInterfaceStyle!=surfaceStyle);
+        if(styleChanged) {
+            surface.overrideUserInterfaceStyle=surfaceStyle;
+            styleChangedAny=YES;
+        }
         surface.layer.cornerCurve=kCACornerCurveContinuous;
     }
     UIColor *tint=HGAppearanceColor(HGAppearanceString(@"dock.tint"),nil);
     BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
     UIColor *base=tint ?: (translucent ? [UIColor colorWithWhite:light?1:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor);
     UIColor *fill=[base colorWithAlphaComponent:!translucent || reduced ? 1 : (tint ? 0.30 : 0)];
+    BOOL hadCapsuleGlass=(HGAState(self.capsule,NO).glass!=nil);
     UIView *capsuleContent=HGADockMaterialContent(self.capsule,style,self.collapsed?22:radius,fill);
     UIView *extraContent=HGADockMaterialContent(self.extra,style,circle/2,fill);
     UIView *expandContent=HGADockMaterialContent(self.expand,style,22,fill);
     // UIKit can adapt dynamic label colors to the material's own background
     // when the foreground belongs to the visual effect's contentView.
     if(self.selection.superview!=capsuleContent)[capsuleContent insertSubview:self.selection atIndex:0];
+    if(self.extraSelection.superview!=extraContent)[extraContent insertSubview:self.extraSelection atIndex:0];
     if(self.extraButton.superview!=extraContent)[extraContent addSubview:self.extraButton];
     if(self.expandButton.superview!=expandContent)[expandContent addSubview:self.expandButton];
+    if(styleChangedAny || !hadCapsuleGlass) {
+        if(@available(iOS 17.0,*)) {
+            for(UIView *surface in @[self.capsule,self.extra,self.expand])[surface updateTraitsIfNeeded];
+        }
+    }
     self.extraButton.frame=self.extra.bounds;
     self.expandButton.frame=self.expand.bounds;
     self.extraButton.hidden=self.extra.hidden;
@@ -390,16 +410,20 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.capsule.layer.cornerRadius=radius;
     self.capsule.layer.borderWidth=translucent && !classicBlur ? 0.5 : 0;
     self.capsule.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
+    self.extra.layer.cornerRadius=circle/2;
+    self.extra.layer.borderWidth=translucent && !classicBlur ? 0.5 : 0;
+    self.extra.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
     BOOL darkSurface=self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    UIColor *selectionBg=classicBlur && !reduced ?
+        [UIColor colorWithWhite:light?0:1 alpha:light?0.08:0.12] : (translucent && !reduced ?
+        [UIColor colorWithWhite:0 alpha:(light?0.12:0.30)] :
+        [UIColor colorWithWhite:darkSurface?1:0 alpha:(darkSurface?0.18:0.08)]);
     if(!self.dragLens) {
-        self.selection.backgroundColor=classicBlur && !reduced ?
-            [UIColor colorWithWhite:light?0:1 alpha:light?0.08:0.12] : (translucent && !reduced ?
-            [UIColor colorWithWhite:0 alpha:(light?0.12:0.30)] :
-            [UIColor colorWithWhite:darkSurface?1:0 alpha:(darkSurface?0.18:0.08)]);
+        self.selection.backgroundColor=selectionBg;
     }
     CGRect selectedFrame=CGRectNull;
     NSString *content=HGAppearanceString(@"dock.content");
-    CGFloat slotInset=MIN(14,MAX(0,(expanded.size.width-44*visible.count)/2));
+    CGFloat slotInset=MIN(14,MAX(0,(expanded.size.width-54*visible.count)/2));
     CGFloat slotWidth=(expanded.size.width-2*slotInset)/visible.count;
     CGFloat unselectedOpacity=self.traitCollection.accessibilityContrast==UIAccessibilityContrastHigh ? 0.94 : 0.80;
     CGFloat requestedIcon=HGAppearanceNumber(@"dock.iconSize");
@@ -420,7 +444,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         NSString *title=[content isEqual:@"icon"]?nil:HGATabTitles()[index];
         UIFont *font=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];
         if(HGAppearanceFlag(@"fonts.enabled"))font=HGAConfiguredFont(font);
-        CGFloat iconHeight=title.length ? height-11-font.lineHeight : height*0.48;
+        CGFloat iconHeight=title.length ? height-11-font.lineHeight : height*0.34;
         CGFloat iconSize=MAX(12,MIN(requestedIcon,MIN(iconHeight,slotWidth-16)));
         b.enabled=source.enabled;b.selected=active;
         HGADockConfigureButton(b,title,[content isEqual:@"text"]?nil:image,iconSize,font,color);
@@ -438,13 +462,29 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(!self.selection.hidden)[self placeSelection:selectedFrame];
     }
     NSString *action=HGAppearanceString(@"dock.action");
-    NSString *symbol=[action isEqual:@"settings"]?@"slider.horizontal.3":([action isEqual:@"search"]?@"magnifyingglass":HGATabSymbols()[[HGATabIDs() indexOfObject:action]]);
-    UIColor *customColor=HGAppearanceColor(HGAppearanceString(@"dock.normal"),nil);
-    UIColor *accessoryColor=customColor ?: UIColor.labelColor;
+    NSUInteger detachedIndex=[HGATabIDs() indexOfObject:action];
+    UIControl *detachedSource=detachedIndex!=NSNotFound ? [self.targets objectForKey:action] : nil;
+    BOOL detachedSelected=detachedIndex!=NSNotFound &&
+        (selected!=NSNotFound ? selected==(NSInteger)detachedIndex : detachedSource.selected);
+    NSString *baseSymbol=[action isEqual:@"settings"]?@"slider.horizontal.3":([action isEqual:@"search"]?@"magnifyingglass":HGATabSymbols()[detachedIndex]);
+    UIImage *extraImage=detachedSelected ? ([UIImage systemImageNamed:[baseSymbol stringByAppendingString:@".fill"]] ?: [UIImage systemImageNamed:baseSymbol]) : [UIImage systemImageNamed:baseSymbol];
+    UIColor *customColor=HGAppearanceColor(HGAppearanceString(detachedSelected?@"dock.selected":@"dock.normal"),nil);
+    UIColor *accessoryColor=customColor ?: (detachedSelected ? UIColor.labelColor :
+        (detachedIndex!=NSNotFound && translucent ? [UIColor.labelColor colorWithAlphaComponent:unselectedOpacity] : UIColor.labelColor));
     UIFont *accessoryFont=[UIFont systemFontOfSize:11];
-    HGADockConfigureButton(self.extraButton,nil,[UIImage systemImageNamed:symbol],MIN(requestedIcon,circle*0.48),accessoryFont,accessoryColor);
+    CGFloat extraIconSize=MIN(requestedIcon,circle*0.34);
+    HGADockConfigureButton(self.extraButton,nil,extraImage,extraIconSize,accessoryFont,accessoryColor);
     HGADockConfigureButton(self.expandButton,nil,[UIImage systemImageNamed:@"ellipsis"],MIN(requestedIcon,22),accessoryFont,accessoryColor);
-    self.extraButton.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[[HGATabIDs() indexOfObject:action]]);
+    self.extraSelection.hidden=!detachedSelected || self.extra.hidden;
+    if(!self.extraSelection.hidden) {
+        CGRect inner=CGRectInset(self.extra.bounds,4,4);
+        self.extraSelection.frame=inner;
+        self.extraSelection.layer.cornerRadius=MIN(inner.size.width,inner.size.height)/2;
+        self.extraSelection.backgroundColor=selectionBg;
+    }
+    self.extraButton.selected=detachedSelected;
+    self.extraButton.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[detachedIndex]);
+    self.extraButton.accessibilityTraits=UIAccessibilityTraitButton | (detachedSelected?UIAccessibilityTraitSelected:0);
     CGRect occupied=self.collapsed?compact:(extra?CGRectUnion(expanded,self.extra.frame):expanded);
     occupied=[self convertRect:occupied toView:self.window];
     if(!CGRectEqualToRect(self.lastOccupiedRect,occupied)) {

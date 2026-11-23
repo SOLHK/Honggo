@@ -1,5 +1,6 @@
 #import "SettingsTransition.h"
 #import "Community.h"
+
 @interface HGAAppearanceController : UITableViewController <UISearchResultsUpdating,UISearchControllerDelegate,PHPickerViewControllerDelegate,UIDocumentPickerDelegate,UIFontPickerViewControllerDelegate,UIColorPickerViewControllerDelegate>
 @property(nonatomic,copy) NSString *group;
 @property(nonatomic,copy) NSArray<NSDictionary *> *rows;
@@ -10,18 +11,133 @@
 @property(nonatomic,copy) NSString *documentPurpose;
 @property(nonatomic) BOOL busy;
 @end
-static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,@"title":title,@"kind":@"action"};}
+
+static NSDictionary *HGATool(NSString *key,NSString *title) {
+    return @{@"key":key,@"title":title,@"kind":@"action"};
+}
+
+static NSDictionary *HGASubpage(NSString *key,NSString *title,NSString *detail) {
+    return @{@"key":key,@"title":title,@"detail":detail ?: @"",@"kind":@"subpage"};
+}
+
+static NSDictionary *HGACatalogDef(NSString *key) {
+    for(NSDictionary *def in HGAppearanceCatalog()) {
+        if([def[@"key"] isEqual:key])return def;
+    }
+    return nil;
+}
+
+static NSInteger HGAPercentFromValue(NSDictionary *def,double raw) {
+    double lo=[def[@"min"] doubleValue];
+    double hi=[def[@"max"] doubleValue];
+    double dflt=[def[@"default"] doubleValue];
+    if(!isfinite(raw) || hi<=lo)return 50;
+    double clamped=MAX(lo,MIN(hi,raw));
+    double pct=50.0;
+    if(dflt>lo+1e-6 && dflt<hi-1e-6) {
+        if(clamped<=dflt)pct=1.0+((clamped-lo)/(dflt-lo))*49.0;
+        else pct=50.0+((clamped-dflt)/(hi-dflt))*50.0;
+    } else {
+        pct=1.0+((clamped-lo)/(hi-lo))*99.0;
+    }
+    NSInteger rounded=(NSInteger)llround(pct);
+    return MAX(1,MIN(100,rounded));
+}
+
+static double HGAValueFromPercent(NSDictionary *def,NSInteger pct) {
+    double lo=[def[@"min"] doubleValue];
+    double hi=[def[@"max"] doubleValue];
+    double dflt=[def[@"default"] doubleValue];
+    pct=MAX(1,MIN(100,pct));
+    double raw=dflt;
+    if(dflt>lo+1e-6 && dflt<hi-1e-6) {
+        if(pct==50)return dflt;
+        if(pct<50)raw=lo+((pct-1.0)/49.0)*(dflt-lo);
+        else raw=dflt+((pct-50.0)/50.0)*(hi-dflt);
+    } else {
+        raw=lo+((pct-1.0)/99.0)*(hi-lo);
+    }
+    double rounded=(hi-lo<=5.0) ? round(raw*100.0)/100.0 : round(raw);
+    return MAX(lo,MIN(hi,rounded));
+}
+
+static NSString *HGAPercentDetailText(NSDictionary *def,NSInteger pct) {
+    NSInteger defaultPct=HGAPercentFromValue(def,[def[@"default"] doubleValue]);
+    if(pct==defaultPct)return [NSString stringWithFormat:@"%ld%%（默认）",(long)pct];
+    return [NSString stringWithFormat:@"%ld%%",(long)pct];
+}
+
+static NSString *HGARoleSummary(NSString *role) {
+    NSString *prefix=[@"layout." stringByAppendingString:role];
+    BOOL hidden=HGAppearanceFlag([prefix stringByAppendingString:@".hidden"]);
+    double x=HGAppearanceNumber([prefix stringByAppendingString:@".x"]);
+    double y=HGAppearanceNumber([prefix stringByAppendingString:@".y"]);
+    double scale=HGAppearanceNumber([prefix stringByAppendingString:@".scale"]);
+    BOOL adjusted=(fabs(x)>0.01 || fabs(y)>0.01 || fabs(scale-1.0)>0.005);
+    if(hidden && adjusted)return @"已隐藏 · 已调整位置与大小";
+    if(hidden)return @"已隐藏";
+    if(adjusted)return @"已自定义偏移／大小";
+    return @"默认";
+}
+
+static NSString *HGAIconRoleSummary(NSString *role) {
+    NSString *ns=HGAppearanceString([NSString stringWithFormat:@"icons.%@.normal.symbol",role]);
+    NSString *na=HGAppearanceString([NSString stringWithFormat:@"icons.%@.normal.asset",role]);
+    NSString *ss=HGAppearanceString([NSString stringWithFormat:@"icons.%@.selected.symbol",role]);
+    NSString *sa=HGAppearanceString([NSString stringWithFormat:@"icons.%@.selected.asset",role]);
+    if(ns.length || na.length || ss.length || sa.length)return @"已自定义";
+    return @"跟随预设";
+}
+
+static NSString *HGAGroupDisplayTitle(NSString *group) {
+    if(!group.length)return @"外观";
+    NSDictionary<NSString *,NSString *> *titles=@{
+        @"general":@"外观总开关与预设",
+        @"dock":@"悬浮底栏",
+        @"dock.geometry":@"底栏尺寸与圆角",
+        @"dock.colors":@"底栏配色",
+        @"dock.extra":@"独立圆形按钮",
+        @"dock.collapse":@"收缩与手势",
+        @"dock.hide":@"底栏导航项隐藏",
+        @"chrome":@"顶部与页面玻璃",
+        @"chrome.hide":@"顶部按钮与频道隐藏",
+        @"player":@"播放布局与玻璃",
+        @"panels":@"弹出面板",
+        @"icons":@"动作图标",
+        @"fonts":@"字体与字号",
+        @"backup":@"外观参数备份与重置"
+    };
+    if(titles[group])return titles[group];
+    if([group hasPrefix:@"role."]) {
+        NSString *role=[group substringFromIndex:5];
+        NSUInteger idx=[HGAppearanceRoles() indexOfObject:role];
+        if(idx!=NSNotFound)return HGAppearanceRoleTitles()[idx];
+    }
+    if([group hasPrefix:@"icon."]) {
+        NSString *role=[group substringFromIndex:5];
+        NSUInteger idx=[HGAppearanceRoles() indexOfObject:role];
+        if(idx!=NSNotFound)return [HGAppearanceRoleTitles()[idx] stringByAppendingString:@"图标"];
+    }
+    return @"外观";
+}
+
+static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
+    for(NSString *key in keys) {
+        NSDictionary *def=HGACatalogDef(key);
+        if(def)[rows addObject:def];
+    }
+}
+
 @implementation HGAAppearanceController
 - (void)viewDidLoad {
     [super viewDidLoad];
-    NSUInteger groupIndex=[HGAppearanceGroups() indexOfObject:self.group ?: @"general"];
-    self.title=self.group && groupIndex!=NSNotFound ? HGAppearanceGroupTitles()[groupIndex] : @"外观定制";
+    self.title=HGAGroupDisplayTitle(self.group);
     self.tableView.accessibilityIdentifier=@"honggo.appearance.settings";
-    self.tableView.rowHeight=UITableViewAutomaticDimension;self.tableView.estimatedRowHeight=68;
+    self.tableView.rowHeight=UITableViewAutomaticDimension;self.tableView.estimatedRowHeight=62;
     self.search=[[UISearchController alloc] initWithSearchResultsController:nil];
     self.search.searchResultsUpdater=self;self.search.delegate=self;
     self.search.obscuresBackgroundDuringPresentation=NO;
-    self.search.searchBar.placeholder=@"搜索底栏、图标、字体或控件名称";
+    self.search.searchBar.placeholder=@"搜索外观、底栏、图标、字体或控件";
     self.navigationItem.searchController=self.search;self.navigationItem.hidesSearchBarWhenScrolling=NO;
     self.definesPresentationContext=YES;
     if(self.navigationController.viewControllers.firstObject==self)
@@ -55,17 +171,8 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
 - (void)reloadRows {
     NSString *query=[self.search.searchBar.text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     NSMutableArray *rows=[NSMutableArray array];
-    if(!self.group && !query.length) {
-        [rows addObject:HGAppearanceCatalog().firstObject];
-        [rows addObject:HGATool(@"@preset.glass",@"应用「玻璃外观」预设")];
-        [rows addObject:HGATool(@"@preset.focus",@"应用「专注播放」预设")];
-        for(NSUInteger i=1;i<HGAppearanceGroups().count;i++)[rows addObject:HGATool([@"@group." stringByAppendingString:HGAppearanceGroups()[i]],HGAppearanceGroupTitles()[i])];
-        [rows addObject:HGATool(@"@export",@"导出外观参数")];
-        [rows addObject:HGATool(@"@import",@"从文件恢复外观参数")];
-        [rows addObject:HGATool(@"@reset",@"恢复全部外观默认值")];
-    }else {
+    if(query.length) {
         for(NSDictionary *def in HGAppearanceCatalog()) {
-            if(self.group && ![def[@"group"] isEqual:self.group])continue;
             NSString *key=def[@"key"];
             if([key hasPrefix:@"icons.comment.selected."] || [key hasPrefix:@"icons.share.selected."])continue;
             NSString *haystack=[NSString stringWithFormat:@"%@ %@",def[@"title"],def[@"key"]];
@@ -74,10 +181,89 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
                 if(word.length && [haystack rangeOfString:word options:NSCaseInsensitiveSearch|NSDiacriticInsensitiveSearch].location==NSNotFound){match=NO;break;}
             if(match)[rows addObject:def];
         }
-        if([self.group isEqual:@"fonts"] && !query.length)[rows addObject:HGATool(@"@fonts.reset",@"恢复宿主原字体与字号")];
+        if(!self.group && HGCommunityMatchesQuery(query))
+            [rows addObject:HGATool(@"@community",@"TG 更新频道 · @Naloiafeed")];
+    } else if(!self.group.length) {
+        // Level 2: clean category list mirroring FanqieX hierarchy.
+        [rows addObject:HGASubpage(@"@group.general",@"外观总开关与预设",HGAppearanceEnabled()?@"已开启":@"未开启")];
+        [rows addObject:HGASubpage(@"@group.dock",@"悬浮底栏",HGAppearanceFlag(@"dock.enabled")?@"已开启":@"默认")];
+        [rows addObject:HGASubpage(@"@group.chrome",@"顶部与页面玻璃",@"独立顶栏按钮、找剧与我的页面")];
+        [rows addObject:HGASubpage(@"@group.player",@"播放布局与玻璃",@"点开单项按 1–100% 调节")];
+        [rows addObject:HGASubpage(@"@group.panels",@"弹出面板",@"评论、选集、分享与倍速面板")];
+        [rows addObject:HGASubpage(@"@group.icons",@"动作图标",HGAppearanceFlag(@"icons.enabled")?@"已开启":@"默认")];
+        [rows addObject:HGASubpage(@"@group.fonts",@"字体与字号",HGAppearanceFlag(@"fonts.enabled")?@"已开启":@"默认")];
+        [rows addObject:HGASubpage(@"@group.backup",@"外观参数备份与重置",@"导出、恢复或重置外观")];
+    } else if([self.group isEqual:@"general"]) {
+        HGAAddDefs(rows,@[@"enabled"]);
+        [rows addObject:HGATool(@"@preset.glass",@"应用「玻璃外观」预设")];
+        [rows addObject:HGATool(@"@preset.focus",@"应用「专注播放」预设")];
+    } else if([self.group isEqual:@"dock"]) {
+        HGAAddDefs(rows,@[@"dock.enabled",@"dock.material",@"dock.content",@"dock.haptics"]);
+        [rows addObject:HGASubpage(@"@group.dock.extra",@"独立圆形按钮",HGAppearanceFlag(@"dock.extra")?@"已开启":@"已关闭")];
+        [rows addObject:HGASubpage(@"@group.dock.geometry",@"底栏尺寸与圆角",@"宽度、高度、圆角与图标大小（1–100%）")];
+        [rows addObject:HGASubpage(@"@group.dock.colors",@"底栏配色",@"底色、选中与未选中颜色")];
+        [rows addObject:HGASubpage(@"@group.dock.collapse",@"收缩与手势",HGAppearanceFlag(@"dock.collapse")?@"已开启":@"已关闭")];
+        [rows addObject:HGASubpage(@"@group.dock.hide",@"底栏导航项隐藏",@"单独隐藏首页、剧场、商城或我的")];
+    } else if([self.group isEqual:@"dock.geometry"]) {
+        HGAAddDefs(rows,@[@"dock.width",@"dock.height",@"dock.lift",@"dock.radius",@"dock.iconSize"]);
+    } else if([self.group isEqual:@"dock.colors"]) {
+        HGAAddDefs(rows,@[@"dock.tint",@"dock.selected",@"dock.normal"]);
+    } else if([self.group isEqual:@"dock.extra"]) {
+        HGAAddDefs(rows,@[@"dock.extra",@"dock.action",@"dock.extraSize"]);
+    } else if([self.group isEqual:@"dock.collapse"]) {
+        HGAAddDefs(rows,@[@"dock.collapse",@"dock.autoCollapse",@"dock.anchor"]);
+    } else if([self.group isEqual:@"dock.hide"]) {
+        HGAAddDefs(rows,@[@"dock.hide.home",@"dock.hide.theater",@"dock.hide.store",@"dock.hide.mine"]);
+    } else if([self.group isEqual:@"chrome"]) {
+        HGAAddDefs(rows,@[@"player.headerGlass",@"player.finderGlass",@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass"]);
+        [rows addObject:HGASubpage(@"@group.chrome.hide",@"顶部按钮与频道隐藏",@"菜单、关注、漫剧、真人剧、推荐、搜索")];
+    } else if([self.group isEqual:@"chrome.hide"]) {
+        HGAAddDefs(rows,@[@"layout.channels.hide.sidebar",@"layout.channels.hide.follow",@"layout.channels.hide.comic",
+            @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search"]);
+    } else if([self.group isEqual:@"player"]) {
+        HGAAddDefs(rows,@[@"player.rightGlass",@"player.material",@"player.fullscreen",@"player.separateProgress"]);
+        NSArray *roles=HGAppearanceRoles(),*titles=HGAppearanceRoleTitles();
+        for(NSUInteger i=0;i<roles.count;i++) {
+            NSString *role=roles[i];
+            [rows addObject:HGASubpage([@"@group.role." stringByAppendingString:role],titles[i],HGARoleSummary(role))];
+        }
+    } else if([self.group hasPrefix:@"role."]) {
+        NSString *role=[self.group substringFromIndex:5];
+        NSString *prefix=[@"layout." stringByAppendingString:role];
+        HGAAddDefs(rows,@[
+            [prefix stringByAppendingString:@".hidden"],
+            [prefix stringByAppendingString:@".x"],
+            [prefix stringByAppendingString:@".y"],
+            [prefix stringByAppendingString:@".scale"]
+        ]);
+        [rows addObject:HGATool([@"@role.reset." stringByAppendingString:role],@"恢复此项默认")];
+    } else if([self.group isEqual:@"panels"]) {
+        HGAAddDefs(rows,@[@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed",@"panels.material",@"panels.opacity"]);
+    } else if([self.group isEqual:@"icons"]) {
+        HGAAddDefs(rows,@[@"icons.enabled",@"icons.preset",@"icons.size"]);
+        for(NSString *role in @[@"like",@"collect",@"comment",@"share"]) {
+            NSUInteger idx=[HGAppearanceRoles() indexOfObject:role];
+            NSString *title=[HGAppearanceRoleTitles()[idx] stringByAppendingString:@"图标"];
+            [rows addObject:HGASubpage([@"@group.icon." stringByAppendingString:role],title,HGAIconRoleSummary(role))];
+        }
+    } else if([self.group hasPrefix:@"icon."]) {
+        NSString *role=[self.group substringFromIndex:5];
+        NSMutableArray *keys=[NSMutableArray arrayWithObjects:
+            [NSString stringWithFormat:@"icons.%@.normal.symbol",role],
+            [NSString stringWithFormat:@"icons.%@.normal.asset",role],nil];
+        if([role isEqual:@"like"] || [role isEqual:@"collect"]) {
+            [keys addObject:[NSString stringWithFormat:@"icons.%@.selected.symbol",role]];
+            [keys addObject:[NSString stringWithFormat:@"icons.%@.selected.asset",role]];
+        }
+        HGAAddDefs(rows,keys);
+    } else if([self.group isEqual:@"fonts"]) {
+        HGAAddDefs(rows,@[@"fonts.enabled",@"fonts.scale",@"fonts.name",@"fonts.asset"]);
+        [rows addObject:HGATool(@"@fonts.reset",@"恢复宿主原字体与字号")];
+    } else if([self.group isEqual:@"backup"]) {
+        [rows addObject:HGATool(@"@export",@"导出外观参数")];
+        [rows addObject:HGATool(@"@import",@"从文件恢复外观参数")];
+        [rows addObject:HGATool(@"@reset",@"恢复全部外观默认值")];
     }
-    if(!self.group && HGCommunityMatchesQuery(query))
-        [rows addObject:HGATool(@"@community",@"TG 更新频道 · @Naloiafeed")];
     self.rows=rows;
     UILabel *empty=nil;
     if(!rows.count){empty=[UILabel new];empty.text=@"没有匹配的外观设置";empty.textAlignment=NSTextAlignmentCenter;empty.textColor=UIColor.secondaryLabelColor;}
@@ -85,12 +271,16 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section{return self.rows.count;}
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if([self.group isEqual:@"fonts"])return @"只改变已适配播放页、面板及底栏的原生文字，不修改视频内字幕、网页或自绘文字。编辑中的输入框、密码、图标字体保持原样。字体导入上限 50 MiB，仅本机使用。";
-    if([self.group isEqual:@"player"])return @"开启「横屏铺满」后，仅横屏播放横向视频时等比放大并裁切画面边缘。返回竖屏或关闭开关后恢复原比例，竖屏视频保持原样。偏移单位为点，比例 1 表示原始大小。";
-    if([self.group isEqual:@"dock"])return @"底栏优先保留至少 44 点的点击区域，尺寸会受宿主可用空间限制。上滑收缩，下滑或点击圆钮展开；语音朗读开启时保持展开。搜索需要在首页有可用宿主入口。";
-    if([self.group isEqual:@"icons"])return @"每个动作可使用预设、系统图标或相册图片。收藏和点赞可单独设置已选中的图标。";
-    if([self.group isEqual:@"panels"])return @"仅处理已识别面板，不隐藏绘制内容、输入框或点击遮罩。未匹配的面板保留原样，适配状态可以随日志导出。";
-    return @"先开启「启用外观定制」，或应用预设。多数调整即时生效；首次开启原生玻璃后请完全退出红果再打开，启动前未启用玻璃时先使用磨砂。外观参数备份不包含图片与字体文件；恢复时需在同一设备保留这些资源。";
+    if([self.group isEqual:@"fonts"])return @"只改变已适配播放页、面板及底栏的原生文字，不修改视频内字幕、网页或自绘文字。字号滑块以 1–100% 调节，50% 为原始比例。";
+    if([self.group isEqual:@"player"])return @"点击下方任意控件进入四级页面单独设置隐藏、水平／垂直偏移与大小（统一 1–100% 调节，50% 为默认）。";
+    if([self.group hasPrefix:@"role."])return @"偏移与大小统一按 1–100% 调节，50% 对应原始默认位置与比例。";
+    if([self.group isEqual:@"dock.extra"])return @"开启独立圆形按钮并选择任意底栏页（如「我的」）后，该入口会从主胶囊独立分离为右侧圆形液态玻璃按钮，并保留选中高亮。";
+    if([self.group isEqual:@"dock.geometry"])return @"所有尺寸滑块统一按 1–100% 在安全范围内平滑映射，优先保留至少 44 点可点击区域。";
+    if([self.group isEqual:@"dock"])return @"底栏材质支持普通／清透液态玻璃与经典磨砂；可点开下方子项按需调节尺寸、配色、独立圆钮与收缩手势。";
+    if([self.group isEqual:@"chrome"])return @"开启「顶部频道玻璃」后，左上角菜单按钮与右上角搜索按钮会各自独立成圆形液态玻璃，与中间频道胶囊分离。";
+    if([self.group isEqual:@"icons"])return @"点开各动作子项可分别设置 SF Symbol 或相册图片；收藏与点赞支持单独设置选中状态图标。";
+    if([self.group isEqual:@"panels"])return @"仅处理已识别面板，不隐藏绘制内容、输入框或点击遮罩。面板底色不透明度按 1–100% 调节。";
+    return @"先进入「外观总开关与预设」开启外观定制或应用预设。首次开启原生玻璃后请完全退出红果再打开。";
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *row=self.rows[path.row];NSString *kind=row[@"kind"],*key=row[@"key"];
@@ -99,6 +289,7 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
     cell.textLabel.font=[UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     cell.detailTextLabel.font=[UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
     cell.textLabel.adjustsFontForContentSizeCategory=YES;cell.detailTextLabel.adjustsFontForContentSizeCategory=YES;
+    cell.detailTextLabel.textColor=UIColor.secondaryLabelColor;
     cell.accessibilityIdentifier=[@"honggo.appearance.setting." stringByAppendingString:key];
     if([kind isEqual:@"bool"]) {
         UISwitch *toggle=[UISwitch new];toggle.on=HGAppearanceFlag(key);toggle.accessibilityIdentifier=key;
@@ -108,12 +299,18 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
         if([key isEqual:@"player.fullscreen"])
             cell.detailTextLabel.text=@"仅横屏播放横向视频时铺满，竖屏保持原比例";
     }else if([kind isEqual:@"number"]) {
-        UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(0,0,125,44)];
-        slider.minimumValue=[row[@"min"] floatValue];slider.maximumValue=[row[@"max"] floatValue];
-        slider.value=HGAppearanceNumber(key);slider.accessibilityIdentifier=key;slider.accessibilityLabel=row[@"title"];
+        UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(0,0,136,44)];
+        slider.minimumValue=1;slider.maximumValue=100;
+        NSInteger pct=HGAPercentFromValue(row,HGAppearanceNumber(key));
+        slider.value=(float)pct;slider.accessibilityIdentifier=key;slider.accessibilityLabel=row[@"title"];
         [slider addTarget:self action:@selector(slider:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView=slider;cell.detailTextLabel.text=[NSString stringWithFormat:@"%.2f（%@～%@）",slider.value,row[@"min"],row[@"max"]];
+        cell.accessoryView=slider;
+        cell.detailTextLabel.text=HGAPercentDetailText(row,pct);
         cell.selectionStyle=UITableViewCellSelectionStyleNone;
+    }else if([kind isEqual:@"subpage"]) {
+        cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;
+        NSString *detail=row[@"detail"];
+        if(detail.length)cell.detailTextLabel.text=detail;
     }else {
         cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;
         NSString *value=HGAppearanceString(key);
@@ -121,7 +318,7 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
             NSUInteger i=[row[@"choices"] indexOfObject:value];cell.detailTextLabel.text=i!=NSNotFound?row[@"labels"][i]:@"默认";
         }else if([kind isEqual:@"image"] || [kind isEqual:@"fontfile"])cell.detailTextLabel.text=value.length?@"已选择本地资源，点击可更换或清除":@"未选择";
         else if(![kind isEqual:@"action"])cell.detailTextLabel.text=value.length?value:@"跟随系统／预设";
-        if([key isEqual:@"@reset"])cell.textLabel.textColor=UIColor.systemRedColor;
+        if([key isEqual:@"@reset"] || [key hasPrefix:@"@role.reset."])cell.textLabel.textColor=UIColor.systemRedColor;
     }return cell;
 }
 - (void)message:(NSString *)title detail:(NSString *)detail {
@@ -139,10 +336,16 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
 }
 - (void)slider:(UISlider *)slider {
     NSString *key=slider.accessibilityIdentifier;
-    double value=slider.maximumValue<=2?round(slider.value*100)/100:round(slider.value);
-    [self save:key value:@(value)];slider.value=HGAppearanceNumber(key);
+    NSDictionary *def=HGACatalogDef(key);
+    if(!def)return;
+    NSInteger pct=MAX(1,MIN(100,(NSInteger)llround(slider.value)));
+    slider.value=(float)pct;
+    double raw=HGAValueFromPercent(def,pct);
+    [self save:key value:@(raw)];
+    NSInteger actualPct=HGAPercentFromValue(def,HGAppearanceNumber(key));
+    slider.value=(float)actualPct;
     UIView *node=slider;while(node && ![node isKindOfClass:UITableViewCell.class])node=node.superview;
-    ((UITableViewCell *)node).detailTextLabel.text=[NSString stringWithFormat:@"%.2f",value];
+    ((UITableViewCell *)node).detailTextLabel.text=HGAPercentDetailText(def,actualPct);
 }
 - (void)presentSheet:(UIAlertController *)sheet {
     sheet.popoverPresentationController.sourceView=self.view;
@@ -165,6 +368,18 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
     NSString *key=row[@"key"],*kind=row[@"kind"];
     if([key isEqual:@"@community"]){HGShowCommunity(self);return;}
     if([key hasPrefix:@"@group."]){HGOpenAppearance(self,[key substringFromIndex:7]);return;}
+    if([key hasPrefix:@"@role.reset."]) {
+        NSString *role=[key substringFromIndex:12];
+        NSString *prefix=[@"layout." stringByAppendingString:role];
+        HGAppearanceApply(@{
+            [prefix stringByAppendingString:@".hidden"]:@NO,
+            [prefix stringByAppendingString:@".x"]:@0,
+            [prefix stringByAppendingString:@".y"]:@0,
+            [prefix stringByAppendingString:@".scale"]:@1
+        },nil);
+        [self reloadRows];
+        return;
+    }
     if([key hasPrefix:@"@preset."]) {
         NSString *preset=[key substringFromIndex:8];
         [self confirm:row[@"title"] detail:@"会重置本页外观参数并开启这套预设，不改变去广告开关。首次开启原生玻璃后请重启红果。"
@@ -337,6 +552,7 @@ static NSDictionary *HGATool(NSString *key,NSString *title){return @{@"key":key,
     });
 }
 @end
+
 void HGOpenAppearance(UIViewController *presenter,NSString *group) {
     if(!NSThread.isMainThread || !presenter)return;
     UIViewController *current=presenter;
@@ -349,7 +565,10 @@ void HGOpenAppearance(UIViewController *presenter,NSString *group) {
     if(!current.viewIfLoaded.window || [current isKindOfClass:UIAlertController.class] || current.isBeingDismissed)return;
     if([current isKindOfClass:HGAAppearanceController.class] && !group)return;
     HGAAppearanceController *panel=[[HGAAppearanceController alloc] initWithStyle:UITableViewStyleInsetGrouped];panel.group=group;
-    if([current isKindOfClass:HGSettingsController.class] || [current isKindOfClass:HGAAppearanceController.class])
+    BOOL insideSettingsNav=[current isKindOfClass:HGSettingsController.class] ||
+        [current isKindOfClass:HGAAppearanceController.class] ||
+        [NSStringFromClass(current.class) isEqual:@"HGSettingsSubpageController"];
+    if(insideSettingsNav && current.navigationController)
         [current.navigationController pushViewController:panel animated:YES];
     else {
         UINavigationController *navigation=[[UINavigationController alloc] initWithRootViewController:panel];

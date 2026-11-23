@@ -159,6 +159,27 @@ static BOOL ImageContentEqual(UIImage *actual,UIImage *expected) {
     return equal;
 }
 static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
+static void (*HGOriginalMaterialSetEffect)(id,SEL,UIVisualEffect *);
+static char HGMaterialEffectCountKey;
+static NSUInteger HGMaterialEffectSetterCount(UIView *view) {
+    return [objc_getAssociatedObject(view,&HGMaterialEffectCountKey) unsignedIntegerValue];
+}
+static void HGSpyMaterialSetEffect(UIVisualEffectView *view,SEL selector,UIVisualEffect *effect) {
+    objc_setAssociatedObject(view,&HGMaterialEffectCountKey,
+        @(HGMaterialEffectSetterCount(view)+1),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    HGOriginalMaterialSetEffect(view,selector,effect);
+}
+static BOOL HGInstallMaterialEffectSpy(void) {
+    static BOOL installed=NO;
+    if(installed)return YES;
+    Class target=NSClassFromString(@"HGAAppearanceMaterial");
+    Method method=class_getInstanceMethod(target,@selector(setEffect:));
+    if(!target || ![target isSubclassOfClass:UIVisualEffectView.class] || !method)return NO;
+    HGOriginalMaterialSetEffect=(void (*)(id,SEL,UIVisualEffect *))method_getImplementation(method);
+    class_replaceMethod(target,@selector(setEffect:),(IMP)HGSpyMaterialSetEffect,method_getTypeEncoding(method));
+    installed=YES;
+    return YES;
+}
 #include "PlaybackAppearanceIntegration.inc"
 #include "AppearanceTransitionCoordinatorTests.inc"
 #include "DockAppearanceIntegration.inc"
@@ -179,6 +200,7 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     HGSetEnabled(HGGlass,YES);HGPrepareNativeGlass();
     Check(HGInstallTabBar(),@"legacy tab-bar adapter installs alongside appearance");
     HGInstallAppearance();HGInstallAppearance();
+    Check(HGInstallMaterialEffectSpy(),@"material effect setter spy installs");
     self.host=[SSTabBarController new];
     self.window=[[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];self.window.rootViewController=self.host;[self.window makeKeyAndVisible];
     dispatch_async(dispatch_get_main_queue(),^{
@@ -267,8 +289,11 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     Check(!Find(capsule,@"honggo.appearance.dock.diffuser") && Count(capsule,@"honggo.appearance.material")==1,
         @"dock uses one native glass layer instead of stacking tinted system materials");
     UIVisualEffect *existingEffect=dockMaterial.effect;
+    NSUInteger effectWrites=HGMaterialEffectSetterCount(dockMaterial);
     for(NSUInteger pass=0;pass<3;pass++){HGAppearanceLayoutDock(self.host.customTabBar,self.host);Layout(dockMaterial);}
-    Check(dockMaterial.effect==existingEffect,@"stable dock layouts keep the same native glass effect");
+    Check(HGMaterialEffectSetterCount(dockMaterial)==effectWrites &&
+        (!existingEffect ? !dockMaterial.effect : [dockMaterial.effect isEqual:existingEffect]),
+        @"stable dock layouts keep the same native glass effect");
     RunEpisodeGlassChecks(root);
     RunEpisodeSpacingChecks(root);
     RunPlayerChromeChecks(self.host);
@@ -367,7 +392,31 @@ static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
     HGAppearanceApply(HGAppearancePreset(@"glass"),nil);HGAppearanceProcessView(unrelated);
     Check(unrelated.subviews.count==0 && [unrelated.backgroundColor isEqual:UIColor.purpleColor],@"unknown views remain untouched");
     Class settings=NSClassFromString(@"HGAAppearanceController");UITableViewController *page=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
-    [page loadViewIfNeeded];Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]>=10,@"appearance home exposes presets groups import export and reset");
+    [page loadViewIfNeeded];Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==8,@"appearance level-2 home exposes clean category entries");
+    // Level 3 playback layout shows clean per-role rows without inline offset/scale sliders.
+    UITableViewController *playerPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [playerPage setValue:@"player" forKey:@"group"];[playerPage loadViewIfNeeded];
+    NSInteger playerRows=[playerPage.tableView.dataSource tableView:playerPage.tableView numberOfRowsInSection:0];
+    BOOL noInlineRoleSliders=YES;
+    for(NSInteger r=0;r<playerRows;r++) {
+        UITableViewCell *c=[playerPage.tableView.dataSource tableView:playerPage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
+        if([c.accessoryView isKindOfClass:UISlider.class])noInlineRoleSliders=NO;
+    }
+    Check(playerRows==4+(NSInteger)HGAppearanceRoles().count && noInlineRoleSliders,
+        @"level-3 playback layout lists per-control subpages instead of inline offset/scale sliders");
+    // Level 4 single-control page exposes hide switch + three 1-100% sliders.
+    UITableViewController *rolePage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [rolePage setValue:@"role.avatar" forKey:@"group"];[rolePage loadViewIfNeeded];
+    NSInteger roleRows=[rolePage.tableView.dataSource tableView:rolePage.tableView numberOfRowsInSection:0];
+    NSUInteger pctSliders=0;
+    for(NSInteger r=0;r<roleRows;r++) {
+        UITableViewCell *c=[rolePage.tableView.dataSource tableView:rolePage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
+        if([c.accessoryView isKindOfClass:UISlider.class]) {
+            UISlider *sl=(UISlider *)c.accessoryView;
+            if(sl.minimumValue==1 && sl.maximumValue==100 && [c.detailTextLabel.text containsString:@"%"])pctSliders++;
+        }
+    }
+    Check(roleRows==5 && pctSliders==3,@"level-4 control page exposes three 1-100% percentage sliders and a reset action");
     UISearchController *search=page.navigationItem.searchController;search.searchBar.text=@"layout.like";
     [search.searchResultsUpdater updateSearchResultsForSearchController:search];
     Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==4,@"appearance search resolves stable per-control keys");

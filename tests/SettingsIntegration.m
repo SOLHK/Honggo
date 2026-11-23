@@ -244,49 +244,92 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     }
     [settings loadViewIfNeeded];
     [self check:[settings.title isEqualToString:@"Honggo"] &&
+        settings.navigationItem.leftBarButtonItem == nil &&
         [[settings tableView:settings.tableView titleForHeaderInSection:0] containsString:HG_PLUGIN_VERSION]
-        name:@"settings title is Honggo with a separate plugin version"];
+        name:@"settings title is Honggo with version header and clean level-1 navigation bar"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
-    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount && HGFeatureCount == 18
-        name:@"settings preserves 17 switches and adds the screenshot shopping option"];
-    [self check:[settings.tableView numberOfRowsInSection:1] == 4
-        name:@"settings exposes diagnostics export clear and compatibility"];
-    [self check:[settings.tableView numberOfRowsInSection:2] == 3
-        name:@"configuration management exposes export restore and reset"];
-    UITableViewCell *diagnostics = [settings tableView:settings.tableView cellForRowAtIndexPath:
-        [NSIndexPath indexPathForRow:0 inSection:1]];
+    BOOL level1HasNoInlineSwitches = [settings.tableView numberOfSections] == 1 &&
+        [settings.tableView numberOfRowsInSection:0] == 8;
+    for (NSInteger r = 0; r < [settings.tableView numberOfRowsInSection:0]; r++) {
+        UITableViewCell *row = [settings tableView:settings.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
+        if ([row.accessoryView isKindOfClass:UISwitch.class] || row.accessoryType != UITableViewCellAccessoryDisclosureIndicator)
+            level1HasNoInlineSwitches = NO;
+    }
+    [self check:level1HasNoInlineSwitches
+        name:@"level-1 home displays only clean FanqieX-style category entries with zero inline switches"];
+
+    // Verify Level-2 and Level-3 subpages expose all 18 switches, diagnostics, backup, and channel.
+    Class subpageClass = NSClassFromString(@"HGSettingsSubpageController");
+    UITableViewController *diagPage = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [diagPage setValue:@"diagnostics" forKey:@"pageID"];
+    [diagPage setValue:settings forKey:@"rootSettings"];
+    [diagPage loadViewIfNeeded];
+    [self check:[diagPage.tableView numberOfRowsInSection:0] == 4
+        name:@"diagnostics subpage exposes enhanced diagnostics export clear and compatibility"];
+    UITableViewCell *diagnostics = [diagPage tableView:diagPage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
     UISwitch *enhanced = (UISwitch *)diagnostics.accessoryView;
-    [self check:!enhanced.on name:@"enhanced diagnostics is opt-in"];
+    [self check:[enhanced isKindOfClass:UISwitch.class] && !enhanced.on name:@"enhanced diagnostics is opt-in"];
     enhanced.on = YES;
     [enhanced sendActionsForControlEvents:UIControlEventValueChanged];
     [self check:HGEnhancedDiagnostics() name:@"enhanced diagnostics switch takes effect without restart"];
+
+    UITableViewController *backupPage = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [backupPage setValue:@"backup" forKey:@"pageID"];
+    [backupPage setValue:settings forKey:@"rootSettings"];
+    [backupPage loadViewIfNeeded];
+    [self check:[backupPage.tableView numberOfRowsInSection:0] == 4
+        name:@"backup subpage exposes export restore reset and appearance backup"];
+
+    UITableViewController *adsL2 = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [adsL2 setValue:@"ads" forKey:@"pageID"];
+    [adsL2 setValue:settings forKey:@"rootSettings"];
+    [adsL2 loadViewIfNeeded];
+    [self check:[adsL2.tableView numberOfRowsInSection:0] == 4
+        name:@"ads level-2 page splits ad blocking into four level-3 categories"];
+
     NSArray<NSString *> *keys = @[@"glass", @"splash", @"topview", @"feed", @"comment", @"pause", @"patch",
         @"commerce", @"marketing", @"redPacket", @"bookstoreAd", @"couponPendant", @"miniGamePendant",
         @"welfareGuide", @"survey", @"glassControls", @"sidebarGameCenter", @"screenshotShopping"];
+    NSMutableSet<NSNumber *> *seenFeatures = [NSMutableSet set];
     BOOL saved = YES;
-    for (NSUInteger index = 0; index < HGFeatureCount; index++) {
-        NSIndexPath *path = [NSIndexPath indexPathForRow:(NSInteger)index inSection:0];
-        UITableViewCell *cell = [settings tableView:settings.tableView cellForRowAtIndexPath:path];
-        UISwitch *toggle = (UISwitch *)cell.accessoryView;
-        BOOL desired = index % 2 == 0;
-        saved = saved && [toggle isKindOfClass:UISwitch.class] && !toggle.on;
-        toggle.on = desired;
-        [toggle sendActionsForControlEvents:UIControlEventValueChanged];
-        NSString *key = [@"HongguoGlass." stringByAppendingString:keys[index]];
-        saved = saved && [NSUserDefaults.standardUserDefaults boolForKey:key] == desired &&
-            HGIsEnabled((HGFeature)index) == desired;
+    for (NSString *pid in @[@"base", @"ads.startup", @"ads.playback", @"ads.popups", @"ads.misc"]) {
+        UITableViewController *sub = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
+        [sub setValue:pid forKey:@"pageID"];
+        [sub setValue:settings forKey:@"rootSettings"];
+        [sub loadViewIfNeeded];
+        NSInteger count = [sub.tableView numberOfRowsInSection:0];
+        for (NSInteger r = 0; r < count; r++) {
+            UITableViewCell *cell = [sub tableView:sub.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
+            UISwitch *toggle = (UISwitch *)cell.accessoryView;
+            NSUInteger index = (NSUInteger)toggle.tag;
+            [seenFeatures addObject:@(index)];
+            BOOL desired = index % 2 == 0;
+            saved = saved && [toggle isKindOfClass:UISwitch.class] && !toggle.on && index < HGFeatureCount;
+            toggle.on = desired;
+            [toggle sendActionsForControlEvents:UIControlEventValueChanged];
+            NSString *key = [@"HongguoGlass." stringByAppendingString:keys[index]];
+            saved = saved && [NSUserDefaults.standardUserDefaults boolForKey:key] == desired &&
+                HGIsEnabled((HGFeature)index) == desired;
+        }
     }
-    [self check:saved name:@"switch events write the existing preference keys"];
-    HGSettingsController *reopened = [[HGSettingsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
-    [reopened loadViewIfNeeded];
+    [self check:seenFeatures.count == HGFeatureCount && HGFeatureCount == 18
+        name:@"level-2 and level-3 subpages preserve all 18 feature switches without omission"];
+    [self check:saved name:@"switch events across subpages write the existing preference keys"];
     BOOL restored = YES;
-    for (NSUInteger index = 0; index < HGFeatureCount; index++) {
-        UITableViewCell *cell = [reopened tableView:reopened.tableView
-            cellForRowAtIndexPath:[NSIndexPath indexPathForRow:(NSInteger)index inSection:0]];
-        restored = restored && [(UISwitch *)cell.accessoryView isOn] == (index % 2 == 0);
+    for (NSString *pid in @[@"base", @"ads.startup", @"ads.playback", @"ads.popups", @"ads.misc"]) {
+        UITableViewController *reopened = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
+        [reopened setValue:pid forKey:@"pageID"];
+        [reopened setValue:settings forKey:@"rootSettings"];
+        [reopened loadViewIfNeeded];
+        NSInteger count = [reopened.tableView numberOfRowsInSection:0];
+        for (NSInteger r = 0; r < count; r++) {
+            UITableViewCell *cell = [reopened tableView:reopened.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:0]];
+            UISwitch *toggle = (UISwitch *)cell.accessoryView;
+            restored = restored && toggle.isOn == (((NSUInteger)toggle.tag) % 2 == 0);
+        }
     }
-    [self check:restored name:@"a fresh settings controller restores saved switch values"];
+    [self check:restored name:@"fresh subpage controllers restore saved switch values"];
     [self check:[[NSUserDefaults.standardUserDefaults stringForKey:@"host.setting"] isEqualToString:@"preserved"]
         name:@"unrelated host preferences remain unchanged"];
     UIControl *menu = (UIControl *)HGFindMenus(self.host.tableView.tableHeaderView).firstObject;
@@ -415,9 +458,15 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     };
     search.delegate = self.searchEvents;
 
-    [self check:[settings.tableView numberOfRowsInSection:3] == 1 &&
-        [[self settingsCell:settings section:3 row:0].accessibilityIdentifier isEqual:@"honggo.community.channel"]
-        name:@"Telegram channel is visible without enabling any feature"];
+    Class subpageClass = NSClassFromString(@"HGSettingsSubpageController");
+    UITableViewController *communityPage = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [communityPage setValue:@"community" forKey:@"pageID"];
+    [communityPage setValue:settings forKey:@"rootSettings"];
+    [communityPage loadViewIfNeeded];
+    UITableViewCell *communityRow = [communityPage tableView:communityPage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:0]];
+    [self check:[communityPage.tableView numberOfRowsInSection:0] == 2 &&
+        [communityRow.accessibilityIdentifier isEqual:@"honggo.community.channel"]
+        name:@"Telegram channel is visible in the author/channel subpage without enabling any feature"];
     [self check:[HGCommunityURLString() isEqual:@"https://t.me/Naloiafeed"]
         name:@"channel destination matches the owner supplied HTTPS address exactly"];
     for (NSString *query in @[@"TG", @"频道", @"nAlOiAfEeD", @"telegram 更新"]) {
@@ -494,13 +543,14 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [settings.tableView.backgroundView.accessibilityIdentifier isEqual:@"honggo.settings.search.empty"]
         name:@"unmatched search has no stale rows and exposes an accessible empty state"];
     [self filterSettings:settings text:@" \n\t "];
-    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount &&
-        [settings.tableView numberOfRowsInSection:1] == 4 && [settings.tableView numberOfRowsInSection:2] == 3 &&
+    [self check:[settings.tableView numberOfSections] == 1 &&
+        [settings.tableView numberOfRowsInSection:0] == 8 &&
         settings.tableView.backgroundView == nil
-        name:@"whitespace search restores every section and removes the empty state"];
+        name:@"whitespace search restores the clean level-1 category list and removes the empty state"];
     [self filterSettings:settings text:@""];
-    [self check:[settings.tableView numberOfRowsInSection:0] == HGFeatureCount
-        name:@"clearing the query restores the full feature catalog"];
+    [self check:[settings.tableView numberOfSections] == 1 &&
+        [settings.tableView numberOfRowsInSection:0] == 8
+        name:@"clearing the query restores the clean level-1 category list"];
     [self runSearchAction:0 settings:settings completion:completion];
 }
 - (void)runSearchAction:(NSUInteger)index settings:(HGSettingsController *)settings completion:(dispatch_block_t)completion {

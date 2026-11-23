@@ -24,8 +24,8 @@
     if(self.window)[self setNeedsLayout];
 }
 - (NSString *)currentMaterialSignature {
-    return [NSString stringWithFormat:@"%@/%d/%ld/%d/%.3f",self.style,
-        HGNativeGlassConfigured(),(long)self.traitCollection.userInterfaceStyle,
+    return [NSString stringWithFormat:@"%@/%d/%d/%ld/%d/%.3f",self.style,
+        HGNativeGlassConfigured(),self.interactiveGlass,(long)self.traitCollection.userInterfaceStyle,
         UIAccessibilityIsReduceTransparencyEnabled(),self.overlayOpacity];
 }
 - (void)requestMaterialRefresh {
@@ -153,7 +153,11 @@ static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CG
     HGAAppearanceMaterial *glass=HGAState(view,NO).glass;
     BOOL solid=[style isEqual:@"solid"];
     // Match the playback chrome while leaving host content traits alone.
-    glass.overrideUserInterfaceStyle=solid ? UIUserInterfaceStyleUnspecified : UIUserInterfaceStyleDark;
+    UIUserInterfaceStyle desired=solid ? UIUserInterfaceStyleUnspecified : UIUserInterfaceStyleDark;
+    if(glass.overrideUserInterfaceStyle!=desired) {
+        glass.overrideUserInterfaceStyle=desired;
+        if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];
+    }
     UIColor *color=tint ?: (solid ? UIColor.secondarySystemBackgroundColor : [UIColor colorWithWhite:0.10 alpha:1]);
     CGFloat opacity=solid || UIAccessibilityIsReduceTransparencyEnabled() ? 1 : (tint ? 0.30 : 0.12);
     glass.overlayColor=[color colorWithAlphaComponent:opacity];
@@ -471,18 +475,16 @@ void HGAppearanceProcessView(UIView *view) {
         BOOL glass=enabled && outer && ((action && HGAppearanceFlag(@"player.rightGlass")) ||
             ([role isEqual:@"channels"] && !headerShowsFinder && HGAppearanceFlag(@"player.headerGlass")) ||
             ([role isEqual:@"episodes"] && HGAppearanceFlag(@"player.episodeGlass")));
-        if(header)HGAApplyHeaderInsets(view,glass && !view.hidden,headerShowsFinder,HGAExpandedDockWidthForHeader(view));
         BOOL episode=[role isEqual:@"episodes"];
         if(episode && outer)HGAApplyEpisodeInset(view,glass && !view.hidden);
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
         if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
         HGAApplyIcon(view,role);
-        if(glass && !view.hidden) {
+        if(header) {
+            HGAApplyHeaderSeparatedGlass(view,glass && !view.hidden,headerShowsFinder,HGAppearanceString(@"player.material"));
+        } else if(glass && !view.hidden) {
             CGRect glassFrame=view.bounds;CGFloat radius=episode ? episodeRadius : 20;
-            if(header) {
-                glassFrame=HGAHeaderGlassFrame(view,HGAExpandedDockWidthForHeader(view));
-                radius=CGRectGetHeight(glassFrame)/2;
-            } else if(action) {
+            if(action) {
                 UIImageView *icon=HGAFindIcon(view);
                 CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
                 CGFloat side=MIN(view.bounds.size.width,MAX(34,MIN(40,MAX(rect.size.width,rect.size.height)+8)));

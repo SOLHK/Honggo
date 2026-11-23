@@ -11,20 +11,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_HEADER = "src/HonggoVersion.h"
 VERSION_PATTERN = re.compile(
-    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-R([1-9][0-9]*))?"
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:(-R|beta)([1-9][0-9]*))?"
 )
 
 
 def version_tuple(value):
-    """Sort numbered test builds before the stable release of the same base."""
+    """Sort numbered test/beta builds before the stable release of the same base."""
     match = VERSION_PATTERN.fullmatch(value)
     if not match:
-        raise ValueError("Plugin version must be MAJOR.MINOR.PATCH[-Rn], with n >= 1 and no leading zeroes.")
+        raise ValueError("Plugin version must be MAJOR.MINOR.PATCH[-Rn|betaN], with n >= 1 and no leading zeroes.")
     parts = tuple(map(int, match.groups()[:3]))
     if parts[0] > 65535 or parts[1] > 255 or parts[2] > 255:
         raise ValueError("Plugin version exceeds Mach-O current_version limits (65535.255.255).")
-    revision = match.group(4)
-    return (*parts, revision is None, int(revision) if revision else 0)
+    tag = match.group(4)
+    revision = match.group(5)
+    tag_rank = 0 if tag == "-R" else (1 if tag == "beta" else 2)
+    return (*parts, revision is None, tag_rank, int(revision) if revision else 0)
 
 
 def macho_version(value):
@@ -34,9 +36,9 @@ def macho_version(value):
 def check_release_channel(value, channel):
     stable = version_tuple(value)[3]
     if channel == "test" and stable:
-        raise ValueError("The test release channel requires an -R1, -R2, ... suffix; stable releases belong on main.")
+        raise ValueError("The test release channel requires an -Rn or betaN suffix; stable releases belong on main.")
     if channel == "main" and not stable:
-        raise ValueError("The main release channel requires the stable version without an R suffix.")
+        raise ValueError("The main release channel requires the stable version without a test/beta suffix.")
 
 
 def version_from_header(text):

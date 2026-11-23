@@ -44,10 +44,15 @@ class PluginVersionTest(unittest.TestCase):
         self.assertEqual(versions.version_tuple("1.0.1")[:3], (1, 0, 1))
 
     def test_orders_test_revisions_then_stable_then_next_base(self):
-        ordered = ["1.1.15-R1", "1.1.15-R2", "1.1.15-R10", "1.1.15", "1.1.16-R1"]
+        ordered = ["1.1.15-R1", "1.1.15-R2", "1.1.15-R10", "1.1.15", "1.1.16-R1", "1.5.1beta1", "1.5.1beta2", "1.5.1"]
         self.assertEqual(sorted(reversed(ordered), key=versions.version_tuple), ordered)
+        self.assertEqual(versions.macho_version("1.5.1beta1"), "1.5.1")
+        versions.check_release_channel("1.5.1beta1", "test")
+        with self.assertRaisesRegex(ValueError, "main release channel requires"):
+            versions.check_release_channel("1.5.1beta1", "main")
         for value in ("1.1.15-R0", "1.1.15-R01", "1.1.15-r1", "1.1.15-R", "1.1.15-R-1",
-                      "1.1.15-R1.1", "1.1.15-R1-extra", "1.1.15-R１", "1.1.15-R1\n"):
+                      "1.1.15-R1.1", "1.1.15-R1-extra", "1.1.15-R１", "1.1.15-R1\n",
+                      "1.5.1beta0", "1.5.1beta01", "1.5.1beta", "1.5.1-beta1"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 versions.version_tuple(value)
 

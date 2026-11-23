@@ -172,12 +172,17 @@ static void HGAApplyPlayerControls(UIView *root) {
     BOOL sheet=HGAEpisodeControl(root);
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(sheet?@"panels.episodes":@"player.controlsGlass") && root.window;
     if([root isKindOfClass:NSClassFromString(@"FQVShortVideoControlCleanSwitchView")]) {
+        HGARegisterView(root);
         if(!enabled || root.hidden || CGRectIsEmpty(root.bounds)){HGARemoveGlass(root);return;}
         CGRect frame=root.bounds;
         CGFloat side=MIN(frame.size.width,frame.size.height);
         frame=CGRectMake(CGRectGetMidX(frame)-side/2,CGRectGetMidY(frame)-side/2,side,side);
         HGAInstallPlaybackGlass(root,HGAPlayerDetailEntryMaterial(),frame,side/2,nil);
         return;
+    }
+    if([root isKindOfClass:NSClassFromString(@"SSShortVideoBottomInsertView")]) {
+        UIView *cleanSwitch=HGAViewGetter(root,"cleanSwitchView",root);
+        if(cleanSwitch && cleanSwitch!=root)HGAApplyPlayerControls(cleanSwitch);
     }
     if(!enabled) {
         HGAPlayerChromeTargets(root,nil,nil);HGAApplyEpisodeCollectInk(root,NO);

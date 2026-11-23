@@ -22,7 +22,6 @@ static void HGARefreshAssets(void);
 static void HGAApplyTypography(UIView *root);
 static void HGAObserveFeed(UIScrollView *feed);
 static void HGARefreshDock(UIView *bar);
-static CGFloat HGAExpandedDockWidthForHeader(UIView *header);
 static NSArray<NSString *> *HGABottomControlClasses(void);
 static void HGAUpdateBottomLayoutForView(UIView *view);
 static void HGARestoreBottomLayoutForView(UIView *view);
