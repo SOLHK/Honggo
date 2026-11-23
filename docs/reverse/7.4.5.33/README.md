@@ -1,5 +1,7 @@
 # 红果短剧 7.4.5.33 静态分析与 Honggo R35 界面诊断
 
+后续已收到并校验完整 IPA。最新包清单和侧栏调用链见 [完整 IPA 与首页侧栏分析](FULL-IPA.md)。
+
 分析日期为 2026-11-23。Honggo 基线为 `dc64a375bd36a2523afffb63a223066458171e16`，对应 `v1.1.15-R35`。结构化结果、哈希、文件偏移、Objective-C 类型编码和诊断计数见 [evidence.json](evidence.json)。
 
 ## IPA 完整性和覆盖范围

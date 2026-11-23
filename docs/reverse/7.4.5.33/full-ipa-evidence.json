@@ -1,0 +1,2280 @@
+{
+  "schema": 1,
+  "outerZip": {
+    "bytes": 331085760,
+    "sha256": "c56cbde907a0f207b292c83a9e363c319a7b587c17a6dd359b23d1d0544736ba"
+  },
+  "ipa": {
+    "bytes": 333199100,
+    "sha256": "ec75df768d68fe5861ab057d53c4dfa1a6d856b908cd06f296826bc5d0fb278c",
+    "zipEntries": 4458,
+    "files": 4017,
+    "dirs": 441,
+    "crcFailures": 0,
+    "extensions": {
+      ".actionsdata": 1,
+      ".bin": 10,
+      ".car": 65,
+      ".cer": 1,
+      ".css": 19,
+      ".cvr": 31,
+      ".dat": 16,
+      ".gif": 1,
+      ".html": 5,
+      ".intentdefinition": 1,
+      ".jpg": 13,
+      ".js": 22,
+      ".json": 354,
+      ".m4a": 2,
+      ".metallib": 16,
+      ".model": 7,
+      ".mp3": 1,
+      ".mp4": 2,
+      ".net": 2,
+      ".nib": 36,
+      ".plist": 203,
+      ".png": 2693,
+      ".shape": 2,
+      ".strings": 33,
+      ".svg": 166,
+      ".ttf": 1,
+      ".txt": 1,
+      ".webp": 114,
+      ".weights": 2,
+      ".xcprivacy": 22,
+      ".xcstrings": 1,
+      ".xml": 102,
+      ".zip": 7,
+      ".zst": 23,
+      "<none>": 42
+    }
+  },
+  "mainBundle": {
+    "CFBundleIdentifier": "com.phoenix.video",
+    "CFBundleVersion": "7.4.5.33",
+    "CFBundleShortVersionString": "7.4.5",
+    "CFBundleExecutable": "Eggplant",
+    "MinimumOSVersion": "15.0.1",
+    "DTSDKName": "iphoneos26.0",
+    "UIDesignRequiresCompatibility": true
+  },
+  "previouslyUnavailableEntries": {
+    "Payload/Eggplant.app/Assets.car": {
+      "bytes": 29851432,
+      "crc32": "d0b4198c",
+      "sha256": "9900140487716259096268bed8f9768ade89fe69df2b49304ec618084f730afb"
+    },
+    "Payload/Eggplant.app/growth_incentive-monorepo_novel-lite.zst": {
+      "bytes": 13094174,
+      "crc32": "a4ba7cad",
+      "sha256": "f07b5ef2fb3a6b0d96597258a4f587c0c349fe25d536934df66d5aba98d5cecb"
+    },
+    "Payload/Eggplant.app/DanceUIRenderBox.bundle/DanceUIRenderBoxShader-iphonesimulator.metallib": {
+      "bytes": 654502,
+      "crc32": "7fe8a00e",
+      "sha256": "804d3d12637b2e22829b5b866b77a8ce2a49e061a8c166081bc77d65289485c1"
+    },
+    "Payload/Eggplant.app/book-upload.zip": {
+      "bytes": 151495,
+      "crc32": "7c672019",
+      "sha256": "eda6ffa20d7427bae3e56ceb2ef3d89cb730ce10e1587b3fa193ac7bc6ff5822"
+    }
+  },
+  "rea": {
+    "version": "6.7.0",
+    "inventoryEvidenceId": "ev_df057c6e9b0a79a84517196e658dfb5f7132e749cefc84d58547db4f39dd8552",
+    "graphEvidenceId": "ev_c2f59915dff2a6ddb1971a34391dc325568349ffc074474e2bf35df896b2743c",
+    "appleProjectionId": "aap_81592786049d2edb4cea79b7370c93ee05dc521ceec6daa853c39242a37f89d9",
+    "inventoryNodes": 4152,
+    "coverage": {
+      "status": "complete-within-inventory",
+      "inventory_complete": true
+    },
+    "bundleCount": 182,
+    "componentCounts": {
+      "bundle_metadata": 165,
+      "executables": 17,
+      "frameworks": 50,
+      "native_libraries": 0,
+      "javascript": 22,
+      "signing": 17,
+      "privileged_helpers": 0,
+      "launchd_plists": 0,
+      "helpers": 0
+    },
+    "rizinVersion": "0.9.1",
+    "arm64Windows": {
+      "tap": {
+        "fileOffset": "0x105550dc",
+        "byteCount": 48,
+        "sha256": "bbece41ce3ac44fa6c80f718cc03020e451419d42be25fb78fd86faf1c0db7f2",
+        "evidenceId": "ev_6e44f903f14c1773d3c9c5461caa7775b9023ee55770e9225d167a3fabde167f",
+        "decodedLines": 12
+      },
+      "forward": {
+        "fileOffset": "0x1058f2cc",
+        "byteCount": 20,
+        "sha256": "6ec453c0f99c29a44b15cc6f10dbdf1a40b5965303a0f4c889192494508496e6",
+        "evidenceId": "ev_8b25ffae4e7a4f9cfea919418d71865853afad8cf15a359e8c8838365d208ae0",
+        "decodedLines": 5
+      },
+      "toggle": {
+        "fileOffset": "0x10554940",
+        "byteCount": 244,
+        "sha256": "d4d2b1b21bcd4c44e377b9e9e3bdea6ce85128d5720c6bddc766bc5addecafd8",
+        "evidenceId": "ev_e1ad0011842fba115f8a9eadb839ee7f67031b0c993f920fdd0578f62ac20def",
+        "decodedLines": 61
+      },
+      "open-animation": {
+        "fileOffset": "0x10554b28",
+        "byteCount": 76,
+        "sha256": "96d2cac45d0b0aa7c44940dea504435759723535c2fc1b71d80d4012b2876950",
+        "evidenceId": "ev_c32c5ff2bdb349e93391080f3865eadd3d1fc6308cd437cb18800ce881c4a208",
+        "decodedLines": 21
+      },
+      "close-animation": {
+        "fileOffset": "0x10554c38",
+        "byteCount": 84,
+        "sha256": "2c158c282e6196c462649221a3b0edc22515ea5565c3e1ab7cf5b5e38f814706",
+        "evidenceId": "ev_b6adbd77b371978644c75a5d6b7abce559aae7d5f1ce6e1bbe0bcb158f2243db",
+        "decodedLines": 23
+      },
+      "tab-layout": {
+        "fileOffset": "0xfd8c874",
+        "byteCount": 68,
+        "sha256": "7f7872e78f1d4cc75f002cb4a7148da49e2dfdb4a61574ad8bf7fade75ecc05e",
+        "evidenceId": "ev_a2ac63550f117cab36ded4e888e41f3959ea192f1d394f31e91fa011c983ed79",
+        "decodedLines": 17
+      }
+    }
+  },
+  "nativeExecutables": {
+    "Payload/Eggplant.app/Eggplant": {
+      "bytes": 527025520,
+      "sha256": "40edce7297acca3d4f5fedba2c3299354a5fb3b7841036f4da298403bd711bd7",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 2,
+      "loadCommands": 167,
+      "segments": [
+        {
+          "name": "__PAGEZERO",
+          "vmAddress": "0x0",
+          "vmSize": 4294967296,
+          "offset": 0,
+          "bytes": 0
+        },
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x100000000",
+          "vmSize": 400654336,
+          "offset": 0,
+          "bytes": 400654336
+        },
+        {
+          "name": "__DATA_CONST",
+          "vmAddress": "0x117e18000",
+          "vmSize": 52330496,
+          "offset": 400654336,
+          "bytes": 52330496
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x11b000000",
+          "vmSize": 62324736,
+          "offset": 452984832,
+          "bytes": 55885824
+        },
+        {
+          "name": "Data",
+          "vmAddress": "0x11eb70000",
+          "vmSize": 16384,
+          "offset": 508870656,
+          "bytes": 16384
+        },
+        {
+          "name": "__LYNX__DATA",
+          "vmAddress": "0x11eb74000",
+          "vmSize": 16384,
+          "offset": 508887040,
+          "bytes": 16384
+        },
+        {
+          "name": "__DATA_ADAPTER",
+          "vmAddress": "0x11eb78000",
+          "vmSize": 16384,
+          "offset": 508903424,
+          "bytes": 16384
+        },
+        {
+          "name": "__DATA_DYNAMIC",
+          "vmAddress": "0x11eb7c000",
+          "vmSize": 16384,
+          "offset": 508919808,
+          "bytes": 16384
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x11eb80000",
+          "vmSize": 18104320,
+          "offset": 508936192,
+          "bytes": 18089328
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "AAASSOptimizer",
+          "kind": "0xc"
+        },
+        {
+          "name": "ByteRTCNICOExtension",
+          "kind": "0xc"
+        },
+        {
+          "name": "CLMEngineKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "RealXBase",
+          "kind": "0xc"
+        },
+        {
+          "name": "TTFFmpeg",
+          "kind": "0xc"
+        },
+        {
+          "name": "TXStartSDK",
+          "kind": "0xc"
+        },
+        {
+          "name": "VolcEngineRTC",
+          "kind": "0xc"
+        },
+        {
+          "name": "boringssl",
+          "kind": "0xc"
+        },
+        {
+          "name": "byteaudio",
+          "kind": "0xc"
+        },
+        {
+          "name": "bytevc0",
+          "kind": "0xc"
+        },
+        {
+          "name": "bytevc1enc",
+          "kind": "0xc"
+        },
+        {
+          "name": "isecgm",
+          "kind": "0xc"
+        },
+        {
+          "name": "libvcn",
+          "kind": "0xc"
+        },
+        {
+          "name": "phcpad",
+          "kind": "0xc"
+        },
+        {
+          "name": "MessageUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "GLKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreMotion",
+          "kind": "0xc"
+        },
+        {
+          "name": "SceneKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "AdSupport",
+          "kind": "0xc"
+        },
+        {
+          "name": "SystemConfiguration",
+          "kind": "0xc"
+        },
+        {
+          "name": "EventKitUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreTelephony",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreLocation",
+          "kind": "0xc"
+        },
+        {
+          "name": "AVFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreMedia",
+          "kind": "0xc"
+        },
+        {
+          "name": "MediaPlayer",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "PhotosUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "WebKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "MobileCoreServices",
+          "kind": "0xc"
+        },
+        {
+          "name": "EventKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "ReplayKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "ARKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "LinkPresentation",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libcompression.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libresolv.9.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "Security",
+          "kind": "0xc"
+        },
+        {
+          "name": "libz.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "StoreKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreServices",
+          "kind": "0xc"
+        },
+        {
+          "name": "Accelerate",
+          "kind": "0xc"
+        },
+        {
+          "name": "AudioToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "AppTrackingTransparency",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libbz2.1.0.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libsqlite3.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libxml2.2.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++abi.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libiconv.2.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "MapKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "AssetsLibrary",
+          "kind": "0xc"
+        },
+        {
+          "name": "MetalPerformanceShaders",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CFNetwork",
+          "kind": "0xc"
+        },
+        {
+          "name": "JavaScriptCore",
+          "kind": "0xc"
+        },
+        {
+          "name": "MetricKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "Contacts",
+          "kind": "0xc"
+        },
+        {
+          "name": "Photos",
+          "kind": "0xc"
+        },
+        {
+          "name": "QuartzCore",
+          "kind": "0xc"
+        },
+        {
+          "name": "OpenAL",
+          "kind": "0xc"
+        },
+        {
+          "name": "OpenGLES",
+          "kind": "0xc"
+        },
+        {
+          "name": "ImageIO",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreAudio",
+          "kind": "0xc"
+        },
+        {
+          "name": "IOKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "libicucore.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreGraphics",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreVideo",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "VideoToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "CryptoKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "AdServices",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreHaptics",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "Metal",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "MetalKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreText",
+          "kind": "0xc"
+        },
+        {
+          "name": "DeviceCheck",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "LocalAuthentication",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "AVFAudio",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "MediaToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreImage",
+          "kind": "0xc"
+        },
+        {
+          "name": "Vision",
+          "kind": "0xc"
+        },
+        {
+          "name": "NaturalLanguage",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreML",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "GameplayKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "AVKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "NetworkExtension",
+          "kind": "0xc"
+        },
+        {
+          "name": "Network",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "SafariServices",
+          "kind": "0xc"
+        },
+        {
+          "name": "AuthenticationServices",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "ModelIO",
+          "kind": "0xc"
+        },
+        {
+          "name": "liblzma.5.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "AppIntents",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "ActivityKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CallKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "Combine",
+          "kind": "0xc"
+        },
+        {
+          "name": "ContactsUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreBluetooth",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreSpotlight",
+          "kind": "0xc"
+        },
+        {
+          "name": "IOSurface",
+          "kind": "0xc"
+        },
+        {
+          "name": "Intents",
+          "kind": "0xc"
+        },
+        {
+          "name": "SwiftUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "UniformTypeIdentifiers",
+          "kind": "0xc"
+        },
+        {
+          "name": "UserNotifications",
+          "kind": "0xc"
+        },
+        {
+          "name": "WidgetKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftAVFoundation.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftAccelerate.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftCallKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCompression.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCore.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftCoreAudio.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreFoundation.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftCoreImage.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreLocation.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreMIDI.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreMedia.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftDarwin.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftDataDetection.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftDispatch.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftGLKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftGameplayKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftIntents.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftMapKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftMetal.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftMetalKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftModelIO.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftOSLog.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftObjectiveC.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftQuartzCore.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftSceneKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftSpatial.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftSpriteKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftUniformTypeIdentifiers.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftVideoToolbox.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftXPC.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswift_Concurrency.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftos.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftsimd.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreGraphics.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftFileProvider.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftFoundation.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftUIKit.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "b067066f-d7f2-3df8-8e5d-c181f8c7ce1f",
+      "build": {
+        "platform": 2,
+        "minimum": "15.0.1",
+        "sdk": "26.0.0"
+      },
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/AAASSOptimizer.framework/AAASSOptimizer": {
+      "bytes": 86720,
+      "sha256": "ead6c292d9119b4b4663306ffadf9583feef2bd4e93ff0bf3bce40652089cba7",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 22,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 32768,
+          "offset": 0,
+          "bytes": 32768
+        },
+        {
+          "name": "__DATA_CONST",
+          "vmAddress": "0x8000",
+          "vmSize": 16384,
+          "offset": 32768,
+          "bytes": 16384
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0xc000",
+          "vmSize": 16384,
+          "offset": 49152,
+          "bytes": 16384
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x10000",
+          "vmSize": 32768,
+          "offset": 65536,
+          "bytes": 21184
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "6a13fbb9-a7af-384e-91ad-c0085d66d1e2",
+      "build": {
+        "platform": 2,
+        "minimum": "15.0.1",
+        "sdk": "26.0.0"
+      },
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/ByteRTCNICOExtension.framework/ByteRTCNICOExtension": {
+      "bytes": 582464,
+      "sha256": "08b8cbb1f7f389da368adfd8b5d1752ad434364e74a931d4ff4f9b52427ab6d2",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 14,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 524288,
+          "offset": 0,
+          "bytes": 524288
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x80000",
+          "vmSize": 16384,
+          "offset": 524288,
+          "bytes": 16384
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x84000",
+          "vmSize": 49152,
+          "offset": 540672,
+          "bytes": 41792
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "15bce8be-d850-3895-9709-37857f412fdd",
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/CLMEngineKit.framework/CLMEngineKit": {
+      "bytes": 5267008,
+      "sha256": "d72d0cf578bcefc78a381fad743db199b74ca520293130bb67da96eeccc87e6a",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 41,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 4620288,
+          "offset": 0,
+          "bytes": 4620288
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x468000",
+          "vmSize": 442368,
+          "offset": 4620288,
+          "bytes": 376832
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x4d4000",
+          "vmSize": 278528,
+          "offset": 4997120,
+          "bytes": 269888
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreGraphics",
+          "kind": "0xc"
+        },
+        {
+          "name": "QuartzCore",
+          "kind": "0xc"
+        },
+        {
+          "name": "AVFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreVideo",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreMedia",
+          "kind": "0xc"
+        },
+        {
+          "name": "VideoToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "OpenGLES",
+          "kind": "0xc"
+        },
+        {
+          "name": "AudioToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "Accelerate",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreTelephony",
+          "kind": "0xc"
+        },
+        {
+          "name": "SystemConfiguration",
+          "kind": "0xc"
+        },
+        {
+          "name": "libz.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "boringssl",
+          "kind": "0xc"
+        },
+        {
+          "name": "TTFFmpeg",
+          "kind": "0xc"
+        },
+        {
+          "name": "bytevc1enc",
+          "kind": "0xc"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "04cd6596-b3e0-3026-ab3c-9c74be4d7591",
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/RealXBase.framework/RealXBase": {
+      "bytes": 646528,
+      "sha256": "3e749b9558db90bfe1f97509ddaa6f528e09d65c2a2b110bd86c70c23863ad75",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 32,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 475136,
+          "offset": 0,
+          "bytes": 475136
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x74000",
+          "vmSize": 49152,
+          "offset": 475136,
+          "bytes": 32768
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x80000",
+          "vmSize": 147456,
+          "offset": 507904,
+          "bytes": 138624
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "AVFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreVideo",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreMedia",
+          "kind": "0xc"
+        },
+        {
+          "name": "OpenGLES",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "IOKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "Network",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "boringssl",
+          "kind": "0xc"
+        },
+        {
+          "name": "SystemConfiguration",
+          "kind": "0xc"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "6a93bf54-62d7-36d8-9972-e447db9c05ba",
+      "build": {
+        "platform": 2,
+        "minimum": "12.0.0",
+        "sdk": "17.4.0"
+      },
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/TTFFmpeg.framework/TTFFmpeg": {
+      "bytes": 3581184,
+      "sha256": "3374b3d740c07b3d9c1fa2fa4901fd7d4b5ba2f4476aa877532e4929c139653b",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 26,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 3096576,
+          "offset": 0,
+          "bytes": 3096576
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x2f4000",
+          "vmSize": 2375680,
+          "offset": 3096576,
+          "bytes": 311296
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x538000",
+          "vmSize": 180224,
+          "offset": 3407872,
+          "bytes": 173312
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "libxml2.2.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libz.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libiconv.2.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libbz2.1.0.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreMedia",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreVideo",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "Security",
+          "kind": "0xc"
+        },
+        {
+          "name": "VideoToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "AudioToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "boringssl",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "acc3ad75-5917-3565-8db2-ae6713f4a2e1",
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/TXStartSDK.framework/TXStartSDK": {
+      "bytes": 1349456,
+      "sha256": "590f3d60ece8fdf13517e04dcffc5e7b21af653d4fd4e667a72d68f96829309b",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 27,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 540672,
+          "offset": 0,
+          "bytes": 540672
+        },
+        {
+          "name": "__DATA_CONST",
+          "vmAddress": "0x84000",
+          "vmSize": 32768,
+          "offset": 540672,
+          "bytes": 32768
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x8c000",
+          "vmSize": 147456,
+          "offset": 573440,
+          "bytes": 147456
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0xb0000",
+          "vmSize": 638976,
+          "offset": 720896,
+          "bytes": 628560
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreGraphics",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreImage",
+          "kind": "0xc"
+        },
+        {
+          "name": "GameController",
+          "kind": "0xc"
+        },
+        {
+          "name": "QuartzCore",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "cde25895-ccfb-3da6-b4ba-2f2a72b16d8f",
+      "build": {
+        "platform": 2,
+        "minimum": "13.0.0",
+        "sdk": "17.4.0"
+      },
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/VolcEngineRTC.framework/VolcEngineRTC": {
+      "bytes": 10619120,
+      "sha256": "a01d4a78656acc881a8e846cee79d9effd8b4237487eda5551447951c5a7e69e",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 61,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 9175040,
+          "offset": 0,
+          "bytes": 9175040
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x8c0000",
+          "vmSize": 901120,
+          "offset": 9175040,
+          "bytes": 868352
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x99c000",
+          "vmSize": 589824,
+          "offset": 10043392,
+          "bytes": 575728
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libiconv.2.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libxml2.2.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libz.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "AVFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "Accelerate",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "AssetsLibrary",
+          "kind": "0xc"
+        },
+        {
+          "name": "AudioToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreML",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreMotion",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreTelephony",
+          "kind": "0xc"
+        },
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "GLKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "ImageIO",
+          "kind": "0xc"
+        },
+        {
+          "name": "JavaScriptCore",
+          "kind": "0xc"
+        },
+        {
+          "name": "MediaToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "OpenGLES",
+          "kind": "0xc"
+        },
+        {
+          "name": "Security",
+          "kind": "0xc"
+        },
+        {
+          "name": "TTFFmpeg",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "boringssl",
+          "kind": "0xc"
+        },
+        {
+          "name": "bytevc0",
+          "kind": "0xc"
+        },
+        {
+          "name": "bytevc1enc",
+          "kind": "0xc"
+        },
+        {
+          "name": "MetalPerformanceShaders",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreMedia",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreVideo",
+          "kind": "0xc"
+        },
+        {
+          "name": "SystemConfiguration",
+          "kind": "0xc"
+        },
+        {
+          "name": "Metal",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "ReplayKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreGraphics",
+          "kind": "0xc"
+        },
+        {
+          "name": "byteaudio",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreAudio",
+          "kind": "0xc"
+        },
+        {
+          "name": "VideoToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "QuartzCore",
+          "kind": "0xc"
+        },
+        {
+          "name": "MetalFX",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "RealXBase",
+          "kind": "0xc"
+        },
+        {
+          "name": "IOKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "Network",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "16db0c2d-5f70-339d-961a-017ec47fc0f7",
+      "build": {
+        "platform": 2,
+        "minimum": "12.0.0",
+        "sdk": "17.4.0"
+      },
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/boringssl.framework/boringssl": {
+      "bytes": 2264064,
+      "sha256": "13eab4d8d66163de7e899f81a7e8d43137e7cc6638d84783e49ec90bd4107ce5",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 17,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 884736,
+          "offset": 0,
+          "bytes": 884736
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0xd8000",
+          "vmSize": 98304,
+          "offset": 884736,
+          "bytes": 81920
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0xf0000",
+          "vmSize": 1310720,
+          "offset": 966656,
+          "bytes": 1297408
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "7745433a-ee1a-317c-ae71-0a58c4a8847c",
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/byteaudio.framework/byteaudio": {
+      "bytes": 3933376,
+      "sha256": "2a61096d632f398acaf5cdca47c208f3c848b438d2677a5ef4c8d01ac8d6845d",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 49,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 3489792,
+          "offset": 0,
+          "bytes": 3489792
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x354000",
+          "vmSize": 245760,
+          "offset": 3489792,
+          "bytes": 212992
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x390000",
+          "vmSize": 245760,
+          "offset": 3702784,
+          "bytes": 230592
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "bytevc0",
+          "kind": "0xc"
+        },
+        {
+          "name": "bytevc1enc",
+          "kind": "0xc"
+        },
+        {
+          "name": "VideoToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "Metal",
+          "kind": "0xc"
+        },
+        {
+          "name": "MetalPerformanceShaders",
+          "kind": "0xc"
+        },
+        {
+          "name": "QuartzCore",
+          "kind": "0xc"
+        },
+        {
+          "name": "GLKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "ReplayKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreMotion",
+          "kind": "0xc"
+        },
+        {
+          "name": "MetalFX",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreTelephony",
+          "kind": "0xc"
+        },
+        {
+          "name": "IOKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "AudioToolbox",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreAudio",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreGraphics",
+          "kind": "0xc"
+        },
+        {
+          "name": "Accelerate",
+          "kind": "0xc"
+        },
+        {
+          "name": "TTFFmpeg",
+          "kind": "0xc"
+        },
+        {
+          "name": "RealXBase",
+          "kind": "0xc"
+        },
+        {
+          "name": "SystemConfiguration",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "AVFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreVideo",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreMedia",
+          "kind": "0xc"
+        },
+        {
+          "name": "OpenGLES",
+          "kind": "0xc"
+        },
+        {
+          "name": "Network",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "boringssl",
+          "kind": "0xc"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "81435cc9-92f3-3841-aee2-297938429b85",
+      "build": {
+        "platform": 2,
+        "minimum": "12.0.0",
+        "sdk": "17.4.0"
+      },
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/bytevc0.framework/bytevc0": {
+      "bytes": 462224,
+      "sha256": "c9555589747d778507103cfa6acef8656c50deb77b80f5df89b30162f8ed7a50",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 16,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 409600,
+          "offset": 0,
+          "bytes": 409600
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x64000",
+          "vmSize": 573440,
+          "offset": 409600,
+          "bytes": 16384
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0xf0000",
+          "vmSize": 49152,
+          "offset": 425984,
+          "bytes": 36240
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "43b662f9-c640-3729-9a7c-d000a4ea1e92",
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/bytevc1enc.framework/bytevc1enc": {
+      "bytes": 1003120,
+      "sha256": "f8b9ce4b6a73204cf3928c4c15fbcfdce79706edc3e283a2f068ca7663637d31",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 16,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 917504,
+          "offset": 0,
+          "bytes": 917504
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0xe0000",
+          "vmSize": 65536,
+          "offset": 917504,
+          "bytes": 32768
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0xf0000",
+          "vmSize": 65536,
+          "offset": 950272,
+          "bytes": 52848
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "1668bdb1-40a9-32d1-b94d-c416c7bd80f2",
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/isecgm.framework/isecgm": {
+      "bytes": 445792,
+      "sha256": "be5ba2f7c8d16e12439a3df45db95add8a49aef1725de89126d8179c5ffd154e",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 21,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 344064,
+          "offset": 0,
+          "bytes": 344064
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x54000",
+          "vmSize": 32768,
+          "offset": 344064,
+          "bytes": 16384
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x5c000",
+          "vmSize": 98304,
+          "offset": 360448,
+          "bytes": 85344
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "d70df627-06db-38f8-baac-dd3d766f8abb",
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/libvcn.framework/libvcn": {
+      "bytes": 297232,
+      "sha256": "5638c85ddecce52ff0d4f0a5a4ff6456bf76fdbc22806925acba1bc2e1df1e7b",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 17,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 147456,
+          "offset": 0,
+          "bytes": 147456
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x24000",
+          "vmSize": 16384,
+          "offset": 147456,
+          "bytes": 16384
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x28000",
+          "vmSize": 147456,
+          "offset": 163840,
+          "bytes": 133392
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "boringssl",
+          "kind": "0xc"
+        },
+        {
+          "name": "libz.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "3e629970-7906-3cfa-a126-edaced92a122",
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/Frameworks/phcpad.framework/phcpad": {
+      "bytes": 102768,
+      "sha256": "cadcc11082e49dcd0ae529bdf97838ce9610cbb9c1b32515c2c7613a73b4b3ce",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 6,
+      "loadCommands": 17,
+      "segments": [
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x0",
+          "vmSize": 32768,
+          "offset": 0,
+          "bytes": 32768
+        },
+        {
+          "name": "__DATA_CONST",
+          "vmAddress": "0x8000",
+          "vmSize": 16384,
+          "offset": 32768,
+          "bytes": 16384
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0xc000",
+          "vmSize": 32768,
+          "offset": 49152,
+          "bytes": 32768
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x14000",
+          "vmSize": 32768,
+          "offset": 81920,
+          "bytes": 20848
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "a83f9542-6498-3722-b00b-35ff93255333",
+      "build": {
+        "platform": 2,
+        "minimum": "15.0.0",
+        "sdk": "26.0.0"
+      },
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/PlugIns/EggplantNotificationExtension.appex/EggplantNotificationExtension": {
+      "bytes": 181104,
+      "sha256": "6abc0a8fe3e029afdc1c060ab7d90f80e06084a47c414f65adcdd07a6e49d4f2",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 2,
+      "loadCommands": 28,
+      "segments": [
+        {
+          "name": "__PAGEZERO",
+          "vmAddress": "0x0",
+          "vmSize": 4294967296,
+          "offset": 0,
+          "bytes": 0
+        },
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x100000000",
+          "vmSize": 114688,
+          "offset": 0,
+          "bytes": 114688
+        },
+        {
+          "name": "__DATA_CONST",
+          "vmAddress": "0x10001c000",
+          "vmSize": 16384,
+          "offset": 114688,
+          "bytes": 16384
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x100020000",
+          "vmSize": 16384,
+          "offset": 131072,
+          "bytes": 16384
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x100024000",
+          "vmSize": 49152,
+          "offset": 147456,
+          "bytes": 33648
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "UserNotifications",
+          "kind": "0xc"
+        },
+        {
+          "name": "Intents",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "240e2784-1bce-3dae-9638-d2db21851265",
+      "build": {
+        "platform": 2,
+        "minimum": "15.0.0",
+        "sdk": "26.0.0"
+      },
+      "cryptid": 0
+    },
+    "Payload/Eggplant.app/PlugIns/EggplantWidgetExtension.appex/EggplantWidgetExtension": {
+      "bytes": 2422864,
+      "sha256": "421dcedff6834cdbfa602ccc4518759b9ecb64971c85eb4eb9eebdf3752b07bb",
+      "cpu": "0x100000c",
+      "subtype": 0,
+      "fileType": 2,
+      "loadCommands": 66,
+      "segments": [
+        {
+          "name": "__PAGEZERO",
+          "vmAddress": "0x0",
+          "vmSize": 4294967296,
+          "offset": 0,
+          "bytes": 0
+        },
+        {
+          "name": "__TEXT",
+          "vmAddress": "0x100000000",
+          "vmSize": 1916928,
+          "offset": 0,
+          "bytes": 1916928
+        },
+        {
+          "name": "__DATA_CONST",
+          "vmAddress": "0x1001d4000",
+          "vmSize": 81920,
+          "offset": 1916928,
+          "bytes": 81920
+        },
+        {
+          "name": "__DATA",
+          "vmAddress": "0x1001e8000",
+          "vmSize": 180224,
+          "offset": 1998848,
+          "bytes": 114688
+        },
+        {
+          "name": "__LINKEDIT",
+          "vmAddress": "0x100214000",
+          "vmSize": 311296,
+          "offset": 2113536,
+          "bytes": 309328
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "SwiftUI",
+          "kind": "0xc"
+        },
+        {
+          "name": "WidgetKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "Intents",
+          "kind": "0xc"
+        },
+        {
+          "name": "Foundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "UIKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "Security",
+          "kind": "0xc"
+        },
+        {
+          "name": "libsqlite3.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libz.1.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libc++abi.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "SystemConfiguration",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreTelephony",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreFoundation",
+          "kind": "0xc"
+        },
+        {
+          "name": "CryptoKit",
+          "kind": "0xc"
+        },
+        {
+          "name": "AppIntents",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libobjc.A.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libSystem.B.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "ActivityKit",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreData",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "CoreGraphics",
+          "kind": "0xc"
+        },
+        {
+          "name": "CoreText",
+          "kind": "0xc"
+        },
+        {
+          "name": "ImageIO",
+          "kind": "0xc"
+        },
+        {
+          "name": "_AppIntents_SwiftUI",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCore.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftCoreFoundation.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftCoreImage.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreLocation.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftDarwin.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftDataDetection.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftDispatch.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftIntents.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftMetal.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftOSLog.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftObjectiveC.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftQuartzCore.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftSpatial.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftUniformTypeIdentifiers.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftXPC.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswift_Concurrency.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftos.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftsimd.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftFoundation.dylib",
+          "kind": "0xc"
+        },
+        {
+          "name": "libswiftUIKit.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftFileProvider.dylib",
+          "kind": "0x80000018"
+        },
+        {
+          "name": "libswiftCoreGraphics.dylib",
+          "kind": "0xc"
+        }
+      ],
+      "uuid": "7fb22183-0bf0-3e90-9e4f-d2c38f877750",
+      "build": {
+        "platform": 2,
+        "minimum": "15.0.0",
+        "sdk": "26.0.0"
+      },
+      "cryptid": 0
+    }
+  }
+}
