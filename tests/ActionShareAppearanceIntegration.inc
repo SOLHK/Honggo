@@ -305,35 +305,7 @@ static void RunActionIconChoices(UIView *root) {
         [root addSubview:control];
         [controls addObject:control];
     }
-    NSMutableArray<NSMutableSet<NSData *> *> *images=[NSMutableArray array];
-    for(NSUInteger i=0;i<controls.count;i++)[images addObject:[NSMutableSet set]];
-    BOOL neutral=YES;
-    for(NSString *preset in @[@"filled",@"circle",@"square"]) {
-        HGAppearanceSet(@"icons.preset",preset,nil);
-        for(NSUInteger i=0;i<controls.count;i++) {
-            Layout(controls[i]);
-            UIImage *image=controls[i].iconImageView.image;
-            NSData *bytes=UIImagePNGRepresentation(image);
-            if(bytes)[images[i] addObject:bytes];
-            neutral &= !image.isSymbolImage && HGAIconHasOnlyNeutralPixels(image);
-        }
-    }
-    BOOL distinct=YES;
-    for(NSSet *shape in images)distinct &= shape.count==3;
-    Check(neutral && distinct,@"all four actions have three distinct original filled icon designs");
-    HGAppearanceSet(@"icons.preset",@"filled",nil);
-    UIImage *bubble=controls[1].iconImageView.image;
-    Check(HGAActionPixelAlpha(controls[0].iconImageView.image,16,16)>240 &&
-        HGAActionPixelAlpha(controls[2].iconImageView.image,16,16)>240 &&
-        HGAActionPixelAlpha(controls[3].iconImageView.image,16,16)>240 &&
-        HGAActionPixelAlpha(bubble,13,14)>240 && HGAActionPixelAlpha(bubble,10,14)<10 &&
-        HGAActionPixelAlpha(bubble,16,14)<10 && HGAActionPixelAlpha(bubble,22,14)<10,
-        @"reference-inspired preset uses solid silhouettes and three open chat dots");
-    HGAppearanceSet(@"icons.comment.normal.symbol",@"paperplane.fill",nil);
-    Check(controls[1].iconImageView.image.isSymbolImage &&
-        ![UIImagePNGRepresentation(controls[1].iconImageView.image) isEqual:UIImagePNGRepresentation(bubble)],
-        @"a custom system symbol overrides the selected preset");
-    HGAppearanceApply(@{@"player.actionStyle":@"flat",@"icons.enabled":@NO},nil);
+    HGAppearanceApply(@{@"enabled":@YES,@"player.rightGlass":@YES,@"player.actionStyle":@"flat"},nil);
     BOOL flatActions=YES;
     for(HGAActionFixture *action in controls) {
         Layout(action);
@@ -360,7 +332,7 @@ static void RunActionIconChoices(UIView *root) {
 static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     UIView *root=host.view;
     NSDictionary *before=HGAppearanceValues();
-    HGAppearanceApply(@{@"enabled":@YES,@"icons.enabled":@YES,@"icons.preset":@"filled",@"icons.size":@26,
+    HGAppearanceApply(@{@"enabled":@YES,@"player.actionStyle":@"flat",
         @"player.rightGlass":@YES,@"panels.longpress":@YES,@"panels.share":@YES,
         @"panels.material":@"regular",@"panels.opacity":@0.28},nil);
     SSShortVideoRightInteractionCommentView *comment=[[SSShortVideoRightInteractionCommentView alloc] initWithFrame:CGRectMake(20,100,46,62)];
@@ -389,13 +361,13 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
         for(NSUInteger i=0;i<8;i++)Layout(comment);
         Check(Count(comment,@"honggo.appearance.material")==1 && HGAIconHasOnlyNeutralPixels(comment.iconImageView.image),
             @"right action reuse keeps a single surface and stable neutral rendering");
-        HGAppearanceSet(@"icons.enabled",@NO,nil);
+        HGAppearanceSet(@"player.actionStyle",@"glass",nil);
         Check([comment.iconImageView.tintColor isEqual:UIColor.systemBlueColor] &&
             comment.iconImageView.contentMode==UIViewContentModeScaleToFill &&
             [comment.iconImageView.preferredSymbolConfiguration isEqual:nativeConfiguration] &&
             ImageContentEqual(comment.iconImageView.image,nativeImage),
             @"disabling redrawn icons restores native tint content mode symbol configuration and image");
-    }@finally {[comment removeFromSuperview];HGAppearanceSet(@"icons.enabled",@YES,nil);}
+    }@finally {[comment removeFromSuperview];HGAppearanceSet(@"player.actionStyle",@"flat",nil);}
 
     // A real action image view can be rectangular even when its hit owner is
     // square. Verify that its long edge cannot balloon into the count/dock.
@@ -406,27 +378,23 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     @try {
         CGRect iconRect=[share.iconImageView convertRect:share.iconImageView.bounds toView:share];
         UIView *material=Find(share,@"honggo.appearance.material");
-        Check(fabs(material.bounds.size.width-44)<0.01 && MAX(iconRect.size.width,iconRect.size.height)<=24.45 &&
+        Check(fabs(material.bounds.size.width-44)<0.01 && MAX(iconRect.size.width,iconRect.size.height)<=26.33 &&
             CGRectEqualToRect(share.frame,shareTouch) && CGRectEqualToRect(share.countLabel.frame,shareCount),
             @"tall native action icon fits the requested longest edge without moving count or hit owner");
         CGAffineTransform first=share.iconImageView.transform;
         for(NSUInteger i=0;i<8;i++)Layout(share);
         Check(CGAffineTransformEqualToTransform(first,share.iconImageView.transform),
             @"rectangular right-action icon scale stays stable across native reuse");
-        HGAppearanceSet(@"icons.size",@48,nil);Layout(share);
-        iconRect=[share.iconImageView convertRect:share.iconImageView.bounds toView:share];
-        Check(MAX(iconRect.size.width,iconRect.size.height)<=28.17,
-            @"large custom action size reserves an eight-point glass rim");
         share.bounds=CGRectMake(0,0,36,62);Layout(share);
         iconRect=[share.iconImageView convertRect:share.iconImageView.bounds toView:share];
         Check(CGRectContainsRect(share.bounds,material.frame) && fabs(material.bounds.size.width-36)<0.01 &&
             MAX(iconRect.size.width,iconRect.size.height)<=23.05,
             @"narrow host buttons keep the glass and padded glyph inside their owner");
-        HGAppearanceSet(@"icons.enabled",@NO,nil);
+        HGAppearanceSet(@"player.actionStyle",@"glass",nil);
         Check(CGAffineTransformIsIdentity(share.iconImageView.transform),
             @"disabling rectangular icon styling restores the native image transform");
     }@finally {
-        [share removeFromSuperview];HGAppearanceApply(@{@"icons.enabled":@YES,@"icons.size":@26},nil);
+        [share removeFromSuperview];HGAppearanceSet(@"player.actionStyle",@"flat",nil);
     }
     RunActionIconChoices(root);
     Check(HGASaveActionPreview(root),@"controlled UIKit right-action preview renders to PNG for visual review");

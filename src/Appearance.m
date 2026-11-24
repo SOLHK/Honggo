@@ -1,9 +1,7 @@
 #import "Appearance.h"
 #import "Honggo.h"
 #import <CoreText/CoreText.h>
-#import <PhotosUI/PhotosUI.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <objc/message.h>
@@ -60,14 +58,6 @@ static void HGARefreshBackdropAfterScroll(id scroll) {
 }
 static CGRect HGADockRectInView(UIView *coordinateView);
 
-UIColor *HGAppearanceColor(NSString *hex, UIColor *fallback) {
-    if (hex.length != 7 || ![hex hasPrefix:@"#"]) return fallback;
-    unsigned value = 0;
-    NSScanner *scanner = [NSScanner scannerWithString:[hex substringFromIndex:1]];
-    if (![scanner scanHexInt:&value] || !scanner.isAtEnd) return fallback;
-    return [UIColor colorWithRed:((value >> 16) & 255)/255.0
-        green:((value >> 8) & 255)/255.0 blue:(value & 255)/255.0 alpha:1];
-}
 UIVisualEffect *HGAppearanceMaterial(NSString *style) {
     if (UIAccessibilityIsReduceTransparencyEnabled() || [style isEqual:@"solid"]) return nil;
     // The blur option uses the traditional iOS 18-era Light/Dark blur pair.
@@ -169,6 +159,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL playerCanvas=[className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL paletteChange=playerCanvas && selector==sel_registerName("refreshBgColor");
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
+    BOOL metalLayout=[className isEqual:@"TTMetalView"] && selector==@selector(layoutSubviews);
     BOOL scrollComponent=[className isEqual:@"FQVShortVideoListVCScrollComponent"];
     BOOL categoryPager=[className isEqual:@"FQRJXCategoryListContainerView"];
     BOOL feedShareTap=[className isEqual:@"SSShortVideoRightInteractionShareViewManager"] &&
@@ -212,6 +203,12 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 }
                 ((void(*)(id,SEL))original)(object,selector);
             } @finally {if(recycling)HGAApplying=wasApplying;}
+            if(metalLayout) {
+                UIView *renderer=[(UIView *)object superview];
+                if(renderer.window && HGAppearanceDockEnabled() && [renderer isKindOfClass:objc_lookUpClass("TTPlayerView")])
+                    HGRefreshVideoBackdropForPlayer(renderer);
+                return;
+            }
             if(paletteChange) {
                 if(!HGAApplying)HGRefreshVideoBackdropForPlayer(object);
                 return;
@@ -255,6 +252,11 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             } @finally {
                 if(guarded)HGAApplying=wasApplying;
                 HGATracePlayerTransfer(object,selector,argument,invocation,completed?@"return":@"exception");
+            }
+            if(player && selector==@selector(didAddSubview:)) {
+                if([argument isKindOfClass:objc_lookUpClass("TTMetalView")])
+                    HGRefreshVideoBackdropForPlayer(object);
+                return;
             }
             if(episodeWrapper && selector==@selector(didAddSubview:))HGAEpisodeWrapperChanged(object);
             if(playerNavigation)HGAApplyPlayerNavigation(object);
@@ -387,6 +389,8 @@ void HGInstallAppearance(void) {
         HGAInstallHomeEpisodeSwipeGate();
         HGAInstallNativeShareRoute();
         HGAInstallCommentMovement();
+        Class metal=objc_lookUpClass("TTMetalView");
+        if([metal isSubclassOfClass:UIView.class])HGAHook(metal,@selector(layoutSubviews),"v16@0:8",NO);
         NSUInteger found=0;
         NSMutableOrderedSet *classes=[NSMutableOrderedSet orderedSetWithArray:HGAViewRoles().allKeys];
         [classes addObjectsFromArray:HGACommentSurfaces()];
@@ -470,6 +474,8 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName("refreshUIWhenApplayNewStyle"),"v16@0:8",NO);
             if([name isEqual:@"SSShortVideoEpisodePanelCollectView"])
                 HGAHook(cls,sel_registerName("updateCollectStatus:collectText:"),"v28@0:8B16@20",NO);
+            if([name isEqual:@"TTPlayerView"])
+                HGAHook(cls,@selector(didAddSubview:),"v24@0:8@16",NO);
             if([name isEqual:@"TTPlayerView"] || [name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 HGAHook(cls,@selector(willMoveToSuperview:),"v24@0:8@16",NO);
                 HGAHook(cls,@selector(willMoveToWindow:),"v24@0:8@16",NO);

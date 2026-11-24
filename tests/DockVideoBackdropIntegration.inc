@@ -309,6 +309,8 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         gradient.colors=stockGradient;gradient.locations=@[@0,@1];
         gradient.startPoint=CGPointMake(0.5,0);gradient.endPoint=CGPointMake(0.5,1);
         CGRect portraitFrame=cell.renderer.frame;
+        CGRect nativeMetalBounds=cell.metal.bounds;
+        CGPoint nativeMetalCenter=cell.metal.center;
         NSArray *portraitGeometry=HGBackdropNativeSnapshot(@[page.view,feed,cell,cell.contentView,cell.canvas,
             cell.videoWrapper,cell.player,cell.metal]);
         BOOL portraitPresented=[cell.metal presentRed:0.91 green:0.06 blue:0.05];
@@ -328,6 +330,19 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         Check(hud.nativeClipPasses==3 && previewUnclipped && !feed.clipsToBounds && !cell.canvas.clipsToBounds &&
             CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fill) && HGBackdropNativeUnchanged(portraitGeometry),
             @"native seek preview and completion preserve the live portrait backdrop and pager geometry");
+        // Reselecting Home recycles the video surface. The host may attach
+        // Metal before assigning its final bounds, without scrolling again.
+        [cell.metal removeFromSuperview];
+        cell.metal.frame=CGRectZero;
+        [cell.renderer addSubview:cell.metal];
+        HGBackdropFlushFrames(0.03);
+        cell.metal.bounds=nativeMetalBounds;
+        cell.metal.center=nativeMetalCenter;
+        [cell.metal setNeedsLayout];[cell.metal layoutIfNeeded];
+        HGBackdropFlushFrames(0.04);
+        Check(!feed.clipsToBounds && CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fill),
+            @"late Metal sizing after Home refresh recovers the portrait backdrop without a scroll");
+        portraitPresented=[cell.metal presentRed:1 green:0 blue:0];
         UIImage *portrait=HGBackdropCompositorCapture(@"portrait",window,videoSample,dockSample);
         HGBackdropRGB nativePortrait=HGBackdropAverageColor(portrait,window,videoSample);
         HGBackdropRGB dockPortrait=HGBackdropAverageColor(portrait,window,dockSample);

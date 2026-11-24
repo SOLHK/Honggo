@@ -454,14 +454,12 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
     UISheetPresentationController *sheet=card.sheetPresentationController;
     sheet.detents=@[UISheetPresentationControllerDetent.mediumDetent,UISheetPresentationControllerDetent.largeDetent];
     sheet.prefersGrabberVisible=YES;
+    UIBlurEffect *frost=[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
     if(@available(iOS 26.1,*)) {
         for(UISheetPresentationControllerDetent *detent in sheet.detents)
-            detent.backgroundEffect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleRegular];
+            detent.backgroundEffect=frost;
     } else {
-        UIVisualEffect *effect;
-        if(@available(iOS 26.0,*))effect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleRegular];
-        else effect=[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
-        notes.tableView.backgroundView=[[UIVisualEffectView alloc] initWithEffect:effect];
+        notes.tableView.backgroundView=[[UIVisualEffectView alloc] initWithEffect:frost];
     }
     if(@available(iOS 18.0,*)) {
         __weak UIButton *source=button;
@@ -482,13 +480,14 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
     if (@available(iOS 26.0,*)) style=[UIButtonConfiguration glassButtonConfiguration];
     else style=[UIButtonConfiguration grayButtonConfiguration];
     style.title=HG_PLUGIN_VERSION;
-    style.buttonSize=UIButtonConfigurationSizeSmall;
+    style.buttonSize=UIButtonConfigurationSizeLarge;
     style.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
     style.baseForegroundColor=UIColor.labelColor;
     UIButton *version=[UIButton buttonWithConfiguration:style primaryAction:nil];
     version.accessibilityLabel=[NSString stringWithFormat:@"版本 %@，更新记录",HG_PLUGIN_VERSION];
     [version addTarget:self action:@selector(showReleaseNotes:) forControlEvents:UIControlEventTouchUpInside];
     version.accessibilityIdentifier = @"honggo.settings.version";
+    [version.heightAnchor constraintEqualToConstant:44].active=YES;
     [version sizeToFit];
     UIBarButtonItem *versionItem = [[UIBarButtonItem alloc] initWithCustomView:version];
     if (@available(iOS 26.0, *)) versionItem.hidesSharedBackground = YES;
@@ -503,7 +502,6 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
         @{@"kind": @"appearance", @"group": @"fonts", @"title": @"字体与字号", @"id": @"honggo.settings.category.fonts"}],
         @[@{@"kind": @"appearance", @"group": @"player", @"title": @"播放布局与控件", @"id": @"honggo.settings.category.player"},
         @{@"kind": @"appearance", @"group": @"gestures", @"title": @"播放手势", @"id": @"honggo.settings.category.gestures"},
-        @{@"kind": @"appearance", @"group": @"icons", @"title": @"动作图标", @"id": @"honggo.settings.category.icons"},
         @{@"kind": @"appearance", @"group": @"panels", @"title": @"弹出面板", @"id": @"honggo.settings.category.panels"}],
         @[@{@"kind": @"subpage", @"page": @"ads", @"title": @"广告与推广拦截", @"id": @"honggo.settings.category.ads"},
         @{@"kind": @"subpage", @"page": @"base", @"title": @"基础与兼容开关", @"id": @"honggo.settings.category.base"}],

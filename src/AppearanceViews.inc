@@ -220,8 +220,6 @@ static BOOL HGAHasRoleAncestor(UIView *view,NSString *role) {
 @property(nonatomic,strong) UIColor *appliedTint;
 @property(nonatomic) UIViewContentMode contentMode;
 @property(nonatomic) BOOL ownsContentMode;
-@property(nonatomic,strong) UIImageSymbolConfiguration *symbolConfiguration;
-@property(nonatomic,strong) UIImageSymbolConfiguration *appliedSymbolConfiguration;
 @end
 @implementation HGAIconState @end
 static char HGAIconKey;
@@ -231,8 +229,6 @@ static void HGARestoreIcon(UIView *root) {
     BOOL ownedImage=s.imageView.image==s.applied || [s.imageView.image isEqual:s.applied];
     if(s.appliedTint && [s.imageView.tintColor isEqual:s.appliedTint])s.imageView.tintColor=s.tint;
     if(s.ownsContentMode && s.imageView.contentMode==UIViewContentModeScaleAspectFit)s.imageView.contentMode=s.contentMode;
-    if(s.appliedSymbolConfiguration && [s.imageView.preferredSymbolConfiguration isEqual:s.appliedSymbolConfiguration])
-        s.imageView.preferredSymbolConfiguration=s.symbolConfiguration;
     if(ownedImage)s.imageView.image=s.source;
     objc_setAssociatedObject(root,&HGAIconKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
@@ -255,10 +251,9 @@ static CGFloat HGAActionGlassDiameter(UIView *root) {
     return MIN(44,MIN(CGRectGetWidth(root.bounds),CGRectGetHeight(root.bounds)));
 }
 
-static void HGAApplyIcon(UIView *root,NSString *role,BOOL glass,BOOL flat) {
+static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat) {
     if(![@[@"like",@"collect",@"comment",@"share"] containsObject:role])return;
-    BOOL custom=HGAppearanceFlag(@"icons.enabled");
-    if(!HGAppearanceEnabled() || (!flat && !custom) || !root.window) {HGARestoreIcon(root);return;}
+    if(!HGAppearanceEnabled() || !flat || !root.window) {HGARestoreIcon(root);return;}
     BOOL selected=NO;
     if([role isEqual:@"like"] || [role isEqual:@"collect"]) {
         NSString *getter=[role isEqual:@"like"]?@"isLiked":@"isCollected";
@@ -273,49 +268,20 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL glass,BOOL flat) {
     UIImageView *icon=HGAFindIcon(root);
     HGAIconState *state=objc_getAssociatedObject(root,&HGAIconKey);
     if(state.imageView!=icon){HGARestoreIcon(root);state=nil;}
-    BOOL drawnPreset=NO;
-    UIImage *image=HGAIcon(role,selected,flat,custom,&drawnPreset);
+    UIImage *image=HGAFlatActionImage(role,selected);
     if(!icon || !image){HGARestoreIcon(root);return;}
     if(!state){state=[HGAIconState new];state.imageView=icon;state.source=icon.image;state.tint=icon.tintColor;
         objc_setAssociatedObject(root,&HGAIconKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     else if(icon.image!=state.applied && ![icon.image isEqual:state.applied])state.source=icon.image;
-    if(drawnPreset || image.isSymbolImage) {
-        UIColor *color=HGAActionIconColor(role,selected);
-        if(!state.appliedTint || ![icon.tintColor isEqual:state.appliedTint])state.tint=icon.tintColor;
-        state.appliedTint=color;
-        if(![icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.appliedTint;
-    } else {
-        if(state.appliedTint && [icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.tint;
-        state.appliedTint=nil;
-    }
-    CGFloat requested=HGAppearanceNumber(@"icons.size");
-    CGFloat ownerLimit=MAX(20,root.bounds.size.width-8);
-    if(glass || flat) {
-        // Keep the glyph readable while reserving the glass rim even at the
-        // largest preference size or when a host provides a narrower owner.
-        requested=MIN(requested*0.94,HGAActionGlassDiameter(root)*0.64);
-    }
-    requested=MIN(requested,ownerLimit);
-    if(image.isSymbolImage) {
-        // Carry the action's state color through hosts that customize icon tint.
-        UIColor *color=state.appliedTint;
-        if(!state.appliedSymbolConfiguration || ![icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
-            state.symbolConfiguration=icon.preferredSymbolConfiguration;
-        state.appliedSymbolConfiguration=[UIImageSymbolConfiguration configurationWithPointSize:requested weight:UIImageSymbolWeightRegular];
-        if(![icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
-            icon.preferredSymbolConfiguration=state.appliedSymbolConfiguration;
-        image=[[image imageWithConfiguration:state.appliedSymbolConfiguration] imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal];
-    } else {
-        if(state.appliedSymbolConfiguration && [icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
-            icon.preferredSymbolConfiguration=state.symbolConfiguration;
-        state.appliedSymbolConfiguration=nil;
-    }
+    UIColor *color=HGAActionIconColor(role,selected);
+    if(!state.appliedTint || ![icon.tintColor isEqual:state.appliedTint])state.tint=icon.tintColor;
+    state.appliedTint=color;
+    if(![icon.tintColor isEqual:color])icon.tintColor=color;
+    CGFloat requested=MIN(28 * 0.94,HGAActionGlassDiameter(root)*0.64);
     if(!state.ownsContentMode || icon.contentMode!=UIViewContentModeScaleAspectFit)state.contentMode=icon.contentMode;
     state.ownsContentMode=YES;
     if(icon.contentMode!=UIViewContentModeScaleAspectFit)icon.contentMode=UIViewContentModeScaleAspectFit;
     if(icon.image!=image && ![icon.image isEqual:image])icon.image=image;
-    // UIImageView can normalize a symbol to its own configuration. Track the
-    // value actually retained by UIKit, not the pre-assignment image pointer.
     state.applied=icon.image;
     // Bound the longest side, not the shortest one: the host sometimes gives
     // bookmark/share image views a tall rectangle. Scaling their shortest side
@@ -502,7 +468,7 @@ void HGAppearanceProcessView(UIView *view) {
         CGRect episodeFrame=episode ? HGAEpisodeGlassFrame(view) : CGRectZero;
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
         if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
-        HGAApplyIcon(view,role,glass,flat);
+        HGAApplyIcon(view,role,flat);
         if(header) {
             HGAApplyHeaderSeparatedGlass(view,glass,enabled && outer && !headerShowsFinder && !view.hidden,
                 HGAppearanceString(@"player.material"));

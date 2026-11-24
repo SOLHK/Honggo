@@ -18,31 +18,31 @@ static void CheckR15GeometryMigration(void) {
     NSDictionary *migrated=HGAppearanceValues();
     Check([migrated[@"dock.height"] isEqual:@62] && [migrated[@"dock.radius"] isEqual:@31] &&
         [migrated[@"dock.iconSize"] isEqual:@26] && [migrated[@"dock.extraSize"] isEqual:@62] &&
-        [migrated[@"icons.size"] isEqual:@28],
+        migrated[@"icons.size"]==nil,
         @"installing R15 migrates persisted R14 stock geometry to a balanced thicker dock");
     Check([defaults boolForKey:@"Honggo.Appearance.r15GeometryMigrated"] &&
         [[[defaults dictionaryForKey:@"Honggo.Appearance.v1"] objectForKey:@"dock.height"] isEqual:@62] &&
         [migrated[@"dock.width"] isEqual:@0.88] && [migrated[@"layout.episodes.y"] isEqual:@-7] &&
-        [migrated[@"icons.collect.normal.symbol"] isEqual:@"bookmark"] && [migrated[@"enabled"] boolValue],
+        migrated[@"icons.collect.normal.symbol"]==nil && [migrated[@"enabled"] boolValue],
         @"geometry migration persists once while retaining unrelated custom appearance settings");
     HGAppearanceApply(@{@"dock.height":@52,@"dock.radius":@26,@"dock.iconSize":@21,
-        @"dock.extraSize":@48,@"icons.size":@26},nil);
+        @"dock.extraSize":@48},nil);
     [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:defaults];
     Check(HGAppearanceNumber(@"dock.height")==52 && HGAppearanceNumber(@"dock.radius")==26 &&
         HGAppearanceNumber(@"dock.iconSize")==21 && HGAppearanceNumber(@"dock.extraSize")==48 &&
-        HGAppearanceNumber(@"icons.size")==26,
+        HGAppearanceValue(@"icons.size")==nil,
         @"a user choosing former stock dimensions after migration keeps those choices on reload");
 
     SeedR14Appearance(@{@"dock.height":@70,@"dock.radius":@26,@"dock.iconSize":@23,
         @"dock.extraSize":@56,@"icons.size":@30});
     Check(HGAppearanceNumber(@"dock.height")==70 && HGAppearanceNumber(@"dock.radius")==26 &&
         HGAppearanceNumber(@"dock.iconSize")==23 && HGAppearanceNumber(@"dock.extraSize")==56 &&
-        HGAppearanceNumber(@"icons.size")==30,
+        HGAppearanceValue(@"icons.size")==nil,
         @"nondefault user geometry and a radius paired with custom height remain unchanged");
 
     SeedR14Appearance(nil);
     Check(HGAppearanceNumber(@"dock.height")==58 && HGAppearanceNumber(@"dock.radius")==29 &&
-        HGAppearanceNumber(@"dock.extraSize")==54 && HGAppearanceNumber(@"icons.size")==28 &&
+        HGAppearanceNumber(@"dock.extraSize")==54 &&
         !HGAppearanceEnabled(),@"a fresh install gets the current dimensions with appearance still opt-in");
 }
 static void CheckR20GeometryMigration(void) {
@@ -97,7 +97,7 @@ int main(void) {@autoreleasepool {
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];
     NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.finderAI",@"player.mineGlass",@"player.episodeGlass",
-        @"player.controlsGlass",@"player.commentMovesVideo",@"panels.episodes"]];
+        @"player.controlsGlass",@"player.commentMovesVideo",@"panels.episodes",@"mine.show.publish",@"mine.show.theme"]];
     BOOL unique=YES,defaults=YES;
     for(NSDictionary *entry in HGAppearanceCatalog()) {
         unique &= ![keys containsObject:entry[@"key"]];[keys addObject:entry[@"key"]];
@@ -164,10 +164,9 @@ int main(void) {@autoreleasepool {
     Check(!HGAppearanceSet(@"layout.like.x",@(NAN),nil),@"NaN rejected");
     Check(!HGAppearanceSet(@"layout.like.scale",@(INFINITY),nil),@"infinity rejected");
     Check(!HGAppearanceSet(@"dock.material",@"unrecognized",nil),@"unknown material rejected");
-    Check(HGAppearanceSet(@"dock.tint",@"#123ABC",nil),@"hex color accepted");
-    Check(!HGAppearanceSet(@"dock.tint",@"red",nil),@"nonhex color rejected");
-    Check(HGAppearanceSet(@"icons.like.normal.symbol",@"heart.circle.fill",nil),@"SF Symbol syntax accepted");
-    Check(!HGAppearanceSet(@"icons.like.normal.asset",@"../../secret.png",nil),@"image path traversal rejected");
+    Check(!HGAppearanceSearch(@"底栏配色").count && !HGAppearanceSearch(@"自定义动作图标").count &&
+        !HGAppearanceSet(@"dock.tint",@"#123ABC",nil) && !HGAppearanceSet(@"icons.enabled",@YES,nil),
+        @"retired tint and icon options are not searchable or writable");
     Check(!HGAppearanceSet(@"fonts.asset",@"file:///etc/passwd",nil),@"font URI rejected");
     Check(!HGAppearanceSet(@"fonts.asset",@"a.ttf/../b",nil),@"font path traversal rejected");
     Check(HGAppearanceSet(@"fonts.name",@"HelveticaNeue-Bold",nil),@"font name accepted");
@@ -187,14 +186,11 @@ int main(void) {@autoreleasepool {
     NSDictionary *root=@{@"format":@"Honggo.appearance",@"schema":@YES,@"values":@{@"enabled":@YES}};
     Check(!HGAppearanceParse([NSJSONSerialization dataWithJSONObject:root options:0 error:nil],nil),@"boolean schema rejected");
     Check(HGAppearanceApply(HGAppearancePreset(@"glass"),nil),@"glass preset validates");
-    Check(HGAppearanceEnabled() && HGAppearanceFlag(@"dock.enabled") && HGAppearanceFlag(@"icons.enabled") && HGAppearanceFlag(@"panels.speed"),@"glass preset activates visible modules");
-    Check([HGAppearanceString(@"icons.preset") isEqual:@"filled"],@"glass preset selects classic solid action glyphs");
+    Check(HGAppearanceEnabled() && HGAppearanceFlag(@"dock.enabled") && HGAppearanceFlag(@"panels.speed"),@"glass preset activates visible modules");
     NSDictionary *legacyIcons=@{@"format":@"Honggo.appearance",@"schema":@1,
-        @"values":@{@"icons.preset":@"outline",@"icons.collect.normal.symbol":@"bookmark.fill"}};
+        @"values":@{@"dock.height":@54,@"dock.normal":@"#001122",@"icons.preset":@"outline",@"icons.collect.normal.symbol":@"bookmark.fill"}};
     NSDictionary *importedIcons=HGAppearanceParse([NSJSONSerialization dataWithJSONObject:legacyIcons options:0 error:nil],nil);
-    Check([importedIcons[@"icons.preset"] isEqual:@"filled"] &&
-        [importedIcons[@"icons.collect.normal.symbol"] isEqual:@"bookmark.fill"],
-        @"older outline backups migrate to classic while preserving explicit icon overrides");
+    Check([importedIcons isEqual:@{@"dock.height":@54}],@"old backups discard the retired entries and retain valid settings");
     Check(HGAppearanceNeedsGlass(),@"startup knows the visual preset requests glass");
     Check(HGAppearanceApply(HGAppearancePreset(@"focus"),nil) && HGAppearanceFlag(@"dock.autoCollapse") && HGAppearanceFlag(@"layout.tags.hidden"),@"focus preset supplies collapse and clean layout");
     HGAppearanceReset();

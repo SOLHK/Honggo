@@ -1,14 +1,12 @@
 #import "SettingsTransition.h"
 #import "Community.h"
 
-@interface HGAAppearanceController : UITableViewController <UISearchResultsUpdating,UISearchControllerDelegate,PHPickerViewControllerDelegate,UIDocumentPickerDelegate,UIFontPickerViewControllerDelegate,UIColorPickerViewControllerDelegate>
+@interface HGAAppearanceController : UITableViewController <UISearchResultsUpdating,UISearchControllerDelegate,UIDocumentPickerDelegate,UIFontPickerViewControllerDelegate>
 @property(nonatomic,copy) NSString *group;
 @property(nonatomic,copy) NSArray<NSArray<NSDictionary *> *> *sections;
 @property(nonatomic,copy) NSArray<NSString *> *sectionTitles;
 @property(nonatomic,strong) UISearchController *search;
 @property(nonatomic,copy) dispatch_block_t pendingAction;
-@property(nonatomic,copy) NSString *assetKey;
-@property(nonatomic,copy) NSString *colorKey;
 @property(nonatomic) BOOL busy;
 @end
 
@@ -80,15 +78,6 @@ static NSString *HGARoleSummary(NSString *role) {
     return @"默认";
 }
 
-static NSString *HGAIconRoleSummary(NSString *role) {
-    NSString *ns=HGAppearanceString([NSString stringWithFormat:@"icons.%@.normal.symbol",role]);
-    NSString *na=HGAppearanceString([NSString stringWithFormat:@"icons.%@.normal.asset",role]);
-    NSString *ss=HGAppearanceString([NSString stringWithFormat:@"icons.%@.selected.symbol",role]);
-    NSString *sa=HGAppearanceString([NSString stringWithFormat:@"icons.%@.selected.asset",role]);
-    if(ns.length || na.length || ss.length || sa.length)return @"已自定义";
-    return @"跟随预设";
-}
-
 static NSString *HGAGroupDisplayTitle(NSString *group) {
     if(!group.length)return @"外观";
     if([group hasPrefix:@"setting."])return HGAGroupDisplayTitle(HGACatalogDef([group substringFromIndex:8])[@"group"]);
@@ -96,7 +85,6 @@ static NSString *HGAGroupDisplayTitle(NSString *group) {
         @"general":@"外观总开关",
         @"dock":@"悬浮底栏",
         @"dock.geometry":@"底栏尺寸与圆角",
-        @"dock.colors":@"底栏配色",
         @"dock.extra":@"独立圆形按钮",
         @"dock.collapse":@"收缩与手势",
         @"dock.hide":@"底栏导航项隐藏",
@@ -108,7 +96,6 @@ static NSString *HGAGroupDisplayTitle(NSString *group) {
         @"chrome.mine.hide":@"我的快捷入口",
         @"player":@"播放布局与控件",
         @"panels":@"弹出面板",
-        @"icons":@"动作图标",
         @"fonts":@"字体与字号"
     };
     if(titles[group])return titles[group];
@@ -116,11 +103,6 @@ static NSString *HGAGroupDisplayTitle(NSString *group) {
         NSString *role=[group substringFromIndex:5];
         NSUInteger idx=[HGAppearanceRoles() indexOfObject:role];
         if(idx!=NSNotFound)return HGAppearanceRoleTitles()[idx];
-    }
-    if([group hasPrefix:@"icon."]) {
-        NSString *role=[group substringFromIndex:5];
-        NSUInteger idx=[HGAppearanceRoles() indexOfObject:role];
-        if(idx!=NSNotFound)return [HGAppearanceRoleTitles()[idx] stringByAppendingString:@"图标"];
     }
     return @"外观";
 }
@@ -212,8 +194,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         [rows addObject:HGASubpage(@"@group.player",@"播放布局与控件",@"播放方式、控件位置与大小")];
         [rows addObject:HGASubpage(@"@group.gestures",@"播放手势",@"双指清屏与双击评论")];
         [rows addObject:HGASubpage(@"@group.panels",@"弹出面板",@"评论、选集、分享与倍速面板")];
-        section(@"图标与文字");
-        [rows addObject:HGASubpage(@"@group.icons",@"动作图标",HGAppearanceFlag(@"icons.enabled")?@"已开启":@"默认")];
+        section(@"文字");
         [rows addObject:HGASubpage(@"@group.fonts",@"字体与字号",HGAppearanceFlag(@"fonts.enabled")?@"已开启":@"默认")];
     } else if([self.group hasPrefix:@"setting."]) {
         HGAAddDefs(rows,@[[self.group substringFromIndex:8]]);
@@ -226,13 +207,10 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"布局与交互");
         [rows addObject:HGASubpage(@"@group.dock.extra",@"独立圆形按钮",HGAppearanceFlag(@"dock.extra")?@"已开启":@"已关闭")];
         [rows addObject:HGASubpage(@"@group.dock.geometry",@"底栏尺寸与圆角",@"宽度、高度、圆角与图标大小（1–100%）")];
-        [rows addObject:HGASubpage(@"@group.dock.colors",@"底栏配色",@"底色、选中与未选中颜色")];
         [rows addObject:HGASubpage(@"@group.dock.collapse",@"收缩与手势",HGAppearanceFlag(@"dock.collapse")?@"已开启":@"已关闭")];
         [rows addObject:HGASubpage(@"@group.dock.hide",@"底栏导航项隐藏",@"单独隐藏首页、剧场、商城或我的")];
     } else if([self.group isEqual:@"dock.geometry"]) {
         HGAAddDefs(rows,@[@"dock.width",@"dock.height",@"dock.lift",@"dock.radius",@"dock.iconSize"]);
-    } else if([self.group isEqual:@"dock.colors"]) {
-        HGAAddDefs(rows,@[@"dock.tint",@"dock.selected",@"dock.normal"]);
     } else if([self.group isEqual:@"dock.extra"]) {
         HGAAddDefs(rows,@[@"dock.extra",@"dock.action",@"dock.extraSize"]);
     } else if([self.group isEqual:@"dock.collapse"]) {
@@ -298,24 +276,6 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"panels.episodes",@"panels.share",@"panels.longpress",@"panels.speed"]);
         section(@"材质");
         HGAAddDefs(rows,@[@"panels.material",@"panels.opacity"]);
-    } else if([self.group isEqual:@"icons"]) {
-        HGAAddDefs(rows,@[@"icons.enabled",@"icons.preset",@"icons.size"]);
-        section(@"单独设置图标");
-        for(NSString *role in @[@"like",@"collect",@"comment",@"share"]) {
-            NSUInteger idx=[HGAppearanceRoles() indexOfObject:role];
-            NSString *title=[HGAppearanceRoleTitles()[idx] stringByAppendingString:@"图标"];
-            [rows addObject:HGASubpage([@"@group.icon." stringByAppendingString:role],title,HGAIconRoleSummary(role))];
-        }
-    } else if([self.group hasPrefix:@"icon."]) {
-        NSString *role=[self.group substringFromIndex:5];
-        NSMutableArray *keys=[NSMutableArray arrayWithObjects:
-            [NSString stringWithFormat:@"icons.%@.normal.symbol",role],
-            [NSString stringWithFormat:@"icons.%@.normal.asset",role],nil];
-        if([role isEqual:@"like"] || [role isEqual:@"collect"]) {
-            [keys addObject:[NSString stringWithFormat:@"icons.%@.selected.symbol",role]];
-            [keys addObject:[NSString stringWithFormat:@"icons.%@.selected.asset",role]];
-        }
-        HGAAddDefs(rows,keys);
     } else if([self.group isEqual:@"fonts"]) {
         HGAAddDefs(rows,@[@"fonts.enabled",@"fonts.scale"]);
         section(@"字体来源");
@@ -395,7 +355,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         NSString *value=HGAppearanceString(key);
         if([kind isEqual:@"choice"]) {
             NSUInteger i=[row[@"choices"] indexOfObject:value];cell.detailTextLabel.text=i!=NSNotFound?row[@"labels"][i]:@"默认";
-        }else if([kind isEqual:@"image"] || [kind isEqual:@"fontfile"])cell.detailTextLabel.text=value.length?@"已选择本地资源，点击可更换或清除":@"未选择";
+        }else if([kind isEqual:@"fontfile"])cell.detailTextLabel.text=value.length?@"已选择本地资源，点击可更换或清除":@"未选择";
         else if(![kind isEqual:@"action"])cell.detailTextLabel.text=value.length?value:@"跟随系统／预设";
         if([key hasPrefix:@"@role.reset."])cell.textLabel.textColor=UIColor.systemRedColor;
     }return cell;
@@ -475,23 +435,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         for(NSUInteger i=0;i<values.count;i++)[a addAction:[UIAlertAction actionWithTitle:labels[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *button){[self save:key value:values[i]];[self reloadRows];}]];
         [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];[self presentSheet:a];return;
     }
-    if([kind isEqual:@"symbol"]) {
-        UIAlertController *a=[UIAlertController alertControllerWithTitle:row[@"title"] message:@"输入系统图标名，如 heart.fill、star.fill。保存会替换该项图片，留空清除系统图标。" preferredStyle:UIAlertControllerStyleAlert];
-        [a addTextFieldWithConfigurationHandler:^(UITextField *text){text.text=HGAppearanceString(key);text.autocorrectionType=UITextAutocorrectionTypeNo;text.autocapitalizationType=UITextAutocapitalizationTypeNone;}];
-        [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-        [a addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *button){
-            NSString *value=[a.textFields.firstObject.text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-            if(value.length && ![UIImage systemImageNamed:value]) {dispatch_async(dispatch_get_main_queue(),^{[self message:@"图标不存在" detail:@"此系统没有该 SF Symbol，请检查名称。"];});return;}
-            if(value.length) {
-                NSError *error=nil;
-                NSString *imageKey=[[key stringByDeletingPathExtension] stringByAppendingString:@".asset"];
-                if(!HGAppearanceApply(@{key:value,imageKey:@""},&error))
-                    dispatch_async(dispatch_get_main_queue(),^{[self message:@"设置未更改" detail:error.localizedDescription];});
-            } else [self save:key value:value];
-            [self reloadRows];
-        }]];[self presentViewController:a animated:YES completion:nil];return;
-    }
-    if([kind isEqual:@"color"] || [kind isEqual:@"image"] || [kind isEqual:@"font"] || [kind isEqual:@"fontfile"]) {
+    if([kind isEqual:@"font"] || [kind isEqual:@"fontfile"]) {
         UIAlertController *a=[UIAlertController alertControllerWithTitle:row[@"title"] message:nil preferredStyle:UIAlertControllerStyleActionSheet];
         [a addAction:[UIAlertAction actionWithTitle:@"选择…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *button){
             // Wait for the action sheet's dismissal; presenting on the next
@@ -507,31 +451,14 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 }
 - (void)launchPicker:(NSDictionary *)row {
     if(self.presentedViewController || !self.viewIfLoaded.window)return;
-    NSString *key=row[@"key"],*kind=row[@"kind"];
-    if([kind isEqual:@"color"]) {
-        self.colorKey=key;UIColorPickerViewController *picker=[UIColorPickerViewController new];
-        picker.delegate=self;picker.supportsAlpha=NO;picker.selectedColor=HGAppearanceColor(HGAppearanceString(key),UIColor.labelColor);
-        [self presentViewController:picker animated:YES completion:nil];
-    }else if([kind isEqual:@"image"]) {
-        self.assetKey=key;PHPickerConfiguration *configuration=[PHPickerConfiguration new];
-        configuration.filter=PHPickerFilter.imagesFilter;configuration.selectionLimit=1;
-        PHPickerViewController *picker=[[PHPickerViewController alloc] initWithConfiguration:configuration];picker.delegate=self;
-        [self presentViewController:picker animated:YES completion:nil];
-    }else if([kind isEqual:@"font"]) {
+    NSString *kind=row[@"kind"];
+    if([kind isEqual:@"font"]) {
         UIFontPickerViewControllerConfiguration *configuration=[UIFontPickerViewControllerConfiguration new];
         configuration.includeFaces=YES;
         UIFontPickerViewController *picker=[[UIFontPickerViewController alloc] initWithConfiguration:configuration];picker.delegate=self;
         [self presentViewController:picker animated:YES completion:nil];
     }else [self pickFontDocument];
 }
-- (void)colorPickerViewController:(UIColorPickerViewController *)controller didSelectColor:(UIColor *)color continuously:(BOOL)continuously {
-    CGFloat r=0,g=0,b=0,a=0;
-    if([[color resolvedColorWithTraitCollection:self.traitCollection] getRed:&r green:&g blue:&b alpha:&a]) {
-        NSString *hex=[NSString stringWithFormat:@"#%02X%02X%02X",(unsigned)lround(r*255),(unsigned)lround(g*255),(unsigned)lround(b*255)];
-        [self save:self.colorKey value:hex];
-    }
-}
-- (void)colorPickerViewControllerDidFinish:(UIColorPickerViewController *)controller {[self reloadRows];}
 - (void)fontPickerViewControllerDidPickFont:(UIFontPickerViewController *)controller {
     NSString *name=[controller.selectedFontDescriptor objectForKey:UIFontDescriptorNameAttribute];
     [controller dismissViewControllerAnimated:YES completion:^{
@@ -540,23 +467,6 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     }];
 }
 - (void)fontPickerViewControllerDidCancel:(UIFontPickerViewController *)controller {[controller dismissViewControllerAnimated:YES completion:nil];}
-- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
-    NSString *key=self.assetKey;self.assetKey=nil;
-    [picker dismissViewControllerAnimated:YES completion:^{
-        NSItemProvider *provider=results.firstObject.itemProvider;if(!provider)return;
-        self.busy=YES;
-        [provider loadFileRepresentationForTypeIdentifier:UTTypeImage.identifier completionHandler:^(NSURL *url,NSError *failure) {
-            NSError *error=failure;
-            NSData *data=url?HGAReadFile(url,12*1024*1024,&error):nil;
-            NSString *token=data?HGAImportImage(data,&error):nil;
-            dispatch_async(dispatch_get_main_queue(),^{
-                self.busy=NO;
-                if(token){[self save:key value:token];[self reloadRows];}
-                else [self message:@"图片未导入" detail:error.localizedDescription ?: @"无法读取所选图片。"];
-            });
-        }];
-    }];
-}
 - (void)pickFontDocument {
     NSMutableArray<UTType *> *types=[NSMutableArray array];
     for(NSString *extension in @[@"ttf",@"otf",@"ttc"]) {

@@ -21,8 +21,8 @@ static NSObject *HGALock(void) { static NSObject *lock; static dispatch_once_t o
                 @synchronized(lock) { HGACachedValues=nil; }
             }];
     }); return lock; }
-NSArray *HGAppearanceGroups(void) { return @[@"general",@"dock",@"chrome",@"mine",@"player",@"gestures",@"panels",@"icons",@"fonts"]; }
-NSArray *HGAppearanceGroupTitles(void) { return @[@"外观总开关",@"悬浮底栏 Dock",@"顶部导航与找剧",@"我的页面",@"播放布局与控件",@"播放手势",@"弹出面板",@"动作图标",@"字体与字号"]; }
+NSArray *HGAppearanceGroups(void) { return @[@"general",@"dock",@"chrome",@"mine",@"player",@"gestures",@"panels",@"fonts"]; }
+NSArray *HGAppearanceGroupTitles(void) { return @[@"外观总开关",@"悬浮底栏 Dock",@"顶部导航与找剧",@"我的页面",@"播放布局与控件",@"播放手势",@"弹出面板",@"字体与字号"]; }
 NSArray *HGAppearanceRoles(void) { return @[@"avatar", @"collect", @"comment", @"like", @"share", @"more", @"channels", @"info", @"tags", @"progress", @"danmaku", @"episodes", @"notice"]; }
 NSArray *HGAppearanceRoleTitles(void) { return @[@"作者头像", @"收藏", @"评论", @"点赞", @"分享", @"更多", @"顶部频道", @"作者与剧集信息", @"分类标签", @"进度条", @"弹幕入口", @"观看全集入口", @"内容声明"]; }
 static NSDictionary *HGADef(NSString *key, NSString *group, NSString *title, NSString *kind, id value, NSDictionary *extra) {
@@ -53,10 +53,6 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         number(@"dock.lift",@"dock",@"底栏上移距离",0,0,24);
         number(@"dock.radius",@"dock",@"底栏圆角",HGADockDefaultHeight/2,8,40);
         number(@"dock.iconSize",@"dock",@"底栏图标大小",HGADockDefaultIconSize,16,30);
-        for (NSString *field in @[@"tint",@"selected",@"normal"]) {
-            NSString *title = [@{@"tint":@"底栏底色",@"selected":@"选中颜色",@"normal":@"未选中颜色"} objectForKey:field];
-            [a addObject:HGADef([@"dock." stringByAppendingString:field],@"dock",title,@"color",@"",nil)];
-        }
         flag(@"dock.haptics",@"dock",@"导航触感反馈");
         flag(@"dock.collapse",@"dock",@"开启上滑收缩／下滑展开");
         flag(@"dock.autoCollapse",@"dock",@"跟随播放器滑动收缩");
@@ -127,19 +123,6 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         }
         choice(@"panels.material",@"panels",@"面板材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）"]);
         number(@"panels.opacity",@"panels",@"面板底色不透明度",0.28,0.08,0.85);
-        flag(@"icons.enabled",@"icons",@"使用自定义动作图标");
-        choice(@"icons.preset",@"icons",@"动作图标样式",@[@"filled",@"square",@"circle"],
-            @[@"经典实心",@"几何实心",@"柔圆实心"]);
-        number(@"icons.size",@"icons",@"动作图标大小",28,20,48);
-        for (NSString *role in @[@"like",@"collect",@"comment",@"share"]) {
-            NSString *title = [HGAppearanceRoleTitles() objectAtIndex:[HGAppearanceRoles() indexOfObject:role]];
-            for (NSString *state in @[@"normal",@"selected"]) {
-                NSString *base = [NSString stringWithFormat:@"icons.%@.%@",role,state];
-                NSString *caption = [NSString stringWithFormat:@"%@%@",title,[state isEqual:@"selected"] ? @" · 选中" : @" · 普通"];
-                [a addObject:HGADef([base stringByAppendingString:@".symbol"],@"icons",[caption stringByAppendingString:@" SF Symbol"],@"symbol",@"",nil)];
-                [a addObject:HGADef([base stringByAppendingString:@".asset"],@"icons",[caption stringByAppendingString:@" 自选图片"],@"image",@"",nil)];
-            }
-        }
         flag(@"fonts.enabled",@"fonts",@"启用原生文字字体与缩放");
         number(@"fonts.scale",@"fonts",@"原生文字字号比例",1,0.5,1.3);
         [a addObject:HGADef(@"fonts.name",@"fonts",@"选择已安装字体",@"font",@"",nil)];
@@ -154,7 +137,6 @@ NSArray<NSDictionary *> *HGAppearanceSearch(NSString *query) {
     NSMutableArray *matches=[NSMutableArray array];
     for(NSDictionary *entry in HGAppearanceCatalog()) {
         NSString *key=entry[@"key"];
-        if([key hasPrefix:@"icons.comment.selected."] || [key hasPrefix:@"icons.share.selected."])continue;
         NSUInteger index=[groups indexOfObject:entry[@"group"]];
         NSString *description=[NSString stringWithFormat:@"%@ %@ %@ %@ %@",entry[@"title"],key,
             index==NSNotFound ? @"" : titles[index],[entry[@"labels"] componentsJoinedByString:@" "] ?: @"",entry[@"keywords"] ?: @""];
@@ -182,10 +164,7 @@ static BOOL HGAValid(NSDictionary *def,id value) {
     if(![value isKindOfClass:NSString.class] || [value length]>128) return NO;
     if([kind isEqual:@"choice"]) return [def[@"choices"] containsObject:value];
     if(![value length]) return YES;
-    NSString *pattern = [kind isEqual:@"color"] ? @"^#[0-9A-Fa-f]{6}$" :
-        ([kind isEqual:@"image"] ? @"^[a-f0-9]{64}\\.png$" :
-        ([kind isEqual:@"fontfile"] ? @"^[a-f0-9]{64}\\.(ttf|otf|ttc)$" :
-        ([kind isEqual:@"symbol"] ? @"^[A-Za-z0-9.]+$" : @"^[^\\x00-\\x1F/\\\\]{1,128}$")));
+    NSString *pattern=[kind isEqual:@"fontfile"] ? @"^[a-f0-9]{64}\\.(ttf|otf|ttc)$" : @"^[^\\x00-\\x1F/\\\\]{1,128}$";
     return [value rangeOfString:pattern options:NSRegularExpressionSearch].location!=NSNotFound;
 }
 NSDictionary *HGAppearanceValues(void) {
@@ -198,7 +177,7 @@ NSDictionary *HGAppearanceValues(void) {
         if(![NSUserDefaults.standardUserDefaults boolForKey:HGAR15GeometryMigration]) {
             NSMutableDictionary *updated=[stored mutableCopy];
             NSDictionary *stock=@{@"dock.height":@[@52,@62],@"dock.radius":@[@26,@31],
-                @"dock.iconSize":@[@21,@26],@"dock.extraSize":@[@48,@62],@"icons.size":@[@26,@28]};
+                @"dock.iconSize":@[@21,@26],@"dock.extraSize":@[@48,@62]};
             BOOL stockHeight=[stored[@"dock.height"] isEqual:@52];
             for(NSString *key in stock) {
                 if([key isEqual:@"dock.radius"] && !stockHeight)continue;
@@ -260,13 +239,9 @@ BOOL HGFlatDockStyle(void) { return [HGAppearanceString(@"dock.style") isEqual:@
 BOOL HGFlatTopStyle(void) { return [HGAppearanceString(@"player.headerStyle") isEqual:@"flat"]; }
 BOOL HGFlatPlayerStyle(void) { return [HGAppearanceString(@"player.actionStyle") isEqual:@"flat"]; }
 static BOOL HGAError(NSError **error,NSString *message) { if(error)*error=[NSError errorWithDomain:@"Honggo.Appearance" code:1 userInfo:@{NSLocalizedDescriptionKey:message}]; return NO; }
-static void HGAMigrateActionIconPreset(NSMutableDictionary *values) {
-    if([values[@"icons.preset"] isEqual:@"outline"])values[@"icons.preset"]=@"filled";
-}
 BOOL HGAppearanceApply(NSDictionary *values,NSError **error) {
     if(![values isKindOfClass:NSDictionary.class] || values.count==0 || values.count>HGAppearanceCatalog().count) return HGAError(error,@"外观配置内容无效。");
     NSMutableDictionary *snapshot=values.mutableCopy;
-    HGAMigrateActionIconPreset(snapshot);
     for(id key in snapshot) if(!HGAValid(HGADefinition(key),snapshot[key])) return HGAError(error,@"存在未知设置、错误类型或超出范围的数值。");
     @synchronized(HGALock()) {
         NSMutableDictionary *merged=[HGAppearanceValues() mutableCopy]; [merged addEntriesFromDictionary:snapshot];
@@ -292,7 +267,7 @@ BOOL HGAppearanceNeedsGlass(void) {
 NSDictionary *HGAppearancePreset(NSString *name) {
     NSMutableDictionary *d=[NSMutableDictionary dictionary]; for(NSDictionary *def in HGAppearanceCatalog()) d[def[@"key"]]=def[@"default"];
     if([name isEqual:@"glass"] || [name isEqual:@"focus"]) {
-        for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"dock.haptics",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed",@"icons.enabled"])d[key]=@YES;
+        for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"dock.haptics",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"])d[key]=@YES;
         if([name isEqual:@"focus"]) {d[@"dock.collapse"]=@YES; d[@"dock.autoCollapse"]=@YES; for(NSString *role in @[@"avatar",@"tags",@"notice"])d[[NSString stringWithFormat:@"layout.%@.hidden",role]]=@YES; }
     }
     return d.copy;
@@ -313,8 +288,13 @@ NSDictionary *HGAppearanceParse(NSData *data,NSError **error) {
         }
         [d removeObjectForKey:@"player.fillButton"];
     }
+    // Ignore only retired keys from earlier appearance backups.
+    [d removeObjectsForKeys:@[@"dock.tint",@"dock.selected",@"dock.normal",@"icons.enabled",@"icons.preset",@"icons.size"]];
+    for(NSString *role in @[@"like",@"collect",@"comment",@"share"])
+        for(NSString *state in @[@"normal",@"selected"])
+            for(NSString *field in @[@"asset",@"symbol"])
+                [d removeObjectForKey:[NSString stringWithFormat:@"icons.%@.%@.%@",role,state,field]];
     if(!d.count){HGAError(error,@"文件未包含可用的外观参数。");return nil;}
-    HGAMigrateActionIconPreset(d);
     for(id key in d) if(!HGAValid(HGADefinition(key),d[key])){HGAError(error,@"文件包含未知或无效的外观参数。");return nil;}
     return d.copy;
 }

@@ -708,7 +708,7 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     CGRect frame=host.customTabBar.frame;
     CGRect roomy=frame;roomy.size.height=84;roomy.origin.y=host.view.bounds.size.height-84;
     host.customTabBar.frame=roomy;host.selectedIndex=0;
-    HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.material":@"regular",@"dock.tint":@"",
+    HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.material":@"regular",
         @"dock.content":@"icon",@"dock.radius":@29,@"dock.height":@58,@"dock.extra":@YES,@"dock.action":@"search",
         @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@YES,@"dock.hide.mine":@YES},nil);
     HGAppearanceLayoutDock(host.customTabBar,host);Layout(host.customTabBar);
@@ -773,8 +773,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.material":@"regular",
         @"dock.content":@"icon",@"dock.height":@62,@"dock.width":@0.905,@"dock.radius":@30,
         @"dock.iconSize":@26,@"dock.extra":@YES,@"dock.extraSize":@62,@"dock.action":@"mine",
-        @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@YES,@"dock.hide.mine":@YES,
-        @"dock.selected":@"",@"dock.normal":@"",@"dock.tint":@""},nil);
+        @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@YES,@"dock.hide.mine":@YES},nil);
     HGAppearanceLayoutDock(host.customTabBar,host);
     UIView *dock=Find(host.customTabBar,@"honggo.appearance.dock");
     UIView *capsule=Find(dock,@"honggo.appearance.dock.capsule");
@@ -814,15 +813,6 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
         host.overrideUserInterfaceStyle==UIUserInterfaceStyleLight,
         @"video dock keeps dark glass without changing the host light theme");
-    HGAppearanceSet(@"dock.tint",@"#604080",nil);
-    Layout(capsuleMaterial);Layout(extraMaterial);
-    UIColor *customColor=[HGAppearanceColor(@"#604080",nil)
-        colorWithAlphaComponent:UIAccessibilityIsReduceTransparencyEnabled()?1:0.30];
-    Check([capsuleMaterial.contentView.backgroundColor isEqual:customColor] &&
-        [extraMaterial.contentView.backgroundColor isEqual:customColor],
-        @"custom dock tint colors both the capsule and the independent action");
-    HGAppearanceSet(@"dock.tint",@"",nil);
-    Layout(capsuleMaterial);Layout(extraMaterial);
     Check(!home.automaticallyUpdatesConfiguration && !home.configuration.automaticallyUpdateForSelection,
         @"dock owns selection appearance instead of inheriting UIKit accent selection");
     HGADockPixelCounts normal=HGADockPixels(home),accessory=HGADockPixels(extra);
@@ -851,17 +841,10 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGADockPixelCounts switched=HGADockPixels(theater);
     Check(switched.blue==0 && switched.brightNeutral>8,
         @"newly selected theater renders white after the selected state changes");
-    HGAppearanceSet(@"dock.selected",@"#26B37E",nil);Layout(theater);
-    CGFloat r=0,g=0,b=0,a=0;
-    [theater.configuration.baseForegroundColor getRed:&r green:&g blue:&b alpha:&a];
-    Check(fabs(r-38/255.0)<0.001 && fabs(g-179/255.0)<0.001 &&
-        HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection),
-        @"explicit user glyph colors are preserved while selection background remains neutral");
     // Model the host switching from dark playback into a light catalogue page
     // even while the app's trait differs from its per-tab appearance.
     host.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
     theme.selectedImageColor=UIColor.blackColor;
-    HGAppearanceSet(@"dock.selected",@"",nil);
     HGAppearanceLayoutDock(host.customTabBar,host);Layout(capsuleMaterial);Layout(extraMaterial);
     UIColor *lightFill=[UIColor colorWithWhite:1 alpha:reduceTransparency?1:0];
     Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
@@ -911,6 +894,12 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
     [extra sendActionsForControlEvents:UIControlEventTouchUpInside];
     Check(host.nativeTaps==taps+3 && host.selectedIndex==3,@"dock and accessory each forward one native navigation action");
+    HGAppearanceSet(@"dock.action",@"home",nil);
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    [extra sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [extra sendActionsForControlEvents:UIControlEventTouchUpInside];
+    Check(host.nativeTaps==taps+5 && host.selectedIndex==0 && dock.superview==host.customTabBar &&
+        host.customTabBar.contentView.hidden,@"selecting detached Home and tapping it again retains one Dock and forwards each native action once");
     // FanqieX-style auto-detach: when all 4 tabs are unhidden and dock.action is a tab,
     // that tab moves out of the main capsule into the separate circular glass button.
     HGAppearanceApply(@{@"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@NO,@"dock.hide.mine":@NO,
@@ -995,7 +984,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         [host.view updateTraitsIfNeeded];
         [host.customTabBar updateTraitsIfNeeded];
     }
-    HGAppearanceApply(@{@"dock.material":@"solid",@"dock.selected":@""},nil);Layout(dock);
+    HGAppearanceApply(@{@"dock.material":@"solid"},nil);Layout(dock);
     UIVisualEffectView *solidMaterial=(id)Find(capsule,@"honggo.appearance.material");
     Layout(solidMaterial);
     UIColor *solidFill=solidMaterial.contentView.backgroundColor;

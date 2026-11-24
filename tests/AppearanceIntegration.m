@@ -259,7 +259,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(!firstModal && !lastModal, @"both valid appearance switch edits complete without a save error sheet");
     BOOL rolesRouted = YES, choiceOpened = NO;
     NSUInteger visitedRoles = 0, styleRows = 0;
-    for (NSString *group in @[@"dock", @"chrome", @"panels", @"icons", @"fonts", @"player"]) {
+    for (NSString *group in @[@"dock", @"chrome", @"panels", @"fonts", @"player"]) {
         NSIndexPath *path = HGMenuPath(home, [@"@group." stringByAppendingString:group]);
         if (path) [home tableView:home.tableView didSelectRowAtIndexPath:path];
         UITableViewController *detail = (id)navigation.topViewController;
@@ -340,24 +340,26 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(HGAppearanceApply(HGAppearancePreset(@"glass"),nil),@"visible preset can be applied");Layout(like);
     UIView *glass=Find(like,@"honggo.appearance.material");
     Check(glass!=nil && !glass.userInteractionEnabled,@"playback glass is attached and does not intercept touches");
-    Check(like.iconImageView.image!=nativeImage,@"icon preset actually replaces the native image");
+    Check(like.iconImageView.image==nativeImage,@"glass buttons retain the host glyph");
+    HGAppearanceSet(@"player.actionStyle",@"flat",nil);Layout(like);
+    Check(like.iconImageView.image!=nativeImage,@"flat styling draws the filled glyph");
     Check([like.countLabel.text isEqual:@"123"],@"counts remain host-owned");
     for(NSUInteger i=0;i<5;i++)Layout(like);
     Check(Count(like,@"honggo.appearance.material")==1,@"repeated layout does not stack material views");
     for(NSUInteger cycle=0;cycle<3;cycle++) {
-        HGAppearanceSet(@"icons.enabled",@NO,nil);
+        HGAppearanceSet(@"player.actionStyle",@"glass",nil);
         Check(like.iconImageView.image==nativeImage,@"repeated icon toggles restore the same native image");
         if(like.iconImageView.image!=nativeImage)NSLog(@"ICON RESTORE native=%@ actual=%@",nativeImage,like.iconImageView.image);
-        HGAppearanceSet(@"icons.enabled",@YES,nil);Layout(like);
+        HGAppearanceSet(@"player.actionStyle",@"flat",nil);Layout(like);
     }
-    HGAppearanceSet(@"icons.enabled",@NO,nil);
+    HGAppearanceSet(@"player.actionStyle",@"glass",nil);
     like.iconImageView.image=[UIImage systemImageNamed:@"bolt.fill"];
     UIImage *updatedHostImage=like.iconImageView.image;
-    HGAppearanceSet(@"icons.enabled",@YES,nil);Layout(like);
-    HGAppearanceSet(@"icons.enabled",@NO,nil);
+    HGAppearanceSet(@"player.actionStyle",@"flat",nil);Layout(like);
+    HGAppearanceSet(@"player.actionStyle",@"glass",nil);
     Check(like.iconImageView.image==updatedHostImage,@"new host image becomes the next restoration baseline");
     like.iconImageView.image=nativeImage;
-    HGAppearanceSet(@"icons.enabled",@YES,nil);Layout(like);
+    HGAppearanceSet(@"player.actionStyle",@"flat",nil);Layout(like);
     [like sendActionsForControlEvents:UIControlEventTouchUpInside];Check(like.taps==1,@"native playback action executes exactly once");
     UIImage *unliked=like.iconImageView.image;
     like.model.isLiked=YES;Layout(like);
@@ -519,7 +521,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     NSIndexPath *masterRow=HGMenuPath(page,@"enabled"),*playbackRow=HGMenuPath(page,@"@group.player");
     NSIndexPath *iconsRow=HGMenuPath(page,@"@group.icons"),*fontsRow=HGMenuPath(page,@"@group.fonts");
     Check(page.tableView.numberOfSections==3 && masterRow && masterRow.section==0 &&
-        playbackRow.section==1 && iconsRow.section==2 && fontsRow.section==2 && !HGMenuPath(page,@"@group.backup"),
+        playbackRow.section==1 && !iconsRow && fontsRow.section==2 && !HGMenuPath(page,@"@group.backup"),
         @"appearance home groups the master switch, interface and playback, and icon and font settings");
     // Level 3 general page removes presets and pushed subpages never attach a nested UISearchController.
     UITableViewController *generalPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];

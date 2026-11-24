@@ -680,7 +680,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     if (segments && !UIAccessibilityIsReduceMotionEnabled()) {
         UIView *lens=Find(header,@"honggo.appearance.header.swipeLens");
         CGFloat center=CGRectGetMidX(lens.frame)-CGRectGetMinX(segments.frame);
-        Check(lens && !lens.hidden && [header.subviews indexOfObjectIdenticalTo:lens]<[header.subviews indexOfObjectIdenticalTo:segments] &&
+        Check(lens && !lens.hidden && [header.subviews indexOfObjectIdenticalTo:lens]>[header.subviews indexOfObjectIdenticalTo:segments] &&
             center>CGRectGetWidth(segments.bounds)*0.25 && center<CGRectGetWidth(segments.bounds)*0.75 &&
             CGRectGetHeight(lens.bounds)>CGRectGetHeight(segments.bounds)-2 &&
             segments.selectedSegmentIndex==UISegmentedControlNoSegment && delayed,
@@ -753,8 +753,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             [scrubber scrubChannels:sample];
             UIView *lens=Find(header,@"honggo.appearance.header.swipeLens");
             Check(lens && !lens.hidden && !lens.userInteractionEnabled && ![lens isKindOfClass:UIVisualEffectView.class] &&
-                [header.subviews indexOfObjectIdenticalTo:lens]<[header.subviews indexOfObjectIdenticalTo:segments] &&
-                channels.nativeSelections==selections+2,@"flat tracking uses a cheap selection under the channel labels");
+                [header.subviews indexOfObjectIdenticalTo:lens]>[header.subviews indexOfObjectIdenticalTo:segments] &&
+                channels.nativeSelections==selections+2,@"flat tracking raises its temporary lens above the flat resting control");
             sample.fixtureState=UIGestureRecognizerStateCancelled;
             [scrubber scrubChannels:sample];
             if(UIView.areAnimationsEnabled)Check(!lens.hidden &&
@@ -804,11 +804,18 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 NSUInteger before=channels.nativeSelections;
                 if (!UIAccessibilityIsReduceMotionEnabled()) {
                     CGFloat restingHeight=CGRectGetHeight(lens.frame);
-                    [buttons[0] sendActionsForControlEvents:UIControlEventTouchDown];
+                    UILongPressGestureRecognizer *hold=nil;
+                    for (UIGestureRecognizer *g in buttons.firstObject.gestureRecognizers)
+                        if ([g isKindOfClass:UILongPressGestureRecognizer.class]) hold=(id)g;
+                    Check(hold && hold.minimumPressDuration==0,@"the rail tracks from initial contact without waiting for pan velocity");
+                    sample.fixtureState=UIGestureRecognizerStateBegan;
+                    sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.25,CGRectGetMidY(group.bounds));
+                    [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
                     Check(refraction.superview==lens && !refraction.hidden && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
                         CGRectGetHeight(lens.frame)>restingHeight && channels.nativeSelections==before,
                         @"touch-down lifts the native refraction on the selected tab before the host selection changes");
-                    [buttons[0] sendActionsForControlEvents:UIControlEventTouchCancel];
+                    sample.fixtureState=UIGestureRecognizerStateCancelled;
+                    [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
                 }
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
@@ -819,7 +826,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 [buttons[0] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                 if (!UIAccessibilityIsReduceMotionEnabled()) {
                     id<HGATestChannelPaging> scrubber=nil;
-                    for (UIGestureRecognizer *gesture in group.gestureRecognizers)
+                    for (UIGestureRecognizer *gesture in buttons.firstObject.gestureRecognizers)
                         if ([gesture.delegate respondsToSelector:@selector(scrubChannels:)]) scrubber=(id)gesture.delegate;
                     sample.fixtureState=UIGestureRecognizerStateChanged;
                     sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.66,CGRectGetMidY(group.bounds));

@@ -1,6 +1,7 @@
 #import "Community.h"
 // Real UIKit integration checks with a controlled host, not the Hongguo IPA.
 #import "Honggo.h"
+#import "ReleaseNotes.h"
 #import <dispatch/dispatch.h>
 #import <math.h>
 
@@ -253,7 +254,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     for (NSUInteger section=0; categoryHeaders && section<expectedHeaders.count; section++)
         categoryHeaders = [[settings tableView:settings.tableView titleForHeaderInSection:section] isEqual:expectedHeaders[section]];
     [self check:[settings.title isEqualToString:@"Honggo"] && [version isKindOfClass:UIButton.class] &&
-        [version.configuration.title isEqual:HG_PLUGIN_VERSION] && categoryHeaders
+        [version.configuration.title isEqual:HG_PLUGIN_VERSION] && version.bounds.size.height>=44 && categoryHeaders
         name:@"the settings homepage shows its version with navigation, playback, filtering and management sections"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
@@ -267,7 +268,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
             if (row.accessibilityIdentifier) [categories addObject:row.accessibilityIdentifier];
         }
     }
-    [self check:level1HasNoInlineSwitches && categories.count == 14 &&
+    [self check:level1HasNoInlineSwitches && categories.count == 13 && ![categories containsObject:@"honggo.settings.category.icons"] &&
         [categories containsObject:@"honggo.settings.category.gestures"] &&
         [categories containsObject:@"honggo.settings.category.mine"]
         name:@"gestures and profile are directly reachable alongside all other home categories"];
@@ -375,6 +376,12 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [self check:opened name:@"the version button opens the release notes card"];
         if(!opened){completion();return;}
         UITableViewController *notes=(id)[(UINavigationController *)navigation.presentedViewController topViewController];
+        if(@available(iOS 26.1,*)) {
+            NSArray *detents=navigation.presentedViewController.sheetPresentationController.detents;
+            BOOL frosted=detents.count==2;
+            for(UISheetPresentationControllerDetent *detent in detents) frosted &= [detent.backgroundEffect isKindOfClass:UIBlurEffect.class];
+            [self check:frosted name:@"both sizes of the release history use a frosted sheet material"];
+        }
         UITableView *table=notes.tableView;
         NSInteger count=[table numberOfRowsInSection:0];
         NSIndexPath *first=[NSIndexPath indexPathForRow:0 inSection:0];
@@ -382,8 +389,8 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         UIListContentConfiguration *current=(id)[table.dataSource tableView:table cellForRowAtIndexPath:first].contentConfiguration;
         if(count)[table scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:NO];
         [table layoutIfNeeded];
-        [self check:count>1 && [current.text isEqual:HG_PLUGIN_VERSION] && current.secondaryText.length &&
-            [table.indexPathsForVisibleRows containsObject:last] name:@"current notes lead the scrollable release history"];
+        [self check:count>1 && [current.text isEqual:HGReleaseNotes().firstObject.firstObject] && current.secondaryText.length &&
+            [table.indexPathsForVisibleRows containsObject:last] name:@"the last published notes lead the scrollable history for an unlisted build"];
         [navigation dismissViewControllerAnimated:NO completion:completion];
     }];
 }

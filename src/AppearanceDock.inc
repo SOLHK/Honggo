@@ -400,6 +400,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.extraSelection.hidden=YES;
         self.extraButton=HGADockButton();
         self.extraButton.accessibilityIdentifier=@"honggo.appearance.dock.extra";
+        [self.extraButton addTarget:self action:@selector(accessoryDown:) forControlEvents:UIControlEventTouchDown|UIControlEventTouchDragEnter];
+        [self.extraButton addTarget:self action:@selector(accessoryUp:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchDragExit|UIControlEventTouchCancel|UIControlEventTouchUpOutside];
         [self.extraButton addTarget:self action:@selector(extraTapped:) forControlEvents:UIControlEventTouchUpInside];
         [self.extra addSubview:self.extraSelection];
         [self.extra addSubview:self.extraButton];
@@ -465,6 +467,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     return NO;
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
+    if(gesture==self.dockTouch && (touch.view==self.extraButton || [touch.view isDescendantOfView:self.extraButton]))
+        return NO;
     if(gesture==self.dockTouch)
         return [self acceptsDockTouchAtPoint:[touch locationInView:self] fromView:touch.view];
     if(gesture!=self.selectionPan)return YES;
@@ -587,6 +591,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.systemTabBar=[[UITabBar alloc] initWithFrame:self.bounds];
         self.systemTabBar.delegate=self;
     }
+    // Slow only the system-owned animations inside our embedded bar.
+    self.systemTabBar.layer.speed=UIAccessibilityIsReduceMotionEnabled() ? 1 : 0.80;
     UIView *carrier=[self systemDockCarrier];
     carrier.frame=self.bounds;
     carrier.accessibilityIdentifier=@"honggo.appearance.dock.system";
@@ -598,10 +604,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 
 - (BOOL)syncSystemItems:(NSArray<NSString *> *)keys content:(NSString *)content iconSize:(CGFloat)size {
     UITraitCollection *traits=self.capsule.traitCollection;
-    UIColor *selected=[(HGAppearanceColor(HGAppearanceString(@"dock.selected"),nil) ?: UIColor.labelColor)
-        resolvedColorWithTraitCollection:traits];
-    UIColor *normal=[(HGAppearanceColor(HGAppearanceString(@"dock.normal"),nil) ?: UIColor.secondaryLabelColor)
-        resolvedColorWithTraitCollection:traits];
+    UIColor *selected=[UIColor.labelColor resolvedColorWithTraitCollection:traits];
+    UIColor *normal=[UIColor.secondaryLabelColor resolvedColorWithTraitCollection:traits];
     NSMutableArray<NSNumber *> *enabled=[NSMutableArray arrayWithCapacity:keys.count];
     for(NSString *key in keys)[enabled addObject:@([(UIControl *)[self.targets objectForKey:key] isEnabled])];
     NSArray *signature=@[keys,content,@(size),selected,normal,enabled];
@@ -970,10 +974,9 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         }
         surface.layer.cornerCurve=kCACornerCurveContinuous;
     }
-    UIColor *tint=HGAppearanceColor(HGAppearanceString(@"dock.tint"),nil);
     BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
-    UIColor *base=tint ?: (translucent ? [UIColor colorWithWhite:light?1:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor);
-    UIColor *fill=[base colorWithAlphaComponent:!translucent || reduced ? 1 : (tint ? 0.30 : 0)];
+    UIColor *base=translucent ? [UIColor colorWithWhite:light?1:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor;
+    UIColor *fill=[base colorWithAlphaComponent:!translucent || reduced ? 1 : 0];
     NSString *content=HGAppearanceString(@"dock.content");
     CGFloat unselectedOpacity=self.traitCollection.accessibilityContrast==UIAccessibilityContrastHigh ? 0.94 : 0.80;
     CGFloat requestedIcon=HGAppearanceNumber(@"dock.iconSize");
@@ -981,7 +984,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.capsule.layer.cornerRadius=radius;
     BOOL systemEligible=NO;
     if(@available(iOS 26.0,*))
-        systemEligible=fabs(self.hostBar.frame.origin.x)<=2.0 && !flat && HGNativeGlassConfigured() && !self.collapsed && !reduced && !tint && visible.count>1 &&
+        systemEligible=fabs(self.hostBar.frame.origin.x)<=2.0 && !flat && HGNativeGlassConfigured() && !self.collapsed && !reduced && visible.count>1 &&
             ([style isEqual:@"regular"] || [style isEqual:@"clear"]) && radius>=height/2-0.5 &&
             ([content isEqual:@"icon"] || !HGAppearanceFlag(@"fonts.enabled"));
     BOOL useSystem=NO;
@@ -1055,9 +1058,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         b.frame=CGRectMake(position*slotWidth,0,slotWidth,height);
         UIControl *source=[self.targets objectForKey:key];
         BOOL active=selected!=NSNotFound ? selected==(NSInteger)index : source.selected;
-        UIColor *customColor=HGAppearanceColor(HGAppearanceString(active?@"dock.selected":@"dock.normal"),nil);
-        UIColor *color=customColor ?: (active ? UIColor.labelColor :
-            (translucent ? [UIColor.labelColor colorWithAlphaComponent:unselectedOpacity] : UIColor.secondaryLabelColor));
+        UIColor *color=active ? UIColor.labelColor :
+            (translucent ? [UIColor.labelColor colorWithAlphaComponent:unselectedOpacity] : UIColor.secondaryLabelColor);
         NSString *symbol=HGATabSymbols()[index];
         UIImage *image=[UIImage systemImageNamed:(flat || active) ? [symbol stringByAppendingString:@".fill"] : symbol] ?: [UIImage systemImageNamed:symbol];
         NSString *title=[content isEqual:@"icon"]?nil:HGATabTitles()[index];
@@ -1097,9 +1099,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     NSString *baseSymbol=[action isEqual:@"settings"]?@"slider.horizontal.3":([action isEqual:@"search"]?@"magnifyingglass":HGATabSymbols()[detachedIndex]);
     UIImage *extraImage=detachedSelected || (flat && detachedIndex!=NSNotFound) ?
         ([UIImage systemImageNamed:[baseSymbol stringByAppendingString:@".fill"]] ?: [UIImage systemImageNamed:baseSymbol]) : [UIImage systemImageNamed:baseSymbol];
-    UIColor *customColor=HGAppearanceColor(HGAppearanceString(detachedSelected?@"dock.selected":@"dock.normal"),nil);
-    UIColor *accessoryColor=customColor ?: (detachedSelected ? UIColor.labelColor :
-        (detachedIndex!=NSNotFound && translucent ? [UIColor.labelColor colorWithAlphaComponent:unselectedOpacity] : UIColor.labelColor));
+    UIColor *accessoryColor=detachedSelected ? UIColor.labelColor :
+        (detachedIndex!=NSNotFound && translucent ? [UIColor.labelColor colorWithAlphaComponent:unselectedOpacity] : UIColor.labelColor);
     UIFont *accessoryFont=[UIFont systemFontOfSize:11];
     CGFloat extraIconSize=MIN(requestedIcon,circle*0.34);
     HGADockConfigureButton(self.extraButton,nil,extraImage,extraIconSize,accessoryFont,accessoryColor);
@@ -1184,10 +1185,15 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(!target || !target.enabled)return;
     UIControlEvents event=(target.allControlEvents & UIControlEventTouchUpInside)?UIControlEventTouchUpInside:UIControlEventPrimaryActionTriggered;
     HGLog(@"navigation.dock", @{@"tab":key, @"phase":@"enter", @"mode":animation});
+    BOOL refreshHome=index==0 && [key isEqual:@"home"] && HGASelectedTab(self.hostController)==index;
     [target sendActionsForControlEvents:event];
     HGLog(@"navigation.dock", @{@"tab":key, @"phase":@"return", @"mode":animation});
     [self feedback];
-    dispatch_async(dispatch_get_main_queue(),^{[self refresh];});
+    dispatch_async(dispatch_get_main_queue(),^{
+        if(refreshHome && HGASelectedTab(self.hostController)==index)
+            [self.hostBar setNeedsLayout];
+        [self refresh];
+    });
 }
 - (void)placeSelection:(CGRect)frame {
     if(!CGRectEqualToRect(self.selection.frame,frame))self.selection.frame=frame;
@@ -1269,7 +1275,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(glyph==self.motionGlyph || UIAccessibilityIsReduceMotionEnabled())return;
     UIButton *previous=self.motionGlyph;
     self.motionGlyph=glyph;
-    [UIView animateWithDuration:glyph?0.20:0.27 delay:0 usingSpringWithDamping:0.68 initialSpringVelocity:0
+    [UIView animateWithDuration:glyph?0.26:0.38 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
             previous.imageView.transform=CGAffineTransformIdentity;
             previous.titleLabel.transform=CGAffineTransformIdentity;
@@ -1305,7 +1311,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
     [self showSelectionMotionMaterial];
     [self animateMotionGlyph:button];
-    [UIView animateWithDuration:0.28 delay:0 usingSpringWithDamping:0.76 initialSpringVelocity:0
+    [UIView animateWithDuration:0.33 delay:0 usingSpringWithDamping:0.84 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
             [self positionDragSelection:position];
         } completion:nil];
@@ -1325,7 +1331,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     [self renderGeometry];
     CGRect resting=self.restingSelectionFrame;
     [self animateMotionGlyph:nil];
-    [UIView animateWithDuration:0.27 delay:0 usingSpringWithDamping:0.76 initialSpringVelocity:0
+    [UIView animateWithDuration:0.42 delay:0 usingSpringWithDamping:0.87 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
         animations:^{
             if(!CGRectIsNull(resting))[self placeSelection:resting];
@@ -1357,11 +1363,13 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     [self positionDragSelection:position];
     if(!UIAccessibilityIsReduceMotionEnabled())[self showSelectionMotionMaterial];
 }
+- (void)accessoryDown:(UIButton *)button { [self animateDockAccessory:button pressed:YES]; }
+- (void)accessoryUp:(UIButton *)button { [self animateDockAccessory:button pressed:NO]; }
 - (void)animateDockAccessory:(UIButton *)button pressed:(BOOL)pressed {
     if(UIAccessibilityIsReduceMotionEnabled())return;
-    [UIView animateWithDuration:0.24 delay:0 usingSpringWithDamping:0.74 initialSpringVelocity:0
+    [UIView animateWithDuration:pressed?0.22:0.38 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
-            button.imageView.transform=pressed ? CGAffineTransformMakeScale(0.83,0.83) : CGAffineTransformIdentity;
+            button.imageView.transform=pressed ? CGAffineTransformMakeScale(0.91,0.91) : CGAffineTransformIdentity;
         } completion:nil];
 }
 - (void)willMoveToWindow:(UIWindow *)window {
