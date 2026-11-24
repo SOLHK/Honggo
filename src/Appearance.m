@@ -213,8 +213,11 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 if(!HGAApplying)HGRefreshVideoBackdropForPlayer(object);
                 return;
             }
-            if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)))
+            if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview))) {
                 HGAFinishPlayerTransfer(object,selector);
+                if ([(UIView *)object window])
+                    HGScheduleFeedLayoutRefresh((UIScrollView *)HGAAncestorNamed(object,@"FQVCollectionView"));
+            }
             if(episodeWrapper)HGAEpisodeWrapperChanged(object);
             if(playerNavigation){HGAApplyPlayerNavigation(object);return;}
             if (controller) {
@@ -341,6 +344,13 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 // Ending a seek reclips the control's feed ancestors. Reapply
                 // the active dock extension after the original clipping pass.
                 if(value)HGRefreshVideoBackdropForPlayer(object);
+            } else if (controller && selector==@selector(viewDidAppear:) &&
+                       [className isEqual:@"FQVShortVideoListViewController"]) {
+                HGAppearanceProcessController(object);
+                // The incoming feed is known here even when the old tab is
+                // still in the transition tree and a whole-window scan abstains.
+                for (UIView *child in ((UIViewController *)object).viewIfLoaded.subviews)
+                    HGARefreshBackdropAfterScroll(child);
             } else if(controller)HGAppearanceProcessController(object);
             else HGAppearanceProcessView(object);
         });
@@ -366,6 +376,9 @@ void HGAppearanceRefresh(void) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();}); return; }
     HGARefreshAssets();
     HGARefreshMinePublishVisibility();
+    // A zero-height shortcut owner may no longer have a visible cell to
+    // invalidate itself when a switch is turned back on.
+    HGARefreshFinderRowLayout();
     for(id component in HGAPlayerNavigations.allObjects)HGAApplyPlayerNavigation(component);
     HGRecordCapability(@"module.appearance",@{@"module":@"appearance",
         @"state":HGAppearanceEnabled() ? (HGAHooks.count ? @"partial":@"unavailable") : @"disabled",
@@ -390,7 +403,22 @@ void HGInstallAppearance(void) {
         HGAInstallNativeShareRoute();
         HGAInstallCommentMovement();
         Class metal=objc_lookUpClass("TTMetalView");
-        if([metal isSubclassOfClass:UIView.class])HGAHook(metal,@selector(layoutSubviews),"v16@0:8",NO);
+        if([metal isSubclassOfClass:UIView.class]) {
+            HGAHook(metal,@selector(layoutSubviews),"v16@0:8",NO);
+            // The player can attach first, then set its aspect-fill frame without
+            // another feed layout. Re-evaluate only the feed owning that surface.
+            static IMP originalMetalFrame;
+            if (!originalMetalFrame) {
+                IMP update=imp_implementationWithBlock(^(UIView *surface,CGRect frame) {
+                    CGRect previous=surface.frame;
+                    ((void (*)(id,SEL,CGRect))originalMetalFrame)(surface,@selector(setFrame:),frame);
+                    if (surface.window && !CGRectEqualToRect(previous,surface.frame))
+                        HGScheduleFeedLayoutRefresh((UIScrollView *)HGAAncestorNamed(surface,@"FQVCollectionView"));
+                });
+                originalMetalFrame=HGInstallVerifiedHook(metal,@selector(setFrame:),"v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",update,@"appearance");
+                if (!originalMetalFrame) imp_removeBlock(update);
+            }
+        }
         NSUInteger found=0;
         NSMutableOrderedSet *classes=[NSMutableOrderedSet orderedSetWithArray:HGAViewRoles().allKeys];
         [classes addObjectsFromArray:HGACommentSurfaces()];
@@ -566,8 +594,10 @@ void HGInstallAppearance(void) {
         // The original navigation is still owned by the host controller.
         Class dockController=NSClassFromString(@"SSTabBarController");
         Class playbackController=NSClassFromString(@"FQVShortVideoListViewController");
-        if([playbackController isSubclassOfClass:UIViewController.class])
+        if([playbackController isSubclassOfClass:UIViewController.class]) {
+            HGAHook(playbackController,@selector(viewDidAppear:),"v20@0:8B16",YES);
             HGAHook(playbackController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
+        }
         Class detailController=NSClassFromString(@"SSShortVideoDetailViewController");
         if([detailController isSubclassOfClass:UIViewController.class])
             HGAHook(detailController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);

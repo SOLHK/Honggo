@@ -612,7 +612,7 @@ BOOL HGVideoBackdropRefreshForFeed(UIScrollView *feed) {
     if (!owner) return NO;
     if (HGAppearanceDockEnabled()) [owner refreshFeed];
     else [owner restore];
-    return YES;
+    return owner.feed == feed;
 }
 
 static UIScrollView *HGVideoBackdropPlayerFeed(UIView *view) {

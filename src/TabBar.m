@@ -870,18 +870,6 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
 - (void)refresh {
     if (self.refreshing || HGFeedSidebarOwnsLayout(self.bar.window)) return;
     UIView *currentBar = self.bar;
-    // Never open a disabled-actions CATransaction or mutate viewports/dock while
-    // customTabBar is displaced horizontally (sidebar slide or nav push to search).
-    if (HGTabBarIsInTransitionOrDisplaced(currentBar, self.controller)) {
-        [self.videoBackdrop restore];
-        if (currentBar.frame.origin.x < -2 && currentBar.window && HGAppearanceDockEnabled() &&
-            !HGAppearanceDockIsMutating(currentBar)) {
-            self.refreshing = YES;
-            @try { HGAppearanceLayoutDock(currentBar, self.controller); }
-            @finally { self.refreshing = NO; }
-        }
-        return;
-    }
     if (HGAppearanceDockIsMutating(currentBar)) {
         if (!self.refreshPending) {
             self.refreshPending = YES;
@@ -891,6 +879,18 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
                 state.refreshPending = NO;
                 [state refresh];
             });
+        }
+        return;
+    }
+    // Never open a disabled-actions CATransaction or mutate viewports/dock while
+    // customTabBar is displaced horizontally (sidebar slide or nav push to search).
+    if (HGTabBarIsInTransitionOrDisplaced(currentBar, self.controller)) {
+        [self.videoBackdrop restore];
+        if (currentBar.frame.origin.x < -2 && currentBar.window && HGAppearanceDockEnabled() &&
+            !HGAppearanceDockIsMutating(currentBar)) {
+            self.refreshing = YES;
+            @try { HGAppearanceLayoutDock(currentBar, self.controller); }
+            @finally { self.refreshing = NO; }
         }
         return;
     }
@@ -1072,6 +1072,23 @@ static void HGRefreshTabBar(UIViewController *controller) {
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
     if (!NSThread.isMainThread || HGFeedSidebarOwnsLayout(feed.window)) return;
     if (HGVideoBackdropRefreshForFeed(feed) || !HGAppearanceDockEnabled() || !feed.window) return;
+    UIViewController *videoOwner=HGVideoBackdropOwner(feed);
+    id<UIViewControllerTransitionCoordinator> transition=videoOwner.transitionCoordinator;
+    if (transition) {
+        static char pendingTransition;
+        if (objc_getAssociatedObject(feed,&pendingTransition)!=transition) {
+            objc_setAssociatedObject(feed,&pendingTransition,transition,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            __weak UIScrollView *weakFeed=feed;
+            BOOL registered=[transition animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+                UIScrollView *current=weakFeed;
+                if (!current || objc_getAssociatedObject(current,&pendingTransition)!=transition) return;
+                objc_setAssociatedObject(current,&pendingTransition,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                HGScheduleFeedLayoutRefresh(current);
+            }];
+            if (!registered) objc_setAssociatedObject(feed,&pendingTransition,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        return;
+    }
     if (!HGVideoBackdropFullWindow(feed.superview, feed.window)) return;
     // A renderer or a channel may arrive during a swipe, after the tab bar's
     // layout. The callback already identifies the exact feed: attach it
@@ -1085,7 +1102,7 @@ void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
         UIView *root = controller.viewIfLoaded;
         if (state.customDock && state.videoBackdrop && [feed isDescendantOfView:root] &&
             !HGTabBarIsInTransitionOrDisplaced(bar, controller) &&
-            HGVideoBackdropFeedGeometry((UICollectionView *)feed, HGVideoBackdropOwner(feed), root, bar))
+            HGVideoBackdropFeedGeometry((UICollectionView *)feed, videoOwner, root, bar))
             [state.videoBackdrop refreshWithBranches:@[feed] root:root bar:bar active:YES];
         break;
     }

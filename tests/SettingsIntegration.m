@@ -275,19 +275,10 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
 
     // Verify Level-2 and Level-3 subpages expose all 18 switches, diagnostics, backup, and channel.
     Class subpageClass = NSClassFromString(@"HGSettingsSubpageController");
-    UITableViewController *diagPage = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
-    [diagPage setValue:@"diagnostics" forKey:@"pageID"];
-    [diagPage setValue:settings forKey:@"rootSettings"];
-    [diagPage loadViewIfNeeded];
-    NSIndexPath *openPath = [NSIndexPath indexPathForRow:0 inSection:0];
-    NSIndexPath *clearPath = [NSIndexPath indexPathForRow:1 inSection:0];
-    UITableViewCell *openLog = [diagPage tableView:diagPage.tableView cellForRowAtIndexPath:openPath];
-    UITableViewCell *clearLog = [diagPage tableView:diagPage.tableView cellForRowAtIndexPath:clearPath];
-    [self check:[diagPage.tableView numberOfRowsInSection:0] == 2 && HGEnhancedDiagnostics() &&
-        [openLog.accessibilityIdentifier isEqual:@"honggo.diagnostics.export"] &&
-        [clearLog.accessibilityIdentifier isEqual:@"honggo.diagnostics.clear"] &&
-        !openLog.accessoryView && !clearLog.accessoryView
-        name:@"diagnostics defaults to enhanced and shows only log browsing and clearing"];
+    NSIndexPath *logsPath=[NSIndexPath indexPathForRow:1 inSection:3];
+    UITableViewCell *logsEntry=[settings tableView:settings.tableView cellForRowAtIndexPath:logsPath];
+    [self check:[logsEntry.textLabel.text isEqual:@"诊断日志"] && HGEnhancedDiagnostics()
+        name:@"the settings homepage exposes diagnostics directly"];
 
     UITableViewController *backupPage = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [backupPage setValue:@"backup" forKey:@"pageID"];
@@ -397,10 +388,23 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
 - (void)runDiagnosticExportWithCompletion:(dispatch_block_t)completion {
     UINavigationController *navigation = (id)self.host.presentedViewController;
     if (![navigation isKindOfClass:UINavigationController.class]) { completion(); return; }
-    UIViewController *settings = navigation.topViewController;
-    UITableViewController *diagnostics = [(UITableViewController *)[NSClassFromString(@"HGDiagnosticSessionsController") alloc]
-        initWithStyle:UITableViewStyleInsetGrouped];
-    [navigation pushViewController:diagnostics animated:NO];
+    UITableViewController *settings=(id)navigation.topViewController;
+    [settings tableView:settings.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:3]];
+    [self poll:^BOOL {
+        return [navigation.topViewController isKindOfClass:NSClassFromString(@"HGDiagnosticSessionsController")] &&
+            !navigation.transitionCoordinator;
+    } deadline:[NSDate dateWithTimeIntervalSinceNow:5] completion:^(BOOL opened) {
+        [self check:opened name:@"one tap from settings opens diagnostic export and sessions"];
+        if (!opened) { completion(); return; }
+        UITableViewController *logs=(id)navigation.topViewController;
+        UITableViewCell *clear=[logs tableView:logs.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:2]];
+        [self check:[logs.tableView numberOfRowsInSection:0]==2 &&
+            [clear.accessibilityIdentifier isEqual:@"honggo.diagnostics.clear"] name:@"log management retains both exports and clearing"];
+        [self runExportOn:logs from:settings completion:completion];
+    }];
+}
+- (void)runExportOn:(UITableViewController *)diagnostics from:(UIViewController *)settings completion:(dispatch_block_t)completion {
+    UINavigationController *navigation=diagnostics.navigationController;
     NSIndexPath *path = [NSIndexPath indexPathForRow:0 inSection:0];
     [diagnostics tableView:diagnostics.tableView didSelectRowAtIndexPath:path];
     UITableViewCell *preparing = [diagnostics tableView:diagnostics.tableView cellForRowAtIndexPath:path];

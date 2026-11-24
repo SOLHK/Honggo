@@ -25,6 +25,7 @@
 @property(nonatomic) NSInteger systemHostSelection;
 @property(nonatomic) BOOL systemDockActive;
 @property(nonatomic) BOOL systemDockSyncing;
+@property(nonatomic) BOOL deliveringTabAction;
 @property(nonatomic) BOOL systemWarmupPending;
 @property(nonatomic) BOOL systemWarmupComplete;
 @property(nonatomic,strong) NSMapTable<NSString *,UIControl *> *targets;
@@ -891,7 +892,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     for(UIView *v in bar.subviews)if([v.accessibilityIdentifier isEqual:@"honggo.tabbar.glass"])[self hideSource:v];
 }
 - (void)refresh {
-    if(self.rendering || self.restoring || HGFeedSidebarOwnsLayout(self.hostBar.window))return;
+    if(self.rendering || self.restoring || self.deliveringTabAction || HGFeedSidebarOwnsLayout(self.hostBar.window))return;
     self.rendering=YES;
     @try {
         UIView *bar=self.hostBar;
@@ -1185,15 +1186,26 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(!target || !target.enabled)return;
     UIControlEvents event=(target.allControlEvents & UIControlEventTouchUpInside)?UIControlEventTouchUpInside:UIControlEventPrimaryActionTriggered;
     HGLog(@"navigation.dock", @{@"tab":key, @"phase":@"enter", @"mode":animation});
-    BOOL refreshHome=index==0 && [key isEqual:@"home"] && HGASelectedTab(self.hostController)==index;
-    [target sendActionsForControlEvents:event];
+    // Native selection synchronously attaches the new page and its player. Its
+    // layout callbacks must not each rebuild the same dock during that action.
+    self.deliveringTabAction=YES;
+    @try { [target sendActionsForControlEvents:event]; }
+    @finally { self.deliveringTabAction=NO; }
     HGLog(@"navigation.dock", @{@"tab":key, @"phase":@"return", @"mode":animation});
     [self feedback];
-    dispatch_async(dispatch_get_main_queue(),^{
-        if(refreshHome && HGASelectedTab(self.hostController)==index)
-            [self.hostBar setNeedsLayout];
-        [self refresh];
-    });
+    UIView *bar=self.hostBar;
+    // Layout the complete host bar, including the video behind it, for the
+    // incoming selection as well as a reselect. UIKit coalesces repeated marks.
+    [bar setNeedsLayout];
+    if ([key isEqual:@"home"]) {
+        UIViewController *host=self.hostController;
+        UIViewController *page=[host isKindOfClass:UITabBarController.class] ?
+            ((UITabBarController *)host).selectedViewController : nil;
+        id<UIViewControllerTransitionCoordinator> transition=page.transitionCoordinator ?: host.transitionCoordinator;
+        [transition animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+            dispatch_async(dispatch_get_main_queue(), ^{ [bar setNeedsLayout]; });
+        }];
+    }
 }
 - (void)placeSelection:(CGRect)frame {
     if(!CGRectEqualToRect(self.selection.frame,frame))self.selection.frame=frame;
@@ -1537,7 +1549,7 @@ static BOOL HGADockInstallHostHitRoute(void) {
 }
 BOOL HGAppearanceDockIsMutating(UIView *bar) {
     HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
-    return dock.rendering || dock.restoring;
+    return dock.rendering || dock.restoring || dock.deliveringTabAction;
 }
 static void HGARefreshSheetDockVisibility(UIWindow *window) {
     if(!window)return;

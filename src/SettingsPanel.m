@@ -58,6 +58,7 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 @property(nonatomic, strong) NSURL *readyExport;
 @property(nonatomic, copy) NSString *exportError;
 @property(nonatomic) BOOL hasUnexpected;
+@property(nonatomic,copy) dispatch_block_t clearLogs;
 @property(nonatomic, copy) NSString *statusMessage;
 @end
 
@@ -132,11 +133,13 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
         });
     }
 }
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 2; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return self.session ? 2 : 3; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (section == 2) return 1;
     return section == 0 ? (self.session ? 1 : 2) : (NSInteger)(self.session ? self.events.count : self.sessions.count);
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (section == 2) return nil;
     return section == 0 ? @"导出" : self.session ? @"最近事件" : @"启动会话";
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
@@ -157,7 +160,12 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
     cell.detailTextLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
     cell.textLabel.adjustsFontForContentSizeCategory = YES;
     cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
-    if (path.section == 0) {
+    if (path.section == 2) {
+        cell.textLabel.text=@"清除全部日志";
+        cell.textLabel.textColor=UIColor.systemRedColor;
+        cell.textLabel.enabled=!self.exporting;
+        cell.accessibilityIdentifier=@"honggo.diagnostics.clear";
+    } else if (path.section == 0) {
         BOOL available = self.session || path.row == 0 || self.hasUnexpected;
         cell.textLabel.text = self.session ? @"导出此会话" : path.row == 0 ? @"导出最近 1 小时日志" : @"导出上一次异常结束的会话";
         if (!available) cell.detailTextLabel.text = @"暂无结束原因未知的历史会话";
@@ -199,6 +207,10 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path {
     [tableView deselectRowAtIndexPath:path animated:YES];
+    if (path.section == 2) {
+        if (!self.exporting && self.clearLogs) self.clearLogs();
+        return;
+    }
     if (path.section == 1) {
         if (!self.session) {
             HGDiagnosticSessionsController *detail = [[HGDiagnosticSessionsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
@@ -312,9 +324,6 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
         self.title = @"导出与备份";
         [rows addObject:@{@"kind": @"action", @"section": @2, @"action": @0, @"title": @"导出功能配置", @"id": @"honggo.preferences.export"}];
         [rows addObject:@{@"kind": @"action", @"section": @2, @"action": @1, @"title": @"从文件恢复配置", @"id": @"honggo.preferences.import"}];
-    } else if ([pid isEqual:@"diagnostics"]) {
-        self.title = @"诊断与其他";
-        [rows addObjectsFromArray:HGDiagnosticActions()];
     } else if ([pid isEqual:@"community"]) {
         self.title = @"作者与频道";
         [rows addObject:@{@"kind": @"info", @"title": @"当前版本", @"detail": @"Honggo " HG_PLUGIN_VERSION, @"id": @"honggo.about.version"}];
@@ -326,8 +335,6 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.rows.count; }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     NSString *pid = self.pageID ?: @"";
-    if ([pid isEqual:@"diagnostics"])
-        return @"复现问题后可截屏记录控件结构，再到诊断日志导出对应会话。";
     if ([pid isEqual:@"backup"])
         return @"配置文件仅保存 Honggo 的功能开关。恢复前会核对格式并显示变更数量。恢复后，请完全退出再打开。";
     if ([pid isEqual:@"community"])
@@ -506,7 +513,7 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
         @[@{@"kind": @"subpage", @"page": @"ads", @"title": @"广告与推广拦截", @"id": @"honggo.settings.category.ads"},
         @{@"kind": @"subpage", @"page": @"base", @"title": @"基础与兼容开关", @"id": @"honggo.settings.category.base"}],
         @[@{@"kind": @"subpage", @"page": @"backup", @"title": @"导出与备份", @"id": @"honggo.settings.category.backup"},
-        @{@"kind": @"subpage", @"page": @"diagnostics", @"title": @"诊断与其他", @"id": @"honggo.settings.category.diagnostics"},
+        @{@"kind": @"diagnostics", @"title": @"诊断日志", @"id": @"honggo.settings.category.diagnostics"},
         @{@"kind": @"subpage", @"page": @"community", @"title": @"作者与频道", @"id": @"honggo.settings.category.community"}]
     ];
     self.settingsSearch = [[UISearchController alloc] initWithSearchResultsController:nil];
@@ -831,6 +838,8 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
         if ([kind isEqual:@"appearance"]) {
             NSString *group = [category[@"group"] length] ? category[@"group"] : nil;
             [self performAfterSearchDismissal:^{ HGOpenAppearance(self, group); }];
+        } else if ([kind isEqual:@"diagnostics"]) {
+            [self performAfterSearchDismissal:^{ [self performAction:HGDiagnosticActionOpen inSection:1 presenter:self]; }];
         } else if ([kind isEqual:@"subpage"]) {
             NSString *page = category[@"page"];
             [self performAfterSearchDismissal:^{
@@ -870,8 +879,11 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
         return;
     }
     if (action == HGDiagnosticActionOpen) {
-        [host.navigationController pushViewController:[[HGDiagnosticSessionsController alloc]
-            initWithStyle:UITableViewStyleInsetGrouped] animated:YES];
+        HGDiagnosticSessionsController *logs=[[HGDiagnosticSessionsController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+        __weak HGDiagnosticSessionsController *weakLogs=logs;
+        __weak HGSettingsController *weakSettings=self;
+        logs.clearLogs=^{ [weakSettings performAction:HGDiagnosticActionClear inSection:1 presenter:weakLogs]; };
+        [host.navigationController pushViewController:logs animated:YES];
         return;
     }
     if (action != HGDiagnosticActionClear) return;
@@ -881,6 +893,12 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
     [alert addAction:[UIAlertAction actionWithTitle:@"清除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *item) {
         HGClearDiagnostics(^(NSError *error) {
             if (error && host.viewIfLoaded.window) [self showDiagnosticError:error on:host];
+            else if (!error && [host isKindOfClass:HGDiagnosticSessionsController.class]) {
+                HGDiagnosticSessionsController *logs=(id)host;
+                logs.readyExport=nil;
+                logs.exportError=nil;
+                [logs reloadLogs];
+            }
         });
     }]];
     [host presentViewController:alert animated:YES completion:nil];

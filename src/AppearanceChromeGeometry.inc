@@ -8,6 +8,7 @@ API_AVAILABLE(ios(26.0))
 @interface HGAHeaderGlassChannels : UIControl <HGAHeaderSelecting>
 @property(nonatomic,copy) NSArray<UIButton *> *buttons;
 @property(nonatomic,strong) HGAAppearanceMaterial *rail;
+@property(nonatomic,strong) UIView *trackingRail;
 - (instancetype)initWithTitles:(NSArray<NSString *> *)titles material:(NSString *)material;
 @end
 @implementation HGAHeaderGlassChannels
@@ -25,6 +26,13 @@ API_AVAILABLE(ios(26.0))
         _rail.userInteractionEnabled=NO;
         _rail.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         [self addSubview:_rail];
+        _trackingRail=[[UIView alloc] initWithFrame:self.bounds];
+        _trackingRail.backgroundColor=[UIColor colorWithWhite:0.18 alpha:0.14];
+        _trackingRail.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
+        _trackingRail.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        _trackingRail.userInteractionEnabled=NO;
+        _trackingRail.hidden=YES;
+        [self insertSubview:_trackingRail belowSubview:_rail];
         UIStackView *row=[[UIStackView alloc] initWithFrame:self.bounds];
         row.distribution=UIStackViewDistributionFillEqually;
         row.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
@@ -38,6 +46,7 @@ API_AVAILABLE(ios(26.0))
             [button setTitleColor:[UIColor.whiteColor colorWithAlphaComponent:0.86] forState:UIControlStateHighlighted];
             [button setTitleColor:UIColor.whiteColor forState:UIControlStateSelected];
             button.titleLabel.font=[UIFont systemFontOfSize:13];
+            button.titleLabel.lineBreakMode=NSLineBreakByClipping;
             [button addTarget:self action:@selector(choose:) forControlEvents:UIControlEventPrimaryActionTriggered];
             [row addArrangedSubview:button];
             [buttons addObject:button];
@@ -222,8 +231,18 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
 - (void)setChannelLensLifted:(BOOL)lifted {
     HGAAppearanceMaterial *refraction=self.channelRefraction;
     if (!refraction) return;
-    self.channelLens.layer.borderWidth=lifted ? 0.65 : 0;
-    self.channelLens.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.55].CGColor;
+    if (@available(iOS 26.0,*)) {
+        if ([self usesGlassChannels]) {
+            HGAHeaderGlassChannels *control=(id)self.channelControl;
+            // A second glass sampling an already composited rail loses the
+            // video detail. Sample the original video and channel ink together.
+            // Keep the resting material attached for an interruption-free return.
+            control.rail.hidden=lifted;
+            control.trackingRail.hidden=!lifted;
+            if (lifted) [control bringSubviewToFront:self.channelLens];
+            else [control insertSubview:self.channelLens aboveSubview:control.rail];
+        }
+    }
     self.channelLens.backgroundColor=lifted ? UIColor.clearColor : [UIColor colorWithWhite:1 alpha:0.26];
     refraction.hidden=!lifted;
     if (lifted && !refraction.effect) {

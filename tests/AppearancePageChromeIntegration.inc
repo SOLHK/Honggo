@@ -298,10 +298,22 @@ static char HGAFixtureHeaderAnimationKey;
 @property(nonatomic,copy) NSString *text;
 @end
 @implementation HGAFinderGoldenItemFixture @end
-@interface HGAFinderGoldenModelFixture : NSObject
+@interface SSVideoDistributionGoldenPositionModel : NSObject
 @property(nonatomic,copy) NSArray *goldenLineItemArr;
 @end
-@implementation HGAFinderGoldenModelFixture @end
+@implementation SSVideoDistributionGoldenPositionModel @end
+@interface HGAFinderLayoutData : NSObject
+@property(nonatomic,copy) NSArray *sectionModels;
+@property(nonatomic,copy) NSArray *cellModels;
+@end
+@implementation HGAFinderLayoutData @end
+@interface FQFeedListView : UIView
+@property(nonatomic,strong) HGAFinderLayoutData *dataSource;
+@end
+@implementation FQFeedListView
+- (CGFloat)heightForRowAtIndexPathWithCollectionView:(UICollectionView *)list layout:(id)layout indexPath:(NSIndexPath *)path itemWidth:(CGFloat)width { return 32; }
+- (UIEdgeInsets)insetForSectionWithCollectionView:(UICollectionView *)list layout:(id)layout section:(NSInteger)section { return UIEdgeInsetsMake(0,12,12,12); }
+@end
 @interface SSVideoDistributionGoldenPositionSubCell : UICollectionViewCell
 @property(nonatomic,strong) UIView *innerContentView;
 @property(nonatomic,strong) UIImageView *backgroundImageView;
@@ -329,7 +341,7 @@ static char HGAFixtureHeaderAnimationKey;
 @end
 @interface SSVideoDistributionGoldenPositionCell : UICollectionViewCell <UICollectionViewDelegateFlowLayout>
 @property(nonatomic,strong) UICollectionView *collectionView;
-@property(nonatomic,strong) HGAFinderGoldenModelFixture *model;
+@property(nonatomic,strong) SSVideoDistributionGoldenPositionModel *model;
 @end
 @implementation SSVideoDistributionGoldenPositionCell
 - (CGSize)collectionView:(UICollectionView *)collection layout:(UICollectionViewLayout *)layout
@@ -811,7 +823,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sample.fixtureState=UIGestureRecognizerStateBegan;
                     sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.25,CGRectGetMidY(group.bounds));
                     [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
-                    Check(refraction.superview==lens && !refraction.hidden && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
+                    Check(refraction.superview==lens && !refraction.hidden && rail.hidden && group.subviews.lastObject==lens && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
                         CGRectGetHeight(lens.frame)>restingHeight && channels.nativeSelections==before,
                         @"touch-down lifts the native refraction on the selected tab before the host selection changes");
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
@@ -996,10 +1008,11 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     UIVisualEffectView *searchGlass=(id)Find(finder.searchBgView,material);
     UIView *recognitionGlass=Find(finder.imageSearchContainer,material);
     UIView *assistantGlass=Find(finder.aiSearchEntranceView,material);
+    CGFloat chromePixel=1/MAX(1,finder.view.traitCollection.displayScale);
     CGRect searchSurface=[searchGlass convertRect:searchGlass.bounds toView:finder.view];
     CGRect recognitionSurface=[recognitionGlass convertRect:recognitionGlass.bounds toView:finder.view];
     Check(searchGlass && recognitionGlass && assistantGlass && !Find(finder.searchView,material) &&
-        fabs(CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)-7)<0.01 &&
+        fabs(CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)-7-2*chromePixel)<0.01 &&
         assistantGlass.bounds.size.width==assistantGlass.bounds.size.height &&
         CGRectEqualToRect(finder.searchBgView.frame,nativeSearchField) &&
         CGRectEqualToRect(finder.imageSearchContainer.frame,nativeRecognition) &&
@@ -1039,7 +1052,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         fabs(CGRectGetMaxX(moved)-CGRectGetMaxX(finder.aiSearchEntranceView.frame))<0.01 &&
         CGRectEqualToRect(moved,finder.imageSearchContainer.frame) &&
         (recognitionHit==finder.imageSearchContainer || [recognitionHit isDescendantOfView:finder.imageSearchContainer]) &&
-        fabs(CGRectGetMaxX(searchGlass.frame)-CGRectGetMinX(moved)+7)<0.01,
+        fabs(CGRectGetMaxX(searchGlass.frame)-CGRectGetMinX(moved)+7+chromePixel)<0.01,
         @"hiding AI shifts native recognition to the vacated slot and fills the search gap without cumulative movement");
     HGAppearanceSet(@"player.finderAI",@YES,nil);
     HGAppearanceProcessController(finder);
@@ -1048,7 +1061,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         @"showing AI restores the original recognition layout and native entrance");
     finder.imageSearchContainer.hidden=YES;
     HGAppearanceProcessController(finder);
-    Check(CGRectEqualToRect(searchGlass.frame,finder.searchBgView.bounds) &&
+    Check(fabs(CGRectGetMinX(searchGlass.frame)-chromePixel)<0.01 &&
+        fabs(CGRectGetWidth(searchGlass.frame)-CGRectGetWidth(finder.searchBgView.bounds)+2*chromePixel)<0.01 &&
         !Find(finder.imageSearchContainer,material) && !finder.normalImageSearchView.separatorView.hidden,
         @"finder restores the full search surface when its recognition tool is unavailable");
     finder.imageSearchContainer.hidden=NO;
@@ -1117,7 +1131,9 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             (CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)))<0.01 &&
         fabs(CGRectGetMidY(searchSurface)-CGRectGetMidY(recognitionSurface))<0.01 &&
         fabs(CGRectGetMidY(aiSurface)-CGRectGetMidY(recognitionSurface))<0.01 &&
-        CGRectGetHeight(searchSurface)==36 && CGRectGetHeight(recognitionSurface)==36 && CGRectGetHeight(aiSurface)==36,
+        fabs(CGRectGetHeight(searchSurface)-(36-2*chromePixel))<0.01 &&
+        fabs(CGRectGetHeight(recognitionSurface)-CGRectGetHeight(searchSurface))<0.01 &&
+        fabs(CGRectGetHeight(aiSurface)-CGRectGetHeight(searchSurface))<0.01,
         @"the nested theatre search, recognition and AI surfaces have equal gaps and aligned heights");
     Check(recognitionGlass && CGRectGetMaxX(ink)<CGRectGetMaxX(recognitionGlass.frame)-5 &&
         fabs(CGRectGetMidX(ink)-CGRectGetMidX(recognitionGlass.frame))<0.1,
@@ -1132,7 +1148,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     [golden.contentView addSubview:golden.collectionView];[finder.view addSubview:golden];
     HGAFinderGoldenItemFixture *goldenFilter=[HGAFinderGoldenItemFixture new];goldenFilter.text=@"筛选";
     HGAFinderGoldenItemFixture *goldenRank=[HGAFinderGoldenItemFixture new];goldenRank.text=@"排行榜";
-    golden.model=[HGAFinderGoldenModelFixture new];golden.model.goldenLineItemArr=@[goldenFilter,goldenRank];
+    golden.model=[SSVideoDistributionGoldenPositionModel new];golden.model.goldenLineItemArr=@[goldenFilter,goldenRank];
     SSVideoDistributionGoldenPositionSubCell *entry=[[SSVideoDistributionGoldenPositionSubCell alloc]
         initWithFrame:CGRectMake(110,0,98,32)];
     entry.innerContentView=PageChromeControl(entry.contentView,CGRectMake(2,0,75,32));
@@ -1175,6 +1191,26 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     Check([golden collectionView:golden.collectionView layout:goldenLayout sizeForItemAtIndexPath:filterIndex].width<0.1 &&
         [golden collectionView:golden.collectionView layout:goldenLayout sizeForItemAtIndexPath:rankIndex].width==98,
         @"the observed theatre shortcut row reclaims the hidden item without renumbering native actions");
+    FQFeedListView *feedList=[FQFeedListView new];
+    [finder.view addSubview:feedList];
+    HGAFinderLayoutData *section=[HGAFinderLayoutData new];
+    feedList.dataSource=[HGAFinderLayoutData new];
+    feedList.dataSource.sectionModels=@[section];
+    section.cellModels=@[golden.model];
+    CGFloat (^rowHeight)(void)=^CGFloat{
+        return [feedList heightForRowAtIndexPathWithCollectionView:golden.collectionView layout:goldenLayout indexPath:filterIndex itemWidth:416];
+    };
+    UIEdgeInsets (^padding)(void)=^UIEdgeInsets{
+        return [feedList insetForSectionWithCollectionView:golden.collectionView layout:goldenLayout section:0];
+    };
+    Check(rowHeight()==32 && padding().bottom==12,@"a partially visible shortcut row keeps its native space");
+    HGAppearanceSet(@"finder.hide.shortcut.ranking",@YES,nil);
+    Check(rowHeight()==0 && UIEdgeInsetsEqualToEdgeInsets(padding(),UIEdgeInsetsMake(0,12,0,12)),
+        @"hiding the last shortcut removes both its outer row height and vertical section insets");
+    section.cellModels=@[golden.model,[NSObject new]];
+    Check(rowHeight()==0 && padding().bottom==12,@"a mixed section keeps its content margins");
+    HGAppearanceSet(@"finder.hide.shortcut.ranking",@NO,nil);
+    Check(rowHeight()==32,@"re-enabling a shortcut restores the row even while its cell is offscreen");
     HGAppearanceSet(@"finder.hide.category.row",@YES,nil);
     Check(finder.tabContainer.hidden && !finder.searchBgView.hidden,@"finder hides its whole stock category row without affecting search");
     HGAppearanceSet(@"finder.hide.category.row",@NO,nil);

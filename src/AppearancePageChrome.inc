@@ -163,6 +163,28 @@ static void HGAApplyFinderMaterial(UIView *target,CGRect frame,BOOL shortcut) {
     HGASetGlassOverlay(target,tint);
 }
 
+static void HGAApplyFinderSearchMaterial(UIView *target,CGRect frame) {
+    if (CGRectIsEmpty(frame)) { HGARemoveGlass(target); return; }
+    CGFloat scale=MAX(1,target.traitCollection.displayScale);
+    CGFloat left=(ceil(CGRectGetMinX(frame)*scale)+1)/scale;
+    CGFloat top=(ceil(CGRectGetMinY(frame)*scale)+1)/scale;
+    CGFloat right=(floor(CGRectGetMaxX(frame)*scale)-1)/scale;
+    CGFloat bottom=(floor(CGRectGetMaxY(frame)*scale)-1)/scale;
+    frame=CGRectMake(left,top,MAX(0,right-left),MAX(0,bottom-top));
+    if (@available(iOS 26.0,*)) {
+        if (HGAFinderControlReady(target) && HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() && !CGRectIsEmpty(frame)) {
+            HGAInstallGlassInRect(target,HGAFinderMaterial(),frame,CGRectGetHeight(frame)/2,0);
+            HGAAppearanceMaterial *glass=HGAState(target,NO).glass;
+            if (![glass.cornerConfiguration isEqual:UICornerConfiguration.capsuleConfiguration])
+                glass.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
+            glass.clipsToBounds=NO;
+            HGASetGlassOverlay(target,UIColor.clearColor);
+            return;
+        }
+    }
+    HGAApplyFinderMaterial(target,frame,NO);
+}
+
 @interface HGAPageChromeIcon : NSObject
 @property(nonatomic,strong) UIImage *sourceImage;
 @property(nonatomic,strong) UIImage *templateImage;
@@ -321,7 +343,7 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition
             CGFloat side=MIN(frame.size.width,frame.size.height);
             frame=CGRectInset(frame,(frame.size.width-side)/2,(frame.size.height-side)/2);
         }
-        HGAApplyFinderMaterial(target,frame,NO);
+        HGAApplyFinderSearchMaterial(target,frame);
     }
 }
 
@@ -432,8 +454,79 @@ static CGSize HGAFinderShortcutSize(id cell,SEL cmd,UICollectionView *collection
     return size;
 }
 
+static IMP HGAOriginalFinderRowHeight,HGAOriginalFinderSectionInset,HGAOriginalFinderHeaderHeight;
+static NSHashTable<UICollectionView *> *HGAFinderLists;
+static NSUInteger HGAFinderLayoutMask;
+
+static void HGARefreshFinderRowLayout(void) {
+    NSUInteger mask=0;
+    if (HGAppearanceEnabled()) {
+        NSArray *keys=@[@"filter",@"ranking",@"new",@"reserve"];
+        for (NSUInteger i=0;i<keys.count;i++)
+            if (HGAppearanceFlag([@"finder.hide.shortcut." stringByAppendingString:keys[i]])) mask|=1u<<i;
+        if (HGAppearanceFlag(@"finder.hide.category.row")) mask|=1u<<4;
+    }
+    if (mask==HGAFinderLayoutMask) return;
+    HGAFinderLayoutMask=mask;
+    for (UICollectionView *list in HGAFinderLists) [list.collectionViewLayout invalidateLayout];
+}
+
+static BOOL HGAFinderRowFullyHidden(id model) {
+    if (![model isKindOfClass:objc_lookUpClass("SSVideoDistributionGoldenPositionModel")]) return NO;
+    NSArray *items=HGReadObjectGetter(model,"goldenLineItemArr");
+    if (![items isKindOfClass:NSArray.class] || !items.count) return NO;
+    for (id item in items) {
+        NSString *key=HGAFinderShortcutKey(HGReadObjectGetter(item,"text"));
+        if (!key || !HGAppearanceFlag([@"finder.hide.shortcut." stringByAppendingString:key])) return NO;
+    }
+    return YES;
+}
+
+static NSArray *HGAFinderSectionCells(UIView *list,NSInteger section) {
+    id source=HGReadObjectGetter(list,"dataSource");
+    NSArray *sections=HGReadObjectGetter(source,"sectionModels");
+    if (![sections isKindOfClass:NSArray.class] || (NSUInteger)section>=sections.count) return nil;
+    NSArray *cells=HGReadObjectGetter(sections[section],"cellModels");
+    return [cells isKindOfClass:NSArray.class] ? cells : nil;
+}
+
+static CGFloat HGAFinderRowHeight(UIView *list,SEL cmd,UICollectionView *collection,id layout,NSIndexPath *path,CGFloat width) {
+    CGFloat native=((CGFloat (*)(id,SEL,id,id,id,CGFloat))HGAOriginalFinderRowHeight)(list,cmd,collection,layout,path,width);
+    if (!(HGAFinderLayoutMask & 15)) return native;
+    NSArray *models=HGAFinderSectionCells(list,path.section);
+    if ((NSUInteger)path.item>=models.count ||
+        ![models[path.item] isKindOfClass:objc_lookUpClass("SSVideoDistributionGoldenPositionModel")] ||
+        !HGAIsFinderView(list)) return native;
+    [HGAFinderLists addObject:collection];
+    return HGAFinderRowFullyHidden(models[path.item]) ? 0 : native;
+}
+
+static UIEdgeInsets HGAFinderSectionInset(UIView *list,SEL cmd,UICollectionView *collection,id layout,NSInteger section) {
+    UIEdgeInsets inset=((UIEdgeInsets (*)(id,SEL,id,id,NSInteger))HGAOriginalFinderSectionInset)(list,cmd,collection,layout,section);
+    if (!(HGAFinderLayoutMask & 15) || (!inset.top && !inset.bottom)) return inset;
+    NSArray *models=HGAFinderSectionCells(list,section);
+    if (!models.count) return inset;
+    for (id model in models) if (!HGAFinderRowFullyHidden(model)) return inset;
+    if (HGAIsFinderView(list)) { inset.top=0; inset.bottom=0; }
+    return inset;
+}
+
+static CGFloat HGAFinderHeaderHeight(id coordinator,SEL cmd,BOOL visible) {
+    if (visible && HGAppearanceEnabled() && HGAppearanceFlag(@"finder.hide.category.row")) visible=NO;
+    return ((CGFloat (*)(id,SEL,BOOL))HGAOriginalFinderHeaderHeight)(coordinator,cmd,visible);
+}
+
 static void HGAInstallFinderShortcutHook(void) {
     if(HGAOriginalGoldenPositionSize)return;
+    HGAFinderLists=[NSHashTable weakObjectsHashTable];
+    HGARefreshFinderRowLayout();
+    Class list=objc_lookUpClass("FQFeedListView");
+    HGAOriginalFinderRowHeight=HGInstallVerifiedHook(list,sel_registerName("heightForRowAtIndexPathWithCollectionView:layout:indexPath:itemWidth:"),
+        "d48@0:8@16@24@32d40",(IMP)HGAFinderRowHeight,@"appearance");
+    HGAOriginalFinderSectionInset=HGInstallVerifiedHook(list,sel_registerName("insetForSectionWithCollectionView:layout:section:"),
+        "{UIEdgeInsets=dddd}40@0:8@16@24q32",(IMP)HGAFinderSectionInset,@"appearance");
+    HGAOriginalFinderHeaderHeight=HGInstallVerifiedHook(objc_lookUpClass("FQTheaterLayoutCoordinator"),
+        sel_registerName("_calculateHeaderHeightWithTabContainerVisible:"),"d20@0:8B16",(IMP)HGAFinderHeaderHeight,@"appearance");
     Class type=NSClassFromString(@"SSVideoDistributionGoldenPositionCell");
     SEL selector=@selector(collectionView:layout:sizeForItemAtIndexPath:);
     Method method=class_getInstanceMethod(type,selector);
@@ -448,6 +541,11 @@ static void HGAUpdateFinderShortcuts(UIView *row,BOOL enabled) {
     if(![collection isKindOfClass:UICollectionView.class])return;
     NSMutableIndexSet *hidden=[NSMutableIndexSet indexSet];
     if(enabled && HGAIsFinderView(row)) {
+        UICollectionView *outer=(id)HGAAncestorNamed(row,@"FQFeedListCollectionView");
+        if (outer && ![HGAFinderLists containsObject:outer]) {
+            [HGAFinderLists addObject:outer];
+            if (HGAFinderLayoutMask & 15) [outer.collectionViewLayout invalidateLayout];
+        }
         NSArray *items=HGReadObjectGetter(HGReadObjectGetter(row,"model"),"goldenLineItemArr");
         if([items isKindOfClass:NSArray.class] && items.count<=64) {
             for(NSUInteger index=0;index<items.count;index++) {
@@ -1004,6 +1102,16 @@ static void HGAApplyFinderChrome(UIViewController *controller) {
         @"aiSearchEntranceLottieFirstFrameView",@"aiSearchEntranceLottieView"];
     UIView *categories=enabled && root.window && HGAppearanceFlag(@"finder.hide.category.row") ?
         HGAViewGetter(controller,"tabContainer",root) : nil;
+    static char categoryRowCollapsed;
+    BOOL collapse=categories!=nil;
+    BOOL changed=collapse!=[objc_getAssociatedObject(root,&categoryRowCollapsed) boolValue];
+    if (changed) objc_setAssociatedObject(root,&categoryRowCollapsed,collapse ? @YES : nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (changed && theater && root.window) {
+        SEL relayout=sel_registerName("relayoutHeader");
+        Method method=class_getInstanceMethod(object_getClass(controller),relayout);
+        if (method && !strcmp(method_getTypeEncoding(method),"v16@0:8"))
+            ((void (*)(id,SEL))objc_msgSend)(controller,relayout);
+    }
     HGAHidePageChromeTarget(root,@"finderCategories",categories);
     if(!enabled || !root.window) {
         UIView *recognitionContent=HGAViewGetter(controller,"normalImageSearchView",root);
