@@ -14,8 +14,12 @@ static NSDictionary<NSString *,NSArray<NSString *> *> *HGAPlayerControlGetters(v
         @"FQVShortVideoVPlayerEpisodeInfoView":@[],
         @"FQVShortVideoControlCleanSwitchView":@[],
         @"FQCShortVideoDanmakuEntranceView":@[],
+        @"SSShortVideoRcmdReasonView":@[],
+        @"SSShortVideoRcmdReasonTag":@[],
         @"SSShortVideoEpisodePanelCollectView":@[@"containerView",@"shareContainerView"],
         @"SSShortVideoEpisodesRelatedInfoView":@[@"contentView"],
+        @"FQVShortVideoEpisodesNumberView":@[],
+        @"FQVShortVideoEpisodesNumberCell":@[],
         @"SSShortVideoEpisodesViewItemCell":@[@"bgView"],
         @"SSShortVideoEpisodesViewSwitchView":@[@"bgView"]
     };});return getters;
@@ -23,7 +27,16 @@ static NSDictionary<NSString *,NSArray<NSString *> *> *HGAPlayerControlGetters(v
 static NSArray<NSString *> *HGAPlayerControlClasses(void) {return HGAPlayerControlGetters().allKeys;}
 static BOOL HGAEpisodeControl(UIView *root) {
     return [@[@"SSShortVideoEpisodePanelCollectView",@"SSShortVideoEpisodesRelatedInfoView",
+        @"FQVShortVideoEpisodesNumberView",@"FQVShortVideoEpisodesNumberCell",
         @"SSShortVideoEpisodesViewItemCell",@"SSShortVideoEpisodesViewSwitchView"] containsObject:NSStringFromClass(root.class)];
+}
+static HGAActionSheetState *HGAEpisodeSheetForControl(UIView *control) {
+    for(UIView *node=control.superview;node;node=node.superview) {
+        HGAActionSheetState *state=objc_getAssociatedObject(node,&HGAActionSheetKey);
+        if(state && [control isDescendantOfView:state.surface] && [HGAPanelKind(HGAOwner(node)) isEqual:@"episodes"])
+            return state;
+    }
+    return nil;
 }
 @interface HGAEpisodeCollectInk : NSObject
 @property(nonatomic,weak) UILabel *label;
@@ -205,8 +218,20 @@ static void HGAApplyPlaybackButton(UIView *root) {
     if(HGFlatPlayerStyle())HGAInstallFlatPlaybackButton(button,frame);
     else HGAInstallPlaybackGlass(button,HGALiquidPlayerMaterial(),frame,side/2,nil);
 }
+#include "AppearancePlayerBadges.inc"
 static void HGAApplyPlayerControls(UIView *root) {
     NSString *name=NSStringFromClass(root.class);
+    if([name isEqual:@"SSShortVideoRcmdReasonView"] || [name isEqual:@"SSShortVideoRcmdReasonTag"]) {
+        HGAApplyPlayerBadge(root,[name isEqual:@"SSShortVideoRcmdReasonTag"]);
+        return;
+    }
+    if([root isKindOfClass:objc_lookUpClass("FQVTransitionPlayerTopContentView")]) {
+        for(HGAActionSheetMount *mount in HGAMountedActionSheets) {
+            HGAActionSheetState *state=objc_getAssociatedObject(mount.sheetRoot,&HGAActionSheetKey);
+            if(state.episodePreview==root){HGAAlignEpisodePreview(state,root);break;}
+        }
+        return;
+    }
     if([root isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerControlView")]) {
         HGAUpdatePlayerGestures(root);
         HGAApplyPlaybackButton(root);
@@ -214,6 +239,36 @@ static void HGAApplyPlayerControls(UIView *root) {
     BOOL danmaku=[name isEqual:@"FQCShortVideoDanmakuEntranceView"];
     BOOL sheet=HGAEpisodeControl(root);
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(sheet?@"panels.episodes":@"player.controlsGlass") && root.window;
+    BOOL ranges=[name isEqual:@"FQVShortVideoEpisodesNumberView"];
+    if(ranges || [name isEqual:@"FQVShortVideoEpisodesNumberCell"]) {
+        HGAActionSheetState *state=enabled ? HGAEpisodeSheetForControl(root) : nil;
+        if(ranges) {
+            NSMutableArray *fades=[NSMutableArray array];
+            if(state) {
+                HGAClearSheetBackground(state,root);
+                if([root.superview isKindOfClass:UICollectionReusableView.class])
+                    HGAClearSheetCover(state,root.superview);
+                UICollectionView *list=(id)HGAViewGetter(root,"collectionView",root);
+                if([list isKindOfClass:UICollectionView.class]) {
+                    HGAClearSheetBackground(state,list);
+                    HGAClearSheetCover(state,list.backgroundView);
+                }
+                for(NSString *getter in @[@"leftGradientView",@"rightGradientView"]) {
+                    UIView *fade=HGAViewGetter(root,getter.UTF8String,root);
+                    if(fade)[fades addObject:fade];
+                }
+            }
+            HGAPlayerChromeTargets(root,nil,fades);
+        } else if(state) {
+            UICollectionViewCell *cell=(id)root;
+            HGAClearSheetCover(state,cell);
+            HGAClearSheetCover(state,cell.contentView);
+            HGAClearSheetCover(state,cell.backgroundView);
+            UILabel *label=(id)HGAViewGetter(cell,"titleLabel",cell);
+            if(state.nativeClear && [label isKindOfClass:UILabel.class])HGAApplySheetLabel(state,label);
+        }
+        return;
+    }
     if([root isKindOfClass:NSClassFromString(@"FQVShortVideoVPlayerEpisodeInfoView")]) {
         HGARegisterView(root);
         if(enabled)HGAPlayerControlGlass(root,NO,YES);
@@ -293,6 +348,9 @@ static void HGAApplyPlayerControls(UIView *root) {
         // UICollectionViewCell.selected. Preserve that authored state as tint.
         for(UIView *target in targets)HGASetGlassOverlay(target,
             [HGAState(target,NO).background colorWithAlphaComponent:0.18] ?: UIColor.clearColor);
+        HGAActionSheetState *state=HGAEpisodeSheetForControl(root);
+        UILabel *label=(id)HGAViewGetter(root,"textLabel",root);
+        if(state.nativeClear && [label isKindOfClass:UILabel.class])HGAApplySheetLabel(state,label);
     }
 }
 

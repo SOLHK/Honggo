@@ -157,7 +157,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     __block IMP original=actual && !strcmp(actual,encoding)?method_getImplementation(method):NULL;
     NSString *className=NSStringFromClass(cls);
     BOOL playerCanvas=[className isEqual:@"FQVShortVideoPlayerCellView"];
-    BOOL paletteChange=playerCanvas && selector==sel_registerName("refreshBgColor");
+    BOOL backdropChange=playerCanvas && (selector==sel_registerName("refreshBgColor") ||
+        selector==sel_registerName("refreshCoverImageView"));
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL metalLayout=[className isEqual:@"TTMetalView"] && selector==@selector(layoutSubviews);
     BOOL scrollComponent=[className isEqual:@"FQVShortVideoListVCScrollComponent"];
@@ -209,7 +210,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGRefreshVideoBackdropForPlayer(renderer);
                 return;
             }
-            if(paletteChange) {
+            if(backdropChange) {
                 if(!HGAApplying)HGRefreshVideoBackdropForPlayer(object);
                 return;
             }
@@ -434,6 +435,7 @@ void HGInstallAppearance(void) {
         [classes addObjectsFromArray:HGABottomControlClasses()];
         [classes addObjectsFromArray:HGAPlayerControlClasses()];
         [classes addObjectsFromArray:HGALandscapeChromeClasses()];
+        [classes addObject:@"FQVTransitionPlayerTopContentView"];
         [classes addObject:@"FQVShortVideoVPlayerSingleSeriesControlView"];
         [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar",@"FQVShortVideoBaseInsertView"]];
         for (NSString *name in classes) {
@@ -446,6 +448,12 @@ void HGInstallAppearance(void) {
             found++;
             HGAHook(cls,@selector(layoutSubviews),"v16@0:8",NO);
             HGAHook(cls,@selector(didMoveToWindow),"v16@0:8",NO);
+            if([name isEqual:@"SSShortVideoRcmdReasonView"] || [name isEqual:@"SSShortVideoRcmdReasonTag"]) {
+                BOOL tag=[name isEqual:@"SSShortVideoRcmdReasonTag"];
+                HGAHook(cls,sel_registerName(tag?"updateAppearance":"modelDidUpdate"),"v16@0:8",NO);
+                HGAHook(cls,@selector(traitCollectionDidChange:),"v24@0:8@16",NO);
+                if(tag)HGAHook(cls,sel_registerName("onDarkModeChange:"),"v20@0:8B16",NO);
+            }
             if([name isEqual:@"FQCShortVideoCommentSectionFooterView"]) {
                 HGAHook(cls,sel_registerName("setupTheme"),"v16@0:8",NO);
                 HGAHook(cls,sel_registerName("setModel:animation:"),"v28@0:8@16B24",NO);
@@ -454,6 +462,10 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName("configTheme:"),"v20@0:8B16",NO);
             if([name isEqual:@"FQCShortVideoCommentReplyCell"])
                 HGAHook(cls,sel_registerName("setModel:"),"v24@0:8@16",NO);
+            if([name isEqual:@"FQVShortVideoEpisodesNumberView"])
+                HGAHook(cls,sel_registerName("refreshGradientLayerColor"),"v16@0:8",NO);
+            if([name isEqual:@"FQVShortVideoEpisodesNumberCell"])
+                HGAHook(cls,@selector(setSelected:),"v20@0:8B16",NO);
             if([name isEqual:@"FQVShortVideoLandscapeNavBar"])
                 HGAHook(cls,sel_registerName("refreshLayout"),"v16@0:8",NO);
             if([name isEqual:@"FQVShortVideoPlayerLandscapeBaseInfoView"])
@@ -515,8 +527,10 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,@selector(willMoveToWindow:),"v24@0:8@16",NO);
                 HGAHook(cls,@selector(didMoveToSuperview),"v16@0:8",NO);
             }
-            if([name isEqual:@"FQVShortVideoPlayerCellView"])
+            if([name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 HGAHook(cls,sel_registerName("refreshBgColor"),"v16@0:8",NO);
+                HGAHook(cls,sel_registerName("refreshCoverImageView"),"v16@0:8",NO);
+            }
             if([name isEqual:@"FQCShortVideoDanmakuEntranceView"])
                 HGAHook(cls,sel_registerName("refreshIcon"),"v16@0:8",NO);
             if([name isEqual:@"FQVShortVideoPlayerCellView"]) {

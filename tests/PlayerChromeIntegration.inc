@@ -76,6 +76,18 @@
 @interface SSShortVideoIntroductionTabViewController : UIViewController @end
 @implementation SSShortVideoIntroductionTabViewController @end
 
+@interface FQVTransitionPlayerTopContentView : UIView
+@property(nonatomic,strong) UIView *playerContainerView;
+@end
+@implementation FQVTransitionPlayerTopContentView @end
+
+@interface FQVShortVideoEpisodesNumberView : UIView
+@property(nonatomic,strong) UICollectionView *collectionView;
+@property(nonatomic,strong) UIView *leftGradientView;
+@property(nonatomic,strong) UIView *rightGradientView;
+@end
+@implementation FQVShortVideoEpisodesNumberView @end
+
 @interface SSShortVideoEpisodeSubViewController : UIViewController
 @property(nonatomic,strong) UICollectionView *collectionView;
 - (void)onDarkModeChange:(BOOL)dark;
@@ -239,11 +251,67 @@ static void RunDetailNavigationChromeChecks(UIViewController *host) {
     [detail removeFromParentViewController];
 }
 
+@interface HGABadgeTestModel : NSObject
+@property(nonatomic,copy) NSString *reasonText;
+@end
+@implementation HGABadgeTestModel @end
+
+@interface SSShortVideoRcmdReasonView : UIControl
+@property(nonatomic,strong) HGABadgeTestModel *dataModel;
+@property(nonatomic,strong) UIView *gradientBackgroundView;
+@property(nonatomic,strong) UIImageView *iconView;
+@property(nonatomic) BOOL night;
+@end
+@implementation SSShortVideoRcmdReasonView
+- (BOOL)fqv_isDarkMode {return self.night;}
+- (void)modelDidUpdate {}
+@end
+
+static void RunPlayerBadgeChecks(UIView *host) {
+    SSShortVideoAboveLeftContainerView *stack=[[SSShortVideoAboveLeftContainerView alloc] initWithFrame:CGRectMake(0,0,240,64)];
+    [host addSubview:stack];
+    SSShortVideoRcmdReasonView *badge=[[SSShortVideoRcmdReasonView alloc] initWithFrame:CGRectMake(0,0,190,28)];
+    badge.backgroundColor=UIColor.blackColor;
+    badge.gradientBackgroundView=[[UIView alloc] initWithFrame:badge.bounds];
+    [badge addSubview:badge.gradientBackgroundView];
+    badge.iconView=[[UIImageView alloc] initWithFrame:CGRectMake(6,7,14,14)];
+    [badge addSubview:badge.iconView];
+    badge.dataModel=[HGABadgeTestModel new];
+    badge.dataModel.reasonText=@"追更榜 No.1";
+    [stack addSubview:badge];
+    [badge modelDidUpdate];
+    UIView *glyph=Find(badge,@"honggo.appearance.playerBadgeGlyph");
+    UIVisualEffectView *glass=(id)Find(badge,@"honggo.appearance.material");
+    Check(glass && !glass.userInteractionEnabled && badge.gradientBackgroundView.hidden &&
+          [glyph.tintColor isEqual:UIColor.blackColor] && [badge hitTest:CGPointMake(90,14) withEvent:nil]==badge,
+          @"rank badge uses glass on its original hit area and black ink with the day theme");
+    HGAppearanceSet(@"player.hide.followRank",@YES,nil);
+    [badge modelDidUpdate];
+    Check(badge.hidden,@"rank visibility setting hides the bound rank link");
+    badge.dataModel.reasonText=@"系列剧·已上线5季";
+    badge.night=YES;
+    [badge modelDidUpdate];
+    Check(!badge.hidden && [Find(badge,@"honggo.appearance.playerBadgeGlyph").tintColor isEqual:UIColor.whiteColor],
+          @"the same reused control shows a series link independently with night-theme ink");
+    HGAppearanceSet(@"player.hide.seriesBadge",@YES,nil);
+    [badge modelDidUpdate];
+    Check(badge.hidden,@"series visibility can be disabled separately");
+    badge.dataModel.reasonText=@"大家都在看";
+    [badge modelDidUpdate];
+    Check(!badge.hidden && !badge.gradientBackgroundView.hidden && !badge.iconView.layer.mask &&
+          !Find(badge,@"honggo.appearance.material") && [badge.backgroundColor isEqual:UIColor.blackColor],
+          @"reusing either badge for an unrelated recommendation restores its native paint and icon");
+    [stack removeFromSuperview];
+    HGAppearanceSet(@"player.hide.followRank",@NO,nil);
+    HGAppearanceSet(@"player.hide.seriesBadge",@NO,nil);
+}
+
 static void RunPlayerChromeChecks(SSTabBarController *host) {
     RunDanmakuChromeChecks(host.view);
     NSDictionary *saved=HGAppearanceValues();
     HGAppearanceApply(@{@"enabled":@YES,@"player.controlsGlass":@YES,@"panels.episodes":@YES,@"panels.material":@"blur"},nil);
     RunDetailNavigationChromeChecks(host);
+    RunPlayerBadgeChecks(host.view);
     HGAEpisodeTapFixture *action=[HGAEpisodeTapFixture new];
     FQVShortVideoVPlayerControlView *playback=[[FQVShortVideoVPlayerControlView alloc] initWithFrame:CGRectMake(10,100,144,60)];
     UIButton *fullscreen=[UIButton buttonWithType:UIButtonTypeCustom];
@@ -456,12 +524,43 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     Check([previousLabel.textColor isEqual:UIColor.whiteColor] && [previousIcon.tintColor isEqual:UIColor.whiteColor] &&
         ImageContentEqual(previousIcon.image,initialIcon) && collect.iconImageView.image.renderingMode==UIImageRenderingModeAlwaysTemplate,
         @"replacing the host collect label and image restores old views and styles the new ones");
+
+    FQVTransitionView *transition=[[FQVTransitionView alloc] initWithFrame:CGRectMake(0,0,440,956)];
+    FQVTransitionPlayerTopContentView *preview=[[FQVTransitionPlayerTopContentView alloc] initWithFrame:CGRectMake(0,0,440,383)];
+    transition.topContentView=preview;
+    CGRect nativeFrame=CGRectMake(0,98.75,440,247.5);
+    preview.playerContainerView=[[UIView alloc] initWithFrame:nativeFrame];
+    [preview addSubview:preview.playerContainerView];[transition addSubview:preview];
+    [host.view addSubview:transition];[transition addSubview:panel.view];
+    panel.view.frame=CGRectMake(0,383,440,573);
+    HGAppearanceProcessController(panel);
+    HGAppearanceProcessView(preview);
+    Check(fabs(preview.layer.sublayerTransform.m42-36.75)<0.01 &&
+        CGRectEqualToRect(preview.playerContainerView.frame,nativeFrame),
+        @"episode preview closes the measured gap without cropping or changing the borrowed player geometry");
+
+    UICollectionReusableView *section=[[UICollectionReusableView alloc] initWithFrame:CGRectMake(0,0,240,46)];
+    FQVShortVideoEpisodesNumberView *ranges=[[FQVShortVideoEpisodesNumberView alloc] initWithFrame:section.bounds];
+    ranges.backgroundColor=UIColor.whiteColor;section.backgroundColor=UIColor.whiteColor;
+    ranges.collectionView=[[UICollectionView alloc] initWithFrame:ranges.bounds collectionViewLayout:[UICollectionViewFlowLayout new]];
+    ranges.collectionView.backgroundColor=UIColor.whiteColor;[ranges addSubview:ranges.collectionView];
+    ranges.leftGradientView=[UIView new];ranges.rightGradientView=[UIView new];
+    [ranges addSubview:ranges.leftGradientView];[ranges addSubview:ranges.rightGradientView];
+    [section addSubview:ranges];[sub.collectionView addSubview:section];
+    HGAppearanceProcessView(ranges);
+    Check([section.backgroundColor isEqual:UIColor.clearColor] && [ranges.backgroundColor isEqual:UIColor.clearColor] &&
+        [ranges.collectionView.backgroundColor isEqual:UIColor.clearColor] &&
+        ranges.leftGradientView.hidden && ranges.rightGradientView.hidden && ranges.collectionView.userInteractionEnabled,
+        @"a late-mounted episode range header retains its controls and removes both white edge fades");
     HGAppearanceSet(@"panels.episodes",@NO,nil);
     HGAppearanceProcessController(panel);
     Check([sub.collectionView.backgroundColor isEqual:UIColor.whiteColor] &&
         [sub.view.backgroundColor isEqual:UIColor.whiteColor] &&
         [sub.collectionView.backgroundView.backgroundColor isEqual:UIColor.whiteColor],
         @"disabling episode glass returns the hosted page's own colors");
+    Check(CATransform3DIsIdentity(preview.layer.sublayerTransform) &&
+        [ranges.backgroundColor isEqual:UIColor.whiteColor] && !ranges.leftGradientView.hidden &&
+        !ranges.rightGradientView.hidden,@"turning off episode glass restores the preview and range header");
     Check(action.taps==3 && !Find(panel.view,@"honggo.appearance.material") && !collect.bgView.hidden &&
         collect.shareBgView.hidden && [episode.bgView.backgroundColor isEqual:UIColor.systemOrangeColor] &&
         [collect.textL.textColor isEqual:UIColor.labelColor] &&
@@ -471,5 +570,6 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     [panel willMoveToParentViewController:nil];
     [panel.view removeFromSuperview];
     [panel removeFromParentViewController];
+    [transition removeFromSuperview];
     HGAppearanceApply(saved,nil);
 }

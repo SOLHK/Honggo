@@ -2,6 +2,7 @@
 @implementation FQVShortVideoSettingsViewController_hmd_subfix_ @end
 @interface FQVTransitionView : UIView
 @property(nonatomic,strong) UIView *bgView;
+@property(nonatomic,strong) UIView *topContentView;
 @end
 @implementation FQVTransitionView @end
 @interface SSShortVideoMorePanelShareHeaderView : UIView

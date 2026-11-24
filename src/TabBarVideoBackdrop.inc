@@ -195,7 +195,7 @@ static BOOL HGVideoBackdropCanExtend(UIView *renderer, UIView *root, CGRect view
     return NO;
 }
 
-static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView *feed, CGRect cellFrame, CGFloat extra) {
+static UIView *HGVideoBackdropFeedMedia(UIView *canvas, UICollectionView *feed, CGRect cellFrame, CGFloat extra) {
     if (!canvas || fabs(cellFrame.size.height-feed.bounds.size.height)>0.75) return nil;
     // A downward drag moves this page's bottom from the native edge towards
     // the physical bottom. Keep the renderer covering the remaining strip
@@ -206,10 +206,31 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
     for (UIView *wrapper in canvas.subviews) {
         UIView *player = wrapper.subviews.firstObject;
         if (wrapper.class != UIView.class || wrapper.subviews.count != 1 ||
-            ![player isKindOfClass:playerClass]) continue;
+            ![player isKindOfClass:playerClass] || !HGVideoBackdropVisible(player, feed) ||
+            !CGPointEqualToPoint(wrapper.layer.anchorPoint, CGPointMake(0.5,0.5)) ||
+            !HGVideoBackdropSameRect(player.frame,wrapper.bounds,0.75) ||
+            !HGVideoBackdropSameRect([wrapper convertRect:wrapper.bounds toView:feed],cellFrame,0.75)) continue;
+        for (UIView *ancestor=wrapper; ancestor!=feed; ancestor=ancestor.superview)
+            if (ancestor.layer.mask || (ancestor!=wrapper && !CATransform3DIsIdentity(ancestor.layer.sublayerTransform)))
+                return nil;
+
+        // The player crossfades its cover and video inside this media wrapper.
+        // A full-height player can have a transparent or as-yet-unsized Metal
+        // surface while the cover is the actual picture. Extend their common
+        // parent once so they meet the same bottom edge throughout the fade.
+        // The paging cell, gesture controls and labels are outside this group.
         for (UIView *renderer in player.subviews) {
-            if ([renderer isKindOfClass:rendererClass] && HGVideoBackdropCanExtend(renderer, feed, cellFrame)) return renderer;
+            if (![renderer isKindOfClass:rendererClass]) continue;
+            if (HGAppearancePlayerIsTransferring(renderer)) return nil;
+            if (HGVideoBackdropSameRect(renderer.frame,player.bounds,0.75)) return wrapper;
+            // A settled wide renderer has intentional space below the picture.
+            if (!CGRectIsEmpty(renderer.frame)) return nil;
         }
+        UIImageView *cover = (UIImageView *)HGView(player,"coverImageView");
+        if ([cover isKindOfClass:UIImageView.class] && cover.image && [cover isDescendantOfView:player] &&
+            HGVideoBackdropVisible(cover,player) &&
+            HGVideoBackdropSameRect([cover convertRect:cover.bounds toView:player],player.bounds,0.75))
+            return wrapper;
     }
     return nil;
 }
@@ -439,7 +460,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
     UICollectionViewCell *cell = HGVideoBackdropCellAtBottom(feed, &cellFrame);
     UIView *canvas = HGVideoBackdropCanvas(cell, feed);
     CGFloat extra = CGRectGetMaxY(feed.superview.bounds) - CGRectGetMaxY(feed.frame);
-    UIView *renderer = HGVideoBackdropPortraitRenderer(canvas, feed, cellFrame, extra);
+    UIView *renderer = HGVideoBackdropFeedMedia(canvas, feed, cellFrame, extra);
     CGFloat remaining = renderer ? MIN(extra, CGRectGetMaxY(feed.bounds)+extra-CGRectGetMaxY(cellFrame)) : 0;
     BOOL fillsPortrait = [self extendPortrait:renderer through:feed extra:remaining];
     UIColor *matte = fillsPortrait ? nil : HGVideoBackdropMatte(canvas);
@@ -464,7 +485,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
 
 - (void)prepareRendererTransfer:(UIView *)view {
     UIView *renderer = self.portraitRenderer;
-    if (!renderer || (renderer != view && ![renderer isDescendantOfView:view])) return;
+    if (!renderer || (renderer != view && ![renderer isDescendantOfView:view] && ![view isDescendantOfView:renderer])) return;
     [self restorePortrait];
     [self restoreClipping];
     [self restoreBottomGradient];

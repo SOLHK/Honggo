@@ -2,7 +2,7 @@
 // This noninteractive marker follows the sheet through interactive dismissal
 // and also handles hosts that remove their content without a controller callback.
 static void HGARefreshSheetDockVisibility(UIWindow *window);
-static void HGARestoreDetachedSheetDimmer(UIView *root);
+static void HGARestoreSheetPresentation(UIView *root);
 static NSHashTable<UIView *> *HGAMountedActionSheets;
 static BOOL HGAWindowHasActionSheet(UIWindow *window) {
     if(!window)return NO;
@@ -30,7 +30,7 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
         [HGAMountedActionSheets addObject:self];
     } else [HGAMountedActionSheets removeObject:self];
     if(old && old!=self.window) {
-        HGARestoreDetachedSheetDimmer(self.sheetRoot);
+        HGARestoreSheetPresentation(self.sheetRoot);
         HGARefreshSheetDockVisibility(old);
     }
     HGARefreshSheetDockVisibility(self.window);
@@ -57,6 +57,8 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
 @property(nonatomic,strong) NSMapTable<CALayer *,HGAActionSheetPlate *> *plates;
 @property(nonatomic,strong) NSMapTable<UILabel *,HGAActionSheetPlate *> *labels;
 @property(nonatomic,weak) UIView *dimmer;
+@property(nonatomic,weak) UIView *episodePreview;
+@property(nonatomic) CGFloat previewOffset;
 @property(nonatomic,strong) UIColor *dimmerPaint;
 @property(nonatomic,strong) UIColor *overlay;
 @property(nonatomic) CGFloat overlayOpacity;
@@ -80,8 +82,39 @@ static void HGARestoreSheetDimmer(HGAActionSheetState *state) {
     state.dimmer=nil;state.dimmerPaint=nil;
 }
 
-static void HGARestoreDetachedSheetDimmer(UIView *root) {
-    HGARestoreSheetDimmer(objc_getAssociatedObject(root,&HGAActionSheetKey));
+static void HGAAlignEpisodePreview(HGAActionSheetState *state,UIView *top) {
+    UIView *previous=state.episodePreview;
+    CGFloat oldOffset=state.previewOffset;
+    CATransform3D applied=CATransform3DMakeTranslation(0,oldOffset,0);
+    if(previous!=top) {
+        if(previous && CATransform3DEqualToTransform(previous.layer.sublayerTransform,applied))
+            previous.layer.sublayerTransform=CATransform3DIdentity;
+        state.episodePreview=top;
+        state.previewOffset=0;
+    }
+    if(!top)return;
+    UIView *transition=top.superview;
+    UIView *player=HGAViewGetter(top,"playerContainerView",top);
+    CGFloat offset=0;
+    if(player.superview==top && CGRectGetWidth(player.frame)>CGRectGetHeight(player.frame) &&
+       fabs(CGRectGetWidth(player.frame)-CGRectGetWidth(top.bounds))<1) {
+        // The native preview centers a full-width landscape movie above the
+        // sheet. Translate only its visual contents to meet the card edge.
+        CGRect sheet=[state.surface convertRect:state.surface.bounds toView:transition];
+        CGFloat offscreen=MAX(0,CGRectGetMaxY(sheet)-CGRectGetMaxY(transition.bounds));
+        offset=MAX(0,CGRectGetMaxY(top.bounds)-CGRectGetMaxY(player.frame)-offscreen);
+    }
+    CATransform3D current=top.layer.sublayerTransform;
+    if(!CATransform3DIsIdentity(current) &&
+       (previous!=top || !CATransform3DEqualToTransform(current,applied)))return;
+    CATransform3D next=CATransform3DMakeTranslation(0,offset,0);
+    if(!CATransform3DEqualToTransform(current,next))top.layer.sublayerTransform=next;
+    state.previewOffset=offset;
+}
+static void HGARestoreSheetPresentation(UIView *root) {
+    HGAActionSheetState *state=objc_getAssociatedObject(root,&HGAActionSheetKey);
+    HGARestoreSheetDimmer(state);
+    HGAAlignEpisodePreview(state,nil);
 }
 
 @interface HGAShareInk : NSObject
@@ -388,6 +421,7 @@ static void HGARestoreActionSheet(UIView *root) {
     if(!state)return;
     UIView *surface=state.surface;
     [state.dockMount removeFromSuperview];
+    HGAAlignEpisodePreview(state,nil);
     HGARemoveGlass(surface);
     HGARestoreSheetOptics(state);
     for(UIView *cover in state.covers.keyEnumerator.allObjects) {
@@ -661,6 +695,13 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
             state.dockMount.accessibilityElementsHidden=YES;state.dockMount.userInteractionEnabled=NO;
             [surface addSubview:state.dockMount];
         } else HGARefreshSheetDockVisibility(surface.window);
+    }
+    if(episodes) {
+        UIView *transition=surface.superview;
+        while(transition && ![transition isKindOfClass:objc_lookUpClass("FQVTransitionView")])
+            transition=transition.superview;
+        UIView *top=HGAViewGetter(transition,"topContentView",transition);
+        HGAAlignEpisodePreview(state,[top isKindOfClass:objc_lookUpClass("FQVTransitionPlayerTopContentView")] ? top : nil);
     }
     for(CALayer *layer in state.plates.keyEnumerator.allObjects) {
         if(![[state.plates objectForKey:layer].view isDescendantOfView:surface])HGARestoreSheetPlate(state,layer);

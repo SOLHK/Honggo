@@ -338,6 +338,21 @@ static NSArray<UIView *> *HGADockSystemItems(UIView *root) {
     return items;
 }
 
+// The floating provider may own a factory material with no writable glass
+// effect. Leave that provider in control of both the rail and the thumb.
+static UIGlassEffect *HGAApplyClearTabMaterial(UIView *platter) API_AVAILABLE(ios(26.0)) {
+    SEL setter=sel_registerName("setGlassEffect:");
+    Method method=class_getInstanceMethod(object_getClass(platter),setter);
+    if (!method || strcmp(method_getTypeEncoding(method),"v24@0:8@16")) return nil;
+    UIGlassEffect *original=HGReadObjectGetter(platter,"glassEffect");
+    if (![original isKindOfClass:UIGlassEffect.class]) return nil;
+    UIGlassEffect *clear=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
+    clear.interactive=original.interactive;
+    clear.tintColor=original.tintColor;
+    ((void(*)(id,SEL,id))objc_msgSend)(platter,setter,clear);
+    return original;
+}
+
 static UIImage *HGADockSystemImage(NSString *symbol,CGFloat size,UIColor *color) {
     UIImageSymbolConfiguration *config=[UIImageSymbolConfiguration configurationWithPointSize:size weight:UIImageSymbolWeightMedium];
     UIImage *image=[UIImage systemImageNamed:symbol withConfiguration:config];
@@ -675,21 +690,14 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     UIView *platter=self.systemPlatter;
     BOOL changed=self.customSystemPlatter==platter;
     if(![style isEqual:@"clear"] && !changed)return @"factory-glass";
-    SEL setter=sel_registerName("setGlassEffect:");
-    Method method=class_getInstanceMethod(object_getClass(platter),setter);
-    if(!method || strcmp(method_getTypeEncoding(method),"v24@0:8@16"))return @"factory-glass";
-    void (*writeEffect)(id,SEL,id)=(void(*)(id,SEL,id))objc_msgSend;
     if(![style isEqual:@"clear"]) {
-        writeEffect(platter,setter,self.factorySystemGlass);
+        ((void(*)(id,SEL,id))objc_msgSend)(platter,sel_registerName("setGlassEffect:"),self.factorySystemGlass);
         self.customSystemPlatter=nil;self.factorySystemGlass=nil;
     }else if(@available(iOS 26.0,*)) {
         if(changed)return @"clear-glass";
-        UIGlassEffect *original=HGReadObjectGetter(platter,"glassEffect");
-        if(![original isKindOfClass:UIGlassEffect.class])return @"factory-glass";
-        UIGlassEffect *clear=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
-        clear.interactive=original.interactive;clear.tintColor=original.tintColor;
+        UIGlassEffect *original=HGAApplyClearTabMaterial(platter);
+        if(!original)return @"factory-glass";
         self.customSystemPlatter=platter;self.factorySystemGlass=original;
-        writeEffect(platter,setter,clear);
         return @"clear-glass";
     }
     return @"factory-glass";
@@ -1040,10 +1048,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.extra.layer.borderWidth=!flat && translucent && !classicBlur ? 0.5 : 0;
     self.extra.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
     BOOL darkSurface=self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-    BOOL strongSelection=reduced || self.traitCollection.accessibilityContrast==UIAccessibilityContrastHigh;
-    CGFloat selectionOpacity=flat ? (darkSurface?0.24:0.12) :
-        (strongSelection ? (darkSurface?0.18:0.10) : (darkSurface?0.09:0.065));
-    UIColor *selectionBg=[UIColor colorWithWhite:darkSurface?1:0 alpha:selectionOpacity];
+    UIColor *selectionBg=HGADockSelectionColor(self.capsule.traitCollection,flat);
     UIColor *selectionEdge=[UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.23:0.11];
     self.selection.backgroundColor=selectionBg;
     self.selection.layer.borderColor=selectionEdge.CGColor;

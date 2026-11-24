@@ -249,6 +249,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"播放与材质");
         HGAAddDefs(rows,@[@"player.fullscreen",@"player.disableEpisodeSwipe",@"player.separateProgress",
             @"player.rightGlass",@"player.actionStyle",@"player.collectGlyph",@"player.material",@"player.episodeGlass",@"player.controlsGlass"]);
+        section(@"剧集信息按钮");
+        HGAAddDefs(rows,@[@"player.hide.followRank",@"player.hide.seriesBadge"]);
         NSArray *roles = HGAppearanceRoles(), *roleTitles = HGAppearanceRoleTitles();
         for (NSUInteger i = 0; i < roles.count; i++) {
             NSString *role = roles[i];

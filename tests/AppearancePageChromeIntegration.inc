@@ -796,66 +796,118 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             UIVisualEffectView *refraction=(id)Find(lens,@"honggo.appearance.header.refraction");
             Layout(rail);
             UIVisualEffect *effect=rail.effect;
-            NSMutableArray<UIButton *> *buttons=[NSMutableArray array];
-            for (NSUInteger i=0;i<2;i++) {
-                CGPoint center=CGPointMake(CGRectGetWidth(group.bounds)*(0.25+0.5*i),CGRectGetMidY(group.bounds));
-                UIView *hit=[header hitTest:[group convertPoint:center toView:header] withEvent:nil];
-                while (hit && hit!=group && ![hit isKindOfClass:UIButton.class]) hit=hit.superview;
-                if ([hit isKindOfClass:UIButton.class] && [hit isDescendantOfView:group]) [buttons addObject:(UIButton *)hit];
-            }
-            BOOL native=buttons.count==2 && buttons[0]!=buttons[1] && buttons[0].selected &&
-                [[buttons[0] titleForState:UIControlStateNormal] isEqual:@"漫剧"] &&
-                [[buttons[1] titleForState:UIControlStateNormal] isEqual:@"推荐"] &&
-                buttons[0].buttonType==UIButtonTypeCustom && buttons[1].buttonType==UIButtonTypeCustom &&
-                !buttons[0].configuration && !buttons[1].configuration;
-            Check(native && !segments.window && categoryList.hidden && rail.superview==group && lens.superview==group &&
-                CGRectEqualToRect(rail.frame,group.bounds) && [effect isKindOfClass:UIGlassEffect.class] &&
-                !lens.hidden && [group.subviews indexOfObjectIdenticalTo:rail]<[group.subviews indexOfObjectIdenticalTo:lens],
-                @"the glass channels use one continuous native rail beneath the shared selection and labels");
-            if (native) {
-                NSUInteger before=channels.nativeSelections;
-                if (!UIAccessibilityIsReduceMotionEnabled()) {
-                    CGFloat restingHeight=CGRectGetHeight(lens.frame);
-                    UILongPressGestureRecognizer *hold=nil;
-                    for (UIGestureRecognizer *g in buttons.firstObject.gestureRecognizers)
-                        if ([g isKindOfClass:UILongPressGestureRecognizer.class]) hold=(id)g;
-                    Check(hold && hold.minimumPressDuration==0,@"the rail tracks from initial contact without waiting for pan velocity");
-                    sample.fixtureState=UIGestureRecognizerStateBegan;
-                    sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.25,CGRectGetMidY(group.bounds));
-                    [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
-                    Check(refraction.superview==lens && !refraction.hidden && !rail.hidden && [group.subviews indexOfObject:rail]<[group.subviews indexOfObject:lens] &&
-                        [group.subviews indexOfObject:lens]<[group.subviews indexOfObject:buttons[0].superview] && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
-                        CGRectGetHeight(lens.frame)>restingHeight && channels.nativeSelections==before,
-                        @"touch-down lifts the native refraction on the selected tab before the host selection changes");
-                    sample.fixtureState=UIGestureRecognizerStateCancelled;
-                    [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
+            UITabBar *tabs=(id)Find(group,@"honggo.appearance.header.systemTabs");
+            if (@available(iOS 27.0,*)) {
+                CFTimeInterval deadline=CACurrentMediaTime()+0.5;
+                while(tabs.hidden && CACurrentMediaTime()<deadline) {
+                    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.01,false);
+                    [group layoutIfNeeded];
+                    tabs=(id)Find(group,@"honggo.appearance.header.systemTabs");
                 }
-                [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
-                [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
-                Check(buttons[1].selected && !buttons[0].selected && channels.selectedIndex==3 &&
-                    channels.nativeSelections==before+1 && pageScroll.contentOffset.x==3*pageWidth &&
-                    rail.effect==effect && Find(group,@"honggo.appearance.header.swipeLens")==lens,
-                    @"glass channel activation selects the originally visible host page exactly once");
-                [buttons[0] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                Check(tabs && !tabs.hidden,@"the compact glass channel uses the floating UIKit provider on iOS 27");
+            }
+            if (tabs && !tabs.hidden) {
+                NSUInteger before=channels.nativeSelections;
+                UITabBarController *managed=[group valueForKey:@"tabController"];
+                NSArray *accessible=managed ? [managed.tabs valueForKey:@"accessibilityLabel"] :
+                    [tabs.items valueForKey:@"accessibilityLabel"];
+                BOOL initialSelection=managed ? managed.selectedTab==managed.tabs.firstObject : tabs.selectedItem==tabs.items.firstObject;
+                Check([accessible isEqual:@[@"漫剧",@"推荐"]] && initialSelection &&
+                    (!managed || (managed.parentViewController && [managed.view isDescendantOfView:group])) &&
+                    rail.superview.hidden && categoryList.hidden,@"the header exposes its two filtered channels as native floating tabs");
+                for (NSUInteger slot=0;slot<2;slot++) {
+                    CGPoint p=CGPointMake(CGRectGetWidth(group.bounds)*(slot+0.5)/2,CGRectGetMidY(group.bounds));
+                    UIView *hit=[header hitTest:[group convertPoint:p toView:header] withEvent:nil];
+                    Check(hit!=tabs && [hit isDescendantOfView:tabs],@"UIKit owns the header touch from initial contact");
+                }
+                void (^selectTab)(NSUInteger)=^(NSUInteger index) {
+                    if(managed)[managed.delegate tabBarController:managed didSelectTab:managed.tabs[index] previousTab:managed.selectedTab];
+                    else [tabs.delegate tabBar:tabs didSelectItem:tabs.items[index]];
+                };
+                selectTab(1);selectTab(1);
+                BOOL secondSelection=managed ? managed.selectedTab==managed.tabs[1] : tabs.selectedItem==tabs.items[1];
+                Check(secondSelection && channels.selectedIndex==3 && channels.nativeSelections==before+1 &&
+                    pageScroll.contentOffset.x==3*pageWidth,@"native tab selection routes once to the original host index");
+                selectTab(0);
                 if (!UIAccessibilityIsReduceMotionEnabled()) {
-                    id<HGATestChannelPaging> scrubber=nil;
-                    for (UIGestureRecognizer *gesture in buttons.firstObject.gestureRecognizers)
-                        if ([gesture.delegate respondsToSelector:@selector(scrubChannels:)]) scrubber=(id)gesture.delegate;
-                    sample.fixtureState=UIGestureRecognizerStateChanged;
-                    sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.66,CGRectGetMidY(group.bounds));
-                    [scrubber scrubChannels:sample];
-                    Check(scrubber && rail.effect==effect && !lens.hidden && !refraction.hidden &&
-                        CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
-                        @"scrubbing the glass channel moves the active native refraction over the fixed rail");
-                    sample.fixtureState=UIGestureRecognizerStateCancelled;
-                    [scrubber scrubChannels:sample];
                     sample.fixtureState=UIGestureRecognizerStateChanged;
                     sample.fixtureTravel=CGPointMake(-pageWidth*0.25,0);
                     [channelPaging page:sample];
-                    Check(rail.effect==effect && !lens.hidden && !refraction.hidden && CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
-                        @"the feed swipe tracks the same native refraction between the non-adjacent host pages");
+                    Check(tabs.hidden && !rail.superview.hidden && !lens.hidden && !refraction.hidden,
+                        @"a swipe on the page has a single continuous channel preview");
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
                     [channelPaging page:sample];
+                    CGPoint center=CGPointMake(CGRectGetWidth(group.bounds)*0.75,CGRectGetMidY(group.bounds));
+                    UIView *hit=[group hitTest:center withEvent:[UIEvent new]];
+                    Check(hit!=tabs && [hit isDescendantOfView:tabs] && !tabs.hidden,
+                        @"a new rail touch during page settling goes directly to UIKit");
+                    CFTimeInterval deadline=CACurrentMediaTime()+0.7;
+                    while(tabs.hidden && CACurrentMediaTime()<deadline) CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+                    BOOL firstSelected=managed ? managed.selectedTab==managed.tabs.firstObject : tabs.selectedItem==tabs.items.firstObject;
+                    Check(!tabs.hidden && firstSelected,@"cancelling the page swipe returns ownership to UIKit");
+                }
+            } else {
+                NSMutableArray<UIButton *> *buttons=[NSMutableArray array];
+                for (NSUInteger i=0;i<2;i++) {
+                    CGPoint center=CGPointMake(CGRectGetWidth(group.bounds)*(0.25+0.5*i),CGRectGetMidY(group.bounds));
+                    UIView *hit=[header hitTest:[group convertPoint:center toView:header] withEvent:nil];
+                    while (hit && hit!=group && ![hit isKindOfClass:UIButton.class]) hit=hit.superview;
+                    if ([hit isKindOfClass:UIButton.class] && [hit isDescendantOfView:group]) [buttons addObject:(UIButton *)hit];
+                }
+                BOOL native=buttons.count==2 && buttons[0]!=buttons[1] && buttons[0].selected &&
+                    [[buttons[0] titleForState:UIControlStateNormal] isEqual:@"漫剧"] &&
+                    [[buttons[1] titleForState:UIControlStateNormal] isEqual:@"推荐"] &&
+                    buttons[0].buttonType==UIButtonTypeCustom && buttons[1].buttonType==UIButtonTypeCustom &&
+                    !buttons[0].configuration && !buttons[1].configuration;
+                Check(native && !segments.window && categoryList.hidden && rail.superview==lens.superview && [rail isDescendantOfView:group] &&
+                    CGRectEqualToRect(rail.frame,group.bounds) && [effect isKindOfClass:UIGlassEffect.class] &&
+                    !lens.hidden && [rail.superview.subviews indexOfObjectIdenticalTo:rail]<[rail.superview.subviews indexOfObjectIdenticalTo:lens],
+                    @"the glass channels use one continuous native rail beneath the shared selection and labels");
+                if (native) {
+                    NSUInteger before=channels.nativeSelections;
+                    if (!UIAccessibilityIsReduceMotionEnabled()) {
+                        CGFloat restingHeight=CGRectGetHeight(lens.frame);
+                        UILongPressGestureRecognizer *hold=nil;
+                        for (UIGestureRecognizer *g in buttons.firstObject.gestureRecognizers)
+                            if ([g isKindOfClass:UILongPressGestureRecognizer.class]) hold=(id)g;
+                        Check(hold && hold.minimumPressDuration==0,@"the rail tracks from initial contact without waiting for pan velocity");
+                        sample.fixtureState=UIGestureRecognizerStateBegan;
+                        sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.25,CGRectGetMidY(group.bounds));
+                        [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
+                        Check(refraction.superview==lens && !refraction.hidden && !rail.hidden && [rail.superview.subviews indexOfObject:rail]<[rail.superview.subviews indexOfObject:lens] &&
+                            [rail.superview.subviews indexOfObject:lens]<[rail.superview.subviews indexOfObject:buttons[0].superview] && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
+                            CGRectGetHeight(lens.frame)>restingHeight && channels.nativeSelections==before,
+                            @"touch-down lifts the native refraction on the selected tab before the host selection changes");
+                        sample.fixtureState=UIGestureRecognizerStateCancelled;
+                        [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
+                    }
+                    [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                    [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                    Check(buttons[1].selected && !buttons[0].selected && channels.selectedIndex==3 &&
+                        channels.nativeSelections==before+1 && pageScroll.contentOffset.x==3*pageWidth &&
+                        rail.effect==effect && Find(group,@"honggo.appearance.header.swipeLens")==lens,
+                        @"glass channel activation selects the originally visible host page exactly once");
+                    [buttons[0] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                    if (!UIAccessibilityIsReduceMotionEnabled()) {
+                        id<HGATestChannelPaging> scrubber=nil;
+                        for (UIGestureRecognizer *gesture in buttons.firstObject.gestureRecognizers)
+                            if ([gesture.delegate respondsToSelector:@selector(scrubChannels:)]) scrubber=(id)gesture.delegate;
+                        sample.fixtureState=UIGestureRecognizerStateChanged;
+                        sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.66,CGRectGetMidY(group.bounds));
+                        [scrubber scrubChannels:sample];
+                        Check(scrubber && rail.effect==effect && !lens.hidden && !refraction.hidden &&
+                            CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
+                            @"scrubbing the glass channel moves the active native refraction over the fixed rail");
+                        sample.fixtureState=UIGestureRecognizerStateCancelled;
+                        [scrubber scrubChannels:sample];
+                        sample.fixtureState=UIGestureRecognizerStateChanged;
+                        sample.fixtureTravel=CGPointMake(-pageWidth*0.25,0);
+                        [channelPaging page:sample];
+                        Check(rail.effect==effect && !lens.hidden && !refraction.hidden && CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
+                            @"the feed swipe tracks the same native refraction between the non-adjacent host pages");
+                        sample.fixtureState=UIGestureRecognizerStateCancelled;
+                        [channelPaging page:sample];
+                    }
                 }
             }
             HGAppearanceSet(@"player.headerStyle",@"flat",nil);
