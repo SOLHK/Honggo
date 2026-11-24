@@ -65,6 +65,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         for (NSUInteger i=0; i<tabIDs.count; i++) flag([@"dock.hide." stringByAppendingString:tabIDs[i]],@"dock",[@"隐藏" stringByAppendingString:tabNames[i]]);
         flag(@"player.rightGlass",@"player",@"自定义播放动作按钮");
         buttonStyle(@"player.actionStyle",@"player",@"播放动作按钮风格",@"glass");
+        choice(@"player.collectGlyph",@"player",@"收藏按钮图标",@[@"star",@"sparkles"],@[@"五角星",@"闪光星"]);
         flag(@"player.headerGlass",@"chrome",@"自定义顶部按钮");
         buttonStyle(@"player.headerStyle",@"chrome",@"顶部按钮风格",@"flat");
         NSArray *channelIDs=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
@@ -121,6 +122,8 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             NSString *title = [@{@"comment":@"评论面板玻璃",@"share":@"分享面板玻璃",@"longpress":@"长按／更多面板玻璃",@"speed":@"倍速面板玻璃"} objectForKey:kind];
             flag([@"panels." stringByAppendingString:kind],@"panels",title);
         }
+        choice(@"panels.commentMaterial",@"panels",@"评论区材质",@[@"inherit",@"clear",@"frosted",@"gaussian"],
+            @[@"跟随面板材质",@"清透液态玻璃",@"模糊玻璃",@"高斯模糊"]);
         choice(@"panels.material",@"panels",@"面板材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）"]);
         number(@"panels.opacity",@"panels",@"面板底色不透明度",0.28,0.08,0.85);
         flag(@"fonts.enabled",@"fonts",@"启用原生文字字体与缩放");

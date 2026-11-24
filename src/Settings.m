@@ -4,7 +4,6 @@
 #include <string.h>
 
 static NSString *const HGSettingsTitle = HG_PLUGIN_NAME;
-static NSString *const HGSettingsSubtitle = @"版本 " HG_PLUGIN_VERSION @" · 兼容与设置增强测试版";
 static void (*HGOriginalSettingsWillAppear)(UIViewController *, SEL, BOOL);
 static void (*HGOriginalSettingsDidLayout)(UIViewController *, SEL);
 static void (*HGOriginalSettingsDidAppear)(UIViewController *, SEL, BOOL);
@@ -12,7 +11,6 @@ static void (*HGOriginalSettingsDidAppear)(UIViewController *, SEL, BOOL);
 // A real menu entry in the settings list, independent of the host navigation bar.
 @interface HGSettingsMenuControl : UIControl
 @property(nonatomic, strong) UILabel *titleLabel;
-@property(nonatomic, strong) UILabel *subtitleLabel;
 @property(nonatomic, strong) UIImageView *chevron;
 - (void)updateFonts;
 @end
@@ -28,21 +26,15 @@ static void (*HGOriginalSettingsDidAppear)(UIViewController *, SEL, BOOL);
         self.isAccessibilityElement = YES;
         self.accessibilityTraits = UIAccessibilityTraitButton;
         self.accessibilityLabel = HGSettingsTitle;
-        self.accessibilityValue = HGSettingsSubtitle;
         self.accessibilityHint = @"打开插件功能开关";
 
         _titleLabel = [[UILabel alloc] init];
         _titleLabel.text = HGSettingsTitle;
         _titleLabel.textColor = UIColor.labelColor;
-        _subtitleLabel = [[UILabel alloc] init];
-        _subtitleLabel.text = HGSettingsSubtitle;
-        _subtitleLabel.textColor = UIColor.secondaryLabelColor;
-        for (UILabel *label in @[_titleLabel, _subtitleLabel]) {
-            label.numberOfLines = 0;
-            label.adjustsFontForContentSizeCategory = YES;
-            label.isAccessibilityElement = NO;
-            [self addSubview:label];
-        }
+        _titleLabel.textAlignment = NSTextAlignmentCenter;
+        _titleLabel.adjustsFontForContentSizeCategory = YES;
+        _titleLabel.isAccessibilityElement = NO;
+        [self addSubview:_titleLabel];
         _chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.forward"]];
         _chevron.tintColor = UIColor.tertiaryLabelColor;
         _chevron.contentMode = UIViewContentModeScaleAspectFit;
@@ -54,31 +46,23 @@ static void (*HGOriginalSettingsDidAppear)(UIViewController *, SEL, BOOL);
 }
 
 - (void)updateFonts {
-    self.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody
-        compatibleWithTraitCollection:self.traitCollection];
-    self.subtitleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote
-        compatibleWithTraitCollection:self.traitCollection];
+    UIFont *font = [UIFont systemFontOfSize:22 weight:UIFontWeightSemibold];
+    self.titleLabel.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleTitle2]
+        scaledFontForFont:font compatibleWithTraitCollection:self.traitCollection];
     [self setNeedsLayout];
 }
 
 - (CGSize)sizeThatFits:(CGSize)size {
-    CGFloat textWidth = MAX(0, size.width - 56);
+    CGFloat textWidth = MAX(0, size.width - 80);
     CGFloat titleHeight = [self.titleLabel sizeThatFits:CGSizeMake(textWidth, CGFLOAT_MAX)].height;
-    CGFloat subtitleHeight = [self.subtitleLabel sizeThatFits:CGSizeMake(textWidth, CGFLOAT_MAX)].height;
-    return CGSizeMake(size.width, MAX(72, ceil(titleHeight + subtitleHeight + 28)));
+    return CGSizeMake(size.width, MAX(64, ceil(titleHeight + 28)));
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGFloat width = CGRectGetWidth(self.bounds);
-    CGFloat textWidth = MAX(0, width - 56);
-    CGFloat titleHeight = ceil([self.titleLabel sizeThatFits:CGSizeMake(textWidth, CGFLOAT_MAX)].height);
-    CGFloat subtitleHeight = ceil([self.subtitleLabel sizeThatFits:CGSizeMake(textWidth, CGFLOAT_MAX)].height);
-    CGFloat top = (CGRectGetHeight(self.bounds) - titleHeight - subtitleHeight - 4) / 2;
     BOOL rtl = self.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft;
-    CGFloat textX = rtl ? 40 : 16;
-    self.titleLabel.frame = CGRectMake(textX, top, textWidth, titleHeight);
-    self.subtitleLabel.frame = CGRectMake(textX, top + titleHeight + 4, textWidth, subtitleHeight);
+    self.titleLabel.frame = CGRectMake(40, 0, MAX(0,width-80), CGRectGetHeight(self.bounds));
     self.chevron.frame = CGRectMake(rtl ? 16 : width - 28,
         (CGRectGetHeight(self.bounds) - 18) / 2, 12, 18);
     HGStyleControl(self);

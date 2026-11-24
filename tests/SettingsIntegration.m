@@ -165,9 +165,13 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self check:menu.window != nil && !menu.hidden && menu.alpha > 0 && !HGIsEnabled(HGGlass) &&
         CGRectIntersectsRect([menu convertRect:menu.bounds toView:self.window], self.window.bounds)
         name:@"menu is visible with all feature switches off"];
-    [self check:[menu.accessibilityLabel isEqualToString:@"Honggo"] &&
-        [menu.accessibilityValue containsString:HG_PLUGIN_VERSION]
-        name:@"menu uses Honggo and shows the current plugin version"];
+    UILabel *menuTitle=[menu valueForKey:@"titleLabel"];
+    NSUInteger labels=0;
+    for (UIView *child in menu.subviews) if ([child isKindOfClass:UILabel.class]) labels++;
+    [self check:labels==1 && [menu.accessibilityLabel isEqualToString:@"Honggo"] && !menu.accessibilityValue &&
+        menuTitle.textAlignment==NSTextAlignmentCenter && fabs(CGRectGetMidX(menuTitle.frame)-CGRectGetMidX(menu.bounds))<0.5 &&
+        fabs(CGRectGetMidY(menuTitle.frame)-CGRectGetMidY(menu.bounds))<0.5
+        name:@"the settings entry centers its single Honggo title independently of the chevron"];
     [self check:table.dataSource == self.host && [table numberOfRowsInSection:0] == 3
         name:@"host data source and original rows are preserved"];
     [self check:menu.bounds.size.height >= 44 && menu.bounds.size.width > 44 &&

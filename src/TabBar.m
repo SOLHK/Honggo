@@ -754,7 +754,8 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
         path = parent;
     }
     if (self.customDock && !self.videoBackdrop) self.videoBackdrop = [HGVideoBackdrop new];
-    [self.videoBackdrop refreshWithBranches:branches root:root bar:bar active:self.customDock];
+    BOOL renderVideo=self.customDock || (HGAppearanceEnabled() && HGVideoBackdropSpeedTipVisible(self.videoBackdrop.feed));
+    [self.videoBackdrop refreshWithBranches:branches root:root bar:bar active:renderVideo];
     for (UIView *branch in branches) {
         if (!HGContainsVisibleVerticalPager(branch, root))
             [self collectViewports:branch root:root barTop:barTop bottom:bottom records:records depth:0];
@@ -853,6 +854,9 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
 }
 - (void)restore {
     [self.videoBackdrop restore];
+    [self restoreTabSurfaces];
+}
+- (void)restoreTabSurfaces {
     HGRestoreViewports(self.viewports.objectEnumerator.allObjects);
     for (HGTabTitleRecord *record in self.titles.objectEnumerator.allObjects) {
         [record restore]; objc_setAssociatedObject(record.label, &HGTitleRecordKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -910,7 +914,10 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
         if (!customDock) HGAppearanceRestoreDock(bar);
         if ((!HGGlassEnabled && !customDock) || !bar.window || bar.hidden) {
             HGAppearanceRestoreDock(bar);
-            [self restore];
+            if (bar.window && HGAppearanceEnabled() && HGVideoBackdropSpeedTipVisible(self.videoBackdrop.feed)) {
+                [self.videoBackdrop refreshFeed];
+                [self restoreTabSurfaces];
+            } else [self restore];
             return;
         }
         BOOL visible = YES;
@@ -921,7 +928,9 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
             if (ancestor != bar) HGObserve(ancestor, self);
         }
         if (!visible) {
-            [self.videoBackdrop restore];
+            // Video coverage follows the visible feed, independently of the
+            // controls that the host fades out for the hold-to-speed gesture.
+            [self.videoBackdrop refreshFeed];
             if (customDock) HGAppearanceRestoreDock(bar);
             self.glass.effect = nil;
             self.glass.hidden = YES;
@@ -1071,7 +1080,9 @@ static void HGRefreshTabBar(UIViewController *controller) {
 }
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
     if (!NSThread.isMainThread || HGFeedSidebarOwnsLayout(feed.window)) return;
-    if (HGVideoBackdropRefreshForFeed(feed) || !HGAppearanceDockEnabled() || !feed.window) return;
+    if (HGVideoBackdropRefreshForFeed(feed) || !feed.window) return;
+    BOOL speed=HGAppearanceEnabled() && HGVideoBackdropSpeedTipVisible((UICollectionView *)feed);
+    if (!HGAppearanceDockEnabled() && !speed) return;
     UIViewController *videoOwner=HGVideoBackdropOwner(feed);
     id<UIViewControllerTransitionCoordinator> transition=videoOwner.transitionCoordinator;
     if (transition) {
@@ -1100,13 +1111,34 @@ void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
         if (![bar isKindOfClass:HGTabBarClass]) continue;
         HGTabState *state = HGState(bar);
         UIView *root = controller.viewIfLoaded;
-        if (state.customDock && state.videoBackdrop && [feed isDescendantOfView:root] &&
+        if ((state.customDock || speed) && [feed isDescendantOfView:root] &&
             !HGTabBarIsInTransitionOrDisplaced(bar, controller) &&
-            HGVideoBackdropFeedGeometry((UICollectionView *)feed, videoOwner, root, bar))
+            HGVideoBackdropFeedGeometry((UICollectionView *)feed, videoOwner, root, bar)) {
+            if (!state.videoBackdrop) state.videoBackdrop=[HGVideoBackdrop new];
             [state.videoBackdrop refreshWithBranches:@[feed] root:root bar:bar active:YES];
+        }
         break;
     }
 }
+static void HGRefreshSpeedTipFeed(UIView *container) {
+    for (UIView *view in container.subviews)
+        if ([view isKindOfClass:objc_lookUpClass("FQVCollectionView")])
+            HGScheduleFeedLayoutRefresh((UIScrollView *)view);
+}
+
+static void (*HGOriginalSpeedTipShow)(id,SEL,id);
+static void HGSpeedTipShow(UIView *tip,SEL cmd,UIView *container) {
+    HGOriginalSpeedTipShow(tip,cmd,container);
+    HGRefreshSpeedTipFeed(tip.superview);
+}
+
+static void (*HGOriginalSpeedTipMove)(id,SEL,id);
+static void HGSpeedTipMove(UIView *tip,SEL cmd,UIView *parent) {
+    UIView *previous=tip.superview;
+    HGOriginalSpeedTipMove(tip,cmd,parent);
+    if (previous && previous!=parent) HGRefreshSpeedTipFeed(previous);
+}
+
 static void HGControllerLayout(id self, SEL cmd) {
     HGOriginalControllerLayout(self, cmd);
     HGRefreshTabBar(self);
@@ -1356,6 +1388,13 @@ BOOL HGInstallTabBar(void) {
         if ([mall isSubclassOfClass:UIViewController.class])
             HGOriginalMallMount = (void (*)(id, SEL))HGReplaceMethod(mall,
                 sel_registerName("mountMallViewIfNeeded"), "v16@0:8", (IMP)HGMallMount);
+        Class speedTip=objc_lookUpClass("FQVShortVideoLockPlayRateTipsView");
+        if ([speedTip isSubclassOfClass:UIView.class]) {
+            HGOriginalSpeedTipShow=(void (*)(id,SEL,id))HGReplaceMethod(speedTip,sel_registerName("showTipsViewWithContainerView:"),
+                "v24@0:8@16",(IMP)HGSpeedTipShow);
+            HGOriginalSpeedTipMove=(void (*)(id,SEL,id))HGReplaceMethod(speedTip,@selector(willMoveToSuperview:),
+                "v24@0:8@16",(IMP)HGSpeedTipMove);
+        }
         Class theaterList = objc_lookUpClass("FQFeedListView");
         if ([theaterList isSubclassOfClass:UIView.class])
             HGOriginalTheaterListLayout = (void (*)(id, SEL))HGReplaceMethod(theaterList,

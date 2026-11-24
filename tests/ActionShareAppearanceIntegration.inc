@@ -171,6 +171,21 @@ static void RunCommentSheetAppearanceChecks(UIViewController *host) {
                 @"comment liquid glass keeps the optical surface with no color layer or transition scrim");
         }
     }
+    NSString *savedCommentMaterial=HGAppearanceString(@"panels.commentMaterial");
+    if (!UIAccessibilityIsReduceTransparencyEnabled()) {
+        HGAppearanceSet(@"panels.commentMaterial",@"gaussian",nil);
+        [panel viewDidLayoutSubviews];Layout(material);
+        CALayer *gaussian=[material valueForKey:@"gaussianBackdrop"];
+        Check((gaussian.superlayer==material.layer && gaussian.filters.count==1) ||
+            (!gaussian && [material.effect isKindOfClass:UIBlurEffect.class]),@"Gaussian blur samples behind the native comment list");
+        HGAppearanceSet(@"panels.commentMaterial",@"frosted",nil);
+        [panel viewDidLayoutSubviews];Layout(material);
+        Check(!gaussian.superlayer && ![material valueForKey:@"gaussianBackdrop"] && material.effect &&
+            [[material valueForKey:@"style"] isEqual:@"regular"] && editor.superview==nativeBlur.contentView,
+            @"frosted glass replaces the Gaussian surface without replacing the comment editor");
+        HGAppearanceSet(@"panels.commentMaterial",savedCommentMaterial,nil);
+        [panel viewDidLayoutSubviews];Layout(material);
+    }
     FQCShortVideoCommentReplyCell *reply=[[FQCShortVideoCommentReplyCell alloc] initWithFrame:CGRectMake(0,90,width,82)];
     FQCShortVideoCommentSectionFooterView *footer=[[FQCShortVideoCommentSectionFooterView alloc] initWithFrame:CGRectMake(0,172,width,33)];
     UILabel *replyLabel=[[UILabel alloc] initWithFrame:CGRectMake(30,4,140,30)];

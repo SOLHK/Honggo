@@ -570,6 +570,10 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     BOOL reduceTransparency=UIAccessibilityIsReduceTransparencyEnabled();
     CGFloat opacity=reduceTransparency?1:HGAppearanceNumber(@"panels.opacity");
     NSString *material=HGAppearanceString(@"panels.material");
+    NSString *commentMaterial=comment ? HGAppearanceString(@"panels.commentMaterial") : nil;
+    BOOL frosted=[commentMaterial isEqual:@"frosted"];
+    if (comment && ![commentMaterial isEqual:@"inherit"])
+        material=frosted ? @"regular" : commentMaterial;
     BOOL clear=(share || comment || episodes) && !reduceTransparency && HGNativeGlassConfigured() &&
         ([material isEqual:@"regular"] || [material isEqual:@"clear"]);
     if(state.nativeClear && !clear) {
@@ -580,7 +584,8 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
         }
     }
     state.nativeClear=clear;
-    HGAInstallGlass(surface,clear?@"clear":material,clear?0:radius,opacity);
+    NSString *renderStyle=clear && !frosted ? @"clear" : material;
+    HGAInstallGlass(surface,renderStyle,clear?0:radius,opacity);
     HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
     if(!state.overlay || state.overlayOpacity!=opacity) {
         state.overlayOpacity=opacity;
@@ -711,7 +716,7 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     }
     HGRecordCapability([@"appearance.panel.surface." stringByAppendingString:kind],
         @{@"module":@"appearance",@"state":compose ? @"partial" : @"installed",
-          @"material":clear ? @"clear" : (reduceTransparency ? @"solid" : material),
+          @"material":reduceTransparency ? @"solid" : renderStyle,
           @"reason":compose ? @"bounded glass behind the host Compose canvas; in-canvas paint and icons are controlled by the host renderer" :
             @"single bounded glass sheet behind native content and actions"});
 }

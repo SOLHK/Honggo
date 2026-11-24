@@ -823,7 +823,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sample.fixtureState=UIGestureRecognizerStateBegan;
                     sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.25,CGRectGetMidY(group.bounds));
                     [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
-                    Check(refraction.superview==lens && !refraction.hidden && rail.hidden && group.subviews.lastObject==lens && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
+                    Check(refraction.superview==lens && !refraction.hidden && !rail.hidden && [group.subviews indexOfObject:rail]<[group.subviews indexOfObject:lens] &&
+                        [group.subviews indexOfObject:lens]<[group.subviews indexOfObject:buttons[0].superview] && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
                         CGRectGetHeight(lens.frame)>restingHeight && channels.nativeSelections==before,
                         @"touch-down lifts the native refraction on the selected tab before the host selection changes");
                     sample.fixtureState=UIGestureRecognizerStateCancelled;

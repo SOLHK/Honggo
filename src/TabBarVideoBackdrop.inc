@@ -76,6 +76,15 @@ static BOOL HGVideoBackdropFullWindow(UIView *view, UIWindow *window) {
         fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 0.75;
 }
 
+// During hold-to-speed the host hides SSTabBar, but leaves the feed at its
+// original paging height. Its lock-rate hint is a sibling of that exact feed.
+static BOOL HGVideoBackdropSpeedTipVisible(UICollectionView *feed) {
+    Class type=objc_lookUpClass("FQVShortVideoLockPlayRateTipsView");
+    for (UIView *sibling in feed.superview.subviews)
+        if ([sibling isKindOfClass:type] && !sibling.hidden && sibling.alpha>0.01) return YES;
+    return NO;
+}
+
 static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController *owner,
                                         UIView *root, UIView *bar) {
     UIView *parent = feed.superview;
@@ -83,7 +92,9 @@ static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController
     UIView *ownerView = owner.viewIfLoaded;
     if (!window || !parent || !ownerView || (parent != ownerView && ![parent isDescendantOfView:ownerView]) ||
         window.bounds.size.height <= window.bounds.size.width || feed.layer.mask ||
-        !HGVideoBackdropVisible(feed, window) || !HGVideoBackdropVisible(bar, root) ||
+        !HGVideoBackdropVisible(feed, window) || bar.window!=window ||
+        (!HGVideoBackdropVisible(bar, root) &&
+            !(HGVideoBackdropVisible(bar.superview,root) && HGVideoBackdropSpeedTipVisible(feed))) ||
         !HGVideoBackdropFullWindow(parent, window) || !HGVideoBackdropFullWindow(root, window) ||
         HGVideoBackdropHasTransition(owner)) return NO;
     CGRect frame = feed.frame, full = parent.bounds;
@@ -545,7 +556,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
 - (void)refreshWithBranches:(NSArray<UIView *> *)branches root:(UIView *)root
                        bar:(UIView *)bar active:(BOOL)active {
     if (self.refreshing) return;
-    if (!active || !root.window || !HGVideoBackdropVisible(bar, root)) {
+    if (!active || !root.window || bar.window!=root.window) {
         [self restore];
         return;
     }
@@ -610,7 +621,8 @@ BOOL HGVideoBackdropRefreshForFeed(UIScrollView *feed) {
     HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
     HGVideoBackdrop *owner = link.owner;
     if (!owner) return NO;
-    if (HGAppearanceDockEnabled()) [owner refreshFeed];
+    if (HGAppearanceDockEnabled() || (HGAppearanceEnabled() && HGVideoBackdropSpeedTipVisible((UICollectionView *)feed)))
+        [owner refreshFeed];
     else [owner restore];
     return owner.feed == feed;
 }

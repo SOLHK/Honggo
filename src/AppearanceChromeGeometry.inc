@@ -1,3 +1,5 @@
+#import "DockSelectionGeometry.h"
+
 @protocol HGAHeaderSelecting <NSObject>
 @property(nonatomic) NSInteger selectedSegmentIndex;
 @end
@@ -8,7 +10,6 @@ API_AVAILABLE(ios(26.0))
 @interface HGAHeaderGlassChannels : UIControl <HGAHeaderSelecting>
 @property(nonatomic,copy) NSArray<UIButton *> *buttons;
 @property(nonatomic,strong) HGAAppearanceMaterial *rail;
-@property(nonatomic,strong) UIView *trackingRail;
 - (instancetype)initWithTitles:(NSArray<NSString *> *)titles material:(NSString *)material;
 @end
 @implementation HGAHeaderGlassChannels
@@ -26,13 +27,6 @@ API_AVAILABLE(ios(26.0))
         _rail.userInteractionEnabled=NO;
         _rail.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         [self addSubview:_rail];
-        _trackingRail=[[UIView alloc] initWithFrame:self.bounds];
-        _trackingRail.backgroundColor=[UIColor colorWithWhite:0.18 alpha:0.14];
-        _trackingRail.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
-        _trackingRail.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-        _trackingRail.userInteractionEnabled=NO;
-        _trackingRail.hidden=YES;
-        [self insertSubview:_trackingRail belowSubview:_rail];
         UIStackView *row=[[UIStackView alloc] initWithFrame:self.bounds];
         row.distribution=UIStackViewDistributionFillEqually;
         row.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
@@ -165,14 +159,10 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     UIView *control=self.channelControl;
     CGFloat count=self.channelIndices.count, width=CGRectGetWidth(control.bounds);
     CGFloat slot=width/count;
-    CGFloat stretch=lifted ? fabs(sin(index*M_PI)) : 0;
-    CGSize size=CGSizeMake(MIN(width,slot*(lifted ? 1.15+0.20*stretch : 1)-2),
-        CGRectGetHeight(control.bounds)*(lifted ? 1.22-0.06*stretch : 1)-2);
     CGFloat center=(index+0.5)*slot;
     if (control.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft) center=width-center;
-    CGFloat left=MIN(width-size.width,MAX(0,center-size.width/2));
-    return [control convertRect:CGRectMake(left,(CGRectGetHeight(control.bounds)-size.height)/2,size.width,size.height)
-                         toView:self.channelLens.superview];
+    HGADockSelectionBounds shape=HGADockSelectionBoundsForState(center,width,CGRectGetHeight(control.bounds),slot,lifted);
+    return [control convertRect:CGRectMake(shape.x,shape.y,shape.width,shape.height) toView:self.channelLens.superview];
 }
 - (BOOL)usesGlassChannels {
     return self.channelStyle && ![self.channelStyle isEqual:@"flat"];
@@ -222,27 +212,17 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     UILabel *previous=self.liftedTitle;
     if (title==previous) return;
     self.liftedTitle=title;
-    [UIView animateWithDuration:title ? 0.22 : 0.34 delay:0 usingSpringWithDamping:0.86 initialSpringVelocity:0
+    [UIView animateWithDuration:title ? 0.26 : 0.38 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
             previous.transform=CGAffineTransformIdentity;
-            title.transform=CGAffineTransformMakeScale(1.10,1.10);
+            title.transform=CGAffineTransformMakeScale(1.08,1.08);
         } completion:nil];
 }
 - (void)setChannelLensLifted:(BOOL)lifted {
     HGAAppearanceMaterial *refraction=self.channelRefraction;
     if (!refraction) return;
-    if (@available(iOS 26.0,*)) {
-        if ([self usesGlassChannels]) {
-            HGAHeaderGlassChannels *control=(id)self.channelControl;
-            // A second glass sampling an already composited rail loses the
-            // video detail. Sample the original video and channel ink together.
-            // Keep the resting material attached for an interruption-free return.
-            control.rail.hidden=lifted;
-            control.trackingRail.hidden=!lifted;
-            if (lifted) [control bringSubviewToFront:self.channelLens];
-            else [control insertSubview:self.channelLens aboveSubview:control.rail];
-        }
-    }
+    // Keep the shared rail and both titles in their resting order throughout
+    // tracking. The moving material is below the ink, as it is in the Dock.
     self.channelLens.backgroundColor=lifted ? UIColor.clearColor : [UIColor colorWithWhite:1 alpha:0.26];
     refraction.hidden=!lifted;
     if (lifted && !refraction.effect) {
@@ -280,7 +260,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
                 control.selectedSegmentIndex=UISegmentedControlNoSegment;
         }];
         if (animated) {
-            [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0 options:UIViewAnimationOptionBeginFromCurrentState|
+            [UIView animateWithDuration:0.33 delay:0 usingSpringWithDamping:0.84 initialSpringVelocity:0 options:UIViewAnimationOptionBeginFromCurrentState|
                 UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionCurveEaseOut animations:^{
                 [self positionLensForSegment:index lifted:YES];
             } completion:nil];
@@ -310,7 +290,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     if (selected==NSNotFound) selected=self.previewOrigin;
     NSUInteger generation=++self.channelMotionGeneration;
     self.channelLensSettling=YES;
-    [UIView animateWithDuration:0.40 delay:0 usingSpringWithDamping:0.87 initialSpringVelocity:0
+    [UIView animateWithDuration:0.42 delay:0 usingSpringWithDamping:0.87 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
         [self positionLensForSegment:selected lifted:NO];
     } completion:^(BOOL finished){

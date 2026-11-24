@@ -273,9 +273,15 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             else if(!transfer && !episodeMove && !bottomMove)HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v28@0:8@16B24")) {
+        BOOL collectRefresh=[className isEqual:@"SSShortVideoRightInteractionCollectView"] &&
+            selector==sel_registerName("refreshUIWithModel:animated:");
         replacement=imp_implementationWithBlock(^(id object,id argument,BOOL animated) {
             if(categoryPager) HGATraceCategoryCallback(selector, @"enter");
-            ((void(*)(id,SEL,id,BOOL))original)(object,selector,argument,animated);
+            // The host animation draws a five-point star over the image. Use
+            // its static redraw when the user has chosen the alternate glyph.
+            BOOL nativeAnimation=animated && !(collectRefresh && HGAppearanceEnabled() &&
+                [HGAppearanceString(@"player.collectGlyph") isEqual:@"sparkles"]);
+            ((void(*)(id,SEL,id,BOOL))original)(object,selector,argument,nativeAnimation);
             if(categoryPager) {
                 HGATraceCategoryCallback(selector, @"return");
                 if(!animated) {

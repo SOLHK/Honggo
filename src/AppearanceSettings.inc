@@ -248,7 +248,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     } else if([self.group isEqual:@"player"]) {
         section(@"播放与材质");
         HGAAddDefs(rows,@[@"player.fullscreen",@"player.disableEpisodeSwipe",@"player.separateProgress",
-            @"player.rightGlass",@"player.actionStyle",@"player.material",@"player.episodeGlass",@"player.controlsGlass"]);
+            @"player.rightGlass",@"player.actionStyle",@"player.collectGlyph",@"player.material",@"player.episodeGlass",@"player.controlsGlass"]);
         NSArray *roles = HGAppearanceRoles(), *roleTitles = HGAppearanceRoleTitles();
         for (NSUInteger i = 0; i < roles.count; i++) {
             NSString *role = roles[i];
@@ -271,7 +271,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         [rows addObject:HGATool([@"@role.reset." stringByAppendingString:role],@"恢复此项默认")];
     } else if([self.group isEqual:@"panels"]) {
         section(@"评论区");
-        HGAAddDefs(rows,@[@"panels.comment",@"player.commentMovesVideo"]);
+        HGAAddDefs(rows,@[@"panels.comment",@"panels.commentMaterial",@"player.commentMovesVideo"]);
         section(@"启用玻璃的面板");
         HGAAddDefs(rows,@[@"panels.episodes",@"panels.share",@"panels.longpress",@"panels.speed"]);
         section(@"材质");
@@ -369,7 +369,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 - (void)save:(NSString *)key value:(id)value {
     NSError *error=nil;
     NSString *area=@{@"dock.style":@"dock.enabled",@"player.headerStyle":@"player.headerGlass",
-        @"player.actionStyle":@"player.rightGlass"}[key];
+        @"player.actionStyle":@"player.rightGlass",
+        @"panels.commentMaterial":@"panels.comment"}[key];
     if(area) {
         NSMutableDictionary *change=[@{area:@YES,key:value} mutableCopy];
         if([key isEqual:@"dock.style"] && [value isEqual:@"glass"] &&

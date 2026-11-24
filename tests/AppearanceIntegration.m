@@ -33,8 +33,12 @@
 @implementation SSShortVideoRightInteractionLikeView @end
 @interface SSShortVideoRightInteractionCollectView : HGAActionFixture
 @property(nonatomic) BOOL isCollected;
+@property(nonatomic) BOOL playedStockStar;
+- (void)refreshUIWithModel:(id)model animated:(BOOL)animated;
 @end
-@implementation SSShortVideoRightInteractionCollectView @end
+@implementation SSShortVideoRightInteractionCollectView
+- (void)refreshUIWithModel:(id)model animated:(BOOL)animated { self.playedStockStar=animated; }
+@end
 @interface SSShortVideoRightInteractionCommentView : HGAActionFixture @end
 @implementation SSShortVideoRightInteractionCommentView @end
 @interface SSShortVideoRightInteractionShareView : HGAActionFixture @end
@@ -380,6 +384,22 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
 
     SSShortVideoRightInteractionCollectView *collect=[[SSShortVideoRightInteractionCollectView alloc] initWithFrame:CGRectMake(90,140,54,65)];[root addSubview:collect];Layout(collect);
     collect.isCollected=YES;Check([collect.iconImageView.tintColor isEqual:UIColor.systemYellowColor],@"collection setter refreshes actual selected icon");
+    NSString *actionStyle=HGAppearanceString(@"player.actionStyle");
+    HGAppearanceSet(@"player.collectGlyph",@"sparkles",nil);
+    [collect refreshUIWithModel:nil animated:YES];
+    Check(!collect.playedStockStar,@"the alternate symbol avoids a transient stock star animation");
+    for (NSString *style in @[@"glass",@"flat"]) {
+        HGAppearanceSet(@"player.actionStyle",style,nil);Layout(collect);
+        collect.isCollected=NO;Layout(collect);
+        Check(collect.iconImageView.image.isSymbolImage && [collect.iconImageView.tintColor isEqual:UIColor.whiteColor],
+            @"the alternate favorite uses a white symbol when unselected");
+        collect.isCollected=YES;Layout(collect);
+        Check(collect.iconImageView.image.isSymbolImage && [collect.iconImageView.tintColor isEqual:UIColor.systemYellowColor],
+            @"the alternate favorite follows the native selected state in either button style");
+    }
+    HGAppearanceApply(@{@"player.actionStyle":actionStyle,@"player.collectGlyph":@"star"},nil);
+    [collect refreshUIWithModel:nil animated:YES];
+    Check(collect.playedStockStar,@"the stock favorite restores the host animation");
     for(Class cls in @[SSShortVideoRightInteractionCommentView.class,SSShortVideoRightInteractionShareView.class]) {
         HGAActionFixture *view=[[cls alloc] initWithFrame:CGRectMake(160,140,54,65)];[root addSubview:view];Layout(view);
         Check(Find(view,@"honggo.appearance.material")!=nil,@"comment and share actions receive scoped glass");

@@ -6,8 +6,26 @@
 @property(nonatomic) CGFloat overlayOpacity;
 @property(nonatomic,strong) UIColor *overlayColor;
 @property(nonatomic) BOOL interactiveGlass;
+@property(nonatomic,strong) CALayer *gaussianBackdrop;
 - (void)requestMaterialRefresh;
 @end
+// Only the backing pixels enter this filter. Comment text, avatars and the
+// composer stay in the ordinary view hierarchy above the material.
+static CALayer *HGACreateGaussianBackdrop(void) {
+    Class backdropType=objc_lookUpClass("CABackdropLayer");
+    Class filterType=objc_lookUpClass("CAFilter");
+    SEL factory=sel_registerName("filterWithType:");
+    Method method=class_getClassMethod(filterType,factory);
+    if (![backdropType isSubclassOfClass:CALayer.class] || !method ||
+        strcmp(method_getTypeEncoding(method),"@24@0:8@16")) return nil;
+    id gaussian=((id (*)(id,SEL,id))objc_msgSend)(filterType,factory,@"gaussianBlur");
+    if (!gaussian) return nil;
+    [gaussian setValue:@16 forKey:@"inputRadius"];
+    CALayer *backdrop=[backdropType layer];
+    backdrop.filters=@[gaussian];
+    return backdrop;
+}
+
 @implementation HGAAppearanceMaterial
 - (void)setOverlayColor:(UIColor *)color {
     if(_overlayColor==color || [_overlayColor isEqual:color])return;
@@ -16,7 +34,11 @@
 - (void)willMoveToWindow:(UIWindow *)window {
     // A live glass effect must never be carried into a detached scene. Its
     // replacement is created only after attachment with final, nonzero bounds.
-    if(window!=self.window){self.effect=nil;self.materialSignature=nil;}
+    if(window!=self.window){
+        [self.gaussianBackdrop removeFromSuperlayer];
+        self.gaussianBackdrop=nil;
+        self.effect=nil;self.materialSignature=nil;
+    }
     [super willMoveToWindow:window];
 }
 - (void)didMoveToWindow {
@@ -34,10 +56,24 @@
 - (void)layoutSubviews {
     [super layoutSubviews];
     if(!self.window || CGRectIsEmpty(self.bounds))return;
+    if (self.gaussianBackdrop && !CGRectEqualToRect(self.gaussianBackdrop.frame,self.bounds))
+        self.gaussianBackdrop.frame=self.bounds;
     NSString *signature=[self currentMaterialSignature];
     if([signature isEqual:self.materialSignature])return;
     self.materialSignature=signature;
-    UIVisualEffect *effect=HGAppearanceMaterial(self.style);
+    BOOL gaussian=[self.style isEqual:@"gaussian"] && !UIAccessibilityIsReduceTransparencyEnabled();
+    if (gaussian && !self.gaussianBackdrop) {
+        self.gaussianBackdrop=HGACreateGaussianBackdrop();
+        if (self.gaussianBackdrop) {
+            self.effect=nil;
+            self.gaussianBackdrop.frame=self.bounds;
+            [self.layer insertSublayer:self.gaussianBackdrop atIndex:0];
+        }
+    } else if (!gaussian && self.gaussianBackdrop) {
+        [self.gaussianBackdrop removeFromSuperlayer];
+        self.gaussianBackdrop=nil;
+    }
+    UIVisualEffect *effect=self.gaussianBackdrop ? nil : HGAppearanceMaterial(gaussian ? @"blur" : self.style);
     UIColor *color=self.overlayColor ?: [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
         effect ? self.overlayOpacity : 1];
     if(@available(iOS 26.0,*)) {
@@ -233,8 +269,12 @@ static void HGARestoreIcon(UIView *root) {
     objc_setAssociatedObject(root,&HGAIconKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 static UIImageView *HGAFindIcon(UIView *root) {
+    if ([root isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionCollectView")]) {
+        UIImageView *star=(id)HGAViewGetter(root,"starIcon",root);
+        if ([star isKindOfClass:UIImageView.class] && !star.isAnimating) return star;
+    }
     const char *names[]={"iconImageView","imageView","iconView"};
-    for(NSUInteger i=0;i<3;i++) {
+    for(NSUInteger i=0;i<sizeof(names)/sizeof(names[0]);i++) {
         UIView *view=HGAViewGetter(root,names[i],root);
         if([view isKindOfClass:UIImageView.class] && ![(UIImageView *)view isAnimating])return (id)view;
     }
@@ -251,9 +291,9 @@ static CGFloat HGAActionGlassDiameter(UIView *root) {
     return MIN(44,MIN(CGRectGetWidth(root.bounds),CGRectGetHeight(root.bounds)));
 }
 
-static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat) {
+static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat,BOOL sparkles) {
     if(![@[@"like",@"collect",@"comment",@"share"] containsObject:role])return;
-    if(!HGAppearanceEnabled() || !flat || !root.window) {HGARestoreIcon(root);return;}
+    if(!HGAppearanceEnabled() || (!flat && !sparkles) || !root.window) {HGARestoreIcon(root);return;}
     BOOL selected=NO;
     if([role isEqual:@"like"] || [role isEqual:@"collect"]) {
         NSString *getter=[role isEqual:@"like"]?@"isLiked":@"isCollected";
@@ -268,7 +308,8 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat) {
     UIImageView *icon=HGAFindIcon(root);
     HGAIconState *state=objc_getAssociatedObject(root,&HGAIconKey);
     if(state.imageView!=icon){HGARestoreIcon(root);state=nil;}
-    UIImage *image=HGAFlatActionImage(role,selected);
+    UIImage *image=sparkles ? [[UIImage systemImageNamed:@"sparkles"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]
+        : HGAFlatActionImage(role,selected);
     if(!icon || !image){HGARestoreIcon(root);return;}
     if(!state){state=[HGAIconState new];state.imageView=icon;state.source=icon.image;state.tint=icon.tintColor;
         objc_setAssociatedObject(root,&HGAIconKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
@@ -288,7 +329,7 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat) {
     // made those glyphs and their glass discs visibly larger than the heart.
     // Only the image transform changes; native hit targets and counts stay put.
     CGFloat side=MAX(icon.bounds.size.width,icon.bounds.size.height);
-    if(side>0)HGASetGeometry(icon,0,0,MIN(1.5,requested/side));
+    if(side>0)HGASetGeometry(icon,0,0,flat ? MIN(1.5,requested/side) : 1);
 }
 
 @interface HGATextState : NSObject
@@ -468,7 +509,9 @@ void HGAppearanceProcessView(UIView *view) {
         CGRect episodeFrame=episode ? HGAEpisodeGlassFrame(view) : CGRectZero;
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
         if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
-        HGAApplyIcon(view,role,flat);
+        BOOL sparkles=enabled && outer && [role isEqual:@"collect"] &&
+            [HGAppearanceString(@"player.collectGlyph") isEqual:@"sparkles"];
+        HGAApplyIcon(view,role,flat,sparkles);
         if(header) {
             HGAApplyHeaderSeparatedGlass(view,glass,enabled && outer && !headerShowsFinder && !view.hidden,
                 HGAppearanceString(@"player.material"));

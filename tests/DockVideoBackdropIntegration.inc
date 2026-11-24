@@ -8,6 +8,8 @@
 - (void)restore;
 @end
 
+@interface FQVShortVideoLockPlayRateTipsView : UIView @end
+@implementation FQVShortVideoLockPlayRateTipsView @end
 @interface FQVShortVideoListViewController : UIViewController @end
 @implementation FQVShortVideoListViewController @end
 // Surface a collection-layout query made by the plugin while cells are in
@@ -323,6 +325,18 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             fabs(fill.m11-height/feedHeight)<0.001 && fabs(fill.m22-fill.m11)<0.001 && fabs(fill.m42-45)<0.001 &&
             CGRectEqualToRect(cell.renderer.frame,portraitFrame) && HGBackdropNativeUnchanged(portraitGeometry),
             @"a settled portrait renderer reaches the window with uniform magnification and native pager and HUD geometry");
+        UIView *lockTip=[[FQVShortVideoLockPlayRateTipsView alloc] initWithFrame:CGRectMake(0,feedHeight-60,width,40)];
+        [feed.superview addSubview:lockTip];
+        bar.alpha=0;
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        Check(bar.alpha==0 && !feed.clipsToBounds && CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fill),
+            @"the 2x lock hint preserves portrait video coverage while the host fades out its dock");
+        [lockTip removeFromSuperview];
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        Check(feed.clipsToBounds && CATransform3DIsIdentity(cell.renderer.layer.sublayerTransform),
+            @"a hidden dock without a speed hint releases the video extension");
+        bar.alpha=1;
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
         [hud handleOutterFeedClipBounds:NO];
         BOOL previewUnclipped=!feed.clipsToBounds && !cell.canvas.clipsToBounds;
         [hud handleOutterFeedClipBounds:YES];
