@@ -237,7 +237,9 @@ static UIImageView *HGAFindIcon(UIView *root) {
         if(result)return nil;result=(id)view;
     }return result;
 }
-static void HGAApplyIcon(UIView *root,NSString *role) {
+static const CGFloat HGARightActionGlassDiameter=38;
+
+static void HGAApplyIcon(UIView *root,NSString *role,BOOL glass) {
     if(![@[@"like",@"collect",@"comment",@"share"] containsObject:role])return;
     if(!HGAppearanceEnabled() || !HGAppearanceFlag(@"icons.enabled") || !root.window) {HGARestoreIcon(root);return;}
     BOOL selected=NO;
@@ -269,12 +271,20 @@ static void HGAApplyIcon(UIView *root,NSString *role) {
         if(state.appliedTint && [icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.tint;
         state.appliedTint=nil;
     }
+    CGFloat requested=HGAppearanceNumber(@"icons.size");
+    CGFloat ownerLimit=MAX(20,root.bounds.size.width-8);
+    if(glass) {
+        // Leave room around solid heart, star and share silhouettes.
+        CGFloat diameter=MIN(root.bounds.size.width,HGARightActionGlassDiameter);
+        requested=MIN(requested*0.86,MAX(14,diameter-10));
+    }
+    requested=MIN(requested,ownerLimit);
     if(image.isSymbolImage) {
         // Carry the action's state color through hosts that customize icon tint.
         UIColor *color=state.appliedTint;
         if(!state.appliedSymbolConfiguration || ![icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
             state.symbolConfiguration=icon.preferredSymbolConfiguration;
-        state.appliedSymbolConfiguration=[UIImageSymbolConfiguration configurationWithPointSize:HGAppearanceNumber(@"icons.size") weight:UIImageSymbolWeightRegular];
+        state.appliedSymbolConfiguration=[UIImageSymbolConfiguration configurationWithPointSize:requested weight:UIImageSymbolWeightRegular];
         if(![icon.preferredSymbolConfiguration isEqual:state.appliedSymbolConfiguration])
             icon.preferredSymbolConfiguration=state.appliedSymbolConfiguration;
         image=[[image imageWithConfiguration:state.appliedSymbolConfiguration] imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal];
@@ -295,8 +305,6 @@ static void HGAApplyIcon(UIView *root,NSString *role) {
     // made those glyphs and their glass discs visibly larger than the heart.
     // Only the image transform changes; native hit targets and counts stay put.
     CGFloat side=MAX(icon.bounds.size.width,icon.bounds.size.height);
-    CGFloat ownerLimit=MAX(20,root.bounds.size.width-8);
-    CGFloat requested=MIN(HGAppearanceNumber(@"icons.size"),ownerLimit);
     if(side>0)HGASetGeometry(icon,0,0,MIN(1.5,requested/side));
 }
 
@@ -377,17 +385,22 @@ static void HGAApplyTypography(UIView *root) {
 
 #include "AppearancePlayer.inc"
 static NSDictionary<NSString *,NSString *> *HGAPanelControllers(void) {
-    return @{@"SSShortVideoCommentPanelViewController":@"comment",
+    static NSDictionary<NSString *,NSString *> *controllers;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{controllers=@{@"SSShortVideoCommentPanelViewController":@"comment",
+        @"FQCShortVideoCommentListViewController":@"comment",
         @"FQCShortVideoCommentPanelViewController":@"comment",
         @"FQVShortVideoCommentPanelViewController":@"comment",
         @"FQVShortVideoSettingsViewController":@"longpress",
         @"FQVShortVideoNewSpeedSelectController":@"speed",
         @"SSUGKmpSharePanelContainerViewController":@"share",
         @"SSVideoSharePanelViewController":@"share",
+        @"SSVideoSharePanelControllerViewController":@"share",
         @"SSShortVideoSharePanelViewController":@"share",
         @"SSSharePanelViewController":@"share",
         @"UGKmpSharePanelContainerViewController":@"share",
-        @"SSShortVideoIntroductionTabViewController":@"episodes"};
+        @"SSShortVideoIntroductionTabViewController":@"episodes"};});
+    return controllers;
 }
 static NSString *HGAPanelKind(UIViewController *controller) {
     for(Class cls=object_getClass(controller);cls && cls!=UIViewController.class;cls=class_getSuperclass(cls)) {
@@ -396,8 +409,6 @@ static NSString *HGAPanelKind(UIViewController *controller) {
     }
     return nil;
 }
-// Concrete comment surfaces are present even when the app changes the
-// containing controller. Do not hook generic text, drawing or scroll classes.
 static NSArray<NSString *> *HGACommentSurfaces(void) {
     return @[@"FQCShortVideoCommentPanelTitleView", @"FQCShortVideoCommentTitleView",
         @"FQCShortVideoCommentListCollectionView", @"FQCShortVideoBottomToolBar",
@@ -406,7 +417,7 @@ static NSArray<NSString *> *HGACommentSurfaces(void) {
 #include "AppearanceShare.inc"
 static char HGAPanelCoversKey;
 static void HGAApplyPanel(UIView *root,NSString *kind) {
-    if([@[@"share",@"longpress",@"speed"] containsObject:kind]) {
+    if([kind isEqual:@"comment"] || [@[@"share",@"longpress",@"speed"] containsObject:kind]) {
         HGAApplyActionSheet(root,kind);return;
     }
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag([@"panels." stringByAppendingString:kind]) && root.window;
@@ -450,7 +461,10 @@ void HGAppearanceProcessView(UIView *view) {
         if ([view isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [view isKindOfClass:UIScrollView.class]) {
             UIScrollView *feed = (UIScrollView *)view;
             HGAObserveFeed(feed);
-            if (feed.window) HGScheduleFeedLayoutRefresh(feed);
+            if (feed.window) {
+                HGARegisterCategoryFeed(feed);
+                HGScheduleFeedLayoutRefresh(feed);
+            }
             else HGRefreshVideoBackdropForFeed(feed);
             return;
         }
@@ -461,8 +475,8 @@ void HGAppearanceProcessView(UIView *view) {
             for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
             HGAApplyTypography(view);HGRefreshVideoBackdropForPlayer(view);return;
         }
-        if([HGACommentSurfaces() containsObject:name]) {
-            HGAApplyPanel(view,@"comment");HGAApplyTypography(view);return;
+        if(HGAIsCommentSurface(view)) {
+            HGAApplyTypography(view);return;
         }
         if(HGAIsActionPanelSurface(view)) {HGAUpdateActionPanelSurface(view);return;}
         BOOL enabled=HGAppearanceEnabled() && view.window;
@@ -484,15 +498,19 @@ void HGAppearanceProcessView(UIView *view) {
         if(episode && outer)HGAApplyEpisodeInset(view,glass && !view.hidden);
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
         if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
-        HGAApplyIcon(view,role);
+        HGAApplyIcon(view,role,glass);
         if(header) {
-            HGAApplyHeaderSeparatedGlass(view,glass && !view.hidden,headerShowsFinder,HGAppearanceString(@"player.material"));
+            HGAApplyHeaderSeparatedGlass(view,glass,enabled && outer && !headerShowsFinder && !view.hidden,
+                HGAppearanceString(@"player.material"));
         } else if(glass && !view.hidden) {
             CGRect glassFrame=view.bounds;CGFloat radius=episode ? episodeRadius : 20;
             if(action) {
                 UIImageView *icon=HGAFindIcon(view);
                 CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
-                CGFloat side=MIN(view.bounds.size.width,MAX(34,MIN(40,MAX(rect.size.width,rect.size.height)+8)));
+                CGFloat diameter=HGARightActionGlassDiameter;
+                if([role isEqual:@"avatar"])
+                    diameter=MAX(34,MIN(40,MAX(rect.size.width,rect.size.height)+8));
+                CGFloat side=MIN(MIN(view.bounds.size.width,view.bounds.size.height),diameter);
                 glassFrame=CGRectMake((view.bounds.size.width-side)/2,MAX(0,CGRectGetMidY(rect)-side/2),side,side);
                 radius=side/2;
             }

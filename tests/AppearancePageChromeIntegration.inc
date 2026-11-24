@@ -28,7 +28,11 @@
 @interface SSHGBookStoreCategoryTitleView : FQRJXCategoryTitleView <UICollectionViewDataSource,UICollectionViewDelegateFlowLayout>
 @property(nonatomic,strong) UICollectionView *collectionView;
 @property(nonatomic,strong) UIScrollView *contentScrollView;
+@property(nonatomic,weak) FQRJXCategoryListContainerView *listContainer;
 @property(nonatomic) NSInteger lastNativeTap;
+@property(nonatomic) NSUInteger nativeSelections;
+@property(nonatomic) BOOL nativeSelectionAnimated;
+- (BOOL)selectItemAtIndex:(NSInteger)index needAnimation:(BOOL)animated;
 - (CGRect)getTargetCellFrame:(NSInteger)index;
 - (CGRect)getTargetSelectedCellFrame:(NSInteger)index selectedType:(NSUInteger)type;
 - (void)refreshState;
@@ -66,12 +70,35 @@
     center.x = CGRectGetMidX([self getTargetSelectedCellFrame:path.item selectedType:1]);
     self.indicators.firstObject.center = center;
 }
+- (BOOL)selectItemAtIndex:(NSInteger)index needAnimation:(BOOL)animated {
+    self.nativeSelections++;
+    self.nativeSelectionAnimated=animated;
+    [self.contentScrollView setContentOffset:CGPointMake(self.contentScrollView.bounds.size.width*index,0) animated:animated];
+    [self refreshSelectedCellModel:@(index) unselectedCellModel:@(self.selectedIndex)];
+    [self.listContainer listDidAppear:index];
+    return YES;
+}
 - (void)refreshState {self.indicators.firstObject.hidden=NO;}
 - (void)refreshSelectedCellModel:(NSNumber *)selected unselectedCellModel:(NSNumber *)unselected {
     self.selectedIndex=selected.integerValue;
     [self refreshState];
 }
 @end
+
+@interface HGATestChannelPan : UIPanGestureRecognizer
+@property(nonatomic) UIGestureRecognizerState fixtureState;
+@property(nonatomic) CGPoint fixtureTravel,fixtureVelocity;
+@end
+
+@protocol HGATestChannelPaging <UIGestureRecognizerDelegate>
+- (void)page:(UIPanGestureRecognizer *)gesture;
+@end
+@implementation HGATestChannelPan
+- (UIGestureRecognizerState)state { return self.fixtureState; }
+- (CGPoint)translationInView:(UIView *)view { return self.fixtureTravel; }
+- (CGPoint)velocityInView:(UIView *)view { return self.fixtureVelocity; }
+@end
+
 @interface SSVideoSeriesFeedHeaderSearchView : UIView
 @property(nonatomic,strong) UIView *searchView;
 @property(nonatomic,strong) UIView *searchBgView;
@@ -81,6 +108,7 @@
 @implementation SSVideoSeriesFeedHeaderSearchView @end
 @interface HGAFinderRecognitionFixture : UIView
 @property(nonatomic,strong) UIView *separatorView;
+@property(nonatomic,strong) UIImageView *cameraIconView;
 @end
 @implementation HGAFinderRecognitionFixture @end
 @interface SSVideoSeriesFeedHeaderView (PageChromeFixture)
@@ -102,6 +130,7 @@
 @property(nonatomic,strong) UIView *imageSearchContainer;
 @property(nonatomic,strong) HGAFinderRecognitionFixture *normalImageSearchView;
 @property(nonatomic,strong) UIView *aiSearchEntranceView;
+@property(nonatomic,strong) UIImageView *aiSearchEntranceImageView;
 @end
 @implementation FQTheaterViewController @end
 @interface HGAObservedTheaterFixture : FQTheaterViewController @end
@@ -109,6 +138,7 @@
 @interface SSBookStoreEntranceView : UIView
 @property(nonatomic,strong) UILabel *nameLabel;
 @property(nonatomic,strong) UIImageView *bgImgView;
+@property(nonatomic,strong) UIImageView *iconImgView;
 @property(nonatomic,copy) NSString *model;
 @property(nonatomic) NSUInteger backgroundGetterCalls;
 @end
@@ -199,6 +229,19 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     CGRect nativeSearch=search.frame,nativeTabs=tabContainer.frame;
     NSArray *titles=@[@"关注",@"漫剧",@"真人剧",@"推荐"];
     channels.titles=titles;channels.selectedIndex=3;
+    FQRJXCategoryListContainerView *listContainer=[[FQRJXCategoryListContainerView alloc]
+        initWithFrame:CGRectMake(0,108,CGRectGetWidth(root.bounds),300)];
+    UIScrollView *pageScroll=[[UIScrollView alloc] initWithFrame:listContainer.bounds];
+    CGFloat pageWidth=CGRectGetWidth(pageScroll.bounds);
+    pageScroll.contentSize=CGSizeMake(pageWidth*titles.count,CGRectGetHeight(pageScroll.bounds));
+    pageScroll.pagingEnabled=YES;
+    pageScroll.contentOffset=CGPointMake(pageWidth*3,0);
+    channels.listContainer=listContainer;
+    channels.contentScrollView=pageScroll;
+    listContainer.contentScrollView=pageScroll;
+    [listContainer addSubview:pageScroll];
+    [root insertSubview:listContainer belowSubview:header];
+    NSUInteger stockGestures=pageScroll.gestureRecognizers.count;
     UICollectionViewFlowLayout *flow = [UICollectionViewFlowLayout new];
     flow.scrollDirection = UICollectionViewScrollDirectionHorizontal;
     UICollectionView *categoryList = [[UICollectionView alloc] initWithFrame:channels.bounds collectionViewLayout:flow];
@@ -288,6 +331,39 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         fabs(underline.center.x-CGRectGetMidX(comic))<0.5 &&
         fabs(CGRectGetMidX([channels getTargetCellFrame:3])-CGRectGetMidX(rec))<0.5,
         @"native taps and the host click and swipe indicator coordinates use the original channel indices");
+    UIPanGestureRecognizer *filterPan=nil;
+    for (UIGestureRecognizer *gesture in pageScroll.gestureRecognizers)
+        if ([NSStringFromClass(gesture.class) isEqual:@"HGAFixedChannelPan"]) filterPan=(id)gesture;
+    id<HGATestChannelPaging> channelPaging=(id)filterPan.delegate;
+    HGATestChannelPan *sample=[HGATestChannelPan new];
+    sample.fixtureVelocity=CGPointMake(-60,450);
+    BOOL vertical=[channelPaging gestureRecognizerShouldBegin:sample];
+    sample.fixtureVelocity=CGPointMake(-450,60);
+    BOOL horizontal=[channelPaging gestureRecognizerShouldBegin:sample];
+    Check(pageScroll.gestureRecognizers.count==stockGestures+1 && !vertical && horizontal &&
+        [channelPaging gestureRecognizer:filterPan shouldBeRequiredToFailByGestureRecognizer:pageScroll.panGestureRecognizer] &&
+        ![channelPaging gestureRecognizer:filterPan shouldBeRequiredToFailByGestureRecognizer:sample],
+        @"filtering prioritizes the horizontal channel gesture over the native pager only");
+    sample.fixtureState=UIGestureRecognizerStateChanged;
+    sample.fixtureTravel=CGPointMake(-64,2);
+    [channelPaging page:sample];
+    BOOL delayed=channels.nativeSelections==0;
+    sample.fixtureState=UIGestureRecognizerStateEnded;
+    sample.fixtureVelocity=CGPointZero;
+    [channelPaging page:sample];
+    BOOL leftSwipe=channels.selectedIndex==3 && pageScroll.contentOffset.x==3*pageWidth &&
+        channels.nativeSelections==1 && !channels.nativeSelectionAnimated;
+    [channelPaging page:sample];
+    BOOL edge=channels.nativeSelections==1;
+    sample.fixtureTravel=CGPointMake(64,2);
+    [channelPaging page:sample];
+    Check(delayed && leftSwipe && edge && channels.selectedIndex==1 && pageScroll.contentOffset.x==pageWidth &&
+        channels.nativeSelections==2 && listContainer.nativeEnds==2 && channels.lastNativeTap==1,
+        @"completed swipes skip hidden indices in both directions with immediate native selection and keep native taps unchanged");
+    HGAppearanceSet(@"player.headerGlass",@NO,nil);
+    Layout(header);
+    Check(filterPan.view==pageScroll && !Find(header,material),@"hidden channels remain filtered with header glass disabled");
+    HGAppearanceSet(@"player.headerGlass",@YES,nil);
     CGPoint displaced = CGPointMake(CGRectGetMidX(comic)+31,underline.center.y);
     underline.center = displaced;
     CABasicAnimation *movingLine = [CABasicAnimation animationWithKeyPath:@"position.x"];
@@ -313,9 +389,11 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGReportChannelLayout(@"stock",channels,header,underline,Find(header,material));
     Check(fabs(CGRectGetMidX(stock)-CGRectGetMidX([channels getTargetCellFrame:1]))<0.5 &&
         fabs(underline.center.x-CGRectGetMidX(stock))<0.5 &&
+        !filterPan.view && pageScroll.gestureRecognizers.count==stockGestures &&
         CGAffineTransformIsIdentity(((UIView *)controls[2]).transform) &&
         CGAffineTransformIsIdentity(((UIView *)controls[4]).transform),
         @"restoring the four channels restores native layout, selection geometry and unmodified cell transforms");
+    [listContainer removeFromSuperview];
     [channels refreshSelectedCellModel:@3 unselectedCellModel:@1];
 
     NSMutableDictionary *allHidden=[NSMutableDictionary dictionary];
@@ -361,8 +439,14 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     finder.imageSearchContainer=PageChromeControl(finder.view,CGRectMake(167,0,50,34));
     finder.normalImageSearchView=[[HGAFinderRecognitionFixture alloc] initWithFrame:finder.imageSearchContainer.bounds];
     finder.normalImageSearchView.separatorView=PageChromeControl(finder.normalImageSearchView,CGRectMake(2,7,1,20));
+    UIImage *cameraOriginal=[[UIImage systemImageNamed:@"camera"] imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+    UIImageView *camera=[[UIImageView alloc] initWithImage:cameraOriginal];
+    camera.tintColor=UIColor.systemOrangeColor;
+    [finder.normalImageSearchView addSubview:camera];finder.normalImageSearchView.cameraIconView=camera;
     [finder.imageSearchContainer addSubview:finder.normalImageSearchView];
     finder.aiSearchEntranceView=PageChromeControl(finder.view,CGRectMake(225,0,40,34));
+    finder.aiSearchEntranceImageView=[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"face.smiling"]];
+    [finder.aiSearchEntranceView addSubview:finder.aiSearchEntranceImageView];
     CGRect nativeRecognition=finder.imageSearchContainer.frame,nativeSearchField=finder.searchBgView.frame;
     FQFeedTabFilterPanelEntranceView *filterShortcut=[[FQFeedTabFilterPanelEntranceView alloc] initWithFrame:CGRectMake(0,0,48,34)];
     filterShortcut.backgroundView=[[UIImageView alloc] initWithFrame:filterShortcut.bounds];
@@ -375,6 +459,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         SSBookStoreEntranceView *shortcut=[[SSBookStoreEntranceView alloc] initWithFrame:CGRectMake(i*55,44,52,34)];
         shortcut.bgImgView=[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"rectangle.fill"]];
         shortcut.bgImgView.frame=shortcut.bounds;[shortcut addSubview:shortcut.bgImgView];
+        shortcut.iconImgView=[[UIImageView alloc] initWithImage:cameraOriginal];
+        [shortcut addSubview:shortcut.iconImgView];
         shortcut.nameLabel=[[UILabel alloc] initWithFrame:shortcut.bounds];shortcut.nameLabel.text=labels[i];
         [shortcut addSubview:shortcut.nameLabel];[finder.view addSubview:shortcut];[shortcuts addObject:shortcut];Layout(shortcut);
     }
@@ -391,6 +477,31 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         CGRectEqualToRect(finder.imageSearchContainer.frame,nativeRecognition) &&
         finder.normalImageSearchView.separatorView.hidden,
         @"finder search and recognition have separate glass with a six-point gap and an independent round AI control");
+    UIImageView *aiGlyph=(id)Find(finder.aiSearchEntranceView,@"honggo.appearance.finder.ai");
+    UIColor *light=[camera.tintColor resolvedColorWithTraitCollection:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
+    UIColor *dark=[aiGlyph.tintColor resolvedColorWithTraitCollection:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark]];
+    CGFloat lightValue=1,darkValue=0;
+    [light getRed:&lightValue green:NULL blue:NULL alpha:NULL];
+    [dark getRed:&darkValue green:NULL blue:NULL alpha:NULL];
+    Check(camera.image.renderingMode==UIImageRenderingModeAlwaysTemplate && lightValue<0.01 && darkValue>0.99 &&
+        finder.aiSearchEntranceImageView.hidden && !aiGlyph.userInteractionEnabled,
+        @"finder camera and independent AI glyph take light and dark ink without intercepting the native press");
+    HGAppearanceSet(@"player.finderAI",@NO,nil);
+    HGAppearanceProcessController(finder);
+    CGRect moved=finder.imageSearchContainer.frame;
+    HGAppearanceProcessController(finder);
+    UIView *recognitionHit=[finder.view hitTest:CGPointMake(CGRectGetMidX(moved),CGRectGetMidY(moved)) withEvent:nil];
+    Check(finder.aiSearchEntranceView.hidden && !Find(finder.aiSearchEntranceView,material) &&
+        fabs(CGRectGetMaxX(moved)-CGRectGetMaxX(finder.aiSearchEntranceView.frame))<0.01 &&
+        CGRectEqualToRect(moved,finder.imageSearchContainer.frame) &&
+        (recognitionHit==finder.imageSearchContainer || [recognitionHit isDescendantOfView:finder.imageSearchContainer]) &&
+        fabs(CGRectGetMaxX(searchGlass.frame)-CGRectGetMinX(moved)+6)<0.01,
+        @"hiding AI shifts native recognition to the vacated slot and fills the search gap without cumulative movement");
+    HGAppearanceSet(@"player.finderAI",@YES,nil);
+    HGAppearanceProcessController(finder);
+    Check(!finder.aiSearchEntranceView.hidden && Find(finder.aiSearchEntranceView,material) &&
+        CGRectEqualToRect(finder.imageSearchContainer.frame,nativeRecognition),
+        @"showing AI restores the original recognition layout and native entrance");
     finder.imageSearchContainer.hidden=YES;
     HGAppearanceProcessController(finder);
     Check(CGRectEqualToRect(searchGlass.frame,finder.searchBgView.bounds) &&
@@ -401,7 +512,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     BOOL scoped=Find(filterShortcut,material)!=nil && filterShortcut.backgroundView.hidden;
     for(NSUInteger i=0;i<shortcuts.count;i++) {
         SSBookStoreEntranceView *shortcut=shortcuts[i];
-        scoped&=(Find(shortcut,material)!=nil)==(i<4) && shortcut.bgImgView.hidden==(i<4) && !shortcut.nameLabel.hidden;
+        scoped&=(Find(shortcut,material)!=nil)==(i<4) && shortcut.bgImgView.hidden==(i<4) && !shortcut.nameLabel.hidden &&
+            (shortcut.iconImgView.image.renderingMode==UIImageRenderingModeAlwaysTemplate)==(i<4);
     }
     SSBookStoreEntranceView *reused=shortcuts.firstObject;
     UIImageView *previousCover=reused.bgImgView;
@@ -421,14 +533,21 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceSet(@"player.finderGlass",@NO,nil);
     scoped&=reused.backgroundGetterCalls==getterCalls && !Find(finder.view,material) && !filterShortcut.backgroundView.hidden &&
         !finder.normalImageSearchView.separatorView.hidden &&
-        [finder.searchBgView.backgroundColor isEqual:UIColor.systemGrayColor];
+        [finder.searchBgView.backgroundColor isEqual:UIColor.systemGrayColor] && camera.image==cameraOriginal &&
+        [camera.tintColor isEqual:UIColor.systemOrangeColor] && !finder.aiSearchEntranceImageView.hidden && !aiGlyph.superview;
     for(SSBookStoreEntranceView *shortcut in shortcuts)scoped&=!shortcut.bgImgView.hidden && shortcut.bgImgView.image!=nil;
     Check(scoped,@"finder glass targets the four shortcuts and restores native search backgrounds on disable");
+    HGAppearanceSet(@"player.finderAI",@NO,nil);
+    HGAppearanceProcessController(finder);
+    Check(finder.aiSearchEntranceView.hidden && !Find(finder.view,material) &&
+        CGRectEqualToRect(moved,finder.imageSearchContainer.frame),
+        @"finder AI visibility and recognition reflow also work without finder glass");
+    HGAppearanceSet(@"player.finderAI",@YES,nil);
     [finder willMoveToParentViewController:nil];[finder.view removeFromSuperview];[finder removeFromParentViewController];
     HGAppearanceSet(@"player.finderGlass",@YES,nil);
 
     SSMyUser637TabsView *mine=[[SSMyUser637TabsView alloc] initWithFrame:CGRectMake(0,230,290,80)];
-    [root addSubview:mine];mine.searchBtn=[[UIButton alloc] initWithFrame:CGRectMake(255,0,30,32)];
+    [root addSubview:mine];mine.searchBtn=[[UIButton alloc] initWithFrame:CGRectMake(255,7,25,25)];
     [mine addSubview:mine.searchBtn];
     UIView *toolbar=PageChromeControl(mine,CGRectMake(0,40,285,38));
     UIScrollView *categoryWrapper=[[UIScrollView alloc] initWithFrame:CGRectMake(0,0,190,34)];
@@ -445,7 +564,10 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     FQRJXCategoryTitleCell *watched=PageChromeTitle(categories,@"已看完",54);
     FQRJXCategoryTitleCell *unwatched=PageChromeTitle(categories,@"未看完",110);
     Layout(filter);Layout(mine);
-    BOOL history=Find(mine.searchBtn,material) && Find(filter,material) && filter.backgroundView.hidden && Find(edit,material) &&
+    UIView *mineSearchGlass=Find(mine.searchBtn,material);
+    BOOL history=mineSearchGlass && CGAffineTransformIsIdentity(mine.searchBtn.transform) &&
+        mineSearchGlass.frame.size.height==30 && mineSearchGlass.frame.size.width==30 &&
+        Find(filter,material) && filter.backgroundView.hidden && Find(edit,material) &&
         Find(all,material) && Find(watched,material) && Find(unwatched,material);
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
     Check(history && !Find(mine,material) && !filter.backgroundView.hidden,

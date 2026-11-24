@@ -66,17 +66,18 @@ static BOOL HGVideoBackdropHasTransition(UIViewController *owner) {
 static BOOL HGVideoBackdropFullWindow(UIView *view, UIWindow *window) {
     CGRect rect = [view convertRect:view.bounds toView:window];
     CGRect bounds = window.bounds;
-    return fabs(CGRectGetMinX(rect) - CGRectGetMinX(bounds)) <= 0.01 &&
-        fabs(CGRectGetMaxX(rect) - CGRectGetMaxX(bounds)) <= 0.01 &&
-        fabs(CGRectGetMinY(rect) - CGRectGetMinY(bounds)) <= 0.01 &&
-        fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 0.01;
+    return fabs(CGRectGetMinX(rect) - CGRectGetMinX(bounds)) <= 0.75 &&
+        fabs(CGRectGetMaxX(rect) - CGRectGetMaxX(bounds)) <= 0.75 &&
+        fabs(CGRectGetMinY(rect) - CGRectGetMinY(bounds)) <= 0.75 &&
+        fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 0.75;
 }
 
 static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController *owner,
                                         UIView *root, UIView *bar) {
     UIView *parent = feed.superview;
     UIWindow *window = root.window;
-    if (!window || !parent || owner.viewIfLoaded != parent ||
+    UIView *ownerView = owner.viewIfLoaded;
+    if (!window || !parent || !ownerView || (parent != ownerView && ![parent isDescendantOfView:ownerView]) ||
         window.bounds.size.height <= window.bounds.size.width || feed.layer.mask ||
         !HGVideoBackdropVisible(feed, window) || !HGVideoBackdropVisible(bar, root) ||
         !HGVideoBackdropFullWindow(parent, window) || !HGVideoBackdropFullWindow(root, window) ||
@@ -85,9 +86,9 @@ static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController
     CGRect barInWindow = [bar convertRect:bar.bounds toView:window];
     CGFloat uncovered = CGRectGetMaxY(full) - CGRectGetMaxY(frame);
     return uncovered >= 20 && uncovered <= 160 &&
-        fabs(CGRectGetMinX(frame) - CGRectGetMinX(full)) <= 0.01 &&
-        fabs(CGRectGetMinY(frame) - CGRectGetMinY(full)) <= 0.01 &&
-        fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(full)) <= 0.01 &&
+        fabs(CGRectGetMinX(frame) - CGRectGetMinX(full)) <= 0.75 &&
+        fabs(CGRectGetMinY(frame) - CGRectGetMinY(full)) <= 0.75 &&
+        fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(full)) <= 0.75 &&
         CGRectGetMinY(barInWindow) >= CGRectGetMaxY(window.bounds) - 180 &&
         CGRectGetMaxY(barInWindow) <= CGRectGetMaxY(window.bounds) + 0.75;
 }
@@ -171,7 +172,7 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
             if (![metal isKindOfClass:metalClass] || !HGVideoBackdropVisible(metal, renderer) ||
                 renderer.layer.sublayers.firstObject != metal.layer ||
                 !CGPointEqualToPoint(renderer.layer.anchorPoint, CGPointMake(0.5,0.5))) continue;
-            CGFloat pixel = 1 / MAX(1, renderer.traitCollection.displayScale) + 0.01;
+            CGFloat pixel = MAX(0.75, 1 / MAX(1, renderer.traitCollection.displayScale));
             if (!HGVideoBackdropSameRect([renderer convertRect:renderer.bounds toView:feed],viewport,pixel))
                 continue;
             // A portrait frame can already be wider than its crop. The real

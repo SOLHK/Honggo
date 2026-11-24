@@ -413,6 +413,38 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         [feed setContentOffset:CGPointMake(0,feedHeight+52) animated:NO];Layout(feed);
         HGBackdropFlushFrames(0.04);
         Check(!feed.clipsToBounds,@"native feed layout opens clipping again for a second partial swipe");
+
+        // 7.4.5.33 mounts a full-window vertical owner inside its horizontal
+        // channel scroll view. The collection can have a nested host wrapper.
+        [manager restore];
+        UIScrollView *category=[[UIScrollView alloc] initWithFrame:container.view.bounds];
+        category.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
+        category.contentSize=CGSizeMake(3*width,height);
+        [container.view insertSubview:category belowSubview:bar];
+        [category addSubview:page.view];
+        page.view.frame=CGRectMake(width,0,width,height);
+        [category setContentOffset:CGPointMake(width,0) animated:NO];
+        UIView *wrapper=[[UIView alloc] initWithFrame:page.view.bounds];
+        [page.view addSubview:wrapper];
+        [wrapper addSubview:feed];
+        [feed setContentOffset:CGPointMake(0,feedHeight*2) animated:NO];Layout(feed);
+        incoming=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:2 inSection:0]];
+        incoming.videoHeight=width*9/16;Layout(incoming);Layout(incoming.renderer);
+        incoming.canvas.backgroundColor=[UIColor colorWithRed:0.28 green:0.18 blue:0.13 alpha:1];
+        [manager refreshWithBranches:@[category] root:container.view bar:bar active:YES];
+        underlay=Find(wrapper,@"honggo.video.matte");
+        Check(underlay.superview==wrapper && !underlay.hidden && feed.clipsToBounds,
+            @"a settled horizontal channel continues the native matte through its nested feed wrapper");
+        [category setContentOffset:CGPointMake(width+64,0) animated:NO];
+        [manager refreshWithBranches:@[category] root:container.view bar:bar active:YES];
+        Check(!underlay.superview && feed.clipsToBounds,
+            @"a displaced horizontal page releases backdrop ownership to the host");
+        [category setContentOffset:CGPointMake(width+0.25,0) animated:NO];
+        [manager refreshWithBranches:@[category] root:container.view bar:bar active:YES];
+        UIView *returnedMatte=Find(wrapper,@"honggo.video.matte");
+        Check(returnedMatte.superview==wrapper && !returnedMatte.hidden && feed.clipsToBounds &&
+            CGRectEqualToRect(feed.frame,CGRectMake(0,0,width,feedHeight)),
+            @"returning to a settled channel restores its matte with subpixel host alignment");
         [feed removeFromSuperview];
         Check(feed.clipsToBounds && !feed.superview && CGRectEqualToRect(feed.frame,CGRectMake(0,0,width,feedHeight)),
             @"detaching the feed restores its clip without moving it back into the window");

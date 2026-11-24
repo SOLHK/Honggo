@@ -78,7 +78,7 @@ int main(void) {@autoreleasepool {
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];
-    NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes"]];
+    NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.finderAI",@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes"]];
     BOOL unique=YES,defaults=YES;
     for(NSDictionary *entry in HGAppearanceCatalog()) {
         unique &= ![keys containsObject:entry[@"key"]];[keys addObject:entry[@"key"]];

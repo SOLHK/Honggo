@@ -121,44 +121,56 @@ static NSHashTable *HGADeferredViews(id owner, const void *key) {
     return views;
 }
 
+static void HGARegisterCategoryFeed(UIScrollView *feed) {
+    for (UIView *node = feed.superview; node; node = node.superview) {
+        if (HGABottomViewIsA(node, @"FQRJXCategoryListContainerView")) {
+            [HGADeferredViews(node, &HGCategoryFeedsKey) addObject:feed];
+            break;
+        }
+    }
+}
+
 static void HGAResumeCategoryFeeds(UIView *pager) {
     if (!NSThread.isMainThread) return;
     NSHashTable *feeds = objc_getAssociatedObject(pager, &HGCategoryFeedsKey);
     for (UIScrollView *feed in feeds.allObjects) {
-        NSHashTable *pending = objc_getAssociatedObject(feed, &HGDeferredHUDsKey);
-        if (!pending.count || ![feed isDescendantOfView:pager]) [feeds removeObject:feed];
+        if (![feed isDescendantOfView:pager]) [feeds removeObject:feed];
         else HGScheduleFeedLayoutRefresh(feed);
     }
 }
 
 // A horizontal channel pager can carry the entire video feed, so its canvas
 // and its vertical collection move together. Compare both coordinate spaces.
-static BOOL HGABottomCanvasIsCurrent(UIView *control, UIScrollView **nativeFeed) {
+static BOOL HGABottomCanvasIsCurrent(UIView *control, UIScrollView **nativeFeed, BOOL *visibleInFeed) {
     UIView *canvas = HGAPlayerCanvas(control);
     UIWindow *window = control.window;
     if (!canvas || !window) return NO;
     UIScrollView *feed = nil;
-    BOOL scrolling = NO;
+    BOOL verticalScroll = NO, outerScroll = NO;
     for (UIView *node = canvas.superview; node && node != window; node = node.superview) {
         if (![node isKindOfClass:UIScrollView.class]) continue;
         UIScrollView *scroll = (UIScrollView *)node;
-        if (!feed && HGABottomViewIsA(scroll, @"FQVCollectionView")) feed = scroll;
-        if (scroll.tracking || scroll.dragging || scroll.decelerating) scrolling = YES;
+        BOOL scrolling = scroll.tracking || scroll.dragging || scroll.decelerating;
+        if (!feed && HGABottomViewIsA(scroll, @"FQVCollectionView")) {
+            feed = scroll;
+            verticalScroll = scrolling;
+        } else if (scrolling) outerScroll = YES;
     }
     *nativeFeed = feed;
-    if (scrolling || !HGABottomNativeCoordinates(control, canvas)) return NO;
+    if (outerScroll || !HGABottomNativeCoordinates(control, canvas)) return NO;
     CGRect viewport = feed ? [feed convertRect:feed.bounds toView:window] : window.bounds;
     CGRect rect = [canvas convertRect:canvas.bounds toView:window];
-    return !CGRectIsEmpty(rect) && fabs(CGRectGetMinY(rect) - CGRectGetMinY(viewport)) <= 1 &&
-        fabs(CGRectGetMinX(rect) - CGRectGetMinX(viewport)) <= 1 &&
+    BOOL aligned = !CGRectIsEmpty(rect) && fabs(CGRectGetMinX(rect) - CGRectGetMinX(viewport)) <= 1 &&
         (!feed || fabs(CGRectGetMidX(viewport) - CGRectGetMidX(window.bounds)) <= 1);
+    if (visibleInFeed) *visibleInFeed = feed && aligned && !CGRectIsEmpty(CGRectIntersection(rect, viewport));
+    return aligned && !verticalScroll && fabs(CGRectGetMinY(rect) - CGRectGetMinY(viewport)) <= 1;
 }
 
 static void HGAResumeSettledHUDs(UIScrollView *feed) {
     NSHashTable *pending = objc_getAssociatedObject(feed, &HGDeferredHUDsKey);
     for (UIView *control in pending.allObjects) {
         UIScrollView *currentFeed = nil;
-        BOOL current = HGABottomCanvasIsCurrent(control, &currentFeed);
+        BOOL current = HGABottomCanvasIsCurrent(control, &currentFeed, NULL);
         if (currentFeed != feed || current) [pending removeObject:control];
         if (currentFeed == feed && current) [control setNeedsLayout];
     }
@@ -244,17 +256,12 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
         !HGAVisible(control) || control.bounds.size.height<=control.bounds.size.width ||
         HGABottomHasCustomGeometry()) {HGARestoreBottomState(state);return;}
     UIScrollView *feed = nil;
-    BOOL currentCanvas = HGABottomCanvasIsCurrent(control, &feed);
+    BOOL visibleInFeed = NO;
+    BOOL currentCanvas = HGABottomCanvasIsCurrent(control, &feed, &visibleInFeed);
     if (feed && !currentCanvas) {
-        HGARestoreBottomState(state);
         [HGADeferredViews(feed, &HGDeferredHUDsKey) addObject:control];
-        for (UIView *node = feed.superview; node; node = node.superview) {
-            if (HGABottomViewIsA(node, @"FQRJXCategoryListContainerView")) {
-                [HGADeferredViews(node, &HGCategoryFeedsKey) addObject:feed];
-                break;
-            }
-        }
-        return;
+        HGARegisterCategoryFeed(feed);
+        if (!visibleInFeed) {HGARestoreBottomState(state);return;}
     }
     UIView *progress=nil,*wrapper=nil,*info=nil;
     BOOL ambiguous=NO,ambiguousInfo=NO;

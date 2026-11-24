@@ -42,9 +42,99 @@ static UIView *HGAHeaderSearchSlotView(UIView *header) {
 @end
 @implementation HGAHeaderChannelLayout @end
 
-static char HGAHeaderLayoutKey, HGAHeaderLineRestoreKey;
+static char HGAHeaderLayoutKey, HGAHeaderLineRestoreKey, HGAHeaderPagerKey;
 static BOOL HGAHeaderAdaptersReady;
 static IMP HGAHeaderOriginals[6];
+
+@interface HGAFixedChannelPan : UIPanGestureRecognizer
+@property(nonatomic,weak) UIPanGestureRecognizer *nativePan;
+@end
+@implementation HGAFixedChannelPan
+- (BOOL)canPreventGestureRecognizer:(UIGestureRecognizer *)other {
+    return other==self.nativePan;
+}
+@end
+
+@interface HGAFixedChannelPager : NSObject <UIGestureRecognizerDelegate>
+@property(nonatomic,weak) UIView *categories;
+@property(nonatomic,strong) HGAFixedChannelPan *pan;
+@end
+@implementation HGAFixedChannelPager
+- (void)dealloc { [self.pan.view removeGestureRecognizer:self.pan]; }
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)other {
+    return other==self.pan.nativePan;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
+    Class progress = objc_lookUpClass("FQVShortVideoProgressView");
+    for (UIView *view=touch.view; view && view!=gesture.view; view=view.superview)
+        if ([view isKindOfClass:UIControl.class] || [view isKindOfClass:progress]) return NO;
+    return YES;
+}
+
+- (BOOL)canPage {
+    UIView *categories = self.categories;
+    UIScrollView *scroll = (UIScrollView *)self.pan.view;
+    return categories.window && categories.window==scroll.window && scroll.scrollEnabled &&
+        self.pan.nativePan.enabled && !scroll.isDecelerating && !HGFeedSidebarOwnsLayout(scroll.window) &&
+        HGAIsHomeChannel(categories);
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIPanGestureRecognizer *)gesture {
+    if (![self canPage]) return NO;
+    CGPoint velocity = [gesture velocityInView:self.pan.view];
+    return fabs(velocity.x)>fabs(velocity.y);
+}
+
+- (void)page:(UIPanGestureRecognizer *)gesture {
+    if (gesture.state!=UIGestureRecognizerStateEnded) return;
+    UIView *categories = self.categories;
+    HGAHeaderChannelLayout *layout = objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
+    if (!layout || ![self canPage]) return;
+    CGPoint travel = [gesture translationInView:self.pan.view];
+    CGPoint velocity = [gesture velocityInView:self.pan.view];
+    if (fabs(travel.x)<=fabs(travel.y) || (fabs(travel.x)<28 && fabs(velocity.x)<300)) return;
+
+    NSInteger index = ((NSInteger (*)(id,SEL))objc_msgSend)(categories,sel_registerName("selectedIndex"));
+    NSInteger step = travel.x<0 ? 1 : -1;
+    if (index<0 || index>=(NSInteger)layout.titles.count) return;
+    for (NSInteger next=index+step; next>=0 && next<(NSInteger)layout.titles.count; next+=step) {
+        if (layout.hiddenMask & (1UL << next)) continue;
+        // Commit via the host's selection and list lifecycle with its native
+        // index. Animated offsets expose the intervening hidden pages.
+        ((BOOL (*)(id,SEL,NSInteger,BOOL))objc_msgSend)(categories,sel_registerName("selectItemAtIndex:needAnimation:"),next,NO);
+        break;
+    }
+}
+@end
+
+static UIScrollView *HGAHomeChannelScroll(id categories) {
+    Class cls = objc_lookUpClass("FQRJXCategoryListContainerView");
+    UIView *container = HGReadObjectGetter(categories,"listContainer");
+    UIScrollView *scroll = [container isKindOfClass:cls] ? HGReadObjectGetter(container,"contentScrollView") : nil;
+    if (![scroll isKindOfClass:UIScrollView.class] || ![scroll isDescendantOfView:container]) return nil;
+    return scroll;
+}
+
+static void HGAUpdateChannelPager(UIView *categories,HGAHeaderChannelLayout *layout) {
+    HGAFixedChannelPager *state = objc_getAssociatedObject(categories,&HGAHeaderPagerKey);
+    UIScrollView *scroll = layout ? HGAHomeChannelScroll(categories) : nil;
+    if (state.pan.view==scroll) return;
+    [state.pan.view removeGestureRecognizer:state.pan];
+    objc_setAssociatedObject(categories,&HGAHeaderPagerKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (!scroll) return;
+    Method select = class_getInstanceMethod(categories.class,sel_registerName("selectItemAtIndex:needAnimation:"));
+    if (!select || strcmp(method_getTypeEncoding(select),"B28@0:8q16B24")) return;
+    state = [HGAFixedChannelPager new];
+    state.categories = categories;
+    state.pan = [[HGAFixedChannelPan alloc] initWithTarget:state action:@selector(page:)];
+    state.pan.delegate = state;
+    state.pan.nativePan = scroll.panGestureRecognizer;
+    state.pan.maximumNumberOfTouches = 1;
+    [scroll addGestureRecognizer:state.pan];
+    objc_setAssociatedObject(categories,&HGAHeaderPagerKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 
 static CGSize HGAChannelSize(id owner, SEL cmd, UICollectionView *collection, UICollectionViewLayout *layout, NSIndexPath *path) {
     CGSize size = ((CGSize (*)(id,SEL,id,id,id))HGAHeaderOriginals[0])(owner,cmd,collection,layout,path);
@@ -124,7 +214,7 @@ static void HGAInstallHeaderLayoutAdapters(void) {
 }
 
 static BOOL HGAHeaderScrollInFlight(id categories, UIScrollView *collection) {
-    UIScrollView *pager = HGReadObjectGetter(categories,"contentScrollView");
+    UIScrollView *pager = HGAHomeChannelScroll(categories) ?: HGReadObjectGetter(categories,"contentScrollView");
     return collection.isTracking || collection.isDragging || collection.isDecelerating ||
         ([pager isKindOfClass:UIScrollView.class] && (pager.isTracking || pager.isDragging || pager.isDecelerating));
 }
@@ -230,6 +320,7 @@ static void HGASetChannelLayout(UIView *categories, HGAHeaderChannelLayout *next
         [old.collection.collectionViewLayout invalidateLayout];
         if (old.collection != next.collection) [next.collection.collectionViewLayout invalidateLayout];
     }
+    HGAUpdateChannelPager(categories,next);
     HGASyncHeaderChannelLine(categories);
 }
 
@@ -273,7 +364,7 @@ static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state)
     }
     if (old.collection == collection && old.hiddenMask == mask && old.width == collection.bounds.size.width &&
         [old.titles isEqualToArray:titles]) {
-        HGASyncHeaderChannelLine(categories);
+        HGASetChannelLayout(categories,old);
         return;
     }
     HGASetChannelLayout(categories,HGAMakeChannelLayout(categories,collection,titles,mask));
@@ -360,10 +451,10 @@ static CGRect HGAHeaderVisibleChannelsRect(UIView *header) {
 // Separate the home header into three native liquid-glass surfaces (left menu
 // circle, center category capsule, right search circle) without moving,
 // reparenting or intercepting any host tap target.
-static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL finder,NSString *style) {
-    if(!header || !enabled || finder || header.hidden || CGRectIsEmpty(header.bounds)) {
+static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layoutEnabled,NSString *style) {
+    if(!layoutEnabled || CGRectIsEmpty(header.bounds)) {
         HGARemoveHeaderDetachedGlass(header);
-        if(header)HGARemoveGlass(header);
+        HGARemoveGlass(header);
         return;
     }
     // Never churn header glass while the feed controller is sliding horizontally
@@ -376,12 +467,17 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL finder
         state=[HGAHeaderInsetState new];
         objc_setAssociatedObject(header,&HGAHeaderInsetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    UIView *sidebar=HGAViewGetter(header,"sideBar",header);
-    UIView *searchSlot=HGAHeaderSearchSlotView(header);
-
     // Compact remaining visible tabs when any channel is hidden so there is no
     // empty gap inside the center capsule.
     HGACompactHeaderChannels(header,state);
+    if(!enabled) {
+        [state.sidebarGlass removeFromSuperview];
+        [state.searchGlass removeFromSuperview];
+        HGARemoveGlass(header);
+        return;
+    }
+    UIView *sidebar=HGAViewGetter(header,"sideBar",header);
+    UIView *searchSlot=HGAHeaderSearchSlotView(header);
 
     CGFloat headerW=CGRectGetWidth(header.bounds);
     CGFloat headerH=CGRectGetHeight(header.bounds);

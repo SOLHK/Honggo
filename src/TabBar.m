@@ -1041,7 +1041,8 @@ static char HGVideoBackdropDiscoveryTimeKey;
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
     if (!NSThread.isMainThread || HGFeedSidebarOwnsLayout(feed.window)) return;
     if (HGVideoBackdropRefreshForFeed(feed) || !HGAppearanceDockEnabled() || !feed.window) return;
-    if (feed.dragging || feed.decelerating) return;
+    if (feed.dragging || feed.decelerating ||
+        !HGVideoBackdropFullWindow(feed.superview, feed.window)) return;
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
     NSNumber *lastAttempt = objc_getAssociatedObject(feed, &HGVideoBackdropDiscoveryTimeKey);
     if (lastAttempt && (now - lastAttempt.doubleValue) < 0.5) return;

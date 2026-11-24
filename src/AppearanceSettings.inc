@@ -244,8 +244,10 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"顶部导航");
         HGAAddDefs(rows,@[@"player.headerGlass"]);
         [rows addObject:HGASubpage(@"@group.chrome.hide",@"顶部按钮与频道隐藏",@"菜单、频道与搜索")];
-        section(@"页面与播放控件");
-        HGAAddDefs(rows,@[@"player.finderGlass",@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass"]);
+        section(@"找剧");
+        HGAAddDefs(rows,@[@"player.finderGlass",@"player.finderAI"]);
+        section(@"我的与播放");
+        HGAAddDefs(rows,@[@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass"]);
     } else if([self.group isEqual:@"chrome.hide"]) {
         HGAAddDefs(rows,@[@"layout.channels.hide.sidebar",@"layout.channels.hide.follow",@"layout.channels.hide.comic",
             @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search"]);

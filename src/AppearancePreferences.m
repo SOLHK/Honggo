@@ -68,6 +68,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             flag([@"layout.channels.hide." stringByAppendingString:channelIDs[i]],@"player",
                 [@"隐藏顶部" stringByAppendingString:channelNames[i]]);
         [a addObject:HGADef(@"player.finderGlass",@"player",@"找剧搜索与快捷入口玻璃",@"bool",@YES,nil)];
+        [a addObject:HGADef(@"player.finderAI",@"player",@"显示找剧 AI 入口",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.mineGlass",@"player",@"我的页面控件玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.episodeGlass",@"player",@"全集入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];

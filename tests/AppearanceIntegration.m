@@ -100,7 +100,9 @@
 @implementation FQVCollectionView @end
 @interface FQCShortVideoCommentPanelViewController : UIViewController @end
 @implementation FQCShortVideoCommentPanelViewController @end
-@interface SSVideoSharePanelViewController : UIViewController @end
+@interface SSVideoSharePanelViewController : UIViewController
+@property(nonatomic,strong) UIView *panelView;
+@end
 @implementation SSVideoSharePanelViewController @end
 @interface FQVShortVideoSettingsViewController : UIViewController @end
 @implementation FQVShortVideoSettingsViewController @end
@@ -437,13 +439,9 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         [panel.view removeFromSuperview];[panel removeFromParentViewController];HGAppearanceSet(@"enabled",@YES,nil);
     }
     RunActionShareAppearanceChecks(self.host);
+    RunFeedShareRouteChecks();
 
-    FQCShortVideoCommentPanelTitleView *commentSurface=[[FQCShortVideoCommentPanelTitleView alloc] initWithFrame:CGRectMake(20,300,280,52)];
-    commentSurface.backgroundColor=UIColor.whiteColor;[root addSubview:commentSurface];Layout(commentSurface);
-    Check(Find(commentSurface,@"honggo.appearance.material")!=nil,@"known comment surfaces work without a guessed controller class");
-    HGAppearanceSet(@"panels.comment",@NO,nil);
-    Check(Find(commentSurface,@"honggo.appearance.material")==nil && [commentSurface.backgroundColor isEqual:UIColor.whiteColor],@"comment surface restores without changing its parent");
-    HGAppearanceSet(@"panels.comment",@YES,nil);[commentSurface removeFromSuperview];
+    RunCommentSheetAppearanceChecks(self.host);
 
     SSTabBar *bar=self.host.customTabBar;HGAppearanceLayoutDock(bar,self.host);Layout(bar);
     HGAAppearanceDock *dock=(id)Find(bar,@"honggo.appearance.dock");

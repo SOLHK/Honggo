@@ -21,6 +21,7 @@ static NSHashTable<UIView *> *HGABars;
 static void HGARefreshAssets(void);
 static void HGAApplyTypography(UIView *root);
 static void HGAObserveFeed(UIScrollView *feed);
+static void HGARegisterCategoryFeed(UIScrollView *feed);
 static void HGARefreshDock(UIView *bar);
 static NSArray<NSString *> *HGABottomControlClasses(void);
 static void HGAUpdateBottomLayoutForView(UIView *view);
@@ -140,6 +141,7 @@ static NSError *HGAAssetError(NSString *message) {
 // Exact adapters only. UIKit base classes and arbitrary third-party classes
 // never receive a global appearance hook. Missing adapters remain untouched.
 static NSMutableDictionary<NSString *,NSValue *> *HGAHooks;
+static BOOL HGAInsideFeedShareTap;
 static NSUInteger HGAPlayerTransferInvocation;
 static void HGATracePlayerTransfer(id object,SEL selector,id destination,NSUInteger invocation,NSString *phase) {
     if(!invocation)return;
@@ -168,6 +170,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL scrollComponent=[className isEqual:@"FQVShortVideoListVCScrollComponent"];
     BOOL categoryPager=[className isEqual:@"FQRJXCategoryListContainerView"];
+    BOOL feedShareTap=[className isEqual:@"SSShortVideoRightInteractionShareViewManager"] &&
+        selector==sel_registerName("shareViewDidClick:");
+    BOOL sharePresentation=[className isEqual:@"SSShortVideoSharePanelPresenter"] &&
+        selector==sel_registerName("presentationMode");
     BOOL playerNavigation=[className isEqual:@"FQVShortVideoListVCNavBarComponent"];
     BOOL scrubClipping=[className isEqual:@"FQVShortVideoVPlayerControlView"] &&
         selector==sel_registerName("handleOutterFeedClipBounds:");
@@ -177,7 +183,23 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         [className isEqual:@"FQVShortVideoProgressView"] ||
         [className isEqual:@"SSShortVideoDerivateInfoView"] || [className isEqual:@"SSShortVideoOutterSeriesInfoView"];
     IMP replacement=NULL;
-    if (!strcmp(encoding,"v16@0:8")) {
+    if (sharePresentation && !strcmp(encoding,"q16@0:8")) {
+        replacement=imp_implementationWithBlock(^NSInteger(id presenter) {
+            NSInteger mode=((NSInteger(*)(id,SEL))original)(presenter,selector);
+            return mode==2 && NSThread.isMainThread && HGAInsideFeedShareTap ? 1 : mode;
+        });
+    } else if (feedShareTap && !strcmp(encoding,"v24@0:8@16")) {
+        replacement=imp_implementationWithBlock(^(id manager,id shareView) {
+            if (!NSThread.isMainThread || !HGAPanelWantsGlass(@"share")) {
+                ((void(*)(id,SEL,id))original)(manager,selector,shareView);
+                return;
+            }
+            BOOL wasInside=HGAInsideFeedShareTap;
+            HGAInsideFeedShareTap=YES;
+            @try {((void(*)(id,SEL,id))original)(manager,selector,shareView);}
+            @finally {HGAInsideFeedShareTap=wasInside;}
+        });
+    } else if (!strcmp(encoding,"v16@0:8")) {
         replacement=imp_implementationWithBlock(^(id object) {
             BOOL recycling=playerCanvas && selector==sel_registerName("resetToRecycle") && NSThread.isMainThread;
             BOOL wasApplying=HGAApplying;
@@ -285,6 +307,18 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     if (original) HGAHooks[key]=[NSValue valueWithPointer:replacement];
     else imp_removeBlock(replacement);
 }
+static void HGAInstallNativeShareRoute(void) {
+    // 7.4.5.33's feed action passes the same params to its mode-1 UIKit
+    // presenter and to the UIKit fallback for mode 2. Scope the mode change
+    // to the feed action, so other share presenters keep their own route.
+    if (![[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] isEqual:@"7.4.5.33"]) return;
+    Class presenter=objc_lookUpClass("SSShortVideoSharePanelPresenter");
+    Class manager=objc_lookUpClass("SSShortVideoRightInteractionShareViewManager");
+    Method native=class_getClassMethod(presenter,sel_registerName("presentNativeSharePanelWithParams:"));
+    if (!native || strcmp(method_getTypeEncoding(native),"v24@0:8@16") || !manager) return;
+    HGAHook(object_getClass(presenter),sel_registerName("presentationMode"),"q16@0:8",NO);
+    HGAHook(manager,sel_registerName("shareViewDidClick:"),"v24@0:8@16",NO);
+}
 void HGAppearanceRefresh(void) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();}); return; }
     HGARefreshAssets();
@@ -306,6 +340,7 @@ void HGInstallAppearance(void) {
     @synchronized(NSClassFromString(@"HGSettingsController")) {
         if (!HGAHooks) HGAHooks=[NSMutableDictionary dictionary];
         HGAInstallHeaderLayoutAdapters();
+        HGAInstallNativeShareRoute();
         NSUInteger found=0;
         NSMutableOrderedSet *classes=[NSMutableOrderedSet orderedSetWithArray:HGAViewRoles().allKeys];
         [classes addObjectsFromArray:HGACommentSurfaces()];

@@ -4,6 +4,38 @@
 @property(nonatomic,strong) UICollectionView *collectionView;
 @end
 @implementation SSShortVideoMorePanelShareHeaderView @end
+@interface SSShortVideoMorePanelShareHeaderCell : UICollectionViewCell
+@property(nonatomic,strong) UIImageView *iconView;
+@property(nonatomic,strong) UIView *iconBackgroundView;
+@end
+@implementation SSShortVideoMorePanelShareHeaderCell @end
+@interface FQCShortVideoCommentListViewController : UIViewController @end
+@implementation FQCShortVideoCommentListViewController @end
+@interface FQCShortVideoCommentListViewController_hmd_subfix_ : FQCShortVideoCommentListViewController @end
+@implementation FQCShortVideoCommentListViewController_hmd_subfix_ @end
+@interface FQCShortVideoCommentListCollectionView : UICollectionView @end
+@implementation FQCShortVideoCommentListCollectionView @end
+@interface FQCShortVideoBottomToolBar : UIView @end
+@implementation FQCShortVideoBottomToolBar @end
+static NSInteger HGAFixtureShareMode=2;
+@interface SSShortVideoSharePanelPresenter : NSObject
++ (NSInteger)presentationMode;
++ (void)presentNativeSharePanelWithParams:(id)params;
+@end
+@implementation SSShortVideoSharePanelPresenter
++ (NSInteger)presentationMode {return HGAFixtureShareMode;}
++ (void)presentNativeSharePanelWithParams:(id)params {}
+@end
+@interface SSShortVideoRightInteractionShareViewManager : NSObject
+@property(nonatomic) NSInteger requestedMode;
+@property(nonatomic,strong) id receivedView;
+- (void)shareViewDidClick:(id)view;
+@end
+@implementation SSShortVideoRightInteractionShareViewManager
+- (void)shareViewDidClick:(id)view {
+    self.receivedView=view;self.requestedMode=[SSShortVideoSharePanelPresenter presentationMode];
+}
+@end
 @interface HGASheetDrawingFixture : UIView @end
 @implementation HGASheetDrawingFixture @end
 @interface HGASharePreviewRows : NSObject <UITableViewDataSource> @end
@@ -23,6 +55,55 @@
     return cell;
 }
 @end
+static void RunCommentSheetAppearanceChecks(UIViewController *host) {
+    UIView *root=host.view;
+    FQCShortVideoCommentListViewController *panel=[FQCShortVideoCommentListViewController_hmd_subfix_ new];
+    [host addChildViewController:panel];[panel loadViewIfNeeded];
+    CGFloat width=root.bounds.size.width;
+    panel.view.frame=CGRectMake(0,root.bounds.size.height-450,width,450);
+    panel.view.backgroundColor=UIColor.whiteColor;
+    FQCShortVideoCommentPanelTitleView *title=[[FQCShortVideoCommentPanelTitleView alloc] initWithFrame:CGRectMake(0,0,width,50)];
+    FQCShortVideoCommentListCollectionView *list=[[FQCShortVideoCommentListCollectionView alloc]
+        initWithFrame:CGRectMake(0,50,width,330) collectionViewLayout:[UICollectionViewFlowLayout new]];
+    list.backgroundColor=UIColor.whiteColor;title.backgroundColor=UIColor.whiteColor;
+    FQCShortVideoBottomToolBar *toolbar=[[FQCShortVideoBottomToolBar alloc] initWithFrame:CGRectMake(0,380,width,70)];
+    toolbar.backgroundColor=UIColor.whiteColor;
+    UIBlurEffect *stockBlur=[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+    UIVisualEffectView *nativeBlur=[[UIVisualEffectView alloc] initWithEffect:stockBlur];
+    nativeBlur.frame=toolbar.bounds;[toolbar addSubview:nativeBlur];
+    UITextField *editor=[[UITextField alloc] initWithFrame:CGRectMake(10,10,width-20,36)];
+    editor.text=@"保留评论输入";[nativeBlur.contentView addSubview:editor];
+    [panel.view addSubview:title];[panel.view addSubview:list];[panel.view addSubview:toolbar];
+    [root addSubview:panel.view];[panel didMoveToParentViewController:host];
+    for(NSUInteger i=0;i<3;i++){Layout(title);Layout(list);Layout(toolbar);[panel viewDidLayoutSubviews];}
+    UIVisualEffectView *material=(id)Find(panel.view,@"honggo.appearance.material");
+    Check(material && panel.view.subviews.firstObject==material && Count(panel.view,@"honggo.appearance.material")==1 &&
+        !Find(list,@"honggo.appearance.material") && !Find(toolbar,@"honggo.appearance.material"),
+        @"the observed comment controller installs one material behind its title list and composer");
+    Check([list.backgroundColor isEqual:UIColor.clearColor] && [title.backgroundColor isEqual:UIColor.clearColor] &&
+        [toolbar.backgroundColor isEqual:UIColor.clearColor] && !nativeBlur.effect && editor.superview==nativeBlur.contentView,
+        @"comment covers and native toolbar blur are cleared without replacing the text field");
+    HGAppearanceSet(@"panels.comment",@NO,nil);
+    Check(!Find(panel.view,@"honggo.appearance.material") && nativeBlur.effect==stockBlur &&
+        [list.backgroundColor isEqual:UIColor.whiteColor] && [toolbar.backgroundColor isEqual:UIColor.whiteColor] &&
+        [editor.text isEqual:@"保留评论输入"],@"disabling comment glass restores the native backdrop and composer");
+    [panel.view removeFromSuperview];[panel removeFromParentViewController];HGAppearanceSet(@"panels.comment",@YES,nil);
+}
+static void RunFeedShareRouteChecks(void) {
+    SSShortVideoRightInteractionShareViewManager *manager=[SSShortVideoRightInteractionShareViewManager new];
+    id tappedView=[NSObject new];
+    [manager shareViewDidClick:tappedView];
+    Check(manager.receivedView==tappedView && manager.requestedMode==1 && [SSShortVideoSharePanelPresenter presentationMode]==2,
+        @"feed share keeps the original action and uses the native fallback within that action only");
+    HGAFixtureShareMode=0;
+    [manager shareViewDidClick:tappedView];
+    Check(manager.requestedMode==0,@"existing legacy share mode remains available");
+    HGAFixtureShareMode=2;
+    HGAppearanceSet(@"panels.share",@NO,nil);
+    [manager shareViewDidClick:tappedView];
+    Check(manager.requestedMode==2,@"disabling share appearance restores the existing Compose route");
+    HGAppearanceSet(@"panels.share",@YES,nil);
+}
 static BOOL HGAWriteModulePreview(UIView *view,NSString *filename) {
     Layout(view);
     for(UIView *child in view.subviews)Layout(child);
@@ -184,7 +265,8 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     [root addSubview:share];Layout(share);
     @try {
         CGRect iconRect=[share.iconImageView convertRect:share.iconImageView.bounds toView:share];
-        Check(MAX(iconRect.size.width,iconRect.size.height)<=26.01 &&
+        UIView *material=Find(share,@"honggo.appearance.material");
+        Check(fabs(material.bounds.size.width-38)<0.01 && MAX(iconRect.size.width,iconRect.size.height)<=22.37 &&
             CGRectEqualToRect(share.frame,shareTouch) && CGRectEqualToRect(share.countLabel.frame,shareCount),
             @"tall native action icon fits the requested longest edge without moving count or hit owner");
         CGAffineTransform first=share.iconImageView.transform;
@@ -193,8 +275,8 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             @"rectangular right-action icon scale stays stable across native reuse");
         HGAppearanceSet(@"icons.size",@48,nil);Layout(share);
         iconRect=[share.iconImageView convertRect:share.iconImageView.bounds toView:share];
-        Check(MAX(iconRect.size.width,iconRect.size.height)<=38.01,
-            @"large custom action size remains inside its native rail width");
+        Check(MAX(iconRect.size.width,iconRect.size.height)<=28.01,
+            @"large custom action size leaves a five-point inset on each edge of the glass");
         HGAppearanceSet(@"icons.enabled",@NO,nil);
         Check(CGAffineTransformIsIdentity(share.iconImageView.transform),
             @"disabling rectangular icon styling restores the native image transform");
@@ -212,6 +294,13 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     table.backgroundColor=UIColor.grayColor;[panel.view addSubview:table];
     SSShortVideoMorePanelShareHeaderView *header=[[SSShortVideoMorePanelShareHeaderView alloc] initWithFrame:CGRectMake(0,0,panel.view.bounds.size.width,98)];
     header.backgroundColor=UIColor.whiteColor;table.tableHeaderView=header;
+    SSShortVideoMorePanelShareHeaderCell *cell=[[SSShortVideoMorePanelShareHeaderCell alloc] initWithFrame:CGRectMake(100,8,52,70)];
+    cell.iconBackgroundView=[[UIView alloc] initWithFrame:CGRectMake(0,0,52,52)];
+    cell.iconBackgroundView.backgroundColor=UIColor.systemGreenColor;
+    UIImage *nativeIcon=[[UIImage systemImageNamed:@"bubble.left.and.bubble.right.fill"] imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+    cell.iconView=[[UIImageView alloc] initWithImage:nativeIcon];cell.iconView.frame=CGRectMake(12,12,28,28);
+    cell.iconView.tintColor=UIColor.systemBlueColor;
+    [cell.contentView addSubview:cell.iconBackgroundView];[cell.contentView addSubview:cell.iconView];[header addSubview:cell];
     UIButton *destination=[UIButton buttonWithType:UIButtonTypeCustom];destination.frame=CGRectMake(20,8,52,52);
     destination.backgroundColor=UIColor.systemGreenColor;[destination setTitle:@"微信" forState:UIControlStateNormal];
     [header addSubview:destination];
@@ -226,11 +315,29 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     @try {
         UIVisualEffectView *base=(id)Find(panel.view,@"honggo.appearance.material");Layout(base);
         CGFloat alpha=CGColorGetAlpha([base.contentView.backgroundColor resolvedColorWithTraitCollection:base.traitCollection].CGColor);
-        Check(base && [base.effect isKindOfClass:UIBlurEffect.class] && alpha>=0.92 && panel.view.subviews.firstObject==base,
-            @"longpress sheet uses a readable system blur base behind content without a glass lens over the dock");
+        Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
+        Check(base && [base.effect isKindOfClass:expectedEffect] && !base.userInteractionEnabled &&
+            fabs(alpha-HGAppearanceNumber(@"panels.opacity"))<0.01 && panel.view.subviews.firstObject==base,
+            @"longpress sheet uses the configured translucent glass behind content");
         Check([table.backgroundColor isEqual:UIColor.clearColor] && [header.backgroundColor isEqual:UIColor.clearColor] &&
             [destination.backgroundColor isEqual:UIColor.systemGreenColor] && [drawing.backgroundColor isEqual:UIColor.whiteColor],
-            @"share sheet clears neutral backings while retaining app colours and unknown drawing surfaces");
+            @"share sheet clears neutral backings and preserves unknown drawing surfaces");
+        UITraitCollection *light=[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight];
+        UITraitCollection *dark=[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark];
+        Check(cell.iconView.image.renderingMode==UIImageRenderingModeAlwaysTemplate &&
+            [[cell.iconView.tintColor resolvedColorWithTraitCollection:light] isEqual:UIColor.blackColor] &&
+            [[cell.iconView.tintColor resolvedColorWithTraitCollection:dark] isEqual:UIColor.whiteColor] &&
+            ![cell.iconBackgroundView.backgroundColor isEqual:UIColor.systemGreenColor],
+            @"native share destinations retain their glyph with theme-aware black or white ink and a neutral tile");
+        UIGraphicsImageRenderer *tile=[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(48,48)];
+        cell.iconView.image=[tile imageWithActions:^(UIGraphicsImageRendererContext *context) {
+            [UIColor.greenColor setFill];[context fillRect:CGRectMake(0,0,48,48)];
+            [UIColor.whiteColor setFill];[context fillRect:CGRectMake(14,16,20,16)];
+        }];
+        Layout(cell);
+        Check(HGAActionPixelAlpha(cell.iconView.image,8,8)==0 && HGAActionPixelAlpha(cell.iconView.image,24,24)>200,
+            @"a destination image with a baked brand tile keeps an opaque glyph and transparent surrounding pixels");
+        cell.iconView.image=nativeIcon;Layout(cell);
         Check(panel.view.clipsToBounds && fabs(panel.view.layer.cornerRadius-28)<0.01 &&
             panel.view.layer.maskedCorners==(kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner) &&
             CGRectEqualToRect(table.frame,originalTable) && CGRectEqualToRect(destination.frame,originalDestination),
@@ -255,6 +362,8 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             [panel.view.backgroundColor isEqual:UIColor.grayColor] && !panel.view.clipsToBounds &&
             fabs(panel.view.layer.cornerRadius-6)<0.01 && panel.view.layer.maskedCorners==kCALayerMinXMaxYCorner,
             @"disabling longpress styling fully restores its native fills clipping and corners");
+        Check(cell.iconView.image==nativeIcon && [cell.iconView.tintColor isEqual:UIColor.systemBlueColor] &&
+            [cell.iconBackgroundView.backgroundColor isEqual:UIColor.systemGreenColor],@"share icon, tint and tile restore on disable");
         HGAppearanceSet(@"panels.longpress",@YES,nil);[panel viewDidLayoutSubviews];
         table.backgroundColor=UIColor.systemOrangeColor;panel.view.layer.cornerRadius=11;
         HGAppearanceSet(@"panels.longpress",@NO,nil);
@@ -272,6 +381,17 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             @"an unverified full-screen share dismissal region is never converted to an opaque sheet");
         [dismiss sendActionsForControlEvents:UIControlEventTouchUpInside];
         Check(action.taps==2,@"native full-screen share dismissal action remains intact");
+        UIView *shareSheet=[[UIView alloc] initWithFrame:CGRectMake(0,fullScreen.view.bounds.size.height-250,
+            fullScreen.view.bounds.size.width,250)];
+        shareSheet.backgroundColor=UIColor.whiteColor;
+        fullScreen.panelView=shareSheet;[fullScreen.view addSubview:shareSheet];[fullScreen viewDidLayoutSubviews];
+        UIVisualEffectView *nativeSharePanel=(id)Find(shareSheet,@"honggo.appearance.material");
+        Check(nativeSharePanel.superview==shareSheet && Count(fullScreen.view,@"honggo.appearance.material")==1 &&
+            [fullScreen.view.backgroundColor isEqual:dismissalColour] && !nativeSharePanel.userInteractionEnabled,
+            @"verified native share panel receives the same material within its dismissible full-screen wrapper");
+        HGAppearanceSet(@"panels.share",@NO,nil);
+        Check(!Find(shareSheet,@"honggo.appearance.material") && [shareSheet.backgroundColor isEqual:UIColor.whiteColor],
+            @"standalone share control restores its native backing independently of longpress");
         [fullScreen.view removeFromSuperview];[fullScreen removeFromParentViewController];
     }@finally {
         [panel.view removeFromSuperview];[panel removeFromParentViewController];

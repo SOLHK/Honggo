@@ -41,6 +41,7 @@
 
 @interface FQRJXCategoryListContainerView : UIView <UIScrollViewDelegate>
 @property(nonatomic) NSUInteger nativeEnds;
+@property(nonatomic,strong) UIScrollView *contentScrollView;
 @end
 @implementation FQRJXCategoryListContainerView
 - (void)scrollViewDidEndDecelerating:(UIScrollView *)scroll { self.nativeEnds++; }
@@ -219,6 +220,10 @@ static void RunOutterEpisodeSpacingChecks(UIView *root) {
         [feed addSubview:canvas];
         Layout(control);
         BOOL adjustedHere = wrapper.frame.origin.y < 822;
+        canvas.frame=CGRectOffset(nativeCanvas,0,-24);Layout(control);
+        Check(CGRectEqualToRect(progress.frame,nativeProgress) && fabs(wrapper.frame.origin.y-811)<0.01,
+            @"a partially visible vertical page keeps local spacing without borrowing dock clearance");
+        canvas.frame=nativeCanvas;Layout(control);
         horizontal.contentOffset = CGPointMake(70, 0);
         Layout(control);
         Check(adjustedHere && fabs(wrapper.frame.origin.y-822)<0.01 && CGRectEqualToRect(progress.frame,nativeProgress) &&
