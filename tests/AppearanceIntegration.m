@@ -195,6 +195,7 @@ static BOOL HGInstallMaterialEffectSpy(void) {
 #include "ActionShareAppearanceIntegration.inc"
 #include "PlayerChromeIntegration.inc"
 #include "PlayerGestureIntegration.inc"
+#include "CommentMovementIntegration.inc"
 #include "AppearanceLandscapeChromeIntegration.inc"
 #include "DockVideoBackdropIntegration.inc"
 #include "AppearancePageChromeIntegration.inc"
@@ -422,6 +423,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     RunEpisodeSpacingChecks(root);
     RunPlayerChromeChecks(self.host);
     RunPlayerGestureChecks(self.host.view);
+    RunCommentMovementChecks();
     RunLandscapeChromeChecks(self.host);
 
     SSShortVideoOutterSeriesInfoView *info=[[SSShortVideoOutterSeriesInfoView alloc] initWithFrame:CGRectMake(20,280,280,60)];[root addSubview:info];

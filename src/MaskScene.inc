@@ -1,6 +1,7 @@
 // Diagnostic-only: no frame, inset, alpha, mask or gesture mutations.
 static __weak UIViewController *HGScenePage;
 static char HGSceneIDKey;
+static char HGAutomaticSceneTimesKey;
 static NSUInteger HGSceneNextID;
 static NSNumber *HGSceneID(id object) {
     if (!object) return @0;
@@ -18,6 +19,16 @@ static NSArray *HGSceneRect(CGRect r) {
 static void HGCaptureMask(UIViewController *page, NSString *reason, BOOL cancelled) {
     if (!HGEnhancedDiagnostics() || !page.viewIfLoaded.window) return;
     NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
+    if (![reason isEqual:@"user.screenshot"] && !cancelled) {
+        NSMutableDictionary<NSString *, NSNumber *> *last = objc_getAssociatedObject(page, &HGAutomaticSceneTimesKey);
+        NSNumber *previous = last[reason];
+        if (previous && started - previous.doubleValue < 3) return;
+        if (!last) {
+            last = [NSMutableDictionary dictionary];
+            objc_setAssociatedObject(page, &HGAutomaticSceneTimesKey, last, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        last[reason] = @(started);
+    }
     UIView *root = page.viewIfLoaded;
     UIWindow *window = root.window;
     NSMutableArray<UIView *> *queue = [NSMutableArray array];

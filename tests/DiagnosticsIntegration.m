@@ -137,6 +137,23 @@ static void CheckEvents(NSURL *root) {
     NSDictionary *scene = Export(HGDiagnosticScopeAll, nil, NULL);
     Check([scene[@"maskScenes"] count] > 0 && [scene[@"maskScenes"] count] <= 10 &&
         Event(scene, @"scene.capture"), @"bounded structural scenes are recorded and remain exportable");
+    NSArray *nodes = @[@{@"class": @"UIView", @"frame": @"{{0,0},{32,32}}"}];
+    HGStoreMaskScene(@{@"reason": @"did.appear", @"nodes": nodes, @"captureMs": @2});
+    HGStoreMaskScene(@{@"reason": @"user.screenshot", @"nodes": nodes});
+    NSDictionary *compact = Export(HGDiagnosticScopeAll, nil, NULL);
+    NSDictionary *automatic = nil, *manual = nil;
+    for (NSDictionary *row in compact[@"events"]) {
+        NSDictionary *item = row[@"fields"][@"scene"];
+        if ([item[@"reason"] isEqual:@"did.appear"]) automatic = item;
+        if ([item[@"reason"] isEqual:@"user.screenshot"] && item[@"nodes"]) manual = item;
+    }
+    NSPredicate *preview = [NSPredicate predicateWithFormat:@"reason == %@", @"did.appear"];
+    NSDictionary *recent = [[compact[@"maskScenes"] filteredArrayUsingPredicate:preview] lastObject];
+    Check([automatic[@"summaryOnly"] boolValue] && [automatic[@"nodeCount"] isEqual:@1] &&
+        [automatic[@"captureMs"] isEqual:@2] && !automatic[@"nodes"] && [recent[@"nodes"] isEqual:nodes],
+        @"automatic captures retain timing in the journal and recent detail in the bounded scene list");
+    Check([manual[@"nodes"] isEqual:nodes] && !manual[@"summaryOnly"],
+        @"manual screenshots remain detailed in the exported journal");
     __block BOOL cleared = NO;
     HGClearDiagnostics(^(NSError *error) { Check(!error, @"clear completes"); cleared = YES; });
     Wait(^BOOL{ return cleared; });
@@ -165,7 +182,9 @@ static void CheckRetention(NSURL *root) {
     NSDictionary *fresh = @{@"session": longSession, @"time": @(now - 3590), @"event": @"fixture.retained", @"fields": @{}};
     NSDictionary *watchdog = @{@"session": longSession, @"time": @(now - 20), @"event": @"watchdog.severe",
         @"fields": @{}, @"recentEvents": @[old, fresh]};
-    SaveRows(@[old, fresh, watchdog], mixed);
+    NSDictionary *legacyScene = @{@"session": longSession, @"time": @(now - 15), @"event": @"scene.capture",
+        @"fields": @{@"scene": @{@"reason": @"before.leave", @"nodes": @[@{@"class": @"UIView"}], @"roles": @{@"page": @1}}}};
+    SaveRows(@[old, fresh, watchdog, legacyScene], mixed);
     // Even a recently modified old journal must be checked by event time.
     SaveRows(@[old], touched);
     HGDiagnosticsStart(root, @{});
@@ -180,6 +199,10 @@ static void CheckRetention(NSURL *root) {
         Event(one, @"fixture.retained") && !Event(one, @"fixture.expired") &&
         [[Event(one, @"watchdog.severe")[@"recentEvents"] valueForKey:@"event"] isEqual:@[@"fixture.retained"]],
         @"an old-start session retains its recent watchdog and in-window context");
+    NSDictionary *historicalScene = Event(one, @"scene.capture")[@"fields"][@"scene"];
+    Check([historicalScene[@"summaryOnly"] boolValue] && [historicalScene[@"nodeCount"] isEqual:@1] &&
+        [historicalScene[@"roles"] isEqual:@{@"page": @1}] && !historicalScene[@"nodes"],
+        @"previous beta journals export routine scene trees as compact summaries");
     NSFileManager *manager = NSFileManager.defaultManager;
     NSString *file = [NSString stringWithContentsOfURL:mixed encoding:NSUTF8StringEncoding error:nil];
     Check([file containsString:@"fixture.retained"] && ![file containsString:@"fixture.expired"] &&

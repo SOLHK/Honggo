@@ -656,7 +656,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     if (segments && !UIAccessibilityIsReduceMotionEnabled()) {
         UIVisualEffectView *lens=(id)Find(header,@"honggo.appearance.header.swipeLens");
         CGFloat center=CGRectGetMidX(lens.frame)-CGRectGetMinX(segments.frame);
-        Check(lens && center>CGRectGetWidth(segments.bounds)*0.25 && center<CGRectGetWidth(segments.bounds)*0.75 &&
+        Check(lens && !lens.hidden && [header.subviews indexOfObjectIdenticalTo:lens]<[header.subviews indexOfObjectIdenticalTo:segments] &&
+            center>CGRectGetWidth(segments.bounds)*0.25 && center<CGRectGetWidth(segments.bounds)*0.75 &&
             CGRectGetHeight(lens.bounds)>CGRectGetHeight(segments.bounds)-2 &&
             segments.selectedSegmentIndex==UISegmentedControlNoSegment && delayed,
             @"a partially completed page-body swipe lifts the header lens between titles before any navigation");
@@ -727,12 +728,26 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             sample.fixtureState=UIGestureRecognizerStateChanged;
             [scrubber scrubChannels:sample];
             UIVisualEffectView *lens=(id)Find(header,@"honggo.appearance.header.swipeLens");
-            Check(lens && !lens.userInteractionEnabled && channels.nativeSelections==selections+2,
-                @"direct horizontal header tracking shows the lens before selection");
+            UIVisualEffect *effect=lens.effect;
+            Check(lens && !lens.hidden && !lens.userInteractionEnabled &&
+                [header.subviews indexOfObjectIdenticalTo:lens]<[header.subviews indexOfObjectIdenticalTo:segments] &&
+                channels.nativeSelections==selections+2,@"direct horizontal tracking refracts only the scene beneath the channel labels");
             sample.fixtureState=UIGestureRecognizerStateCancelled;
             [scrubber scrubChannels:sample];
-            Check(segments.selectedSegmentIndex==0 && channels.nativeSelections==selections+2,
-                @"cancelling a direct header scrub restores the selected page without sending its action");
+            if(UIView.areAnimationsEnabled)Check(!lens.hidden && lens.effect==effect &&
+                segments.selectedSegmentIndex==UISegmentedControlNoSegment,
+                @"cancelling a header scrub retains one optical surface and delays thumb restoration until it reaches rest");
+            sample.fixtureState=UIGestureRecognizerStateChanged;
+            [scrubber scrubChannels:sample];
+            Check(Find(header,@"honggo.appearance.header.swipeLens")==lens && !lens.hidden,
+                @"a new header scrub interrupts the spring and reuses the existing lens");
+            sample.fixtureState=UIGestureRecognizerStateCancelled;
+            [scrubber scrubChannels:sample];
+            CFTimeInterval deadline=CACurrentMediaTime()+0.5;
+            while(lens && !lens.hidden && CACurrentMediaTime()<deadline)
+                CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+            Check(lens.hidden && segments.selectedSegmentIndex==0 && channels.nativeSelections==selections+2,
+                @"cancelling and resuming a direct header scrub restores the selected page without sending its action");
         }
     }
     if (@available(iOS 26.0,*)) {

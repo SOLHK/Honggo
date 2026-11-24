@@ -100,6 +100,10 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
 @property(nonatomic, copy) NSDictionary *session;
 @property(nonatomic, strong) NSDateFormatter *formatter;
 @property(nonatomic) BOOL exporting;
+@property(nonatomic) NSInteger exportRow;
+@property(nonatomic) BOOL exportPresentationScheduled;
+@property(nonatomic, strong) NSURL *readyExport;
+@property(nonatomic, copy) NSString *exportError;
 @property(nonatomic) BOOL hasUnexpected;
 @property(nonatomic, copy) NSString *statusMessage;
 @end
@@ -116,10 +120,44 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     self.formatter.timeStyle = NSDateFormatterMediumStyle;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh
         target:self action:@selector(reloadLogs)];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(diagnosticAppDidBecomeActive:)
+        name:UIApplicationDidBecomeActiveNotification object:nil];
 }
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self reloadLogs];
+}
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self presentReadyExport];
+}
+- (void)diagnosticAppDidBecomeActive:(NSNotification *)notification {
+    [self presentReadyExport];
+}
+- (void)presentReadyExport {
+    if (!self.readyExport || self.exportPresentationScheduled) return;
+    self.exportPresentationScheduled = YES;
+    HGAfterViewTransition(self, ^{
+        self.exportPresentationScheduled = NO;
+        if (!self.readyExport || !self.viewIfLoaded.window || self.navigationController.topViewController != self ||
+                self.presentedViewController || self.isBeingDismissed ||
+                self.view.window.windowScene.activationState != UISceneActivationStateForegroundActive) return;
+        NSURL *url = self.readyExport;
+        if (![url checkResourceIsReachableAndReturnError:nil]) {
+            self.readyExport = nil;
+            self.exportError = @"导出文件已清理。";
+            [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationNone];
+            return;
+        }
+        UIActivityViewController *share = [[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
+        share.popoverPresentationController.sourceView = self.tableView;
+        share.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.tableView.bounds),
+            CGRectGetMidY(self.tableView.bounds), 1, 1);
+        [self presentViewController:share animated:YES completion:^{
+            self.readyExport = nil;
+            [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationNone];
+        }];
+    });
 }
 - (void)reloadLogs {
     self.navigationItem.rightBarButtonItem.enabled = NO;
@@ -151,8 +189,8 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (section != 1) return nil;
     if (self.statusMessage) return self.statusMessage;
-    return self.session ? @"页面显示最近最多 120 条事件。导出文件包含该会话保留的完整记录。" :
-        @"仅保留最近 1 小时的日志。达到 50 MB 时优先清理最旧的会话。结束原因未知也可能是手动退出或系统终止。";
+    return self.session ? @"页面显示最近最多 120 条事件。普通场景保留摘要，手动截图保留结构详情。" :
+        @"保留最近 1 小时的日志。普通场景保留摘要，手动截图保留结构详情。结束原因未知也可能是手动退出或系统终止。";
 }
 - (NSString *)timeLabel:(NSNumber *)timestamp {
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:timestamp.doubleValue];
@@ -170,8 +208,21 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         BOOL available = self.session || path.row == 0 || self.hasUnexpected;
         cell.textLabel.text = self.session ? @"导出此会话" : path.row == 0 ? @"导出最近 1 小时日志" : @"导出上一次异常结束的会话";
         if (!available) cell.detailTextLabel.text = @"暂无结束原因未知的历史会话";
+        if (path.row == self.exportRow) {
+            if (self.exporting) {
+                UIActivityIndicatorView *progress = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+                [progress startAnimating];
+                cell.accessoryView = progress;
+                cell.detailTextLabel.text = @"正在准备日志…";
+            } else if (self.readyExport) {
+                cell.detailTextLabel.text = @"日志已就绪，轻点分享。";
+            } else if (self.exportError.length) {
+                cell.detailTextLabel.text = [NSString stringWithFormat:@"导出失败，轻点重试。%@", self.exportError];
+            }
+        }
         cell.textLabel.enabled = available;
-        cell.selectionStyle = available ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
+        cell.selectionStyle = available && !self.exporting ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
+        cell.accessibilityIdentifier = path.row == 0 ? @"honggo.diagnostics.prepare" : @"honggo.diagnostics.previous";
     } else if (!self.session) {
         NSDictionary *item = self.sessions[path.row];
         NSString *state = item[@"state"];
@@ -217,25 +268,24 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         return;
     }
     if (self.exporting || (!self.session && path.row == 1 && !self.hasUnexpected)) return;
+    if (self.readyExport && self.exportRow == path.row) { [self presentReadyExport]; return; }
+    self.readyExport = nil;
+    self.exportError = nil;
+    self.exportRow = path.row;
     self.exporting = YES;
+    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationNone];
     HGDiagnosticScope scope = self.session ? HGDiagnosticScopeSession :
         path.row == 0 ? HGDiagnosticScopeAll : HGDiagnosticScopePreviousUnexpected;
-    NSDictionary *snapshot = scope == HGDiagnosticScopeAll || [self.session[@"state"] isEqual:@"current"] ? HGInterfaceSnapshot() : nil;
-    HGExportDiagnosticSessions(scope, self.session[@"session"], snapshot, ^(NSURL *url, NSError *error) {
-        self.exporting = NO;
-        if (self.navigationController.topViewController != self || !self.viewIfLoaded.window) return;
-        if (error) {
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"无法导出诊断日志"
-                message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-            [self presentViewController:alert animated:YES completion:nil];
-        } else {
-            UIActivityViewController *share = [[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
-            share.popoverPresentationController.sourceView = self.tableView;
-            share.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.tableView.bounds),
-                CGRectGetMidY(self.tableView.bounds), 1, 1);
-            [self presentViewController:share animated:YES completion:nil];
-        }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL capture = self.viewIfLoaded.window &&
+            (scope == HGDiagnosticScopeAll || [self.session[@"state"] isEqual:@"current"]);
+        HGExportDiagnosticSessions(scope, self.session[@"session"], capture ? HGInterfaceSnapshot() : nil, ^(NSURL *url, NSError *error) {
+            self.exporting = NO;
+            self.readyExport = url;
+            self.exportError = url ? nil : error.localizedDescription ?: @"未生成文件。";
+            [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationNone];
+            [self presentReadyExport];
+        });
     });
 }
 @end

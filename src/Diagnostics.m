@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 static const NSUInteger HGMaxBytes = 50 * 1024 * 1024;
+static const NSUInteger HGMaxExportCacheBytes = 16 * 1024 * 1024;
 static const NSUInteger HGSegmentBytes = 1024 * 1024;
 static const NSUInteger HGMaxRecord = 224 * 1024;
 static const NSTimeInterval HGRetention = 3600;
@@ -104,16 +105,18 @@ static id HGSanitized(id value, NSString *key, NSUInteger depth) {
     return nil;
 }
 
-static BOOL HGWrite(int fd, NSData *data) {
-    const unsigned char *bytes = data.bytes;
+static BOOL HGWriteBytes(int fd, const unsigned char *bytes, NSUInteger length) {
     NSUInteger sent = 0;
-    while (sent < data.length) {
-        ssize_t count = write(fd, bytes + sent, data.length - sent);
+    while (sent < length) {
+        ssize_t count = write(fd, bytes + sent, length - sent);
         if (count < 0 && errno == EINTR) continue;
         if (count <= 0) return NO;
         sent += (NSUInteger)count;
     }
     return YES;
+}
+static BOOL HGWrite(int fd, NSData *data) {
+    return HGWriteBytes(fd, data.bytes, data.length);
 }
 
 static BOOL HGSync(int fd, BOOL critical) {
@@ -686,12 +689,20 @@ static void HGPruneExports(void) {
     NSUInteger count = 0, size = 0;
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     for (NSURL *url in files) {
-        if (![url.lastPathComponent hasPrefix:@"Honggo-log-"] || (HGExporting && [url.pathExtension isEqual:@"partial"])) continue;
+        if (![url.lastPathComponent hasPrefix:@"Honggo-log-"]) continue;
+        if ([url.pathExtension isEqual:@"partial"]) {
+            if (!HGExporting) [NSFileManager.defaultManager removeItemAtURL:url error:nil];
+            continue;
+        }
         NSDate *modified = nil;
         [url getResourceValue:&modified forKey:NSURLContentModificationDateKey error:nil];
-        size += HGFileSize(url);
-        if (++count > 4 || (count > 1 && size > HGMaxBytes) || now - modified.timeIntervalSince1970 > HGRetention)
+        NSUInteger bytes = HGFileSize(url);
+        if (count >= 3 || (count && size + bytes > HGMaxExportCacheBytes) || now - modified.timeIntervalSince1970 > HGRetention) {
             [NSFileManager.defaultManager removeItemAtURL:url error:nil];
+        } else {
+            count++;
+            size += bytes;
+        }
     }
 }
 
@@ -786,6 +797,16 @@ void HGDiagnosticsStart(NSURL *directory, NSDictionary *environment) {
     });
 }
 
+static NSDictionary *HGSceneSummary(NSDictionary *scene) {
+    NSMutableDictionary *summary = [NSMutableDictionary dictionaryWithObject:@YES forKey:@"summaryOnly"];
+    for (NSString *key in @[@"reason", @"kind", @"time", @"uptime", @"captureMs", @"cancelled", @"truncated", @"timeLimited",
+                            @"byteLimited", @"windowBounds", @"roles", @"window", @"nodeCount"]) {
+        if (scene[key]) summary[key] = scene[key];
+    }
+    if ([scene[@"nodes"] isKindOfClass:NSArray.class]) summary[@"nodeCount"] = @([scene[@"nodes"] count]);
+    return summary;
+}
+
 void HGStoreMaskScene(NSDictionary *scene) {
     if (!HGLogQueue) return;
     NSDictionary *entry = HGRow(@"scene.capture", @{@"scene": scene});
@@ -818,7 +839,10 @@ void HGStoreMaskScene(NSDictionary *scene) {
                 HGMaskPruned++;
             }
             NSMutableDictionary *row = entry.mutableCopy;
-            row[@"fields"] = @{@"scene": stored};
+            // Keep full structural detail for an explicit screenshot and in
+            // the bounded recent-scene cache. Routine lifecycle events need
+            // only their geometry markers and timing in the rolling journal.
+            row[@"fields"] = @{@"scene": [stored[@"reason"] isEqual:@"user.screenshot"] ? stored : HGSceneSummary(stored)};
             HGDrain();
             HGWriteRows(@[row], NO);
         } else {
@@ -846,6 +870,17 @@ static NSArray<HGLogSlice *> *HGSlices(NSArray<NSDictionary *> *sessions, BOOL t
 
 static NSDictionary *HGCleanRowForRead(NSDictionary *row, NSTimeInterval cutoff) {
     if ([row[@"time"] doubleValue] < cutoff) return nil;
+    if ([row[@"event"] isEqual:@"scene.capture"]) {
+        id scene = row[@"fields"][@"scene"];
+        // Compact older beta journals on export too. Only inspect the small
+        // summary before re-sanitizing, without copying the captured view tree.
+        if ([scene isKindOfClass:NSDictionary.class] && ![scene[@"reason"] isEqual:@"user.screenshot"] &&
+            ![scene[@"summaryOnly"] isEqual:@YES]) {
+            NSMutableDictionary *compact = row.mutableCopy;
+            compact[@"fields"] = @{@"scene": HGSceneSummary(scene)};
+            row = compact;
+        }
+    }
     NSDictionary *clean = HGSanitized(row, nil, 0);
     if (!clean[@"event"] || !clean[@"session"]) return nil;
     NSArray *context = clean[@"recentEvents"];
@@ -925,7 +960,7 @@ static BOOL HGWriteExport(int fd, NSDictionary *report, NSArray<HGLogSlice *> *s
         NSTimeInterval cutoff) {
     NSData *header = HGJSON(report);
     if (!header.length ||
-            !HGWrite(fd, [header subdataWithRange:NSMakeRange(0, header.length - 1)]) ||
+            !HGWriteBytes(fd, header.bytes, header.length - 1) ||
             !HGWrite(fd, [@",\"events\":[" dataUsingEncoding:NSUTF8StringEncoding])) return NO;
     // Stream one slice at a time and batch the output. Export never builds a
     // memory copy of the archive and does not contend with appends for the writer queue.
@@ -944,8 +979,9 @@ static BOOL HGWriteExport(int fd, NSDictionary *report, NSArray<HGLogSlice *> *s
         [output setLength:0];
         return written;
     };
-    for (HGLogSlice *slice in slices)
+    for (HGLogSlice *slice in slices) @autoreleasepool {
         if (!HGReadRows(slice, ^BOOL(NSDictionary *row, NSData *line) { return appendRow(row); })) return NO;
+    }
     for (NSDictionary *row in fallback) @autoreleasepool {
         if (!appendRow(row)) return NO;
     }

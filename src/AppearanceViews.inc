@@ -431,6 +431,10 @@ static NSArray<NSString *> *HGACommentSurfaces(void) {
         @"FQCShortVideoCommentListCollectionView", @"FQCShortVideoBottomToolBar",
         @"FQCShortVideoNewEditorView"];
 }
+static NSArray<NSString *> *HGACommentRows(void) {
+    return @[@"FQCShortVideoCommentCommonCell",@"FQCShortVideoCommentReplyCell",
+        @"FQCShortVideoCommentSectionFooterView"];
+}
 #include "AppearanceShare.inc"
 static char HGAPanelCoversKey;
 static void HGAApplyPanel(UIView *root,NSString *kind) {
@@ -494,6 +498,9 @@ void HGAppearanceProcessView(UIView *view) {
         }
         if([view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerSingleSeriesControlView")]) {
             HGRefreshVideoBackdropForPlayer(view);return;
+        }
+        if(HGAIsCommentRow(view)) {
+            HGAUpdateCommentRow(view);return;
         }
         if(HGAIsCommentSurface(view)) {
             HGAApplyTypography(view);return;

@@ -451,8 +451,42 @@ static BOOL HGAIsActionPanelSurface(UIView *view) {
 static BOOL HGAIsCommentSurface(UIView *view) {
     return HGAPanelPart(view,HGACommentSurfaces());
 }
+static BOOL HGAIsCommentRow(UIView *view) {
+    static Class cellClass,footerClass;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        cellClass=objc_lookUpClass("FQCShortVideoCommentCommonCell");
+        footerClass=objc_lookUpClass("FQCShortVideoCommentSectionFooterView");
+    });
+    return [view isKindOfClass:cellClass] || [view isKindOfClass:footerClass];
+}
 static BOOL HGAPanelWantsGlass(NSString *kind) {
     return HGAppearanceEnabled() && HGAppearanceFlag([@"panels." stringByAppendingString:kind]);
+}
+
+static void HGAApplyCommentRow(HGAActionSheetState *state,UIView *row) {
+    // Hosts paint the supplementary expand/collapse footer itself and reply
+    // cells reuse a painted content view. Preserve their controls and separators.
+    HGAClearSheetBackground(state,row);
+    if([row isKindOfClass:UICollectionViewCell.class]) {
+        UICollectionViewCell *cell=(id)row;
+        HGAClearSheetBackground(state,cell.contentView);
+        HGAClearSheetBackground(state,cell.backgroundView);
+    }
+}
+
+static void HGAUpdateCommentRow(UIView *row) {
+    if(!row.window || !HGAPanelWantsGlass(@"comment"))return;
+    for(UIView *ancestor=row.superview;ancestor;ancestor=ancestor.superview) {
+        HGAActionSheetState *state=objc_getAssociatedObject(ancestor,&HGAActionSheetKey);
+        if(!state || ![row isDescendantOfView:state.surface])continue;
+        HGAApplyCommentRow(state,row);
+        if(state.nativeClear) {
+            for(UIView *child in HGADescendants(row,48))
+                if([child isKindOfClass:UILabel.class] && HGAVisible(child))HGAApplySheetLabel(state,(UILabel *)child);
+        }
+        return;
+    }
 }
 static BOOL HGAApplySettingsPanelPart(HGAActionSheetState *state, UIView *view) {
     if([view isKindOfClass:objc_lookUpClass("FQVShortVideoSettingsOptionView")]) {
@@ -528,14 +562,14 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
         state.effects=[NSMapTable weakToStrongObjectsMapTable];
         state.shareCells=[NSHashTable weakObjectsHashTable];
         state.plates=[NSMapTable weakToStrongObjectsMapTable];
-        if(share)state.labels=[NSMapTable weakToStrongObjectsMapTable];
+        if(share || comment)state.labels=[NSMapTable weakToStrongObjectsMapTable];
         objc_setAssociatedObject(root,&HGAActionSheetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     CGFloat radius=MIN(28,MIN(surface.bounds.size.width,surface.bounds.size.height)/2);
     BOOL reduceTransparency=UIAccessibilityIsReduceTransparencyEnabled();
     CGFloat opacity=reduceTransparency?1:HGAppearanceNumber(@"panels.opacity");
     NSString *material=HGAppearanceString(@"panels.material");
-    BOOL clear=share && !reduceTransparency && HGNativeGlassConfigured() &&
+    BOOL clear=(share || comment) && !reduceTransparency && HGNativeGlassConfigured() &&
         ([material isEqual:@"regular"] || [material isEqual:@"clear"]);
     if(state.nativeClear && !clear) {
         HGARestoreSheetOptics(state);
@@ -613,7 +647,7 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
             }
         }
     }
-    if(share) {
+    if(share || comment) {
         if(!state.dockMount) {
             state.dockMount=[HGAActionSheetMount new];
             state.dockMount.sheetRoot=root;
@@ -634,12 +668,14 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
             [state.shareCells addObject:view];HGAApplyShareInk(state,view);
         }
         if(share)HGAApplySettingsPanelPart(state,view);
+        if(comment && HGAIsCommentRow(view))HGAApplyCommentRow(state,view);
         if(CGRectGetHeight(view.bounds)<16 || CGRectGetHeight(view.bounds)>CGRectGetHeight(surface.bounds)+2 ||
             CGRectGetWidth(view.bounds)<CGRectGetWidth(surface.bounds)*0.8)continue;
         if(comment && view.class==UIVisualEffectView.class &&
             [view.superview isKindOfClass:NSClassFromString(@"FQCShortVideoBottomToolBar")]) {
             UIVisualEffectView *backing=(id)view;
             if(backing.effect){[state.effects setObject:backing.effect forKey:backing];backing.effect=nil;}
+            HGAClearSheetBackground(state,backing.contentView);
             // Preserve editor controls hosted by the effect's content view.
         }
         BOOL backing=view.class==UIView.class || view.class==UITableView.class ||
@@ -648,7 +684,11 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
             (comment && (HGAIsCommentSurface(view) ||
                 [view isKindOfClass:NSClassFromString(@"FQReadingNavigationBar")] ||
                 [view isKindOfClass:NSClassFromString(@"FQCShortVideoCommentCell")]));
-        if(backing)HGAClearSheetCover(state,view);
+        if(backing) {
+            if(comment && clear && HGAIsCommentSurface(view))
+                HGAClearSheetBackground(state,view);
+            else HGAClearSheetCover(state,view);
+        }
     }
     if(clear) {
         for(UILabel *label in state.labels.keyEnumerator.allObjects)

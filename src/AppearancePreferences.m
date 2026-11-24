@@ -102,6 +102,8 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             @{@"keywords":@"双击评论 双击打开评论"})];
         [a addObject:HGADef(@"player.episodeGlass",@"player",@"全集入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];
+        [a addObject:HGADef(@"player.commentMovesVideo",@"panels",@"打开评论区时上移视频",@"bool",@YES,
+            @{@"keywords":@"评论 画面 上移 评论区上移 视频上移"})];
         [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
         flag(@"player.fullscreen",@"player",@"横屏铺满");
         flag(@"player.disableEpisodeSwipe",@"player",@"关闭左滑进入全集");

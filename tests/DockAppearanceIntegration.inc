@@ -464,8 +464,9 @@ static UIVisualEffectView *HGDockVisibleSelectionLens(UIView *selection) {
 }
 
 static void HGWaitForDockSelectionLensToSettle(UIView *selection) {
+    HGAAppearanceDock *dock=(id)selection.superview.superview;
     CFTimeInterval deadline=CACurrentMediaTime()+0.55;
-    while(HGDockVisibleSelectionLens(selection) && CACurrentMediaTime()<deadline)
+    while([[dock valueForKey:@"selectionSettling"] boolValue] && CACurrentMediaTime()<deadline)
         CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
 }
 
@@ -513,9 +514,9 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
     [dock endDockTouchAtPoint:finish cancelled:NO];
     Check(host.nativeTaps==taps+1 && host.selectedIndex==1,
         @"shared Dock drag activation forwards one action even with an underlying control event and repeated end");
-    Check(!HGDockVisibleSelectionLens(selection).effect && highlight.alpha==0 &&
+    Check(highlight.alpha==0 &&
         CGAffineTransformIsIdentity(theater.imageView.transform),
-        @"release animates the glass effect to nil, fades the highlight and returns the glyph to rest");
+        @"release moves only the selection, fades the highlight and returns the glyph to rest");
     HGWaitForDockSelectionLensToSettle(selection);
     Check(!HGDockVisibleSelectionLens(selection),@"shared Dock release hides the settled glass lens");
 
@@ -616,8 +617,8 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
             UIVisualEffectView *pressLens=HGDockVisibleSelectionLens(selection);
             Check([pressLens.effect isKindOfClass:UIGlassEffect.class] && ((UIGlassEffect *)pressLens.effect).interactive &&
                 pressLens.alpha==1 && selection.alpha==1 && pressLens.superview==capsule &&
-                [capsule.subviews indexOfObjectIdenticalTo:pressLens]>[capsule.subviews indexOfObjectIdenticalTo:theater],
-                @"pressing installs native refracting glass in front of the actual tab glyphs");
+                [capsule.subviews indexOfObjectIdenticalTo:pressLens]<[capsule.subviews indexOfObjectIdenticalTo:theater],
+                @"pressing reuses native refracting glass below the tab glyphs");
         }
     }
     [theater sendActionsForControlEvents:UIControlEventTouchCancel];
@@ -628,8 +629,8 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     Check(host.nativeTaps==taps+1 && host.selectedIndex==1 && theater.selected,
         @"fallback press and release send one navigation action and select the destination");
     if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() && !UIAccessibilityIsReduceMotionEnabled())
-        Check(HGDockVisibleSelectionLens(selection)!=nil && !HGDockVisibleSelectionLens(selection).effect,
-            @"releasing the press starts native glass dematerialization while the lens remains in the hierarchy");
+        Check([HGDockVisibleSelectionLens(selection).effect isKindOfClass:NSClassFromString(@"UIGlassEffect")],
+            @"releasing the press preserves the rendering effect throughout the geometry spring");
     HGWaitForDockSelectionLensToSettle(selection);
     Check(!HGDockVisibleSelectionLens(selection),@"finished tap spring hides its lens");
     taps=host.nativeTaps;host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);
@@ -924,9 +925,14 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"flat Dock lifts its selection and tracks the finger between the original two hit targets");
     if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() && !UIAccessibilityIsReduceMotionEnabled())
         Check([HGDockVisibleSelectionLens(selection).effect isKindOfClass:NSClassFromString(@"UIGlassEffect")],
-            @"an active optical surface travels above the flat Dock symbols");
+            @"an active optical surface travels beneath the flat Dock symbols");
     [flatDock moveDockTouchToPoint:theaterPoint];
+    UIVisualEffectView *trackingLens=HGDockVisibleSelectionLens(selection);
     [flatDock endDockTouchAtPoint:theaterPoint cancelled:YES];
+    if(trackingLens)Check(HGDockVisibleSelectionLens(selection)==trackingLens &&
+        track.selectedSegmentIndex==UISegmentedControlNoSegment,
+        @"flat Dock keeps a single live lens until it reaches the resting thumb");
+    HGWaitForDockSelectionLensToSettle(selection);
     Check(track.selectedSegmentIndex==0 && host.nativeTaps==flatTaps,
         @"cancelled flat scrubbing restores the host selection");
     [theater sendActionsForControlEvents:UIControlEventTouchUpInside];

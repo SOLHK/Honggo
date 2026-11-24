@@ -140,7 +140,9 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
                 @try {
                     [self runOptionsChecks];
                     [self capture:@"settings-options-simulator.png"];
-                    [self runSearchChecksWithCompletion:^{ [self finish]; }];
+                    [self runDiagnosticExportWithCompletion:^{
+                        [self runSearchChecksWithCompletion:^{ [self finish]; }];
+                    }];
                 } @catch (NSException *exception) {
                     [self check:NO name:[@"options exception: " stringByAppendingString:exception.description]];
                     [self finish];
@@ -369,6 +371,38 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     if ([settings.tableView numberOfRowsInSection:section] <= row) return nil;
     return [settings tableView:settings.tableView cellForRowAtIndexPath:
         [NSIndexPath indexPathForRow:row inSection:section]];
+}
+- (void)runDiagnosticExportWithCompletion:(dispatch_block_t)completion {
+    UINavigationController *navigation = (id)self.host.presentedViewController;
+    if (![navigation isKindOfClass:UINavigationController.class]) { completion(); return; }
+    UIViewController *settings = navigation.topViewController;
+    UITableViewController *diagnostics = [(UITableViewController *)[NSClassFromString(@"HGDiagnosticSessionsController") alloc]
+        initWithStyle:UITableViewStyleInsetGrouped];
+    [navigation pushViewController:diagnostics animated:NO];
+    NSIndexPath *path = [NSIndexPath indexPathForRow:0 inSection:0];
+    [diagnostics tableView:diagnostics.tableView didSelectRowAtIndexPath:path];
+    UITableViewCell *preparing = [diagnostics tableView:diagnostics.tableView cellForRowAtIndexPath:path];
+    [self check:[preparing.accessoryView isKindOfClass:UIActivityIndicatorView.class] &&
+        [preparing.detailTextLabel.text containsString:@"正在准备"] name:@"export shows immediate preparation status"];
+    UIViewController *cover = [UIViewController new];
+    [navigation pushViewController:cover animated:NO];
+    [self poll:^BOOL { return [diagnostics valueForKey:@"readyExport"] != nil; }
+        deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL ready) {
+        [self check:ready && !diagnostics.presentedViewController name:@"a completed export waits while its page is covered"];
+        [navigation popToViewController:diagnostics animated:NO];
+        [self poll:^BOOL {
+            return [diagnostics.presentedViewController isKindOfClass:UIActivityViewController.class] &&
+                !diagnostics.presentedViewController.isBeingPresented;
+        } deadline:[NSDate dateWithTimeIntervalSinceNow:14] completion:^(BOOL shared) {
+            [self check:shared name:@"returning to the diagnostics page presents the prepared native share sheet"];
+            dispatch_block_t finish = ^{
+                [navigation popToViewController:settings animated:NO];
+                dispatch_async(dispatch_get_main_queue(), completion);
+            };
+            if (diagnostics.presentedViewController) [diagnostics dismissViewControllerAnimated:NO completion:finish];
+            else finish();
+        }];
+    }];
 }
 - (void)poll:(BOOL (^)(void))condition deadline:(NSDate *)deadline completion:(void (^)(BOOL))completion {
     if (condition()) { completion(YES); return; }

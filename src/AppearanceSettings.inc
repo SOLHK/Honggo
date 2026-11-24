@@ -292,8 +292,10 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"");
         [rows addObject:HGATool([@"@role.reset." stringByAppendingString:role],@"恢复此项默认")];
     } else if([self.group isEqual:@"panels"]) {
+        section(@"评论区");
+        HGAAddDefs(rows,@[@"panels.comment",@"player.commentMovesVideo"]);
         section(@"启用玻璃的面板");
-        HGAAddDefs(rows,@[@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"]);
+        HGAAddDefs(rows,@[@"panels.episodes",@"panels.share",@"panels.longpress",@"panels.speed"]);
         section(@"材质");
         HGAAddDefs(rows,@[@"panels.material",@"panels.opacity"]);
     } else if([self.group isEqual:@"icons"]) {
@@ -370,6 +372,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         cell.accessoryView=toggle;
         if([key isEqual:@"player.fullscreen"])
             cell.detailTextLabel.text=@"仅横屏播放横向视频时铺满，竖屏保持原比例";
+        if([key isEqual:@"player.commentMovesVideo"])
+            cell.detailTextLabel.text=@"关闭后，打开评论区时视频留在原位。";
     }else if([kind isEqual:@"number"]) {
         UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(0,0,136,44)];
         slider.minimumValue=1;slider.maximumValue=100;

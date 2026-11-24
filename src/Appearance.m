@@ -137,6 +137,7 @@ static NSError *HGAAssetError(NSString *message) {
 #include "AppearanceBottomLayout.inc"
 #include "AppearanceDock.inc"
 #include "AppearanceSettings.inc"
+#include "AppearanceCommentMovement.inc"
 
 // Exact adapters only. UIKit base classes and arbitrary third-party classes
 // never receive a global appearance hook. Missing adapters remain untouched.
@@ -375,9 +376,11 @@ void HGInstallAppearance(void) {
         HGAInstallFinderShortcutHook();
         HGAInstallHomeEpisodeSwipeGate();
         HGAInstallNativeShareRoute();
+        HGAInstallCommentMovement();
         NSUInteger found=0;
         NSMutableOrderedSet *classes=[NSMutableOrderedSet orderedSetWithArray:HGAViewRoles().allKeys];
         [classes addObjectsFromArray:HGACommentSurfaces()];
+        [classes addObjectsFromArray:HGACommentRows()];
         [classes addObjectsFromArray:HGAPageChromeViews()];
         [classes addObjectsFromArray:HGAActionPanelSurfaces()];
         [classes addObjectsFromArray:HGABottomControlClasses()];
@@ -395,6 +398,14 @@ void HGInstallAppearance(void) {
             found++;
             HGAHook(cls,@selector(layoutSubviews),"v16@0:8",NO);
             HGAHook(cls,@selector(didMoveToWindow),"v16@0:8",NO);
+            if([name isEqual:@"FQCShortVideoCommentSectionFooterView"]) {
+                HGAHook(cls,sel_registerName("setupTheme"),"v16@0:8",NO);
+                HGAHook(cls,sel_registerName("setModel:animation:"),"v28@0:8@16B24",NO);
+            }
+            if([name isEqual:@"FQCShortVideoCommentCommonCell"])
+                HGAHook(cls,sel_registerName("configTheme:"),"v20@0:8B16",NO);
+            if([name isEqual:@"FQCShortVideoCommentReplyCell"])
+                HGAHook(cls,sel_registerName("setModel:"),"v24@0:8@16",NO);
             if([name isEqual:@"FQVShortVideoLandscapeNavBar"])
                 HGAHook(cls,sel_registerName("refreshLayout"),"v16@0:8",NO);
             if([name isEqual:@"FQVShortVideoPlayerLandscapeBaseInfoView"])

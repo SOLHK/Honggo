@@ -96,7 +96,8 @@ int main(void) {@autoreleasepool {
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];
-    NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.finderAI",@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes"]];
+    NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.finderAI",@"player.mineGlass",@"player.episodeGlass",
+        @"player.controlsGlass",@"player.commentMovesVideo",@"panels.episodes"]];
     BOOL unique=YES,defaults=YES;
     for(NSDictionary *entry in HGAppearanceCatalog()) {
         unique &= ![keys containsObject:entry[@"key"]];[keys addObject:entry[@"key"]];
@@ -109,6 +110,8 @@ int main(void) {@autoreleasepool {
     Check([HGAppearanceSearch(@"双指清屏").firstObject[@"key"] isEqual:@"gestures.pinchClean"] &&
         [HGAppearanceSearch(@"双击评论").firstObject[@"key"] isEqual:@"gestures.doubleTapComments"],
         @"global search recognizes the commonly used gesture names");
+    Check([HGAppearanceSearch(@"评论区上移").firstObject[@"key"] isEqual:@"player.commentMovesVideo"] &&
+        HGAppearanceFlag(@"player.commentMovesVideo"), @"the comment video movement switch is searchable and defaults to host behavior");
     Check(HGFlatTopStyle() && !HGFlatDockStyle() && !HGFlatPlayerStyle(),
         @"existing appearance settings start with flat top channels and glass dock and player actions");
     Check(HGAppearanceSet(@"dock.style",@"flat",nil) && HGFlatDockStyle() && HGFlatTopStyle() && !HGFlatPlayerStyle(),

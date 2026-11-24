@@ -63,6 +63,26 @@
 @implementation FQCShortVideoCommentListCollectionView @end
 @interface FQCShortVideoBottomToolBar : UIView @end
 @implementation FQCShortVideoBottomToolBar @end
+@interface FQCShortVideoCommentCommonCell : UICollectionViewCell
+- (void)configTheme:(BOOL)dark;
+@end
+@implementation FQCShortVideoCommentCommonCell
+- (void)configTheme:(BOOL)dark {self.backgroundColor=dark ? UIColor.blackColor : UIColor.whiteColor;}
+@end
+@interface FQCShortVideoCommentReplyCell : FQCShortVideoCommentCommonCell
+- (void)setModel:(id)model;
+@end
+@implementation FQCShortVideoCommentReplyCell
+- (void)setModel:(id)model {self.contentView.backgroundColor=model;}
+@end
+@interface FQCShortVideoCommentSectionFooterView : UICollectionReusableView
+- (void)setupTheme;
+- (void)setModel:(id)model animation:(BOOL)animated;
+@end
+@implementation FQCShortVideoCommentSectionFooterView
+- (void)setupTheme {self.backgroundColor=UIColor.whiteColor;}
+- (void)setModel:(id)model animation:(BOOL)animated {self.backgroundColor=model;}
+@end
 static NSInteger HGAFixtureShareMode=2;
 @interface SSShortVideoSharePanelPresenter : NSObject
 + (NSInteger)presentationMode;
@@ -103,6 +123,16 @@ static NSInteger HGAFixtureShareMode=2;
 @end
 static void RunCommentSheetAppearanceChecks(UIViewController *host) {
     UIView *root=host.view;
+    UIView *dock=Find(root,@"honggo.appearance.dock");
+    BOOL dockWasVisible=dock && !dock.hidden;
+    NSString *savedMaterial=HGAppearanceString(@"panels.material");
+    HGAppearanceSet(@"panels.material",@"regular",nil);
+    FQVTransitionView *transition=[[FQVTransitionView alloc] initWithFrame:root.bounds];
+    transition.backgroundColor=UIColor.blackColor;
+    transition.bgView=[[UIView alloc] initWithFrame:transition.bounds];
+    UIColor *scrim=[UIColor.blackColor colorWithAlphaComponent:0.35];
+    transition.bgView.backgroundColor=scrim;
+    [transition addSubview:transition.bgView];[root addSubview:transition];
     FQCShortVideoCommentListViewController *panel=[FQCShortVideoCommentListViewController_hmd_subfix_ new];
     [host addChildViewController:panel];[panel loadViewIfNeeded];
     CGFloat width=root.bounds.size.width;
@@ -122,23 +152,57 @@ static void RunCommentSheetAppearanceChecks(UIViewController *host) {
     UITextField *editor=[[UITextField alloc] initWithFrame:CGRectMake(10,10,width-20,36)];
     editor.text=@"保留评论输入";[nativeBlur.contentView addSubview:editor];
     [panel.view addSubview:title];[panel.view addSubview:list];[panel.view addSubview:toolbar];
-    [root addSubview:panel.view];[panel didMoveToParentViewController:host];
+    [transition addSubview:panel.view];[panel didMoveToParentViewController:host];
     for(NSUInteger i=0;i<3;i++){Layout(title);Layout(list);Layout(toolbar);[panel viewDidLayoutSubviews];}
     UIVisualEffectView *material=(id)Find(panel.view,@"honggo.appearance.material");
     Check(material && panel.view.subviews.firstObject==material && Count(panel.view,@"honggo.appearance.material")==1 &&
         !Find(list,@"honggo.appearance.material") && !Find(toolbar,@"honggo.appearance.material"),
         @"the observed comment controller installs one material behind its title list and composer");
+    if(dockWasVisible)Check(dock.hidden,@"an open comment sheet covers the Dock behind its transparent editor");
     Check([list.backgroundColor isEqual:UIColor.clearColor] && [title.backgroundColor isEqual:UIColor.clearColor] &&
         [toolbar.backgroundColor isEqual:UIColor.clearColor] && !nativeBlur.effect && editor.superview==nativeBlur.contentView,
         @"comment covers and native toolbar blur are cleared without replacing the text field");
+    if(@available(iOS 26.0,*)) {
+        if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled()) {
+            Layout(material);
+            Check([material.effect isKindOfClass:UIGlassEffect.class] &&
+                [material.contentView.backgroundColor isEqual:UIColor.clearColor] &&
+                [transition.bgView.backgroundColor isEqual:UIColor.clearColor],
+                @"comment liquid glass keeps the optical surface with no color layer or transition scrim");
+        }
+    }
+    FQCShortVideoCommentReplyCell *reply=[[FQCShortVideoCommentReplyCell alloc] initWithFrame:CGRectMake(0,90,width,82)];
+    FQCShortVideoCommentSectionFooterView *footer=[[FQCShortVideoCommentSectionFooterView alloc] initWithFrame:CGRectMake(0,172,width,33)];
+    UILabel *replyLabel=[[UILabel alloc] initWithFrame:CGRectMake(30,4,140,30)];
+    replyLabel.text=@"原回复";
+    [reply.contentView addSubview:replyLabel];[list addSubview:reply];[list addSubview:footer];
+    UIButton *toggle=[[UIButton alloc] initWithFrame:CGRectMake(30,0,100,33)];
+    [toggle setTitle:@"展开" forState:UIControlStateNormal];
+    __block NSUInteger taps=0;
+    [toggle addAction:[UIAction actionWithHandler:^(UIAction *action){ taps++; }] forControlEvents:UIControlEventTouchUpInside];
+    [footer addSubview:toggle];
+    [footer setupTheme];
+    [reply configTheme:NO];[reply setModel:UIColor.whiteColor];
+    Check([footer.backgroundColor isEqual:UIColor.clearColor] && [reply.backgroundColor isEqual:UIColor.clearColor] &&
+        [reply.contentView.backgroundColor isEqual:UIColor.clearColor],
+        @"the newly mounted collapse footer and expanded reply reapply transparency after native updates");
+    [footer setModel:UIColor.systemGray6Color animation:YES];
+    [toggle sendActionsForControlEvents:UIControlEventTouchUpInside];
+    Check([footer.backgroundColor isEqual:UIColor.clearColor] && taps==1 && [replyLabel.text isEqual:@"原回复"],
+        @"changing the footer model keeps the existing toggle action and reply text");
     HGAppearanceSet(@"panels.comment",@NO,nil);
     Check([nativeBlur.effect isKindOfClass:UIBlurEffect.class],@"disabling comment glass restores the native toolbar effect");
     Check(!Find(panel.view,@"honggo.appearance.material"),@"disabling comment glass removes its material");
     Check([list.backgroundColor isEqual:nativeListColor],@"disabling comment glass restores the adaptive native list color");
     Check([toolbar.backgroundColor isEqual:UIColor.whiteColor] && [title.backgroundColor isEqual:UIColor.whiteColor],
         @"disabling comment glass restores the title and toolbar colors");
+    Check([footer.backgroundColor isEqual:UIColor.systemGray6Color] && [reply.backgroundColor isEqual:UIColor.whiteColor] &&
+        [reply.contentView.backgroundColor isEqual:UIColor.whiteColor] && [transition.bgView.backgroundColor isEqual:scrim],
+        @"disabling comment glass restores the latest native footer, reply, and dimmer paints");
     Check([editor.text isEqual:@"保留评论输入"],@"disabling comment glass keeps the original input text");
-    [panel.view removeFromSuperview];[panel removeFromParentViewController];HGAppearanceSet(@"panels.comment",@YES,nil);
+    if(dockWasVisible)Check(!dock.hidden,@"comment sheet cleanup restores Dock visibility");
+    [panel.view removeFromSuperview];[panel removeFromParentViewController];[transition removeFromSuperview];
+    HGAppearanceApply(@{@"panels.comment":@YES,@"panels.material":savedMaterial},nil);
 }
 static void RunFeedShareRouteChecks(void) {
     SSShortVideoRightInteractionShareViewManager *manager=[SSShortVideoRightInteractionShareViewManager new];
