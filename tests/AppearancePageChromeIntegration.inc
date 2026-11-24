@@ -120,8 +120,12 @@
 
 @interface SSVideoSeriesFeedViewController : UIViewController
 @property(nonatomic,weak) UIView *containerView;
+@property(nonatomic) NSUInteger menuTaps,searchTaps;
 @end
-@implementation SSVideoSeriesFeedViewController @end
+@implementation SSVideoSeriesFeedViewController
+- (void)simpleSideBarViewDidClicked { self.menuTaps++; }
+- (void)simpleSearchViewDidClicked { self.searchTaps++; }
+@end
 
 @interface SSShortVideoPanGestureLeftTowardDelegate : NSObject
 @property(nonatomic) NSUInteger calls;
@@ -482,6 +486,45 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         @"disabling header glass removes all three separated header surfaces");
     HGAppearanceSet(@"player.headerGlass",@YES,nil);
 
+    if (HGNativeGlassConfigured()) {
+        SSVideoSeriesFeedViewController *toolOwner=[SSVideoSeriesFeedViewController new];
+        [host addChildViewController:toolOwner];
+        toolOwner.view.frame=root.bounds;
+        [root insertSubview:toolOwner.view belowSubview:header];
+        [toolOwner.view addSubview:header];
+        [toolOwner didMoveToParentViewController:host];
+        Layout(header);
+        UIButton *menu=(id)Find(header,@"honggo.appearance.header.sidebar");
+        UIButton *searchButton=(id)Find(header,@"honggo.appearance.header.search");
+        UIView *menuHit=[header hitTest:CGPointMake(CGRectGetMidX(menu.frame),CGRectGetMidY(menu.frame)) withEvent:nil];
+        UIView *searchHit=[header hitTest:CGPointMake(CGRectGetMidX(searchButton.frame),CGRectGetMidY(searchButton.frame)) withEvent:nil];
+        UIView *cornerHit=[header hitTest:CGPointMake(CGRectGetMinX(menu.frame)+1,CGRectGetMinY(menu.frame)+1) withEvent:nil];
+        BOOL nativeTools=[menu isKindOfClass:UIButton.class] && [searchButton isKindOfClass:UIButton.class];
+        Check(nativeTools && menu.configuration && searchButton.configuration &&
+            (menuHit==menu || [menuHit isDescendantOfView:menu]) &&
+            (searchHit==searchButton || [searchHit isDescendantOfView:searchButton]) &&
+            cornerHit!=menu && ![cornerHit isDescendantOfView:menu] &&
+            menu.layer.zPosition<0 && searchButton.layer.zPosition<0 &&
+            !header.sideBar.hidden && !search.searchButtonSlotView.hidden &&
+            header.sideBar.accessibilityElementsHidden && search.searchButtonSlotView.accessibilityElementsHidden,
+            @"the native glass buttons receive touches in their circles and leave the original glyphs visible above");
+        if (nativeTools) {
+            [menu sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+            [searchButton sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+        }
+        Check(toolOwner.menuTaps==1 && toolOwner.searchTaps==1,
+            @"each top button runs its verified native action one time");
+        HGAppearanceSet(@"player.headerGlass",@NO,nil);
+        Check(!Find(header,@"honggo.appearance.header.sidebar") && !Find(header,@"honggo.appearance.header.search") &&
+            !header.sideBar.accessibilityElementsHidden && !search.searchButtonSlotView.accessibilityElementsHidden,
+            @"removing glass restores both native tools' accessibility");
+        [root addSubview:header];
+        [toolOwner willMoveToParentViewController:nil];
+        [toolOwner.view removeFromSuperview];
+        [toolOwner removeFromParentViewController];
+        HGAppearanceSet(@"player.headerGlass",@YES,nil);
+    }
+
     NSArray *keys=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
     BOOL independent=YES;
     for(NSUInteger i=0;i<keys.count;i++) {
@@ -503,6 +546,14 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceApply(@{@"layout.channels.hide.follow":@YES,@"layout.channels.hide.live":@YES},nil);
     Layout(header); Layout(categoryList);
     UIView *compactedPill=Find(header,material);
+    UISegmentedControl *segments=[compactedPill isKindOfClass:UISegmentedControl.class] ? (id)compactedPill : nil;
+    if (HGNativeGlassConfigured()) {
+        UIView *segmentHit=[header hitTest:CGPointMake(CGRectGetMidX(segments.frame),CGRectGetMidY(segments.frame)) withEvent:nil];
+        Check(segments.numberOfSegments==2 && [[segments titleForSegmentAtIndex:0] isEqual:@"漫剧"] &&
+            [[segments titleForSegmentAtIndex:1] isEqual:@"推荐"] && segments.selectedSegmentIndex==1 &&
+            categoryList.hidden && (segmentHit==segments || [segmentHit isDescendantOfView:segments]),
+            @"the two-channel glass pill is a native segmented control and hides duplicate host labels");
+    }
     NSIndexPath *comicPath=[NSIndexPath indexPathForItem:1 inSection:0];
     NSIndexPath *recPath=[NSIndexPath indexPathForItem:3 inSection:0];
     CGRect comic=[categoryList layoutAttributesForItemAtIndexPath:comicPath].frame;
@@ -597,7 +648,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         [header finishSearchIconVisibilityTransition:NO];
         stableChannels &= channels.selectedIndex==destination && pageScroll.contentOffset.x==pageWidth*destination &&
             fabs(underline.center.x-CGRectGetMidX([channels getTargetCellFrame:destination]))<0.5 &&
-            ![underline.layer animationForKey:@"fixtureInterruptedUnderline"];
+            ![underline.layer animationForKey:@"fixtureInterruptedUnderline"] &&
+            (!segments || (segments.selectedSegmentIndex==(destination==1 ? 0 : 1) && Find(header,material)==segments));
         stableChannels &= !header.sideBar.hidden && search.alpha==1 && !search.searchButtonSlotView.hidden &&
             ![header.sideBar.layer animationForKey:@"opacity"] &&
             Find(header,@"honggo.appearance.header.sidebar")==stableLeft &&
@@ -606,6 +658,20 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     channels.channelHeaderFixture=nil;
     Check(stableChannels && channels.nativeSelections==originalSelections+8 && !pageScroll.panGestureRecognizer.enabled,
         @"repeated alternating swipes keep the original side tools and glass mounted and settle the selected line");
+    if (segments) {
+        NSUInteger selections=channels.nativeSelections;
+        segments.selectedSegmentIndex=1;
+        [segments sendActionsForControlEvents:UIControlEventValueChanged];
+        [segments sendActionsForControlEvents:UIControlEventValueChanged];
+        Check(channels.nativeSelections==selections+1 && channels.selectedIndex==3 &&
+            pageScroll.contentOffset.x==3*pageWidth && !channels.nativeSelectionAnimated,
+            @"changing the second segment commits native channel three once and skips the hidden page");
+        segments.selectedSegmentIndex=0;
+        [segments sendActionsForControlEvents:UIControlEventValueChanged];
+        Check(channels.nativeSelections==selections+2 && channels.selectedIndex==1 &&
+            pageScroll.contentOffset.x==pageWidth,
+            @"returning to the first segment commits native channel one");
+    }
     [header applySearchIconVisible:NO tabContainerTop:0];
     Check(header.sideBar.hidden && search.alpha==0 && search.searchButtonSlotView.hidden,
         @"native visibility changes outside a channel transition still hide the home tools");
@@ -633,7 +699,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         @"leaving restores the host pan and re-entering repairs a stale hidden channel and underline");
     HGAppearanceSet(@"player.headerGlass",@NO,nil);
     Layout(header);
-    Check(filterPan.view==pageScroll && !Find(header,material),@"hidden channels remain filtered with header glass disabled");
+    Check(filterPan.view==pageScroll && !Find(header,material) && !categoryList.hidden,
+        @"disabling header glass restores the host titles and preserves filtered channel swipes");
     HGAppearanceSet(@"player.headerGlass",@YES,nil);
     CGPoint displaced = CGPointMake(CGRectGetMidX(comic)+31,underline.center.y);
     underline.center = displaced;

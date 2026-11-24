@@ -245,7 +245,9 @@ static UIImageView *HGAFindIcon(UIView *root) {
         if(result)return nil;result=(id)view;
     }return result;
 }
-static const CGFloat HGARightActionGlassDiameter=38;
+static CGFloat HGAActionGlassDiameter(UIView *root) {
+    return MIN(44,MIN(CGRectGetWidth(root.bounds),CGRectGetHeight(root.bounds)));
+}
 
 static void HGAApplyIcon(UIView *root,NSString *role,BOOL glass) {
     if(![@[@"like",@"collect",@"comment",@"share"] containsObject:role])return;
@@ -282,9 +284,9 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL glass) {
     CGFloat requested=HGAppearanceNumber(@"icons.size");
     CGFloat ownerLimit=MAX(20,root.bounds.size.width-8);
     if(glass) {
-        // Leave room around solid heart, star and share silhouettes.
-        CGFloat diameter=MIN(root.bounds.size.width,HGARightActionGlassDiameter);
-        requested=MIN(requested*0.86,MAX(14,diameter-10));
+        // Keep the glyph readable while reserving the glass rim even at the
+        // largest preference size or when a host provides a narrower owner.
+        requested=MIN(requested*0.94,HGAActionGlassDiameter(root)*0.64);
     }
     requested=MIN(requested,ownerLimit);
     if(image.isSymbolImage) {
@@ -520,11 +522,14 @@ void HGAppearanceProcessView(UIView *view) {
             if(action) {
                 UIImageView *icon=HGAFindIcon(view);
                 CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
-                CGFloat diameter=HGARightActionGlassDiameter;
-                if([role isEqual:@"avatar"])
-                    diameter=MAX(34,MIN(40,MAX(rect.size.width,rect.size.height)+8));
-                CGFloat side=MIN(MIN(view.bounds.size.width,view.bounds.size.height),diameter);
-                glassFrame=CGRectMake((view.bounds.size.width-side)/2,MAX(0,CGRectGetMidY(rect)-side/2),side,side);
+                CGFloat width=CGRectGetWidth(view.bounds),height=CGRectGetHeight(view.bounds);
+                CGFloat side=HGAActionGlassDiameter(view);
+                if([role isEqual:@"avatar"])side=MIN(side,MAX(34,MIN(40,MAX(rect.size.width,rect.size.height)+8)));
+                else if([role isEqual:@"more"])side=MIN(side,38);
+                CGFloat x=CGRectGetMinX(view.bounds)+(width-side)/2;
+                CGFloat y=MIN(CGRectGetMinY(view.bounds)+height-side,
+                    MAX(CGRectGetMinY(view.bounds),CGRectGetMidY(rect)-side/2));
+                glassFrame=CGRectMake(x,y,side,side);
                 radius=side/2;
             }
             NSString *style=HGAppearanceString(@"player.material");

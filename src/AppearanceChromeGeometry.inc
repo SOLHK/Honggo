@@ -1,6 +1,12 @@
+@class HGAHeaderToolButton;
 @interface HGAHeaderInsetState : NSObject
 @property(nonatomic,strong) HGAAppearanceMaterial *sidebarGlass;
 @property(nonatomic,strong) HGAAppearanceMaterial *searchGlass;
+@property(nonatomic,strong) HGAHeaderToolButton *sidebarButton;
+@property(nonatomic,strong) HGAHeaderToolButton *searchButton;
+@property(nonatomic,strong) UISegmentedControl *channelControl;
+@property(nonatomic,weak) UICollectionView *channelCollection;
+@property(nonatomic,copy) NSArray<NSNumber *> *channelIndices;
 @property(nonatomic,weak) UIView *categories;
 @property(nonatomic,copy) NSArray *observedTitles;
 @property(nonatomic) CGSize observedSize;
@@ -8,9 +14,67 @@
 @property(nonatomic,strong) NSHashTable<UIView *> *visibleSideTools;
 @property(nonatomic) NSUInteger channelSelectionDepth;
 @property(nonatomic) BOOL ownsSideToolTransition;
+- (void)activateTool:(HGAHeaderToolButton *)sender;
+- (void)changeChannel:(UISegmentedControl *)sender;
 @end
-@implementation HGAHeaderInsetState @end
 static char HGAHeaderInsetKey;
+
+static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
+    UIViewController *owner=HGAOwner(source);
+    if (![owner isKindOfClass:objc_lookUpClass("SSVideoSeriesFeedViewController")]) return nil;
+    Method method=class_getInstanceMethod(object_getClass(owner),selector);
+    return method && !strcmp(method_getTypeEncoding(method),"v16@0:8") ? owner : nil;
+}
+
+@interface HGAHeaderToolButton : UIButton
+@property(nonatomic,weak) UIView *source;
+@property(nonatomic) BOOL previousAccessibilityHidden;
+@property(nonatomic) BOOL previousAccessibilityElement;
+@property(nonatomic,copy) NSString *glassStyle;
+@end
+@implementation HGAHeaderToolButton
+@synthesize source=_source;
+- (void)setSource:(UIView *)source {
+    if (_source==source) return;
+    if (_source.accessibilityElementsHidden) _source.accessibilityElementsHidden=self.previousAccessibilityHidden;
+    if (!_source.isAccessibilityElement) _source.isAccessibilityElement=self.previousAccessibilityElement;
+    _source=source;
+    self.previousAccessibilityHidden=source.accessibilityElementsHidden;
+    self.previousAccessibilityElement=source.isAccessibilityElement;
+    source.accessibilityElementsHidden=YES;
+    source.isAccessibilityElement=NO;
+}
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+    return [super pointInside:point withEvent:event] &&
+        [[UIBezierPath bezierPathWithOvalInRect:self.bounds] containsPoint:point];
+}
+@end
+
+@implementation HGAHeaderInsetState
+- (void)activateTool:(HGAHeaderToolButton *)sender {
+    BOOL sidebar=sender==self.sidebarButton;
+    UIView *source=sender.source;
+    if (!sender.window || !HGAVisible(source) || HGFeedSidebarOwnsLayout(sender.window)) return;
+    SEL selector=sel_registerName(sidebar ? "simpleSideBarViewDidClicked" : "simpleSearchViewDidClicked");
+    UIViewController *owner=HGAHeaderToolOwner(source,selector);
+    if (owner) ((void (*)(id,SEL))objc_msgSend)(owner,selector);
+}
+- (void)changeChannel:(UISegmentedControl *)sender {
+    UIView *categories=self.categories;
+    NSInteger next=sender.selectedSegmentIndex;
+    if (!sender.window || !categories.window || next<0 || next>=(NSInteger)self.channelIndices.count ||
+        HGFeedSidebarOwnsLayout(sender.window)) return;
+    SEL selected=sel_registerName("selectedIndex"), select=sel_registerName("selectItemAtIndex:needAnimation:");
+    NSInteger current=((NSInteger (*)(id,SEL))objc_msgSend)(categories,selected);
+    NSInteger index=self.channelIndices[next].integerValue;
+    if (current!=index) ((BOOL (*)(id,SEL,NSInteger,BOOL))objc_msgSend)(categories,select,index,NO);
+    if (sender!=self.channelControl || categories!=self.categories) return;
+    current=((NSInteger (*)(id,SEL))objc_msgSend)(categories,selected);
+    NSUInteger settled=[self.channelIndices indexOfObject:@(current)];
+    if (settled!=NSNotFound && sender.selectedSegmentIndex!=(NSInteger)settled)
+        sender.selectedSegmentIndex=(NSInteger)settled;
+}
+@end
 
 static UIView *HGAHeaderSearchSlotView(UIView *header) {
     UIView *search=HGAViewGetter(header,"searchViewContainer",header);
@@ -478,6 +542,18 @@ static void HGARefreshHeaderChannelLine(UIView *categories,BOOL completed) {
 
 static void HGASyncHeaderChannelLine(UIView *categories) {
     HGARefreshHeaderChannelLine(categories,NO);
+    for (UIView *header=categories.superview;header;header=header.superview) {
+        if (!HGAIsHeaderView(header)) continue;
+        HGAHeaderInsetState *state=objc_getAssociatedObject(header,&HGAHeaderInsetKey);
+        UISegmentedControl *control=state.channelControl;
+        if (state.categories==categories && control && !control.isTracking) {
+            NSInteger selected=((NSInteger (*)(id,SEL))objc_msgSend)(categories,sel_registerName("selectedIndex"));
+            NSUInteger segment=[state.channelIndices indexOfObject:@(selected)];
+            if (segment!=NSNotFound && control.selectedSegmentIndex!=(NSInteger)segment)
+                control.selectedSegmentIndex=(NSInteger)segment;
+        }
+        break;
+    }
 }
 
 static BOOL HGAHiddenChannelIndex(HGAHeaderChannelLayout *plan,NSInteger index) {
@@ -566,6 +642,8 @@ static void HGASetChannelLayout(UIView *categories, HGAHeaderChannelLayout *next
 }
 
 static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state) {
+    BOOL animating=NO;
+    if (HGABoolGetter(header,@"isHeaderViewLayoutAnimating",&animating) && animating) return;
     UIView *tabs = HGAViewGetter(header,"tabContainer",header);
     UIView *categories = nil;
     Class cls = NSClassFromString(@"SSHGBookStoreCategoryTitleView");
@@ -593,8 +671,6 @@ static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state)
     state.observedCollection = collection;
     state.observedTitles = titles;
     state.observedSize = collection.bounds.size;
-    BOOL animating = NO;
-    if (HGABoolGetter(header,@"isHeaderViewLayoutAnimating",&animating) && animating) return;
     NSUInteger mask = 0;
     for (NSUInteger i = 0; i < titles.count; i++) {
         if ([titles[i] isKindOfClass:NSString.class] && HGATopChannelHidden(titles[i])) mask |= 1UL << i;
@@ -652,9 +728,136 @@ static HGAAppearanceMaterial *HGAMakeHeaderCircleGlass(NSString *identifier) {
     return glass;
 }
 
+static BOOL HGASupportsNativeHeaderControls(NSString *style) {
+    return HGNativeGlassConfigured() && ([style isEqual:@"regular"] || [style isEqual:@"clear"]);
+}
+
+static void HGARemoveHeaderToolButton(HGAHeaderToolButton *button) {
+    button.source=nil;
+    [button removeFromSuperview];
+}
+
+static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView *source,CGRect frame,
+    NSString *style,BOOL sidebar) {
+    NSString *identifier=sidebar ? @"honggo.appearance.header.sidebar" : @"honggo.appearance.header.search";
+    SEL selector=sel_registerName(sidebar ? "simpleSideBarViewDidClicked" : "simpleSearchViewDidClicked");
+    HGAAppearanceMaterial *glass=sidebar ? state.sidebarGlass : state.searchGlass;
+    HGAHeaderToolButton *button=sidebar ? state.sidebarButton : state.searchButton;
+    BOOL active=!CGRectIsNull(frame);
+    BOOL native=active && HGASupportsNativeHeaderControls(style) && HGAHeaderToolOwner(source,selector);
+    if (native) {
+        if(@available(iOS 26.0,*)) {
+            if(!button) {
+                button=[[HGAHeaderToolButton alloc] initWithFrame:frame];
+                button.accessibilityIdentifier=identifier;
+                button.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
+                // Hit test in the front sibling, draw underneath the original
+                // host glyph and badge. The button owns only its circular area.
+                button.layer.zPosition=-1;
+                [button addTarget:state action:@selector(activateTool:) forControlEvents:UIControlEventPrimaryActionTriggered];
+            }
+            if (![button.glassStyle isEqual:style]) {
+                button.glassStyle=style;
+                UIButtonConfiguration *configuration=[style isEqual:@"clear"] ?
+                    UIButtonConfiguration.clearGlassButtonConfiguration : UIButtonConfiguration.glassButtonConfiguration;
+                configuration.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
+                button.configuration=configuration;
+            }
+            button.source=source;
+            button.accessibilityLabel=source.accessibilityLabel ?: (sidebar ? @"菜单" : @"搜索");
+            if (!CGRectEqualToRect(button.frame,frame)) button.frame=frame;
+            if (button.superview!=header) [header addSubview:button];
+            else {
+                for (UIView *sibling in header.subviews.reverseObjectEnumerator) {
+                    if (sibling==button) break;
+                    if (HGAOwnView(sibling)) continue;
+                    [header bringSubviewToFront:button];
+                    break;
+                }
+            }
+        }
+    } else {
+        HGARemoveHeaderToolButton(button);
+        button=nil;
+    }
+    if (active && !button) {
+        if(!glass)glass=HGAMakeHeaderCircleGlass(identifier);
+        HGAConfigureHeaderCircleGlass(glass,header,frame,style);
+    } else {
+        [glass removeFromSuperview];
+        glass=nil;
+    }
+    if (sidebar) { state.sidebarButton=button; state.sidebarGlass=glass; }
+    else { state.searchButton=button; state.searchGlass=glass; }
+}
+
+static void HGARemoveHeaderChannelControl(HGAHeaderInsetState *state) {
+    [state.channelControl removeFromSuperview];
+    state.channelControl=nil;
+    HGASetHidden(state.channelCollection,NO);
+    state.channelCollection=nil;
+    state.channelIndices=nil;
+}
+
+static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *state,CGRect frame,NSString *style) {
+    UIView *categories=state.categories;
+    HGAHeaderChannelLayout *layout=objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
+    NSArray *titles=layout.titles ?: HGReadObjectGetter(categories,"titles");
+    UICollectionView *collection=layout.collection ?: (id)HGAViewGetter(categories,"collectionView",categories);
+    Method selected=class_getInstanceMethod(object_getClass(categories),sel_registerName("selectedIndex"));
+    Method select=class_getInstanceMethod(object_getClass(categories),sel_registerName("selectItemAtIndex:needAnimation:"));
+    if (!HGASupportsNativeHeaderControls(style) || !selected || strcmp(method_getTypeEncoding(selected),"q16@0:8") || !select ||
+        strcmp(method_getTypeEncoding(select),"B28@0:8q16B24") || ![titles isKindOfClass:NSArray.class] ||
+        ![collection isKindOfClass:UICollectionView.class] || CGRectGetWidth(frame)<88 ||
+        (collection!=state.channelCollection && !HGAVisible(collection)) ||
+        (!layout && collection.contentSize.width>CGRectGetWidth(collection.bounds)+0.5)) {
+        HGARemoveHeaderChannelControl(state);
+        return NO;
+    }
+    NSUInteger hiddenMask=layout.hiddenMask;
+    if (titles.count>32 || titles.count-(NSUInteger)__builtin_popcountll(hiddenMask)!=2) {
+        HGARemoveHeaderChannelControl(state);
+        return NO;
+    }
+    NSMutableArray<NSString *> *items=[NSMutableArray arrayWithCapacity:2];
+    NSMutableArray<NSNumber *> *indices=[NSMutableArray arrayWithCapacity:2];
+    for (NSUInteger index=0;index<titles.count;index++) {
+        if (hiddenMask & (1UL<<index)) continue;
+        NSString *title=titles[index];
+        if (![title isKindOfClass:NSString.class] || !title.length || HGATopChannelHidden(title)) break;
+        [items addObject:title];
+        [indices addObject:@(index)];
+    }
+    if (items.count!=2) {
+        HGARemoveHeaderChannelControl(state);
+        return NO;
+    }
+    UISegmentedControl *control=state.channelControl;
+    if (collection!=state.channelCollection || ![indices isEqualToArray:state.channelIndices] ||
+        ![[control titleForSegmentAtIndex:0] isEqual:items[0]] ||
+        ![[control titleForSegmentAtIndex:1] isEqual:items[1]]) {
+        HGARemoveHeaderChannelControl(state);
+        control=[[UISegmentedControl alloc] initWithItems:items];
+        control.accessibilityIdentifier=@"honggo.appearance.material";
+        control.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
+        [control addTarget:state action:@selector(changeChannel:) forControlEvents:UIControlEventValueChanged];
+        state.channelControl=control;
+        state.channelIndices=indices;
+        state.channelCollection=collection;
+    }
+    if (!CGRectEqualToRect(control.frame,frame)) control.frame=frame;
+    HGASyncHeaderChannelLine(categories);
+    HGASetHidden(collection,YES);
+    if (control.superview!=header) [header addSubview:control];
+    return YES;
+}
+
 static void HGARemoveHeaderDetachedGlass(UIView *header) {
     HGAHeaderInsetState *state=objc_getAssociatedObject(header,&HGAHeaderInsetKey);
     if(!state)return;
+    HGARemoveHeaderChannelControl(state);
+    HGARemoveHeaderToolButton(state.sidebarButton);
+    HGARemoveHeaderToolButton(state.searchButton);
     HGASetChannelLayout(state.categories,nil);
     [state.sidebarGlass removeFromSuperview];
     [state.searchGlass removeFromSuperview];
@@ -752,9 +955,8 @@ static void HGAKeepCompactHeaderSideTools(UIView *header,HGAHeaderInsetState *st
     HGAKeepHomeHeaderToolVisible(state,HGAViewGetter(search,"searchButtonView",searchSlot),keepSearch,repairing);
 }
 
-// Separate the home header into three native liquid-glass surfaces (left menu
-// circle, center category capsule, right search circle) without moving,
-// reparenting or intercepting any host tap target.
+// The verified home header routes native glass controls to the existing
+// controller actions. Other header layouts retain their host hit targets.
 static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layoutEnabled,NSString *style) {
     if(!layoutEnabled || CGRectIsEmpty(header.bounds)) {
         HGARemoveHeaderDetachedGlass(header);
@@ -776,6 +978,11 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
     HGACompactHeaderChannels(header,state);
     if(!enabled) {
         [state.visibleSideTools removeAllObjects];
+        HGARemoveHeaderChannelControl(state);
+        HGARemoveHeaderToolButton(state.sidebarButton);
+        HGARemoveHeaderToolButton(state.searchButton);
+        state.sidebarButton=nil;
+        state.searchButton=nil;
         [state.sidebarGlass removeFromSuperview];
         [state.searchGlass removeFromSuperview];
         HGARemoveGlass(header);
@@ -800,25 +1007,21 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
         CGRect r=[sidebar convertRect:sidebar.bounds toView:header];
         CGFloat x=MAX(4.0,MIN(headerW-side-4.0,CGRectGetMidX(r)-side*0.5));
         leftCircle=CGRectMake(x,CGRectGetMidY(r)-side*0.5,side,side);
-        if(!state.sidebarGlass)state.sidebarGlass=HGAMakeHeaderCircleGlass(@"honggo.appearance.header.sidebar");
-        HGAConfigureHeaderCircleGlass(state.sidebarGlass,header,leftCircle,style);
-    } else {
-        [state.sidebarGlass removeFromSuperview];
-        state.sidebarGlass=nil;
     }
+    HGAApplyHeaderTool(header,state,sidebar,leftCircle,style,YES);
 
     CGRect rightCircle=CGRectNull;
     if(showSearch) {
         CGRect r=[searchSlot convertRect:searchSlot.bounds toView:header];
         CGFloat x=MAX(4.0,MIN(headerW-side-4.0,CGRectGetMidX(r)-side*0.5));
         rightCircle=CGRectMake(x,CGRectGetMidY(r)-side*0.5,side,side);
-        if(!state.searchGlass)state.searchGlass=HGAMakeHeaderCircleGlass(@"honggo.appearance.header.search");
-        HGAConfigureHeaderCircleGlass(state.searchGlass,header,rightCircle,style);
-    } else {
-        [state.searchGlass removeFromSuperview];
-        state.searchGlass=nil;
     }
+    HGAApplyHeaderTool(header,state,searchSlot,rightCircle,style,NO);
 
+    if (state.channelControl && HGASupportsNativeHeaderControls(style) && HGAHeaderToolTransitionAnimating(header)) {
+        HGASyncHeaderChannelLine(state.categories);
+        return;
+    }
     CGRect channels=HGAHeaderVisibleChannelsRect(header);
     if(!CGRectIsNull(channels)) {
         CGFloat minAllowed=!CGRectIsNull(leftCircle) ? CGRectGetMaxX(leftCircle)+8.0 : 8.0;
@@ -832,10 +1035,16 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
         }
         if(maxX-minX>=24.0) {
             CGRect centerFrame=CGRectMake(minX,midY-side*0.5,maxX-minX,side);
-            HGAInstallPlaybackGlass(header,style,centerFrame,side*0.5,nil);
+            if (HGAApplyHeaderChannelControl(header,state,centerFrame,style)) {
+                HGAViewState *material=HGAState(header,YES);
+                [material.glass removeFromSuperview];
+                material.glass=nil;
+                HGASetGlassHostBackground(header,YES);
+            } else HGAInstallPlaybackGlass(header,style,centerFrame,side*0.5,nil);
             return;
         }
     }
+    HGARemoveHeaderChannelControl(state);
     HGARemoveGlass(header);
 }
 

@@ -270,7 +270,7 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
     BOOL savedClip=bar.clipsToBounds, savedHidden=bar.hidden;
     CGFloat width=host.view.bounds.size.width, bottom=host.view.bounds.size.height;
     CGFloat barTop=[bar convertRect:bar.bounds toView:host.view].origin.y;
-    HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.extra":@NO,
+    HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.extra":@NO,@"dock.radius":@20,
         @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@NO,@"dock.hide.mine":@NO},nil);
 
     // A clipped library list ending at the host bar is the R10 hard edge.
@@ -500,8 +500,8 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
     UIView *highlight=Find(selection,@"honggo.appearance.dock.selection-highlight");
     [dock beginDockTouchAtPoint:start];
     if(!UIAccessibilityIsReduceMotionEnabled())
-        Check(selection.bounds.size.height>resting+capsule.bounds.size.height*0.30 &&
-            selection.bounds.size.width>restingWidth*1.30 && CGRectGetMinY(selection.frame)<0 &&
+        Check(selection.bounds.size.height>resting+capsule.bounds.size.height*0.18 &&
+            selection.bounds.size.width>restingWidth*1.06 && CGRectGetMinY(selection.frame)<0 &&
             selection.alpha==1 && highlight.alpha==1 && home.imageView.transform.a>1.10,
             @"same-tab press expands and lifts the glass, reveals its highlight and enlarges its glyph");
     HGAppearanceLayoutDock(bar,host);Layout(bar);
@@ -532,7 +532,7 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
             CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.004,false);
             CALayer *presentation=selection.layer.presentationLayer;
             CGFloat opacity=highlight.layer.presentationLayer.opacity;
-            if(host.nativeTaps==taps+1 && CGRectGetHeight(presentation.bounds)>resting+8 &&
+            if(host.nativeTaps==taps+1 && CGRectGetHeight(presentation.bounds)>resting+5 &&
                 opacity>0.25 && opacity<0.95)displayed=YES;
         }
         Check(displayed,@"the expanded and illuminated press appears in the presentation layer before host navigation");
@@ -688,6 +688,50 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     HGAppearanceSet(@"dock.material",@"regular",nil);
 }
 
+static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
+    if(!HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled())return;
+    NSDictionary *saved=HGAppearanceValues();
+    NSUInteger savedIndex=host.selectedIndex;
+    CGRect frame=host.customTabBar.frame;
+    CGRect roomy=frame;roomy.size.height=84;roomy.origin.y=host.view.bounds.size.height-84;
+    host.customTabBar.frame=roomy;host.selectedIndex=0;
+    HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.material":@"regular",@"dock.tint":@"",
+        @"dock.content":@"icon",@"dock.radius":@29,@"dock.height":@58,@"dock.extra":@YES,@"dock.action":@"search",
+        @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@YES,@"dock.hide.mine":@YES},nil);
+    HGAppearanceLayoutDock(host.customTabBar,host);Layout(host.customTabBar);
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    UIView *dock=Find(host.customTabBar,@"honggo.appearance.dock");
+    UIView *carrier=Find(dock,@"honggo.appearance.dock.system");
+    UIView *capsule=Find(dock,@"honggo.appearance.dock.capsule");
+    UIView *manual=Find(dock,@"honggo.appearance.tab.home");
+    if(carrier && carrier.alpha>0.9) {
+        UITabBar *native=[dock valueForKey:@"systemTabBar"];
+        UITabBarController *managed=[dock valueForKey:@"systemTabController"];
+        Check([native isKindOfClass:UITabBar.class] && native.window==dock.window &&
+            !Find(capsule,@"honggo.appearance.material") && manual.hidden,
+            @"the mounted UIKit floating Dock owns both selection and visible tab controls");
+        NSUInteger taps=host.nativeTaps;
+        if(managed) {
+            if(@available(iOS 26.0,*)) {
+                UITab *tab=[managed tabForIdentifier:@"theater"];
+                Check(tab!=nil,@"the managed UIKit Dock owns real UITab objects");
+                [managed.delegate tabBarController:managed didSelectTab:tab previousTab:managed.selectedTab];
+            }
+        }else {
+            UITabBarItem *tab=native.items.lastObject;
+            Check(native.items.count==2 && tab.tag==1,@"the standalone UIKit Dock owns its mapped UITabBarItems");
+            [native.delegate tabBar:native didSelectItem:tab];
+        }
+        Check(host.nativeTaps==taps+1 && host.selectedIndex==1,@"a UIKit selection forwards exactly one mapped host action");
+    }else {
+        Check(!carrier && !manual.hidden && Find(capsule,@"honggo.appearance.material"),
+            @"a provider without a reachable floating platter leaves only the compatibility Dock mounted");
+    }
+    host.selectedIndex=savedIndex;host.customTabBar.frame=frame;
+    HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
+}
+
 static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGRunDockRestoreReentryChecks(host);
     HGRunDockSurfaceChecks(host);
@@ -745,9 +789,9 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection) &&
         !capsuleMaterial.maskView && [selection.backgroundColor isEqual:[UIColor colorWithWhite:1 alpha:selectionAlpha]],
         @"resting selection uses a subtle light tint over unmasked glass");
-    Check(CGRectGetMinY(selection.frame)>=3 && CGRectGetMaxY(selection.frame)<=capsule.bounds.size.height-3 &&
-        selection.bounds.size.width<=capsule.bounds.size.height*1.53 && home.bounds.size.width>=44,
-        @"two-tab dock keeps a compact inset selection pill and full accessible touch targets");
+    Check(fabs(selection.bounds.size.height-capsule.bounds.size.height*0.85)<0.01 &&
+        selection.bounds.size.width<=capsule.bounds.size.height*1.92 && home.bounds.size.width>=44,
+        @"two-tab dock keeps an 85-percent height selection lens and full accessible touch targets");
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
         host.overrideUserInterfaceStyle==UIUserInterfaceStyleLight,
         @"video dock keeps dark glass without changing the host light theme");
@@ -870,4 +914,5 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     host.selectedIndex=savedIndex;host.overrideUserInterfaceStyle=savedStyle;host.view.tintColor=savedTint;
     host.customTabBar.frame=savedBarFrame;
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
+    HGRunDockSystemAdapterChecks(host);
 }

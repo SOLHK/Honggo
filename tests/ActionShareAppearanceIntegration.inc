@@ -294,8 +294,11 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             CGRectEqualToRect(comment.frame,touchFrame) && CGRectEqualToRect(comment.countLabel.frame,countFrame),
             @"solid glyph proportions preserve the native action and count geometry");
         UIView *material=Find(comment,@"honggo.appearance.material");
-        Check(material && material.bounds.size.width<=40.01 && !material.userInteractionEnabled && material.alpha==1,
-            @"right actions use compact glass at full effect-view opacity with unchanged native hit handling");
+        CGRect glyph=[comment.iconImageView convertRect:comment.iconImageView.bounds toView:comment];
+        Check(material && fabs(material.bounds.size.width-44)<0.01 &&
+            MAX(glyph.size.width,glyph.size.height)>24 && CGRectContainsRect(CGRectInset(material.frame,5,0),glyph) &&
+            !material.userInteractionEnabled && material.alpha==1,
+            @"right actions leave visible glass around a readable glyph without taking over native touches");
         [comment sendActionsForControlEvents:UIControlEventTouchUpInside];
         Check(comment.taps==1,@"redrawn right action still delivers one original tap");
         for(NSUInteger i=0;i<8;i++)Layout(comment);
@@ -318,7 +321,7 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     @try {
         CGRect iconRect=[share.iconImageView convertRect:share.iconImageView.bounds toView:share];
         UIView *material=Find(share,@"honggo.appearance.material");
-        Check(fabs(material.bounds.size.width-38)<0.01 && MAX(iconRect.size.width,iconRect.size.height)<=22.37 &&
+        Check(fabs(material.bounds.size.width-44)<0.01 && MAX(iconRect.size.width,iconRect.size.height)<=24.45 &&
             CGRectEqualToRect(share.frame,shareTouch) && CGRectEqualToRect(share.countLabel.frame,shareCount),
             @"tall native action icon fits the requested longest edge without moving count or hit owner");
         CGAffineTransform first=share.iconImageView.transform;
@@ -327,8 +330,13 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             @"rectangular right-action icon scale stays stable across native reuse");
         HGAppearanceSet(@"icons.size",@48,nil);Layout(share);
         iconRect=[share.iconImageView convertRect:share.iconImageView.bounds toView:share];
-        Check(MAX(iconRect.size.width,iconRect.size.height)<=28.01,
-            @"large custom action size leaves a five-point inset on each edge of the glass");
+        Check(MAX(iconRect.size.width,iconRect.size.height)<=28.17,
+            @"large custom action size reserves an eight-point glass rim");
+        share.bounds=CGRectMake(0,0,36,62);Layout(share);
+        iconRect=[share.iconImageView convertRect:share.iconImageView.bounds toView:share];
+        Check(CGRectContainsRect(share.bounds,material.frame) && fabs(material.bounds.size.width-36)<0.01 &&
+            MAX(iconRect.size.width,iconRect.size.height)<=23.05,
+            @"narrow host buttons keep the glass and padded glyph inside their owner");
         HGAppearanceSet(@"icons.enabled",@NO,nil);
         Check(CGAffineTransformIsIdentity(share.iconImageView.transform),
             @"disabling rectangular icon styling restores the native image transform");
