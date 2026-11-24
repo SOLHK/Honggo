@@ -8,15 +8,23 @@ typedef struct {
     double x, y, width, height;
 } HGADockSelectionBounds;
 
+static inline double HGADockRowWidth(double available,double ratio,double accessory,
+                                      unsigned visible,unsigned fullCount,bool stockWidth) {
+    const double requested=fmin(available-8,ratio*available);
+    // At the stock setting, hiding a tab removes its slot. The remaining
+    // glyphs retain the spacing of the complete bar.
+    const double slots=stockWidth ? (requested-accessory)*visible/fullCount : requested-accessory;
+    return fmin(available-8,accessory+fmax(44*visible,slots));
+}
+
 static inline HGADockSelectionBounds HGADockSelectionBoundsForState(
         double center,double capsuleWidth,double capsuleHeight,double slotWidth,bool pressed) {
-    const double inset=pressed ? 1 : 5;
-    const double nearestEdge=fmin(center,capsuleWidth-center);
-    const double targetWidth=fmin(slotWidth*(pressed ? 1.24 : 1.11),capsuleHeight*(pressed ? 2.16 : 1.92));
-    const double halfWidth=fmax(0,fmin(targetWidth*0.5,nearestEdge-inset));
-    const double height=capsuleHeight*(pressed ? 1.08 : 0.85);
-    const double lift=pressed ? 2 : 0;
-    return (HGADockSelectionBounds){center-halfWidth,(capsuleHeight-height)*0.5-lift,2*halfWidth,height};
+    const double inset=pressed ? 0 : 1;
+    const double width=fmin(slotWidth*(pressed ? 1.12 : 1)-2*inset,capsuleWidth-2*inset);
+    const double height=pressed ? capsuleHeight*1.12 : capsuleHeight-2*inset;
+    // Slide the lifted lens inward at the ends, retaining its full width.
+    const double left=fmax(inset,fmin(center-width*0.5,capsuleWidth-inset-width));
+    return (HGADockSelectionBounds){left,(capsuleHeight-height)*0.5,width,height};
 }
 
 #endif

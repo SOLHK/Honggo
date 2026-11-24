@@ -62,7 +62,7 @@ static void HGAApplyEpisodeCollectInk(UIView *root,BOOL enabled) {
     if(state.icon.image!=state.appliedImage)state.icon.image=state.appliedImage;
 }
 static char HGAEpisodeLayerPaintKey;
-static NSString *HGAPlayerDetailEntryMaterial(void) {
+static NSString *HGALiquidPlayerMaterial(void) {
     return [HGAppearanceString(@"player.material") isEqual:@"clear"] ? @"clear" : @"regular";
 }
 static CGRect HGAPlayerDetailEntryFrame(UIView *view,BOOL disc) {
@@ -98,7 +98,7 @@ static void HGAPlayerControlGlass(UIView *target,BOOL sheet,BOOL episodeEntry) {
             objc_setAssociatedObject(target,&HGAEpisodeLayerPaintKey,[UIColor colorWithCGColor:paint],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     if(sheet) HGAInstallGlass(target,HGAppearanceString(@"panels.material"),radius,0.04);
-    else HGAInstallPlaybackGlass(target,episodeEntry ? HGAPlayerDetailEntryMaterial() : HGAppearanceString(@"player.material"),
+    else HGAInstallPlaybackGlass(target,episodeEntry ? HGALiquidPlayerMaterial() : HGAppearanceString(@"player.material"),
         frame,radius,nil);
     if(episodeEntry && target.layer.backgroundColor && CGColorGetAlpha(target.layer.backgroundColor)>0)
         target.layer.backgroundColor=nil;
@@ -180,8 +180,31 @@ static HGAPlayerChromeState *HGAPlayerChromeTargets(id owner,NSArray<UIView *> *
     for(UIView *paint in paints){[state.paints addObject:paint];HGASetHidden(paint,YES);}
     return state;
 }
+
+// 7.4.5.33 exposes the portrait player's playBtn as a UIButton. Its
+// state images and visibility are changed by the player itself.
+static char HGAPlaybackButtonKey;
+static void HGAApplyPlaybackButton(UIView *root) {
+    BOOL glass=root.window && HGAppearanceEnabled() && HGAppearanceFlag(@"player.rightGlass") && !HGFlatPlayerStyle();
+    UIButton *button=glass ? (id)HGAViewGetter(root,"playBtn",root) : nil;
+    if(![button isKindOfClass:UIButton.class] || !button.currentImage)button=nil;
+    UIButton *previous=objc_getAssociatedObject(root,&HGAPlaybackButtonKey);
+    if(previous!=button) {
+        if(previous)HGARemoveGlass(previous);
+        objc_setAssociatedObject(root,&HGAPlaybackButtonKey,button,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if(!button)return;
+    CGRect bounds=button.bounds;
+    UIImageView *icon=button.imageView;
+    CGRect glyph=icon.image ? [icon convertRect:icon.bounds toView:button] : bounds;
+    CGFloat side=MIN(MIN(CGRectGetWidth(bounds),CGRectGetHeight(bounds)),
+        MIN(64,MAX(44,MAX(CGRectGetWidth(glyph),CGRectGetHeight(glyph))+8)));
+    CGRect frame=CGRectMake(CGRectGetMidX(glyph)-side/2,CGRectGetMidY(glyph)-side/2,side,side);
+    HGAInstallPlaybackGlass(button,HGALiquidPlayerMaterial(),frame,side/2,nil);
+}
 static void HGAApplyPlayerControls(UIView *root) {
     NSString *name=NSStringFromClass(root.class);
+    if([root isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerControlView")])HGAApplyPlaybackButton(root);
     BOOL danmaku=[name isEqual:@"FQCShortVideoDanmakuEntranceView"];
     BOOL sheet=HGAEpisodeControl(root);
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(sheet?@"panels.episodes":@"player.controlsGlass") && root.window;
@@ -195,7 +218,7 @@ static void HGAApplyPlayerControls(UIView *root) {
         HGARegisterView(root);
         if(!enabled || !HGAVisible(root)){HGARemoveGlass(root);return;}
         CGRect frame=HGAPlayerDetailEntryFrame(root,YES);
-        HGAInstallPlaybackGlass(root,HGAPlayerDetailEntryMaterial(),frame,frame.size.width/2,nil);
+        HGAInstallPlaybackGlass(root,HGALiquidPlayerMaterial(),frame,frame.size.width/2,nil);
         return;
     }
     if([root isKindOfClass:NSClassFromString(@"SSShortVideoBottomInsertView")]) {

@@ -269,6 +269,24 @@ static void RunActionIconChoices(UIView *root) {
     Check(controls[1].iconImageView.image.isSymbolImage &&
         ![UIImagePNGRepresentation(controls[1].iconImageView.image) isEqual:UIImagePNGRepresentation(bubble)],
         @"a custom system symbol overrides the selected preset");
+    HGAppearanceApply(@{@"player.actionStyle":@"flat",@"icons.enabled":@NO},nil);
+    BOOL flatActions=YES;
+    for(HGAActionFixture *action in controls) {
+        Layout(action);
+        [action sendActionsForControlEvents:UIControlEventTouchUpInside];
+        flatActions &= !Find(action,@"honggo.appearance.material") && action.iconImageView.image.isSymbolImage &&
+            [action.countLabel.text isEqual:@"123"] && action.taps==1;
+    }
+    Check(flatActions,@"flat actions draw standalone symbols and retain native counts and taps with custom icons off");
+    SSShortVideoRightInteractionLikeView *like=(id)controls[2];
+    UIImage *outline=like.iconImageView.image;
+    like.model.isLiked=YES; Layout(like);
+    Check(![outline isEqual:like.iconImageView.image] && [like.iconImageView.tintColor isEqual:UIColor.systemPinkColor],
+        @"the flat heart follows the current liked state");
+    HGAppearanceSet(@"player.actionStyle",@"glass",nil);
+    Layout(like);
+    Check(Count(like,@"honggo.appearance.material")==1 && ![like.iconImageView.tintColor isEqual:UIColor.systemPinkColor],
+        @"returning to glass restores the host glyph when custom icons are off");
     for(UIView *control in controls)[control removeFromSuperview];
     HGAppearanceApply(saved,nil);
 }

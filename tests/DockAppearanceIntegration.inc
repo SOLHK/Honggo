@@ -459,7 +459,7 @@ static void HGRunExpandedDockGeometryChecks(SSTabBarController *host) {
 @end
 
 static UIVisualEffectView *HGDockVisibleSelectionLens(UIView *selection) {
-    UIVisualEffectView *lens=(id)Find(selection,@"honggo.appearance.dock.drag-lens");
+    UIVisualEffectView *lens=(id)Find(selection.superview,@"honggo.appearance.dock.drag-lens");
     return !lens.hidden && !selection.hidden ? lens : nil;
 }
 
@@ -500,7 +500,7 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
     UIView *highlight=Find(selection,@"honggo.appearance.dock.selection-highlight");
     [dock beginDockTouchAtPoint:start];
     if(!UIAccessibilityIsReduceMotionEnabled())
-        Check(selection.bounds.size.height>resting+capsule.bounds.size.height*0.18 &&
+        Check(selection.bounds.size.height>resting+capsule.bounds.size.height*0.10 &&
             selection.bounds.size.width>restingWidth*1.06 && CGRectGetMinY(selection.frame)<0 &&
             selection.alpha==1 && highlight.alpha==1 && home.imageView.transform.a>1.10,
             @"same-tab press expands and lifts the glass, reveals its highlight and enlarges its glyph");
@@ -519,35 +519,22 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
     HGWaitForDockSelectionLensToSettle(selection);
     Check(!HGDockVisibleSelectionLens(selection),@"shared Dock release hides the settled glass lens");
 
-    resting=selection.bounds.size.height;
     [dock beginDockTouchAtPoint:start];
+    if(!UIAccessibilityIsReduceMotionEnabled()) {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.09,false);
+        CALayer *held=selection.layer.presentationLayer;
+        Check(held && CGRectGetHeight(held.bounds)>resting+2 && host.nativeTaps==taps+1,
+            @"the enlarged press reaches the display while the finger is still down and navigation is unchanged");
+    }
     [dock endDockTouchAtPoint:start cancelled:NO];
-    if(!UIAccessibilityIsReduceMotionEnabled()) {
-        [home sendActionsForControlEvents:UIControlEventTouchUpInside];
-        Check(host.nativeTaps==taps+1 && selection.bounds.size.height>resting,
-            @"a same-turn tap holds its pressed shape and defers the original action");
-        CFTimeInterval deadline=CACurrentMediaTime()+0.4;
-        BOOL displayed=NO;
-        while(host.nativeTaps==taps+1 && CACurrentMediaTime()<deadline) {
-            CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.004,false);
-            CALayer *presentation=selection.layer.presentationLayer;
-            CGFloat opacity=highlight.layer.presentationLayer.opacity;
-            if(host.nativeTaps==taps+1 && CGRectGetHeight(presentation.bounds)>resting+5 &&
-                opacity>0.25 && opacity<0.95)displayed=YES;
-        }
-        Check(displayed,@"the expanded and illuminated press appears in the presentation layer before host navigation");
-    }
-    Check(host.nativeTaps==taps+2 && host.selectedIndex==0,@"the quick press still forwards a single tap to the destination");
-    if(!UIAccessibilityIsReduceMotionEnabled()) {
-        CFTimeInterval releasedAt=CACurrentMediaTime();
-        BOOL fadeDisplayed=NO;
-        while(!fadeDisplayed && CACurrentMediaTime()-releasedAt<0.26) {
-            CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.005,false);
-            CGFloat opacity=highlight.layer.presentationLayer.opacity;
-            fadeDisplayed=CACurrentMediaTime()-releasedAt>0.035 && opacity>0.05 && opacity<0.95;
-        }
-        Check(fadeDisplayed,@"release displays an intermediate fade frame before the resting highlight");
-    }
+    Check(host.nativeTaps==taps+2 && host.selectedIndex==0,
+        @"release commits the selected destination immediately");
+    HGWaitForDockSelectionLensToSettle(selection);
+    [dock beginDockTouchAtPoint:start];
+    [dock moveDockTouchToPoint:CGPointMake(finish.x,start.y)];
+    [dock endDockTouchAtPoint:CGPointMake(finish.x,CGRectGetMinY(capsule.frame)-8) cancelled:NO];
+    Check(host.nativeTaps==taps+2 && host.selectedIndex==0,
+        @"a diagonal drag released above the Dock cancels without opening the destination");
     HGWaitForDockSelectionLensToSettle(selection);
     [wrapper removeFromSuperview];
 }
@@ -572,8 +559,9 @@ static void HGRunDockTouchRoutingChecks(HGAAppearanceDock *dock,UIView *bar,UIVi
     UIView *overlapHit=[container hitTest:[capsule convertPoint:overlap toView:container] withEvent:nil];
     UIView *railHit=[container hitTest:[capsule convertPoint:above toView:container] withEvent:nil];
     Check([overlapHit isDescendantOfView:player] && [overlapHit isDescendantOfView:installed.view] &&
-        [dock acceptsSelectionTouchAtPoint:overlap inView:overlapHit],
-        @"a dock start can reach the pan through the shared ancestor even when the native scrubber wins hit testing");
+        [dock acceptsSelectionTouchAtPoint:overlap inView:overlapHit] &&
+        [dock acceptsDockTouchAtPoint:[capsule convertPoint:overlap toView:dock] fromView:overlapHit],
+        @"a dock start can reach the pan through the shared ancestor even when the native scrubber wins hit testing, including the first stationary press");
     Check([railHit isDescendantOfView:player] && ![dock acceptsSelectionTouchAtPoint:above inView:railHit],
         @"the progress rail above the rounded capsule retains its native touch route");
     UIPanGestureRecognizer *unrelated=[UIPanGestureRecognizer new];
@@ -618,7 +606,7 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     [theater sendActionsForControlEvents:UIControlEventTouchDown];
     Layout(HGDockVisibleSelectionLens(selection));
     UIView *previewHighlight=Find(selection,@"honggo.appearance.dock.selection-highlight");
-    Check(fabs(CGRectGetMidX(selection.frame)-theaterX)<0.01 && host.nativeTaps==taps &&
+    Check(CGRectGetMaxX(selection.frame)>=capsule.bounds.size.width-1 && host.nativeTaps==taps &&
         (UIAccessibilityIsReduceMotionEnabled() ||
          (previewHighlight.alpha==1 && theater.imageView.transform.a>1.10)),
         @"fallback press previews the destination immediately without forwarding its action");
@@ -627,8 +615,9 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
             !UIAccessibilityIsReduceMotionEnabled()) {
             UIVisualEffectView *pressLens=HGDockVisibleSelectionLens(selection);
             Check([pressLens.effect isKindOfClass:UIGlassEffect.class] && ((UIGlassEffect *)pressLens.effect).interactive &&
-                pressLens.alpha==1 && selection.alpha==1,
-                @"pressing the custom clear capsule installs a native interactive glass lens");
+                pressLens.alpha==1 && selection.alpha==1 && pressLens.superview==capsule &&
+                [capsule.subviews indexOfObjectIdenticalTo:pressLens]>[capsule.subviews indexOfObjectIdenticalTo:theater],
+                @"pressing installs native refracting glass in front of the actual tab glyphs");
         }
     }
     [theater sendActionsForControlEvents:UIControlEventTouchCancel];
@@ -659,7 +648,7 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
         if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() && !UIAccessibilityIsReduceMotionEnabled()) {
             Layout(lens);
             Check([lens.effect isKindOfClass:UIGlassEffect.class] && ((UIGlassEffect *)lens.effect).interactive,
-                @"Liquid Glass drag installs an interactive native refraction lens beneath the glyphs");
+                @"the intermediate drag uses live native glass");
         }else Check(!lens,@"dock drag omits the refraction lens when native transparency is unavailable");
     }
     pan.fixtureState=UIGestureRecognizerStateCancelled;
@@ -672,7 +661,7 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     [dock dragSelection:pan];
     pan.fixtureLocation=CGPointMake(capsule.bounds.size.width+15,20);pan.fixtureState=UIGestureRecognizerStateChanged;
     [dock dragSelection:pan];
-    Check(fabs(CGRectGetMidX(selection.frame)-theaterX)<0.01,
+    Check(fabs(CGRectGetMaxX(selection.frame)-capsule.bounds.size.width)<0.01,
         @"drag clamps to the last visible tab when other native tabs are hidden");
     pan.fixtureState=UIGestureRecognizerStateEnded;[dock dragSelection:pan];
     HGWaitForDockSelectionLensToSettle(selection);
@@ -709,7 +698,7 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         UITabBar *native=[dock valueForKey:@"systemTabBar"];
         UITabBarController *managed=[dock valueForKey:@"systemTabController"];
         Check([native isKindOfClass:UITabBar.class] && native.window==dock.window &&
-            !Find(capsule,@"honggo.appearance.material") && manual.hidden,
+            !Find(capsule,@"honggo.appearance.material") && manual.hidden && fabs(carrier.transform.a-carrier.transform.d)<0.001,
             @"the mounted UIKit floating Dock owns both selection and visible tab controls");
         NSUInteger taps=host.nativeTaps;
         if(managed) {
@@ -789,9 +778,9 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection) &&
         !capsuleMaterial.maskView && [selection.backgroundColor isEqual:[UIColor colorWithWhite:1 alpha:selectionAlpha]],
         @"resting selection uses a subtle light tint over unmasked glass");
-    Check(fabs(selection.bounds.size.height-capsule.bounds.size.height*0.85)<0.01 &&
-        selection.bounds.size.width<=capsule.bounds.size.height*1.92 && home.bounds.size.width>=44,
-        @"two-tab dock keeps an 85-percent height selection lens and full accessible touch targets");
+    Check(fabs(selection.bounds.size.height-(capsule.bounds.size.height-2))<0.01 &&
+        fabs(CGRectGetMinX(selection.frame)-1)<0.01 && fabs(selection.bounds.size.width-(home.bounds.size.width-2))<0.01 && home.bounds.size.width>=44,
+        @"the resting selection fills the first tab up to a one-point seam around the edge");
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
         host.overrideUserInterfaceStyle==UIUserInterfaceStyleLight,
         @"video dock keeps dark glass without changing the host light theme");
@@ -885,7 +874,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     CGPoint clearCorner=[capsule convertPoint:CGPointMake(1,1) toView:dock];
     NSUInteger taps=host.nativeTaps;
     Check([dock hitTest:homePoint withEvent:nil]==home && [dock hitTest:theaterPoint withEvent:nil]==theater &&
-        [dock hitTest:extraPoint withEvent:nil]==extra && [dock hitTest:paddingPoint withEvent:nil]==capsule &&
+        [dock hitTest:extraPoint withEvent:nil]==extra && [dock hitTest:paddingPoint withEvent:nil]==home &&
         ![dock hitTest:clearCorner withEvent:nil],
         @"button slots and rounded capsule padding acquire touches, while transparent corners pass through");
     [home sendActionsForControlEvents:UIControlEventTouchUpInside];
@@ -906,6 +895,34 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGAppearanceApply(@{@"dock.hide.store":@YES,@"dock.hide.mine":@YES},nil);
     host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
     HGRunDockDragChecks(host,(id)dock,capsule,selection,home,theater);
+    HGAppearanceSet(@"dock.style",@"flat",nil);
+    host.selectedIndex=0;
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    UISegmentedControl *track=(id)Find(capsule,@"honggo.appearance.dock.flat");
+    UISegmentedControl *extraTrack=(id)Find(extra.superview,@"honggo.appearance.dock.flat");
+    Check([track isKindOfClass:UISegmentedControl.class] && track.numberOfSegments==2 &&
+        track.overrideUserInterfaceStyle==UIUserInterfaceStyleDark && track.selectedSegmentIndex==0 &&
+        CGRectEqualToRect(track.frame,capsule.bounds) && !Find(capsule,@"honggo.appearance.material") &&
+        !Find(capsule,@"honggo.appearance.dock.drag-lens") && selection.hidden && extraTrack.numberOfSegments==1,
+        @"flat tabs and the independent action use the header's dark UIKit segment track without glass");
+    NSUInteger flatTaps=host.nativeTaps;
+    HGAAppearanceDock *flatDock=(id)dock;
+    [flatDock beginDockTouchAtPoint:homePoint];
+    [flatDock moveDockTouchToPoint:theaterPoint];
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    Check(track.selectedSegmentIndex==1 && host.nativeTaps==flatTaps && selection.hidden,
+        @"flat dragging previews the destination even when the host lays out the Dock");
+    [flatDock endDockTouchAtPoint:theaterPoint cancelled:YES];
+    Check(track.selectedSegmentIndex==0 && host.nativeTaps==flatTaps,
+        @"cancelled flat scrubbing restores the host selection");
+    [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    Check(track.selectedSegmentIndex==1 && host.nativeTaps==flatTaps+1 && host.selectedIndex==1,
+        @"the flat last segment activates its host tab exactly once");
+    HGAppearanceSet(@"dock.style",@"glass",nil);
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    Check(!Find(capsule,@"honggo.appearance.dock.flat") && Find(capsule,@"honggo.appearance.material"),
+        @"switching back removes the flat track and restores the configured glass");
     host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
     if(@available(iOS 17.0,*)) {
         [host updateTraitsIfNeeded];

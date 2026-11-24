@@ -260,14 +260,21 @@ static UIImage *HGAActionPresetImage(NSString *role,BOOL selected,NSString *pres
     return image;
 }
 
-static UIImage *HGAIcon(NSString *role,BOOL selected,BOOL *drawnPreset) {
-    NSString *slot=[NSString stringWithFormat:@"icons.%@.%@",role,selected?@"selected":@"normal"];
-    NSString *token=HGAppearanceString([slot stringByAppendingString:@".asset"]);
-    UIImage *image=token.length ? [HGAImages objectForKey:token] : nil;
-    if(image)return image;
-    NSString *symbol=HGAppearanceString([slot stringByAppendingString:@".symbol"]);
-    if(symbol.length) image=[UIImage systemImageNamed:symbol];
-    if(image)return image;
+static UIImage *HGAIcon(NSString *role,BOOL selected,BOOL flat,BOOL custom,BOOL *drawnPreset) {
+    if(custom) {
+        NSString *slot=[NSString stringWithFormat:@"icons.%@.%@",role,selected?@"selected":@"normal"];
+        NSString *token=HGAppearanceString([slot stringByAppendingString:@".asset"]);
+        UIImage *image=token.length ? [HGAImages objectForKey:token] : nil;
+        if(image)return image;
+        NSString *symbol=HGAppearanceString([slot stringByAppendingString:@".symbol"]);
+        if(symbol.length)image=[UIImage systemImageNamed:symbol];
+        if(image)return image;
+    }
+    if(flat) {
+        NSString *symbol=@{@"collect":@"star",@"comment":@"bubble.left",
+            @"like":@"heart",@"share":@"arrowshape.turn.up.right"}[role];
+        return [UIImage systemImageNamed:selected ? [symbol stringByAppendingString:@".fill"] : symbol];
+    }
     *drawnPreset=YES;
     return HGAActionPresetImage(role,selected,HGAppearanceString(@"icons.preset"));
 }

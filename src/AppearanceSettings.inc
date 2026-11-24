@@ -200,7 +200,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         for(NSDictionary *def in HGAppearanceCatalog()) {
             NSString *key=def[@"key"];
             if([key hasPrefix:@"icons.comment.selected."] || [key hasPrefix:@"icons.share.selected."])continue;
-            NSString *haystack=[NSString stringWithFormat:@"%@ %@",def[@"title"],def[@"key"]];
+            NSString *haystack=[NSString stringWithFormat:@"%@ %@ %@",def[@"title"],def[@"key"],
+                [def[@"labels"] componentsJoinedByString:@" "] ?: @""];
             BOOL match=YES;
             for(NSString *word in [query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet])
                 if(word.length && [haystack rangeOfString:word options:NSCaseInsensitiveSearch|NSDiacriticInsensitiveSearch].location==NSNotFound){match=NO;break;}
@@ -221,7 +222,9 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     } else if([self.group isEqual:@"general"]) {
         HGAAddDefs(rows,@[@"enabled"]);
     } else if([self.group isEqual:@"dock"]) {
-        HGAAddDefs(rows,@[@"dock.enabled",@"dock.material",@"dock.content",@"dock.haptics"]);
+        HGAAddDefs(rows,@[@"dock.enabled",@"dock.style"]);
+        if(!HGFlatDockStyle())HGAAddDefs(rows,@[@"dock.material"]);
+        HGAAddDefs(rows,@[@"dock.content",@"dock.haptics"]);
         section(@"布局与交互");
         [rows addObject:HGASubpage(@"@group.dock.extra",@"独立圆形按钮",HGAppearanceFlag(@"dock.extra")?@"已开启":@"已关闭")];
         [rows addObject:HGASubpage(@"@group.dock.geometry",@"底栏尺寸与圆角",@"宽度、高度、圆角与图标大小（1–100%）")];
@@ -240,7 +243,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"dock.hide.home",@"dock.hide.theater",@"dock.hide.store",@"dock.hide.mine"]);
     } else if([self.group isEqual:@"chrome"]) {
         section(@"顶部导航");
-        HGAAddDefs(rows,@[@"player.headerGlass"]);
+        HGAAddDefs(rows,@[@"player.headerGlass",@"player.headerStyle"]);
         [rows addObject:HGASubpage(@"@group.chrome.hide",@"顶部按钮与频道隐藏",@"菜单、频道与搜索")];
         section(@"找剧");
         HGAAddDefs(rows,@[@"player.finderGlass",@"player.finderAI"]);
@@ -265,7 +268,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search"]);
     } else if([self.group isEqual:@"player"]) {
         section(@"播放与材质");
-        HGAAddDefs(rows,@[@"player.fullscreen",@"player.disableEpisodeSwipe",@"player.separateProgress",@"player.rightGlass",@"player.material"]);
+        HGAAddDefs(rows,@[@"player.fullscreen",@"player.disableEpisodeSwipe",@"player.separateProgress",
+            @"player.rightGlass",@"player.actionStyle",@"player.material"]);
         NSArray *roles = HGAppearanceRoles(), *roleTitles = HGAppearanceRoleTitles();
         for (NSUInteger i = 0; i < roles.count; i++) {
             NSString *role = roles[i];
@@ -396,7 +400,16 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 }
 - (void)save:(NSString *)key value:(id)value {
     NSError *error=nil;
-    if(!HGAppearanceSet(key,value,&error))[self message:@"设置未更改" detail:error.localizedDescription];
+    NSString *area=@{@"dock.style":@"dock.enabled",@"player.headerStyle":@"player.headerGlass",
+        @"player.actionStyle":@"player.rightGlass"}[key];
+    if(area) {
+        NSMutableDictionary *change=[@{area:@YES,key:value} mutableCopy];
+        if([key isEqual:@"dock.style"] && [value isEqual:@"glass"] &&
+            [@[@"blur",@"solid"] containsObject:HGAppearanceString(@"dock.material")])
+            change[@"dock.material"]=@"regular";
+        HGAppearanceApply(change,&error);
+    } else HGAppearanceSet(key,value,&error);
+    if(error)[self message:@"设置未更改" detail:error.localizedDescription];
 }
 - (void)toggle:(UISwitch *)toggle {
     NSString *key=toggle.accessibilityIdentifier;[self save:key value:@(toggle.on)];toggle.on=HGAppearanceFlag(key);

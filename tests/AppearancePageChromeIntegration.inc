@@ -552,7 +552,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         Check(segments.numberOfSegments==2 && [[segments titleForSegmentAtIndex:0] isEqual:@"漫剧"] &&
             [[segments titleForSegmentAtIndex:1] isEqual:@"推荐"] && segments.selectedSegmentIndex==1 &&
             categoryList.hidden && (segmentHit==segments || [segmentHit isDescendantOfView:segments]),
-            @"the two-channel glass pill is a native segmented control and hides duplicate host labels");
+            @"flat channels retain the standard segmented control, direct touch target and original host indices");
     }
     NSIndexPath *comicPath=[NSIndexPath indexPathForItem:1 inSection:0];
     NSIndexPath *recPath=[NSIndexPath indexPathForItem:3 inSection:0];
@@ -671,6 +671,40 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         Check(channels.nativeSelections==selections+2 && channels.selectedIndex==1 &&
             pageScroll.contentOffset.x==pageWidth,
             @"returning to the first segment commits native channel one");
+    }
+    if (@available(iOS 26.0,*)) {
+        if (HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled()) {
+            HGAppearanceSet(@"player.headerStyle",@"glass",nil);
+            Layout(header);
+            UIView *group=Find(header,material);
+            Layout(group);
+            NSMutableArray<UIButton *> *buttons=[NSMutableArray array];
+            for (NSUInteger i=0;i<2;i++) {
+                CGPoint center=CGPointMake(CGRectGetWidth(group.bounds)*(0.25+0.5*i),CGRectGetMidY(group.bounds));
+                UIView *hit=[header hitTest:[group convertPoint:center toView:header] withEvent:nil];
+                while (hit && hit!=group && ![hit isKindOfClass:UIButton.class]) hit=hit.superview;
+                if ([hit isKindOfClass:UIButton.class] && [hit isDescendantOfView:group]) [buttons addObject:(UIButton *)hit];
+            }
+            BOOL native=buttons.count==2 && buttons[0]!=buttons[1] && buttons[0].selected &&
+                [buttons[0].configuration.attributedTitle.string isEqual:@"漫剧"] &&
+                [buttons[1].configuration.attributedTitle.string isEqual:@"推荐"];
+            Check(native && !segments.window && categoryList.hidden,
+                @"liquid glass replaces the flat strip with two directly hittable configured channel buttons");
+            if (native) {
+                NSUInteger before=channels.nativeSelections;
+                [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                Check(buttons[1].selected && !buttons[0].selected && channels.selectedIndex==3 &&
+                    channels.nativeSelections==before+1 && pageScroll.contentOffset.x==3*pageWidth,
+                    @"glass channel activation selects the originally visible host page exactly once");
+                [buttons[0] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+            }
+            HGAppearanceSet(@"player.headerStyle",@"flat",nil);
+            Layout(header);
+            UISegmentedControl *flat=(id)Find(header,material);
+            Check([flat isKindOfClass:UISegmentedControl.class] && flat.selectedSegmentIndex==0 && !group.window,
+                @"returning to flat restores the stock UIKit control and preserves the selected channel");
+        }
     }
     [header applySearchIconVisible:NO tabContainerTop:0];
     Check(header.sideBar.hidden && search.alpha==0 && search.searchButtonSlotView.hidden,

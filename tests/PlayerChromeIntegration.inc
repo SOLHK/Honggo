@@ -1,5 +1,6 @@
 @interface FQVShortVideoVPlayerControlView : UIView <UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIButton *fullscreenBtn;
+@property(nonatomic,strong) UIButton *playBtn;
 @property(nonatomic,strong,readonly) UIPanGestureRecognizer *progressPanGesture;
 @property(nonatomic) NSUInteger nativeClipPasses;
 - (void)handleOutterFeedClipBounds:(BOOL)clip;
@@ -255,6 +256,25 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     Check(action.taps==2 && !Find(fullscreen,@"honggo.appearance.material") &&
         [fullscreen.backgroundColor isEqual:nativeFullscreenColor],
         @"fullscreen button forwards its native action once in both states and restores its backing");
+    UIButton *play=[UIButton buttonWithType:UIButtonTypeCustom];
+    play.frame=CGRectMake(8,4,48,48);
+    [play setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
+    [play setImage:[UIImage systemImageNamed:@"pause.fill"] forState:UIControlStateSelected];
+    [play addTarget:action action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
+    playback.playBtn=play;
+    [playback addSubview:play];
+    HGAppearanceApply(@{@"player.rightGlass":@YES,@"player.actionStyle":@"glass",@"player.material":@"blur"},nil);
+    HGAppearanceProcessView(playback);
+    UIVisualEffectView *playGlass=(id)Find(play,@"honggo.appearance.material");
+    Layout(playGlass);
+    Check(playGlass && !playGlass.userInteractionEnabled && (!HGNativeGlassConfigured() ||
+        UIAccessibilityIsReduceTransparencyEnabled() || [playGlass.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")]),
+        @"play receives its own liquid surface while other player controls use blur");
+    HGAppearanceSet(@"player.actionStyle",@"flat",nil);
+    play.selected=YES;
+    [play sendActionsForControlEvents:UIControlEventTouchUpInside];
+    Check(!Find(play,@"honggo.appearance.material") && play.currentImage==[play imageForState:UIControlStateSelected] &&
+        action.taps==3,@"flat play keeps the host's current playback glyph and its original action");
     [playback removeFromSuperview];
 
     HGAppearanceSet(@"player.controlsGlass",@YES,nil);

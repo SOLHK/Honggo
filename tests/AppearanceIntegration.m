@@ -256,7 +256,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         @"tapping the appearance master row again restores its persisted preference");
     Check(!firstModal && !lastModal, @"both valid appearance switch edits complete without a save error sheet");
     BOOL rolesRouted = YES, choiceOpened = NO;
-    NSUInteger visitedRoles = 0;
+    NSUInteger visitedRoles = 0, styleRows = 0;
     for (NSString *group in @[@"dock", @"chrome", @"panels", @"icons", @"fonts", @"player"]) {
         NSIndexPath *path = HGMenuPath(home, [@"@group." stringByAppendingString:group]);
         if (path) [home tableView:home.tableView didSelectRowAtIndexPath:path];
@@ -266,6 +266,8 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
             continue;
         }
         [window layoutIfNeeded];
+        NSString *styleKey=@{@"dock":@"dock.style",@"chrome":@"player.headerStyle",@"player":@"player.actionStyle"}[group];
+        if (styleKey && HGMenuPath(detail,styleKey)) styleRows++;
         if ([group isEqual:@"player"]) {
             for (NSString *role in HGAppearanceRoles()) {
                 NSString *destination = [@"role." stringByAppendingString:role];
@@ -288,6 +290,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         [window layoutIfNeeded];
     }
     Check(routed, @"every category opens from a pushed appearance menu without a search controller");
+    Check(styleRows == 3, @"the dock, header and player style selectors are reachable from the appearance menu");
     Check(rolesRouted && visitedRoles == HGAppearanceRoles().count,
         @"every playback control opens its own editor through the table delegate");
     Check(choiceOpened, @"a pushed playback menu presents its layout choice sheet");
@@ -380,6 +383,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
     // Exercise the custom-radius glass path independently of UIKit's capsule.
     HGAppearanceSet(@"dock.radius",@21,nil);
+    HGAppearanceSet(@"player.headerStyle",@"glass",nil);
     HGAppearanceLayoutDock(self.host.customTabBar,self.host);
     UIView *capsule=Find(self.host.customTabBar,@"honggo.appearance.dock.capsule");
     BOOL matchingGlass=YES;
@@ -391,6 +395,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
             [material.contentView.backgroundColor isEqual:chromeColor];
     }
     Check(matchingGlass,@"actions header and episode entry share full-opacity dark glass with the same neutral base");
+    HGAppearanceSet(@"player.headerStyle",@"flat",nil);
     UIVisualEffectView *dockMaterial=(id)Find(capsule,@"honggo.appearance.material");
     Layout(dockMaterial);
     Check(dockMaterial.alpha==1 && !dockMaterial.maskView &&

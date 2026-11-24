@@ -9,7 +9,7 @@ static NSString *const HGAR15GeometryMigration = @"Honggo.Appearance.r15Geometry
 static NSString *const HGADockWidthMigration = @"Honggo.Appearance.dockWidthMigrated";
 static NSString *const HGAR20GeometryMigration = @"Honggo.Appearance.r20GeometryMigrated";
 static NSString *const HGABalancedDockMigration = @"Honggo.Appearance.balancedDockMigrated";
-static const double HGADockDefaultWidth = 0.90;
+const double HGADockDefaultWidth = 0.90;
 static const double HGADockDefaultHeight = 58;
 static const double HGADockDefaultIconSize = 24;
 static const double HGADockDefaultExtraSize = 54;
@@ -39,8 +39,13 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             [a addObject:HGADef(key,group,title,@"number",@(value),@{@"min":@(low),@"max":@(high)})]; };
         void (^choice)(NSString *,NSString *,NSString *,NSArray *,NSArray *) = ^(NSString *key, NSString *group, NSString *title, NSArray *values, NSArray *titles) {
             [a addObject:HGADef(key,group,title,@"choice",values.firstObject,@{@"choices":values,@"labels":titles})]; };
+        void (^buttonStyle)(NSString *,NSString *,NSString *,NSString *) = ^(NSString *key, NSString *group, NSString *title, NSString *initial) {
+            [a addObject:HGADef(key,group,title,@"choice",initial,
+                @{@"choices":@[@"flat",@"glass"], @"labels":@[@"平面",@"液态玻璃"]})];
+        };
         flag(@"enabled",@"general",@"启用外观定制");
         flag(@"dock.enabled",@"dock",@"使用可定制悬浮底栏");
+        buttonStyle(@"dock.style",@"dock",@"底栏按钮风格",@"glass");
         choice(@"dock.material",@"dock",@"底栏材质",@[@"regular",@"clear",@"blur",@"solid"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）",@"纯色"]);
         choice(@"dock.content",@"dock",@"底栏显示",@[@"both",@"text",@"icon"],@[@"图标和文字",@"仅文字",@"仅图标"]);
         number(@"dock.width",@"dock",@"底栏宽度比例",HGADockDefaultWidth,0.55,1);
@@ -62,8 +67,10 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         NSArray *tabIDs = @[@"home",@"theater",@"store",@"mine"];
         NSArray *tabNames = @[@"首页",@"剧场",@"商城",@"我的"];
         for (NSUInteger i=0; i<tabIDs.count; i++) flag([@"dock.hide." stringByAppendingString:tabIDs[i]],@"dock",[@"隐藏" stringByAppendingString:tabNames[i]]);
-        flag(@"player.rightGlass",@"player",@"右侧动作按钮玻璃");
-        flag(@"player.headerGlass",@"player",@"顶部频道玻璃");
+        flag(@"player.rightGlass",@"player",@"自定义播放动作按钮");
+        buttonStyle(@"player.actionStyle",@"player",@"播放动作按钮风格",@"glass");
+        flag(@"player.headerGlass",@"player",@"自定义顶部按钮");
+        buttonStyle(@"player.headerStyle",@"player",@"顶部按钮风格",@"flat");
         NSArray *channelIDs=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
         NSArray *channelNames=@[@"菜单",@"关注",@"漫剧",@"真人剧",@"推荐",@"搜索"];
         for(NSUInteger i=0;i<channelIDs.count;i++)
@@ -217,6 +224,9 @@ id HGAppearanceValue(NSString *key) {
 BOOL HGAppearanceFlag(NSString *key){ return [HGAppearanceValue(key) boolValue]; }
 double HGAppearanceNumber(NSString *key){ return [HGAppearanceValue(key) doubleValue]; }
 NSString *HGAppearanceString(NSString *key){ id v=HGAppearanceValue(key); return [v isKindOfClass:NSString.class]?v:@""; }
+BOOL HGFlatDockStyle(void) { return [HGAppearanceString(@"dock.style") isEqual:@"flat"]; }
+BOOL HGFlatTopStyle(void) { return [HGAppearanceString(@"player.headerStyle") isEqual:@"flat"]; }
+BOOL HGFlatPlayerStyle(void) { return [HGAppearanceString(@"player.actionStyle") isEqual:@"flat"]; }
 static BOOL HGAError(NSError **error,NSString *message) { if(error)*error=[NSError errorWithDomain:@"Honggo.Appearance" code:1 userInfo:@{NSLocalizedDescriptionKey:message}]; return NO; }
 static void HGAMigrateActionIconPreset(NSMutableDictionary *values) {
     if([values[@"icons.preset"] isEqual:@"outline"])values[@"icons.preset"]=@"filled";

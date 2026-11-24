@@ -106,6 +106,17 @@ int main(void) {@autoreleasepool {
     Check(unique && keys.count>100,@"every visual option has one stable key");
     Check(defaults && [onWhenEnabled isSubsetOfSet:keys] && !HGAppearanceEnabled() && !HGAppearanceNeedsGlass(),
         @"appearance remains opt-in with the new scoped defaults ready under its master switch");
+    Check(HGFlatTopStyle() && !HGFlatDockStyle() && !HGFlatPlayerStyle(),
+        @"existing appearance settings start with flat top channels and glass dock and player actions");
+    Check(HGAppearanceSet(@"dock.style",@"flat",nil) && HGFlatDockStyle() && HGFlatTopStyle() && !HGFlatPlayerStyle(),
+        @"flat dock can be selected independently of the top bar and player");
+    Check(HGAppearanceApply(@{@"player.headerStyle":@"glass",@"player.actionStyle":@"flat"},nil) &&
+        HGFlatDockStyle() && !HGFlatTopStyle() && HGFlatPlayerStyle(),
+        @"each area retains its choice when another area changes");
+    NSDictionary *styles=HGAppearanceParse(HGAppearanceExport(nil),nil);
+    Check([styles[@"dock.style"] isEqual:@"flat"] && [styles[@"player.headerStyle"] isEqual:@"glass"] &&
+        [styles[@"player.actionStyle"] isEqual:@"flat"] && !HGAppearanceSet(@"player.headerStyle",@"unknown",nil),
+        @"both styles round trip through the appearance backup and invalid values are rejected");
     HGAppearanceSet(@"player.episodeGlass",@NO,nil);
     Check(!HGAppearanceFlag(@"player.episodeGlass"),@"an explicit disabled episode preference overrides the new default");
     HGAppearanceReset();

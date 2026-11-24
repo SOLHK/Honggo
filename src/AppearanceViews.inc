@@ -249,9 +249,10 @@ static CGFloat HGAActionGlassDiameter(UIView *root) {
     return MIN(44,MIN(CGRectGetWidth(root.bounds),CGRectGetHeight(root.bounds)));
 }
 
-static void HGAApplyIcon(UIView *root,NSString *role,BOOL glass) {
+static void HGAApplyIcon(UIView *root,NSString *role,BOOL glass,BOOL flat) {
     if(![@[@"like",@"collect",@"comment",@"share"] containsObject:role])return;
-    if(!HGAppearanceEnabled() || !HGAppearanceFlag(@"icons.enabled") || !root.window) {HGARestoreIcon(root);return;}
+    BOOL custom=HGAppearanceFlag(@"icons.enabled");
+    if(!HGAppearanceEnabled() || (!flat && !custom) || !root.window) {HGARestoreIcon(root);return;}
     BOOL selected=NO;
     if([role isEqual:@"like"] || [role isEqual:@"collect"]) {
         NSString *getter=[role isEqual:@"like"]?@"isLiked":@"isCollected";
@@ -267,7 +268,7 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL glass) {
     HGAIconState *state=objc_getAssociatedObject(root,&HGAIconKey);
     if(state.imageView!=icon){HGARestoreIcon(root);state=nil;}
     BOOL drawnPreset=NO;
-    UIImage *image=HGAIcon(role,selected,&drawnPreset);
+    UIImage *image=HGAIcon(role,selected,flat,custom,&drawnPreset);
     if(!icon || !image){HGARestoreIcon(root);return;}
     if(!state){state=[HGAIconState new];state.imageView=icon;state.source=icon.image;state.tint=icon.tintColor;
         objc_setAssociatedObject(root,&HGAIconKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
@@ -504,7 +505,9 @@ void HGAppearanceProcessView(UIView *view) {
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".y"]):0,
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".scale"]):1);
         BOOL action=[@[@"avatar",@"collect",@"comment",@"like",@"share",@"more"] containsObject:role];
-        BOOL glass=enabled && outer && ((action && HGAppearanceFlag(@"player.rightGlass")) ||
+        BOOL styleActions=action && HGAppearanceFlag(@"player.rightGlass");
+        BOOL flat=enabled && outer && styleActions && HGFlatPlayerStyle();
+        BOOL glass=enabled && outer && ((styleActions && !flat) ||
             ([role isEqual:@"channels"] && !headerShowsFinder && HGAppearanceFlag(@"player.headerGlass")) ||
             ([role isEqual:@"episodes"] && HGAppearanceFlag(@"player.episodeGlass")));
         BOOL episode=[role isEqual:@"episodes"];
@@ -512,7 +515,7 @@ void HGAppearanceProcessView(UIView *view) {
         CGRect episodeFrame=episode ? HGAEpisodeGlassFrame(view) : CGRectZero;
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
         if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
-        HGAApplyIcon(view,role,glass);
+        HGAApplyIcon(view,role,glass,flat);
         if(header) {
             HGAApplyHeaderSeparatedGlass(view,glass,enabled && outer && !headerShowsFinder && !view.hidden,
                 HGAppearanceString(@"player.material"));
@@ -532,7 +535,7 @@ void HGAppearanceProcessView(UIView *view) {
                 glassFrame=CGRectMake(x,y,side,side);
                 radius=side/2;
             }
-            NSString *style=HGAppearanceString(@"player.material");
+            NSString *style=action ? HGALiquidPlayerMaterial() : HGAppearanceString(@"player.material");
             BOOL compactEpisode=episode && !CGRectEqualToRect(episodeFrame,view.bounds);
             if(compactEpisode && HGAppearanceDockEnabled()) {
                 NSString *dockStyle=HGAppearanceString(@"dock.material");
