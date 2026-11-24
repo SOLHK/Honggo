@@ -91,6 +91,10 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             flag([@"finder.hide.shortcut." stringByAppendingString:finderShortcuts[i]],@"chrome",
                 [@"隐藏" stringByAppendingString:finderShortcutNames[i]]);
         flag(@"mine.hide.shortcut.row",@"mine",@"隐藏整行快捷入口");
+        [a addObject:HGADef(@"mine.show.publish",@"mine",@"显示悬浮发布按钮",@"bool",@YES,
+            @{@"keywords":@"我的 作品 写剧评 加号 ＋ 发布"})];
+        [a addObject:HGADef(@"mine.show.theme",@"mine",@"显示日夜模式按钮",@"bool",@YES,
+            @{@"keywords":@"我的 月亮 太阳 深色模式 夜间模式 主题"})];
         NSArray *mineShortcuts=@[@"store",@"messages",@"games",@"updates",@"more"];
         NSArray *mineShortcutNames=@[@"订单／商城",@"消息",@"游戏",@"追更",@"更多功能"];
         for(NSUInteger i=0;i<mineShortcuts.count;i++)

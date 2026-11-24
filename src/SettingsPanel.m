@@ -2,6 +2,7 @@
 #import "Appearance.h"
 #import "Community.h"
 #import "SettingsTransition.h"
+#import "ReleaseNotes.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <dispatch/dispatch.h>
 
@@ -405,7 +406,70 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 }
 @end
 
+@interface HGReleaseNotesController : UITableViewController
+@property(nonatomic, copy) NSArray<NSArray<NSString *> *> *entries;
+@end
+
+@implementation HGReleaseNotesController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title=@"更新记录";
+    self.entries=HGReleaseNotes();
+    self.navigationItem.rightBarButtonItem=[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
+        target:self action:@selector(closeNotes)];
+    self.tableView.accessibilityIdentifier=@"honggo.settings.releaseNotes";
+    self.tableView.rowHeight=UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight=88;
+    self.tableView.backgroundColor=UIColor.clearColor;
+    self.tableView.allowsSelection=NO;
+}
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return self.entries.count;
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
+    UITableViewCell *cell=[tableView dequeueReusableCellWithIdentifier:@"release"];
+    if(!cell)cell=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"release"];
+    NSArray *entry=self.entries[path.row];
+    UIListContentConfiguration *content=[UIListContentConfiguration subtitleCellConfiguration];
+    content.text=entry.firstObject;
+    content.textProperties.font=[UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+    content.secondaryText=entry.lastObject;
+    content.secondaryTextProperties.font=[UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    content.secondaryTextProperties.numberOfLines=0;
+    content.textToSecondaryTextVerticalPadding=6;
+    content.directionalLayoutMargins=NSDirectionalEdgeInsetsMake(14,20,14,20);
+    cell.contentConfiguration=content;
+    cell.backgroundConfiguration=[UIBackgroundConfiguration clearConfiguration];
+    return cell;
+}
+- (void)closeNotes { [self dismissViewControllerAnimated:YES completion:nil]; }
+@end
+
 @implementation HGSettingsController
+- (void)showReleaseNotes:(UIButton *)button {
+    if(self.presentedViewController)return;
+    HGReleaseNotesController *notes=[[HGReleaseNotesController alloc] initWithStyle:UITableViewStylePlain];
+    UINavigationController *card=[[UINavigationController alloc] initWithRootViewController:notes];
+    card.modalPresentationStyle=UIModalPresentationPageSheet;
+    UISheetPresentationController *sheet=card.sheetPresentationController;
+    sheet.detents=@[UISheetPresentationControllerDetent.mediumDetent,UISheetPresentationControllerDetent.largeDetent];
+    sheet.prefersGrabberVisible=YES;
+    if(@available(iOS 26.1,*)) {
+        for(UISheetPresentationControllerDetent *detent in sheet.detents)
+            detent.backgroundEffect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleRegular];
+    } else {
+        UIVisualEffect *effect;
+        if(@available(iOS 26.0,*))effect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleRegular];
+        else effect=[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+        notes.tableView.backgroundView=[[UIVisualEffectView alloc] initWithEffect:effect];
+    }
+    if(@available(iOS 18.0,*)) {
+        __weak UIButton *source=button;
+        card.preferredTransition=[UIViewControllerTransition zoomWithOptions:nil
+            sourceViewProvider:^UIView *(UIZoomTransitionSourceViewProviderContext *context) { return source; }];
+    }
+    [self presentViewController:card animated:YES completion:nil];
+}
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = HG_PLUGIN_NAME;
@@ -414,11 +478,16 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
     self.tableView.accessibilityIdentifier = @"honggo.settings.options";
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 56;
-    UILabel *version = [UILabel new];
-    version.text = HG_PLUGIN_VERSION;
-    version.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
-    version.adjustsFontForContentSizeCategory = YES;
-    version.textColor = UIColor.secondaryLabelColor;
+    UIButtonConfiguration *style;
+    if (@available(iOS 26.0,*)) style=[UIButtonConfiguration glassButtonConfiguration];
+    else style=[UIButtonConfiguration grayButtonConfiguration];
+    style.title=HG_PLUGIN_VERSION;
+    style.buttonSize=UIButtonConfigurationSizeSmall;
+    style.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
+    style.baseForegroundColor=UIColor.labelColor;
+    UIButton *version=[UIButton buttonWithConfiguration:style primaryAction:nil];
+    version.accessibilityLabel=[NSString stringWithFormat:@"版本 %@，更新记录",HG_PLUGIN_VERSION];
+    [version addTarget:self action:@selector(showReleaseNotes:) forControlEvents:UIControlEventTouchUpInside];
     version.accessibilityIdentifier = @"honggo.settings.version";
     [version sizeToFit];
     UIBarButtonItem *versionItem = [[UIBarButtonItem alloc] initWithCustomView:version];

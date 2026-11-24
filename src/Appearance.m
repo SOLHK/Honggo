@@ -264,6 +264,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGAHomeChannelPagerDidSettle(object);
             }
             else if(scrollComponent)HGARefreshBackdropAfterScroll(argument);
+            else if(controller)HGAppearanceProcessController(object);
             else if(!transfer && !episodeMove && !bottomMove)HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v28@0:8@16B24")) {
@@ -287,6 +288,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             HGATraceCategoryCallback(selector, @"return");
             HGAResumeCategoryFeeds(object);
             HGAHomeChannelPagerDidSettle(object);
+            HGAFinderCategoryDidAppear(object);
         });
     } else if (!strcmp(encoding,"v32@0:8@16@24")) {
         replacement=imp_implementationWithBlock(^(id object,id first,id second) {
@@ -361,6 +363,7 @@ static void HGAInstallNativeShareRoute(void) {
 void HGAppearanceRefresh(void) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();}); return; }
     HGARefreshAssets();
+    HGARefreshMinePublishVisibility();
     for(id component in HGAPlayerNavigations.allObjects)HGAApplyPlayerNavigation(component);
     HGRecordCapability(@"module.appearance",@{@"module":@"appearance",
         @"state":HGAppearanceEnabled() ? (HGAHooks.count ? @"partial":@"unavailable") : @"disabled",
@@ -426,7 +429,8 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName("handleOutterFeedClipBounds:"),"v20@0:8B16",NO);
             if([name isEqual:@"SSShortVideoTagListBottomInsertView"])
                 HGAHook(cls,sel_registerName("relayout"),"v16@0:8",NO);
-            if([name isEqual:@"SSShortVideoTagListBottomInsertView"] || [name isEqual:@"SSShortVideoSingleBottomInsertView"])
+            if([name isEqual:@"SSShortVideoTagListBottomInsertView"] || [name isEqual:@"SSShortVideoSingleBottomInsertView"] ||
+                [name isEqual:@"FQVShortVideoPlayerBottomView"])
                 HGAHook(cls,sel_registerName("setVideoDataModel:"),"v24@0:8@16",NO);
             if([name isEqual:@"FQVShortVideoControlCleanSwitchView"])
                 HGAHook(cls,sel_registerName("refreshLayout"),"v16@0:8",NO);
@@ -524,6 +528,7 @@ void HGInstallAppearance(void) {
             HGAHook(categoryPager,sel_registerName("listDidAppear:"),"v24@0:8q16",NO);
         }
         if(scrollComponent) {
+            HGAHook(scrollComponent,@selector(scrollViewDidScroll:),"v24@0:8@16",NO);
             HGAHook(scrollComponent,@selector(scrollViewDidEndDecelerating:),"v24@0:8@16",NO);
             HGAHook(scrollComponent,@selector(scrollViewDidEndScrollingAnimation:),"v24@0:8@16",NO);
             HGAHook(scrollComponent,@selector(scrollViewDidEndDragging:willDecelerate:),"v28@0:8@16B24",NO);
@@ -534,8 +539,15 @@ void HGInstallAppearance(void) {
             Class cls=NSClassFromString(name);
             if (![cls isSubclassOfClass:UIViewController.class]) continue;
             HGAHook(cls,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
-            if([HGAFinderControllers() containsObject:name]) {
+            if([HGAPanelControllers()[name] isEqual:@"episode-page"]) {
                 HGAHook(cls,@selector(viewDidAppear:),"v20@0:8B16",YES);
+                HGAHook(cls,sel_registerName("onDarkModeChange:"),"v20@0:8B16",YES);
+            }
+            if([HGAFinderControllers() containsObject:name]) {
+                HGAHook(cls,@selector(viewWillAppear:),"v20@0:8B16",YES);
+                HGAHook(cls,@selector(viewDidAppear:),"v20@0:8B16",YES);
+                SEL traitChanged=sel_registerName("traitCollectionDidChange:");
+                if(class_getInstanceMethod(cls,traitChanged))HGAHook(cls,traitChanged,"v24@0:8@16",YES);
                 NSArray<NSString *> *updates=[name isEqual:@"FQTheaterViewController"] ?
                     @[@"relayoutHeader",@"setupNewSearchBarNew",@"refreshAISearchEntrance"] :
                     @[@"relayoutHeaderWithSearchBar",@"bookStoreSearchBarComponentNeedsRelayout"];

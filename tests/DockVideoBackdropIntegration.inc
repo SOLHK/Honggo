@@ -32,8 +32,6 @@
 @property(nonatomic,strong) FQVShortVideoGradientLayerView *bottomGradientView;
 @end
 @implementation HGBackdropGradientControl @end
-@interface FQVShortVideoPlayerBottomView : UIView @end
-@implementation FQVShortVideoPlayerBottomView @end
 @interface FQVShortVideoVPlayerSingleSeriesControlView : HGBackdropGradientControl
 @property(nonatomic,strong) FQVShortVideoPlayerBottomView *singleSeriesBottomView;
 @end
@@ -349,6 +347,20 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             CGColorGetAlpha((__bridge CGColorRef)gradient.colors.lastObject)==0 &&
             beforeSeam.valid && afterSeam.valid && fabs(beforeSeam.red-afterSeam.red)<0.06,
             @"the native HUD gradient fades out at the joined video edge without a brightness step");
+
+        // Move down towards the previous episode. The active portrait cell
+        // still covers the original bottom but leaves 50pt below its edge.
+        [feed setContentOffset:CGPointMake(0,feedHeight-40) animated:NO];Layout(feed);
+        cell.metal.bounds=(CGRect){CGPointZero,CGSizeMake(width,feedHeight+12)};
+        cell.metal.center=CGPointMake(width/2,feedHeight/2);
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        CATransform3D movingFill=cell.renderer.layer.sublayerTransform;
+        Check(!feed.clipsToBounds && fabs(movingFill.m42-25)<0.01 &&
+            fabs(movingFill.m22-(feedHeight+50)/feedHeight)<0.001 &&
+            CGRectEqualToRect(cell.renderer.frame,portraitFrame),
+            @"a portrait with vertical overscan continues under the Dock during a reverse swipe");
+        [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
+        Layout(cell);[manager refreshWithBranches:branches root:container.view bar:bar active:YES];
 
         // Exercise the actual player willMoveToSuperview hook: the native
         // renderer must see its original compositor before it is borrowed.

@@ -247,7 +247,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"player.finderGlass",@"player.finderAI"]);
         [rows addObject:HGASubpage(@"@group.chrome.finder.hide",@"找剧频道与快捷入口",@"逐项隐藏频道、筛选等入口")];
     } else if([self.group isEqual:@"mine"] || [self.group isEqual:@"chrome.mine.hide"]) {
-        HGAAddDefs(rows,@[@"player.mineGlass"]);
+        HGAAddDefs(rows,@[@"player.mineGlass",@"mine.show.publish",@"mine.show.theme"]);
         section(@"我的快捷入口");
         HGAAddDefs(rows,@[@"mine.hide.shortcut.row",@"mine.hide.shortcut.store",@"mine.hide.shortcut.messages",
             @"mine.hide.shortcut.games",@"mine.hide.shortcut.updates",@"mine.hide.shortcut.more"]);
@@ -374,6 +374,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             cell.detailTextLabel.text=@"仅横屏播放横向视频时铺满，竖屏保持原比例";
         if([key isEqual:@"player.commentMovesVideo"])
             cell.detailTextLabel.text=@"关闭后，打开评论区时视频留在原位。";
+        if([key isEqual:@"mine.show.theme"])
+            cell.detailTextLabel.text=@"新版个人页在创建时读取此项，重新打开红果后生效。";
     }else if([kind isEqual:@"number"]) {
         UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(0,0,136,44)];
         slider.minimumValue=1;slider.maximumValue=100;

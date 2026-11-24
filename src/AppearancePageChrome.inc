@@ -413,6 +413,14 @@ static BOOL HGAIsFinderView(UIView *view) {
     return NO;
 }
 
+static void HGAFinderCategoryDidAppear(UIView *view) {
+    for(UIViewController *owner=HGAOwner(view);owner;owner=owner.parentViewController) {
+        if(!HGAIsFinderController(owner))continue;
+        HGAppearanceProcessController(owner);
+        break;
+    }
+}
+
 static char HGAFinderShortcutIndexesKey;
 static IMP HGAOriginalGoldenPositionSize;
 
@@ -455,6 +463,23 @@ static void HGAUpdateFinderShortcuts(UIView *row,BOOL enabled) {
     }
 }
 
+static void HGACenterFinderShortcut(UIView *cell,UIView *inner,UIView *content,BOOL enabled) {
+    if(!inner || inner==content || inner==cell)return;
+    UIView *icon=enabled ? HGAViewGetter(cell,"iconImgView",inner) : nil;
+    UIView *label=enabled ? HGAViewGetter(cell,"titleLabel",inner) : nil;
+    if(!HGAFinderControlReady(icon) || !HGAFinderControlReady(label)) {
+        HGARestoreGeometry(inner);
+        return;
+    }
+    CGRect ink=CGRectUnion([icon convertRect:icon.bounds toView:content],[label convertRect:label.bounds toView:content]);
+    HGAViewState *state=HGAState(inner,NO);
+    if(state.geometry && state.geometrySuperview==inner.superview &&
+        CGAffineTransformEqualToTransform(inner.transform,state.appliedTransform))
+        ink.origin.x-=state.appliedTransform.tx-state.sourceTransform.tx;
+    CGFloat space=CGRectGetWidth(content.bounds)-CGRectGetWidth(ink);
+    HGASetGeometry(inner,space>0 ? CGRectGetMidX(content.bounds)-CGRectGetMidX(ink) : 0,0,1);
+}
+
 static BOOL HGAIsFinderChannel(UIView *view) {
     if(HGAAncestorNamed(view,@"FQTheaterTabContainerView"))return YES;
     for(UIViewController *owner=HGAOwner(view);owner;owner=owner.parentViewController) {
@@ -480,12 +505,45 @@ static NSUInteger HGAFinderHiddenMask(NSArray *titles) {
 
 static IMP HGAOriginalMineFunctionItems,HGAOriginalMineFunctionSnapshot;
 static IMP HGAOriginalMineSidebarSnapshot;
+static IMP HGAOriginalMineSkinSwitch,HGAOriginalMinePublishUpdate;
+static char HGAMineLaunchSkinKey;
+static NSHashTable *HGAMinePublishOwners;
+static BOOL HGAMinePublishHidden;
 static char HGAMineEntryStateKey,HGAMineMenuButtonKey;
 static _Thread_local BOOL HGAMineSnapshotInFlight;
 static BOOL HGAMineFilterInstalled;
 
 static BOOL HGAMineHidesMore(void) {
     return HGAppearanceFlag(@"mine.hide.shortcut.row") || HGAppearanceFlag(@"mine.hide.shortcut.more");
+}
+
+// 7.4.5.33 copies this into the Compose launch parameters when creating My.
+static BOOL HGAMineShowsSkinSwitch(id page,SEL cmd) {
+    BOOL visible=((BOOL (*)(id,SEL))HGAOriginalMineSkinSwitch)(page,cmd) && HGAppearanceFlag(@"mine.show.theme");
+    objc_setAssociatedObject(page,&HGAMineLaunchSkinKey,@(visible),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return visible;
+}
+
+static void HGAMineUpdatePublish(id owner,SEL cmd) {
+    ((void (*)(id,SEL))HGAOriginalMinePublishUpdate)(owner,cmd);
+    if(!HGAMinePublishOwners)HGAMinePublishOwners=[NSHashTable weakObjectsHashTable];
+    [HGAMinePublishOwners addObject:owner];
+    if(!HGAppearanceFlag(@"mine.show.publish")) {
+        UIView *host=HGReadObjectGetter(owner,"hostView");
+        UIView *button=HGAViewGetter(owner,"publishButton",host);
+        button.hidden=YES;
+    }
+}
+
+static void HGARefreshMinePublishVisibility(void) {
+    BOOL hide=!HGAppearanceFlag(@"mine.show.publish");
+    if(HGAMinePublishHidden==hide)return;
+    HGAMinePublishHidden=hide;
+    for(id owner in HGAMinePublishOwners.allObjects) {
+        BOOL invalidated=NO;
+        HGABoolGetter(owner,@"invalidated",&invalidated);
+        if(!invalidated)HGAMineUpdatePublish(owner,sel_registerName("updateVisibility"));
+    }
 }
 
 // MoreSelectionItem is appended by Compose, outside functionItems. The same
@@ -535,6 +593,14 @@ static id HGAMineFunctionSnapshot(id owner,SEL cmd) {
 }
 
 static void HGAInstallMineShortcutHooks(void) {
+    if(!HGAOriginalMineSkinSwitch)
+        HGAOriginalMineSkinSwitch=HGInstallVerifiedHook(objc_lookUpClass("SSMine737KMPViewController"),
+            sel_registerName("shouldShowSkinSwitch"),"B16@0:8",(IMP)HGAMineShowsSkinSwitch,@"appearance");
+    if(!HGAOriginalMinePublishUpdate) {
+        HGAMinePublishHidden=!HGAppearanceFlag(@"mine.show.publish");
+        HGAOriginalMinePublishUpdate=HGInstallVerifiedHook(objc_lookUpClass("SSMineWorksKMPPublishEntranceController"),
+            sel_registerName("updateVisibility"),"v16@0:8",(IMP)HGAMineUpdatePublish,@"appearance");
+    }
     if(!HGAOriginalMineSidebarSnapshot) {
         Class page=objc_lookUpClass("SSMine737KMPViewController");
         Method open=class_getInstanceMethod(page,sel_registerName("minePageKMPDepend:setSidebarOpen:"));
@@ -605,7 +671,8 @@ static char HGAMineShortcutMaskKey,HGAMineTitleGlassKey;
 static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMutableArray<UIView *> *glyphs) {
     UIButton *button=objc_getAssociatedObject(controller,&HGAMineMenuButtonKey);
     NSNumber *source=objc_getAssociatedObject(controller,&HGAMineEntryStateKey);
-    if(!HGAMineHidesMore() || !source.integerValue || !titleBar.window || glyphs.count>=2) {
+    BOOL hasMoon=![(NSNumber *)objc_getAssociatedObject(controller,&HGAMineLaunchSkinKey) isEqual:@NO];
+    if(!HGAMineHidesMore() || !source.integerValue || !titleBar.window || glyphs.count>(hasMoon ? 1u : 0u)) {
         [button removeFromSuperview];
         if(button)objc_setAssociatedObject(controller,&HGAMineMenuButtonKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return;
@@ -702,15 +769,16 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
     HGAWatchMineTitleRenderer(controller,HGAMineHidesMore() ? renderer : nil);
     HGAUpdateMineMenu(controller,renderer ? titleBar : nil,targets);
     UIButton *menu=objc_getAssociatedObject(controller,&HGAMineMenuButtonKey);
-    if(targets.count==1 && menu.imageView)[targets addObject:menu.imageView];
+    if(menu.imageView)[targets addObject:menu.imageView];
     NSArray<UIView *> *backings=objc_getAssociatedObject(root,&HGAMineTitleGlassKey);
-    if(!glass || targets.count!=2) {
+    if(!glass || !targets.count || targets.count>2 || backings.count!=targets.count) {
         for(UIView *backing in backings)[backing removeFromSuperview];
         if(backings)objc_setAssociatedObject(root,&HGAMineTitleGlassKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        return;
+        if(!glass || !targets.count || targets.count>2)return;
+        backings=nil;
     }
     if(!backings) {
-        backings=@[[UIView new],[UIView new]];
+        backings=targets.count==1 ? @[[UIView new]] : @[[UIView new],[UIView new]];
         for(UIView *backing in backings) {
             backing.accessibilityIdentifier=@"honggo.appearance.mine.title";
             backing.userInteractionEnabled=NO;
@@ -850,10 +918,11 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
         HGAApplyChannelIndicators(view,enabled);
     } else if([name isEqual:@"SSMyUser637Bar"]) {
         NSMutableArray *targets=[NSMutableArray array];
+        UIView *moon=HGAViewGetter(view,"darkModeMaskView",view);
+        HGASetHidden(moon,!HGAppearanceFlag(@"mine.show.theme"));
         if(enabled && HGAppearanceFlag(@"player.mineGlass")) {
-            UIView *moon=HGAViewGetter(view,"darkModeMaskView",view);
             UIView *menu=HGAViewGetter(view,"sideBarButtonView",view) ?: HGAViewGetter(view,"settingsMaskView",view);
-            if(moon)[targets addObject:moon];
+            if(moon && !moon.hidden)[targets addObject:moon];
             if(menu)[targets addObject:menu];
         }
         HGAApplyPageChromeTargets(view,targets);
@@ -917,6 +986,7 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
             HGAHidePageChromeTarget(view,@"finderShortcutBorder",finder ? HGAViewGetter(view,"borderView",view) : nil);
             HGASetGlassHostBackground(view,finder);
             if(inner && inner!=target && inner!=view)HGASetGlassHostBackground(inner,finder);
+            HGACenterFinderShortcut(view,inner,target,finder);
         }
         HGAApplyFinderMaterial(target,finder ? CGRectInset(target.bounds,1,0) : CGRectZero,YES);
     }
@@ -924,13 +994,18 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
 
 static void HGAApplyFinderChrome(UIViewController *controller) {
     UIView *root=controller.view;
+    BOOL enabled=HGAppearanceEnabled(),glass=enabled && HGAppearanceFlag(@"player.finderGlass");
+    // UIKit can detach the controller's view while switching tabs or moving
+    // PiP. Leave its surfaces attached to their local targets so their effect
+    // views can restore themselves as soon as the same view rejoins a window.
+    if(glass && !root.window)return;
     BOOL theater=[controller isKindOfClass:NSClassFromString(@"FQTheaterViewController")];
     NSArray<NSString *> *aiArt=@[@"aiSearchEntrancePlaceholderView",@"aiSearchEntranceImageView",
         @"aiSearchEntranceLottieFirstFrameView",@"aiSearchEntranceLottieView"];
-    UIView *categories=HGAppearanceEnabled() && root.window && HGAppearanceFlag(@"finder.hide.category.row") ?
+    UIView *categories=enabled && root.window && HGAppearanceFlag(@"finder.hide.category.row") ?
         HGAViewGetter(controller,"tabContainer",root) : nil;
     HGAHidePageChromeTarget(root,@"finderCategories",categories);
-    if(!HGAppearanceEnabled() || !root.window) {
+    if(!enabled || !root.window) {
         UIView *recognitionContent=HGAViewGetter(controller,"normalImageSearchView",root);
         HGARestoreGeometry(recognitionContent);
         HGAApplyFinderSearch(root,nil,nil,nil,nil,nil,NO);
@@ -945,7 +1020,6 @@ static void HGAApplyFinderChrome(UIViewController *controller) {
     UIView *recognition=HGAViewGetter(controller,"imageSearchContainer",root) ?: recognitionContent;
     UIView *assistant=HGAViewGetter(controller,theater ? "aiSearchEntranceView" : "searchAiButtonView",root);
     UIView *divider=recognition ? HGAViewGetter(recognitionContent,"separatorView",recognition) : nil;
-    BOOL glass=HGAppearanceFlag(@"player.finderGlass");
     HGAApplyFinderSearch(root,field,recognition,assistant,recognitionContent,divider,glass);
     NSMutableArray<UIView *> *icons=[NSMutableArray array];
     if(glass) {

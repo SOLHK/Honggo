@@ -10,6 +10,7 @@ static NSDictionary<NSString *,NSArray<NSString *> *> *HGAPlayerControlGetters(v
         @"SSShortVideoAlbumSeriesBottomInsertView":@[@"containerView"],
         @"SSShortVideoPugcVideoBottomInsertView":@[@"commentContainerView"],
         @"SSShortVideoTagListBottomInsertView":@[@"episodeInfoView"],
+        @"FQVShortVideoPlayerBottomView":@[],
         @"FQVShortVideoVPlayerEpisodeInfoView":@[],
         @"FQVShortVideoControlCleanSwitchView":@[],
         @"FQCShortVideoDanmakuEntranceView":@[],
@@ -215,15 +216,25 @@ static void HGAApplyPlayerControls(UIView *root) {
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(sheet?@"panels.episodes":@"player.controlsGlass") && root.window;
     if([root isKindOfClass:NSClassFromString(@"FQVShortVideoVPlayerEpisodeInfoView")]) {
         HGARegisterView(root);
-        if(enabled && HGAVisible(root))HGAPlayerControlGlass(root,NO,YES);
+        if(enabled)HGAPlayerControlGlass(root,NO,YES);
         else HGARestorePlayerControlGlass(root);
         return;
     }
     if([root isKindOfClass:NSClassFromString(@"FQVShortVideoControlCleanSwitchView")]) {
         HGARegisterView(root);
-        if(!enabled || !HGAVisible(root)){HGARemoveGlass(root);return;}
+        if(!enabled || CGRectIsEmpty(root.bounds)){HGARemoveGlass(root);return;}
         CGRect frame=HGAPlayerDetailEntryFrame(root,YES);
         HGAInstallPlaybackGlass(root,HGALiquidPlayerMaterial(),frame,frame.size.width/2,nil);
+        return;
+    }
+    if([root isKindOfClass:NSClassFromString(@"FQVShortVideoPlayerBottomView")]) {
+        // This tray fades in after its native children have completed layout.
+        // Attach to the existing controls even during that fade.
+        for(UIView *child in root.subviews)
+            if([child isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerEpisodeInfoView")] ||
+               [child isKindOfClass:objc_lookUpClass("FQVShortVideoControlCleanSwitchView")])
+                HGAApplyPlayerControls(child);
+        HGRefreshVideoBackdropForPlayer(root);
         return;
     }
     if([root isKindOfClass:NSClassFromString(@"SSShortVideoBottomInsertView")]) {
@@ -367,7 +378,25 @@ static void HGAApplyEpisodeController(UIViewController *controller) {
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(@"panels.episodes") && root.window;
     CGRect rect=root.window?[root convertRect:root.bounds toView:root.window]:CGRectZero;
     if(rect.size.height>root.window.bounds.size.height*0.94)enabled=NO;
-    HGAApplyPanel(root,enabled?@"episodes":@"episodes-disabled");
+    if(enabled)HGAApplyActionSheet(root,@"episodes");
+    else HGARestoreActionSheet(root);
     // Concrete surfaces receive their own layout hooks, including reused cells.
     for(UIView *child in HGADescendants(root,420))if(HGAEpisodeControl(child))HGAApplyPlayerControls(child);
+}
+
+static void HGARefreshEpisodePage(UIViewController *page) {
+    for(UIViewController *parent=page.parentViewController;parent;parent=parent.parentViewController) {
+        HGAActionSheetState *state=objc_getAssociatedObject(parent.viewIfLoaded,&HGAActionSheetKey);
+        if(!state || ![HGAPanelKind(parent) isEqual:@"episodes"] ||
+           ![page.view isDescendantOfView:state.surface])continue;
+        // The host remounts and themes its active page after the encompassing
+        // card has been styled. Walk only the ancestry of its own collection.
+        UIView *collection=HGAViewGetter(page,"collectionView",page.view);
+        if([collection isKindOfClass:UICollectionView.class]) {
+            HGAClearSheetCover(state,((UICollectionView *)collection).backgroundView);
+            for(UIView *node=collection;node && node!=state.surface;node=node.superview)
+                HGAClearSheetCover(state,node);
+        }
+        return;
+    }
 }

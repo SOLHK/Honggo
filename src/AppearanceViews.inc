@@ -416,7 +416,9 @@ static NSDictionary<NSString *,NSString *> *HGAPanelControllers(void) {
         @"SSShortVideoSharePanelViewController":@"share",
         @"SSSharePanelViewController":@"share",
         @"UGKmpSharePanelContainerViewController":@"share",
-        @"SSShortVideoIntroductionTabViewController":@"episodes"};});
+        @"SSShortVideoIntroductionTabViewController":@"episodes",
+        @"SSShortVideoIntroductionSubViewController":@"episode-page",
+        @"SSShortVideoEpisodeSubViewController":@"episode-page"};});
     return controllers;
 }
 static NSString *HGAPanelKind(UIViewController *controller) {
@@ -436,34 +438,6 @@ static NSArray<NSString *> *HGACommentRows(void) {
         @"FQCShortVideoCommentSectionFooterView"];
 }
 #include "AppearanceShare.inc"
-static char HGAPanelCoversKey;
-static void HGAApplyPanel(UIView *root,NSString *kind) {
-    if([kind isEqual:@"comment"] || [@[@"share",@"longpress",@"speed"] containsObject:kind]) {
-        HGAApplyActionSheet(root,kind);return;
-    }
-    BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag([@"panels." stringByAppendingString:kind]) && root.window;
-    NSMapTable<UIView *,UIColor *> *covers=objc_getAssociatedObject(root,&HGAPanelCoversKey);
-    if(!enabled) {
-        HGARemoveGlass(root);
-        for(UIView *cover in covers.keyEnumerator) if([cover.backgroundColor isEqual:UIColor.clearColor])cover.backgroundColor=[covers objectForKey:cover];
-        objc_setAssociatedObject(root,&HGAPanelCoversKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        return;
-    }
-    if(!covers){covers=[NSMapTable weakToStrongObjectsMapTable];objc_setAssociatedObject(root,&HGAPanelCoversKey,covers,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
-    HGAInstallGlass(root,HGAppearanceString(@"panels.material"),24,HGAppearanceNumber(@"panels.opacity"));
-    // Clear only broad, plain background carriers within this exact panel.
-    // Images, drawing surfaces, text fields and their rendering layers stay intact.
-    for(UIView *v in HGADescendants(root,160)) {
-        if(v==root || HGAOwnView(v) || CGRectGetWidth(v.bounds)<CGRectGetWidth(root.bounds)*0.8)continue;
-        BOOL plain=v.class==UIView.class || v.class==UITableView.class || v.class==UICollectionView.class;
-        if(!plain || !v.backgroundColor)continue;
-        CGFloat r=0,g=0,b=0,a=0;
-        if([[v.backgroundColor resolvedColorWithTraitCollection:v.traitCollection] getRed:&r green:&g blue:&b alpha:&a] &&
-            a>0.8 && MAX(r,MAX(g,b))-MIN(r,MIN(g,b))<0.08) {
-            [covers setObject:v.backgroundColor forKey:v];v.backgroundColor=UIColor.clearColor;
-        }
-    }
-}
 #include "AppearancePlayerControls.inc"
 #include "AppearancePageChrome.inc"
 #include "AppearanceChromeGeometry.inc"
@@ -582,6 +556,7 @@ void HGAppearanceProcessController(UIViewController *controller) {
         if(HGAIsMineKMPController(controller)){HGAApplyMineKMPChrome(controller);return;}
         NSString *kind=HGAPanelKind(controller);
         if([kind isEqual:@"episodes"])HGAApplyEpisodeController(controller);
-        else if(kind){HGAApplyPanel(controller.view,kind);HGAApplyTypography(controller.view);}
+        else if([kind isEqual:@"episode-page"])HGARefreshEpisodePage(controller);
+        else if(kind){HGAApplyActionSheet(controller.view,kind);HGAApplyTypography(controller.view);}
     }@finally {HGAApplying=NO;}
 }

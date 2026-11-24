@@ -140,8 +140,10 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
                 @try {
                     [self runOptionsChecks];
                     [self capture:@"settings-options-simulator.png"];
-                    [self runDiagnosticExportWithCompletion:^{
-                        [self runSearchChecksWithCompletion:^{ [self finish]; }];
+                    [self runReleaseNotesWithCompletion:^{
+                        [self runDiagnosticExportWithCompletion:^{
+                            [self runSearchChecksWithCompletion:^{ [self finish]; }];
+                        }];
                     }];
                 } @catch (NSException *exception) {
                     [self check:NO name:[@"options exception: " stringByAppendingString:exception.description]];
@@ -245,13 +247,13 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         return;
     }
     [settings loadViewIfNeeded];
-    UILabel *versionLabel = (UILabel *)settings.navigationItem.leftBarButtonItem.customView;
+    UIButton *version = (UIButton *)settings.navigationItem.leftBarButtonItem.customView;
     NSArray *expectedHeaders=@[@"界面与导航",@"短剧播放",@"过滤与兼容",@"管理与支持"];
     BOOL categoryHeaders = settings.tableView.numberOfSections==(NSInteger)expectedHeaders.count;
     for (NSUInteger section=0; categoryHeaders && section<expectedHeaders.count; section++)
         categoryHeaders = [[settings tableView:settings.tableView titleForHeaderInSection:section] isEqual:expectedHeaders[section]];
-    [self check:[settings.title isEqualToString:@"Honggo"] && [versionLabel isKindOfClass:UILabel.class] &&
-        [versionLabel.text isEqual:HG_PLUGIN_VERSION] && categoryHeaders
+    [self check:[settings.title isEqualToString:@"Honggo"] && [version isKindOfClass:UIButton.class] &&
+        [version.configuration.title isEqual:HG_PLUGIN_VERSION] && categoryHeaders
         name:@"the settings homepage shows its version with navigation, playback, filtering and management sections"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
@@ -360,6 +362,30 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     if ([settings.tableView numberOfRowsInSection:section] <= row) return nil;
     return [settings tableView:settings.tableView cellForRowAtIndexPath:
         [NSIndexPath indexPathForRow:row inSection:section]];
+}
+- (void)runReleaseNotesWithCompletion:(dispatch_block_t)completion {
+    UINavigationController *navigation=(id)self.host.presentedViewController;
+    UIViewController *settings=navigation.topViewController;
+    UIButton *version=(id)settings.navigationItem.leftBarButtonItem.customView;
+    [version sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [self poll:^BOOL {
+        UIViewController *presented=navigation.presentedViewController;
+        return [presented isKindOfClass:UINavigationController.class] && !presented.isBeingPresented;
+    } deadline:[NSDate dateWithTimeIntervalSinceNow:6] completion:^(BOOL opened) {
+        [self check:opened name:@"the version button opens the release notes card"];
+        if(!opened){completion();return;}
+        UITableViewController *notes=(id)[(UINavigationController *)navigation.presentedViewController topViewController];
+        UITableView *table=notes.tableView;
+        NSInteger count=[table numberOfRowsInSection:0];
+        NSIndexPath *first=[NSIndexPath indexPathForRow:0 inSection:0];
+        NSIndexPath *last=[NSIndexPath indexPathForRow:MAX(count-1,0) inSection:0];
+        UIListContentConfiguration *current=(id)[table.dataSource tableView:table cellForRowAtIndexPath:first].contentConfiguration;
+        if(count)[table scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:NO];
+        [table layoutIfNeeded];
+        [self check:count>1 && [current.text isEqual:HG_PLUGIN_VERSION] && current.secondaryText.length &&
+            [table.indexPathsForVisibleRows containsObject:last] name:@"current notes lead the scrollable release history"];
+        [navigation dismissViewControllerAnimated:NO completion:completion];
+    }];
 }
 - (void)runDiagnosticExportWithCompletion:(dispatch_block_t)completion {
     UINavigationController *navigation = (id)self.host.presentedViewController;

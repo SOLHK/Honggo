@@ -874,6 +874,12 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     // customTabBar is displaced horizontally (sidebar slide or nav push to search).
     if (HGTabBarIsInTransitionOrDisplaced(currentBar, self.controller)) {
         [self.videoBackdrop restore];
+        if (currentBar.frame.origin.x < -2 && currentBar.window && HGAppearanceDockEnabled() &&
+            !HGAppearanceDockIsMutating(currentBar)) {
+            self.refreshing = YES;
+            @try { HGAppearanceLayoutDock(currentBar, self.controller); }
+            @finally { self.refreshing = NO; }
+        }
         return;
     }
     if (HGAppearanceDockIsMutating(currentBar)) {
@@ -1063,24 +1069,25 @@ static void HGRefreshTabBar(UIViewController *controller) {
         [state refresh];
     }
 }
-static char HGVideoBackdropDiscoveryTimeKey;
-
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
     if (!NSThread.isMainThread || HGFeedSidebarOwnsLayout(feed.window)) return;
     if (HGVideoBackdropRefreshForFeed(feed) || !HGAppearanceDockEnabled() || !feed.window) return;
-    if (feed.dragging || feed.decelerating ||
-        !HGVideoBackdropFullWindow(feed.superview, feed.window)) return;
-    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
-    NSNumber *lastAttempt = objc_getAssociatedObject(feed, &HGVideoBackdropDiscoveryTimeKey);
-    if (lastAttempt && (now - lastAttempt.doubleValue) < 0.5) return;
-    objc_setAssociatedObject(feed, &HGVideoBackdropDiscoveryTimeKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    // The feed can attach after the tab controller's first layout. Find the
-    // owning bar once and use the feed's weak link on later layouts.
+    if (!HGVideoBackdropFullWindow(feed.superview, feed.window)) return;
+    // A renderer or a channel may arrive during a swipe, after the tab bar's
+    // layout. The callback already identifies the exact feed: attach it
+    // directly, without traversing all sibling pages or waiting for idle.
     UIResponder *responder = feed.nextResponder;
     while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
     for (UIViewController *controller = (UIViewController *)responder; controller; controller = controller.parentViewController) {
         UIView *bar = HGView(controller, "customTabBar");
-        if ([bar isKindOfClass:HGTabBarClass]) { HGRefreshTabBar(controller); break; }
+        if (![bar isKindOfClass:HGTabBarClass]) continue;
+        HGTabState *state = HGState(bar);
+        UIView *root = controller.viewIfLoaded;
+        if (state.customDock && state.videoBackdrop && [feed isDescendantOfView:root] &&
+            !HGTabBarIsInTransitionOrDisplaced(bar, controller) &&
+            HGVideoBackdropFeedGeometry((UICollectionView *)feed, HGVideoBackdropOwner(feed), root, bar))
+            [state.videoBackdrop refreshWithBranches:@[feed] root:root bar:bar active:YES];
+        break;
     }
 }
 static void HGControllerLayout(id self, SEL cmd) {

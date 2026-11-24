@@ -339,6 +339,14 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
         @"hiding the custom dock restores native masking and exact list geometry");
     UIColor *nativeBackground=bar.backgroundColor;
     BOOL nativeOpaque=bar.opaque;
+    CGRect homeFrame=bar.frame;
+    bar.frame=CGRectOffset(homeFrame,-70,0);
+    bar.hidden=NO;
+    Layout(bar);
+    Check(Find(bar,@"honggo.appearance.dock") && bar.contentView.hidden &&
+        CGColorGetAlpha(bar.backgroundColor.CGColor)==0 && CGRectEqualToRect(bar.frame,CGRectOffset(homeFrame,-70,0)),
+        @"the Mine drawer can reveal a previously hidden bar mid-slide without exposing its stock labels or fill");
+    bar.frame=homeFrame;
     [viewport removeFromSuperview];bar.layer.mask=savedMask;bar.clipsToBounds=savedClip;bar.hidden=NO;
 
     // The ancestor deliberately autoresizes its feed. Extending the ancestor
@@ -912,7 +920,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     UIView *extraSel=Find(dock,@"honggo.appearance.dock.extra.selection");
     Check(mineInCapsule.hidden && !extra.hidden && extra.selected &&
         (extra.accessibilityTraits & UIAccessibilityTraitSelected)!=0 &&
-        extraSel && !extraSel.hidden && selection.hidden,
+        extraSel && !extraSel.hidden && CGRectEqualToRect(extraSel.frame,extra.bounds) && selection.hidden,
         @"detaching a tab into the circular dock button removes it from the capsule and highlights selection on the circle");
     HGAppearanceApply(@{@"dock.hide.store":@YES,@"dock.hide.mine":@YES},nil);
     host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);

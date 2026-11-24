@@ -39,6 +39,9 @@
 - (void)refreshSubviews { self.layer.backgroundColor=self.nativePaint.CGColor; }
 @end
 
+@interface FQVShortVideoPlayerBottomView : UIView @end
+@implementation FQVShortVideoPlayerBottomView @end
+
 @interface SSShortVideoTagListBottomInsertView : SSShortVideoBottomInsertView
 @property(nonatomic,strong) UIView *contentView;
 @property(nonatomic,strong) UIButton *episodeInfoView;
@@ -72,6 +75,16 @@
 
 @interface SSShortVideoIntroductionTabViewController : UIViewController @end
 @implementation SSShortVideoIntroductionTabViewController @end
+
+@interface SSShortVideoEpisodeSubViewController : UIViewController
+@property(nonatomic,strong) UICollectionView *collectionView;
+- (void)onDarkModeChange:(BOOL)dark;
+@end
+@implementation SSShortVideoEpisodeSubViewController
+- (void)onDarkModeChange:(BOOL)dark {
+    self.collectionView.backgroundColor=dark ? UIColor.blackColor : UIColor.whiteColor;
+}
+@end
 
 @interface SSShortVideoEpisodesViewItemCell : UICollectionViewCell
 @property(nonatomic,strong) UIView *bgView;
@@ -335,8 +348,17 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
         initWithFrame:CGRectMake(12,160,304,40)];
     nativeEntry.nativePaint=entryPaint;
     [nativeEntry refreshSubviews];
-    [host.view addSubview:nativeEntry];
+    FQVShortVideoPlayerBottomView *tray=[[FQVShortVideoPlayerBottomView alloc] initWithFrame:host.view.bounds];
+    tray.alpha=0;
+    FQVShortVideoControlCleanSwitchView *detailClean=[[FQVShortVideoControlCleanSwitchView alloc]
+        initWithFrame:CGRectMake(320,150,64,64)];
+    [tray addSubview:nativeEntry];[tray addSubview:detailClean];[host.view addSubview:tray];
     [nativeEntry refreshSubviews];
+    Layout(tray);
+    UIView *detailDisc=Find(detailClean,@"honggo.appearance.material");
+    Check(Count(tray,@"honggo.appearance.material")==2 && CGRectEqualToRect(detailDisc.frame,CGRectMake(12,12,40,40)),
+        @"the detail tray prepares both glass controls before its first alpha-only reveal");
+    tray.alpha=1;
     UIView *nativeGlass=Find(nativeEntry,@"honggo.appearance.material");
     paint=nativeEntry.layer.backgroundColor;
     Check(nativeGlass && nativeGlass.layer.cornerRadius==20 && (!paint || CGColorGetAlpha(paint)==0),
@@ -345,7 +367,7 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     paint=nativeEntry.layer.backgroundColor;
     Check(!Find(nativeEntry,@"honggo.appearance.material") && paint && CGColorEqualToColor(paint,entryPaint.CGColor),
         @"the native episode entry restores its own background when glass is disabled");
-    [nativeEntry removeFromSuperview];
+    [tray removeFromSuperview];
 
     SSShortVideoIntroductionTabViewController *panel=[SSShortVideoIntroductionTabViewController new];
     [host addChildViewController:panel];
@@ -389,6 +411,19 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     [panel.view addSubview:collect];
 
     HGAppearanceProcessController(panel);
+    SSShortVideoEpisodeSubViewController *sub=[SSShortVideoEpisodeSubViewController new];
+    [panel addChildViewController:sub];
+    sub.view.frame=CGRectMake(0,148,240,120);
+    sub.view.backgroundColor=UIColor.whiteColor;
+    sub.collectionView=[[UICollectionView alloc] initWithFrame:sub.view.bounds collectionViewLayout:[UICollectionViewFlowLayout new]];
+    sub.collectionView.backgroundView=[[UIView alloc] initWithFrame:sub.view.bounds];
+    sub.collectionView.backgroundView.backgroundColor=UIColor.whiteColor;
+    [sub.view addSubview:sub.collectionView];[panel.view addSubview:sub.view];[sub didMoveToParentViewController:panel];
+    [sub onDarkModeChange:NO];
+    Check([sub.collectionView.backgroundColor isEqual:UIColor.clearColor] &&
+        [sub.collectionView.backgroundView.backgroundColor isEqual:UIColor.clearColor] &&
+        [sub.view.backgroundColor isEqual:UIColor.clearColor] && !Find(sub.view,@"honggo.appearance.material"),
+        @"the late-mounted episode page drops white content and background-view paint under the single card");
     UIView *cellGlass=Find(episode.bgView,@"honggo.appearance.material");
     UIView *collectGlass=Find(collect.containerView,@"honggo.appearance.material");
     Check(Find(panel.view,@"honggo.appearance.material").superview==panel.view &&
@@ -423,6 +458,10 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
         @"replacing the host collect label and image restores old views and styles the new ones");
     HGAppearanceSet(@"panels.episodes",@NO,nil);
     HGAppearanceProcessController(panel);
+    Check([sub.collectionView.backgroundColor isEqual:UIColor.whiteColor] &&
+        [sub.view.backgroundColor isEqual:UIColor.whiteColor] &&
+        [sub.collectionView.backgroundView.backgroundColor isEqual:UIColor.whiteColor],
+        @"disabling episode glass returns the hosted page's own colors");
     Check(action.taps==3 && !Find(panel.view,@"honggo.appearance.material") && !collect.bgView.hidden &&
         collect.shareBgView.hidden && [episode.bgView.backgroundColor isEqual:UIColor.systemOrangeColor] &&
         [collect.textL.textColor isEqual:UIColor.labelColor] &&

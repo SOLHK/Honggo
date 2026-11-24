@@ -870,6 +870,22 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     [self activateTabAtIndex:[tab.userInfo integerValue] animation:@"uikit-controller"];
     self.systemHostSelection=NSIntegerMin;
 }
+- (void)claimHostChrome {
+    UIView *bar=self.hostBar;
+    if(!self.backgroundOwned || ![bar.backgroundColor isEqual:UIColor.clearColor])self.hostBackground=bar.backgroundColor;
+    if(!self.backgroundOwned || bar.opaque)self.hostOpaque=bar.opaque;
+    self.backgroundOwned=YES;
+    if(![bar.backgroundColor isEqual:UIColor.clearColor]) {
+        self.clearingHostFill=YES;
+        bar.backgroundColor=UIColor.clearColor;
+        self.clearingHostFill=NO;
+    }
+    if(bar.opaque)bar.opaque=NO;
+    [self hideSource:HGAViewGetter(bar,"contentView",bar)];
+    const char *backdrops[]={"backgroundImageView","lightView","darkView","lineView"};
+    for(NSUInteger i=0;i<4;i++)[self hideSource:HGAViewGetter(bar,backdrops[i],bar)];
+    for(UIView *v in bar.subviews)if([v.accessibilityIdentifier isEqual:@"honggo.tabbar.glass"])[self hideSource:v];
+}
 - (void)refresh {
     if(self.rendering || self.restoring || HGFeedSidebarOwnsLayout(self.hostBar.window))return;
     self.rendering=YES;
@@ -878,7 +894,13 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(!HGAppearanceDockEnabled() || !bar.window || !HGAVisible(bar)) {[self restore];return;}
         // Preserve the live dock untouched while customTabBar slides horizontally
         // during sidebar presentation or search push navigation.
-        if(fabs(bar.frame.origin.x)>2.0)return;
+        if(fabs(bar.frame.origin.x)>2.0) {
+            // The Mine drawer moves the host bar left. On return from
+            // settings it can reappear already displaced, with native labels
+            // visible. Reclaim its paint now; its frame belongs to the host.
+            if(self.superview==bar){[self claimHostChrome];return;}
+            if(bar.frame.origin.x>0)return;
+        }
         if(self.sidebarSuspended){self.sidebarSuspended=NO;self.userInteractionEnabled=YES;}
         if(self.superview==bar && CGRectEqualToRect(self.frame,bar.bounds) &&
             (self.dockTouchButton || self.pressedTab || self.selectionDragging || self.selectionSettling))return;
@@ -900,19 +922,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(self.selectionPan.view!=bar.superview)[bar.superview addGestureRecognizer:self.selectionPan];
         if(self.dockTouch.view!=bar.superview)[bar.superview addGestureRecognizer:self.dockTouch];
         if(!CGRectEqualToRect(self.frame,bar.bounds))self.frame=bar.bounds;
-        if(!self.backgroundOwned || ![bar.backgroundColor isEqual:UIColor.clearColor])self.hostBackground=bar.backgroundColor;
-        if(!self.backgroundOwned || bar.opaque)self.hostOpaque=bar.opaque;
-        self.backgroundOwned=YES;
-        if(![bar.backgroundColor isEqual:UIColor.clearColor]) {
-            self.clearingHostFill=YES;
-            bar.backgroundColor=UIColor.clearColor;
-            self.clearingHostFill=NO;
-        }
-        if(bar.opaque)bar.opaque=NO;
-        [self hideSource:HGAViewGetter(bar,"contentView",bar)];
-        const char *backdrops[]={"backgroundImageView","lightView","darkView","lineView"};
-        for(NSUInteger i=0;i<4;i++)[self hideSource:HGAViewGetter(bar,backdrops[i],bar)];
-        for(UIView *v in bar.subviews)if([v.accessibilityIdentifier isEqual:@"honggo.tabbar.glass"])[self hideSource:v];
+        [self claimHostChrome];
         self.hidden=HGAWindowHasActionSheet(bar.window);
         BOOL gestures=HGAppearanceFlag(@"dock.collapse") && !UIAccessibilityIsVoiceOverRunning();
         for(UISwipeGestureRecognizer *g in self.swipes)g.enabled=gestures;
@@ -971,7 +981,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.capsule.layer.cornerRadius=radius;
     BOOL systemEligible=NO;
     if(@available(iOS 26.0,*))
-        systemEligible=!flat && HGNativeGlassConfigured() && !self.collapsed && !reduced && !tint && visible.count>1 &&
+        systemEligible=fabs(self.hostBar.frame.origin.x)<=2.0 && !flat && HGNativeGlassConfigured() && !self.collapsed && !reduced && !tint && visible.count>1 &&
             ([style isEqual:@"regular"] || [style isEqual:@"clear"]) && radius>=height/2-0.5 &&
             ([content isEqual:@"icon"] || !HGAppearanceFlag(@"fonts.enabled"));
     BOOL useSystem=NO;
@@ -1098,8 +1108,9 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(extraTrack && extraTrack.selectedSegmentIndex!=detachedSegment)extraTrack.selectedSegmentIndex=detachedSegment;
     self.extraSelection.hidden=flat || !detachedSelected || self.extra.hidden;
     if(!self.extraSelection.hidden) {
-        CGRect inner=CGRectInset(self.extra.bounds,7,7);
+        CGRect inner=self.extra.bounds;
         self.extraSelection.frame=inner;
+        self.extraSelection.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         self.extraSelection.layer.cornerRadius=MIN(inner.size.width,inner.size.height)/2;
         self.extraSelection.backgroundColor=selectionBg;
         self.extraSelection.layer.borderColor=selectionEdge.CGColor;

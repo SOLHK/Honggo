@@ -395,15 +395,27 @@ static id HGACopyMineSidebarFixture(id self,SEL cmd,signed char visible,signed c
 - (void)notifyFunctionDataChanged {}
 - (void)notifySidebarEntryStateChanged {}
 @end
+@interface SSMineWorksKMPPublishEntranceController : NSObject
+@property(nonatomic,strong) UIView *hostView;
+@property(nonatomic,strong) UIButton *publishButton;
+@property(nonatomic) BOOL loggedIn;
+- (void)updateVisibility;
+@end
+@implementation SSMineWorksKMPPublishEntranceController
+- (void)updateVisibility { self.publishButton.hidden=!self.loggedIn; }
+@end
 @interface SSMine737KMPViewController : UIViewController
 @property(nonatomic,strong) HGAMineTitleHandleFixture *minePageKMPHandle;
 @property(nonatomic,strong) SSMinePageKMPDepend *minePageKMPDepend;
 @property(nonatomic,strong) HGAMineSidebarSnapshotFixture *sidebarSnapshot;
 @property(nonatomic) NSUInteger sidebarOpens;
+@property(nonatomic) BOOL nativeSkinAvailable;
+- (BOOL)shouldShowSkinSwitch;
 - (HGAMineSidebarSnapshotFixture *)minePageKMPSidebarEntrySnapshot:(id)depend;
 - (void)minePageKMPDepend:(id)depend setSidebarOpen:(BOOL)open;
 @end
 @implementation SSMine737KMPViewController
+- (BOOL)shouldShowSkinSwitch { return self.nativeSkinAvailable; }
 - (HGAMineSidebarSnapshotFixture *)minePageKMPSidebarEntrySnapshot:(id)depend {return self.sidebarSnapshot;}
 - (void)minePageKMPDepend:(id)depend setSidebarOpen:(BOOL)open {
     if(depend==self.minePageKMPDepend && open)self.sidebarOpens++;
@@ -769,6 +781,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             Layout(group);
             UIVisualEffectView *rail=(id)Find(group,@"honggo.appearance.header.channelRail");
             UIView *lens=Find(group,@"honggo.appearance.header.swipeLens");
+            UIVisualEffectView *refraction=(id)Find(lens,@"honggo.appearance.header.refraction");
             Layout(rail);
             UIVisualEffect *effect=rail.effect;
             NSMutableArray<UIButton *> *buttons=[NSMutableArray array];
@@ -781,6 +794,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             BOOL native=buttons.count==2 && buttons[0]!=buttons[1] && buttons[0].selected &&
                 [[buttons[0] titleForState:UIControlStateNormal] isEqual:@"漫剧"] &&
                 [[buttons[1] titleForState:UIControlStateNormal] isEqual:@"推荐"] &&
+                buttons[0].buttonType==UIButtonTypeCustom && buttons[1].buttonType==UIButtonTypeCustom &&
                 !buttons[0].configuration && !buttons[1].configuration;
             Check(native && !segments.window && categoryList.hidden && rail.superview==group && lens.superview==group &&
                 CGRectEqualToRect(rail.frame,group.bounds) && [effect isKindOfClass:UIGlassEffect.class] &&
@@ -788,6 +802,14 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 @"the glass channels use one continuous native rail beneath the shared selection and labels");
             if (native) {
                 NSUInteger before=channels.nativeSelections;
+                if (!UIAccessibilityIsReduceMotionEnabled()) {
+                    CGFloat restingHeight=CGRectGetHeight(lens.frame);
+                    [buttons[0] sendActionsForControlEvents:UIControlEventTouchDown];
+                    Check(refraction.superview==lens && !refraction.hidden && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
+                        CGRectGetHeight(lens.frame)>restingHeight && channels.nativeSelections==before,
+                        @"touch-down lifts the native refraction on the selected tab before the host selection changes");
+                    [buttons[0] sendActionsForControlEvents:UIControlEventTouchCancel];
+                }
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                 Check(buttons[1].selected && !buttons[0].selected && channels.selectedIndex==3 &&
@@ -802,10 +824,18 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sample.fixtureState=UIGestureRecognizerStateChanged;
                     sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.66,CGRectGetMidY(group.bounds));
                     [scrubber scrubChannels:sample];
-                    Check(scrubber && rail.effect==effect && !lens.hidden && CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
-                        @"scrubbing the glass channel shifts only the selected pill over the fixed material");
+                    Check(scrubber && rail.effect==effect && !lens.hidden && !refraction.hidden &&
+                        CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
+                        @"scrubbing the glass channel moves the active native refraction over the fixed rail");
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
                     [scrubber scrubChannels:sample];
+                    sample.fixtureState=UIGestureRecognizerStateChanged;
+                    sample.fixtureTravel=CGPointMake(-pageWidth*0.25,0);
+                    [channelPaging page:sample];
+                    Check(rail.effect==effect && !lens.hidden && !refraction.hidden && CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
+                        @"the feed swipe tracks the same native refraction between the non-adjacent host pages");
+                    sample.fixtureState=UIGestureRecognizerStateCancelled;
+                    [channelPaging page:sample];
                 }
             }
             HGAppearanceSet(@"player.headerStyle",@"flat",nil);
@@ -984,6 +1014,15 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         finder.normalImageSearchView.separatorView.hidden && [finder.searchBgView.backgroundColor isEqual:UIColor.clearColor],
         @"finder relayout keeps all three fitted surfaces while the host page is fading in");
     finder.view.alpha=1;
+    [finder.view removeFromSuperview];
+    HGAppearanceProcessController(finder);
+    BOOL retained=searchGlass.superview==finder.searchBgView && recognitionGlass.superview==finder.imageSearchContainer &&
+        assistantGlass.superview==finder.aiSearchEntranceView;
+    [root addSubview:finder.view];
+    [finder viewWillAppear:NO];
+    Check(retained && Find(finder.searchBgView,material)==searchGlass && Find(finder.imageSearchContainer,material)==recognitionGlass &&
+        Find(finder.aiSearchEntranceView,material)==assistantGlass && finder.normalImageSearchView.separatorView.hidden,
+        @"finder page detachment and reappearance retain the three glass views and stock divider ownership");
     HGAppearanceSet(@"player.finderAI",@NO,nil);
     HGAppearanceProcessController(finder);
     CGRect moved=finder.imageSearchContainer.frame;
@@ -1089,11 +1128,12 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     golden.model=[HGAFinderGoldenModelFixture new];golden.model.goldenLineItemArr=@[goldenFilter,goldenRank];
     SSVideoDistributionGoldenPositionSubCell *entry=[[SSVideoDistributionGoldenPositionSubCell alloc]
         initWithFrame:CGRectMake(110,0,98,32)];
-    entry.innerContentView=PageChromeControl(entry.contentView,CGRectMake(8,0,75,32));
+    entry.innerContentView=PageChromeControl(entry.contentView,CGRectMake(2,0,75,32));
     entry.backgroundImageView=[[UIImageView alloc] initWithFrame:entry.innerContentView.bounds];
     [entry.innerContentView addSubview:entry.backgroundImageView];
     entry.borderView=PageChromeControl(entry.innerContentView,entry.innerContentView.bounds);
     entry.iconImgView=[[UIImageView alloc] initWithImage:cameraOriginal];
+    entry.iconImgView.frame=CGRectMake(4,6,20,20);
     [entry.innerContentView addSubview:entry.iconImgView];
     entry.titleLabel=[[UILabel alloc] initWithFrame:CGRectMake(28,0,47,32)];
     [entry.innerContentView addSubview:entry.titleLabel];
@@ -1106,6 +1146,11 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     Layout(entryGlass);
     BOOL usesRequiredMaterial=!HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled() ||
         [entryGlass.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")];
+    CGRect iconInk=[entry.iconImgView convertRect:entry.iconImgView.bounds toView:entry.contentView];
+    CGRect titleInk=[entry.titleLabel convertRect:entry.titleLabel.bounds toView:entry.contentView];
+    Check(fabs(CGRectGetMidX(CGRectUnion(iconInk,titleInk))-CGRectGetMidX(entryGlass.frame))<0.01 &&
+        fabs(CGRectGetMinX(titleInk)-CGRectGetMaxX(iconInk)-4)<0.01,
+        @"the theatre shortcut centers the icon and title as a group and preserves their native spacing");
     Check(entryGlass.superview==entry.contentView && CGRectEqualToRect(entryGlass.frame,CGRectInset(entry.contentView.bounds,1,0)) &&
         entryGlass.layer.cornerRadius==16 && usesRequiredMaterial &&
         !entryGlass.userInteractionEnabled && entry.backgroundImageView.hidden && entry.borderView.hidden &&
@@ -1114,6 +1159,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         @"the theatre shortcut glass surrounds the full cell after native display and theme updates and preserves its raster icon");
     HGAppearanceSet(@"player.finderGlass",@NO,nil);
     Check(!Find(entry,material) && !entry.backgroundImageView.hidden && !entry.borderView.hidden &&
+        CGAffineTransformIsIdentity(entry.innerContentView.transform) &&
         [entry.backgroundColor isEqual:UIColor.systemGrayColor] && [entry.contentView.backgroundColor isEqual:UIColor.systemGrayColor],
         @"disabling theatre glass restores the last native shortcut fill and outline");
     HGAppearanceSet(@"player.finderGlass",@YES,nil);
@@ -1147,6 +1193,20 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceSet(@"mine.hide.shortcut.more",@NO,nil);
     Check([functions.getFunctionSnapshot isEqual:items],@"Mine restores the original function card ordering");
 
+    SSMineWorksKMPPublishEntranceController *publish=[SSMineWorksKMPPublishEntranceController new];
+    publish.hostView=[UIView new];publish.publishButton=[UIButton new];
+    [publish.hostView addSubview:publish.publishButton];
+    publish.loggedIn=YES;
+    [publish updateVisibility];
+    HGAppearanceSet(@"mine.show.publish",@NO,nil);
+    Check(publish.publishButton.hidden,@"turning off the floating publish entrance hides the mounted profile button");
+    [publish updateVisibility];
+    Check(publish.publishButton.hidden,@"profile visibility updates respect the publish switch");
+    HGAppearanceSet(@"mine.show.publish",@YES,nil);
+    Check(!publish.publishButton.hidden,@"re-enabling publish restores its native visibility");
+    publish.loggedIn=NO;[publish updateVisibility];
+    HGAppearanceSet(@"mine.show.publish",@NO,nil);HGAppearanceSet(@"mine.show.publish",@YES,nil);
+    Check(publish.publishButton.hidden,@"re-enabling publish leaves a native signed-out entrance hidden");
     SSMine737KMPViewController *nativeMine=[SSMine737KMPViewController new];
     [host addChildViewController:nativeMine];
     nativeMine.view.frame=CGRectMake(0,0,440,150);[root addSubview:nativeMine.view];
@@ -1208,6 +1268,40 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         @"restoring the row returns both original snapshots and releases the temporary menu");
     HGAppearanceSet(@"player.mineGlass",@YES,nil);
     [nativeMine willMoveToParentViewController:nil];[nativeMine.view removeFromSuperview];[nativeMine removeFromParentViewController];
+
+    HGAppearanceApply(@{@"mine.show.theme":@NO,@"mine.hide.shortcut.more":@YES},nil);
+    SSMine737KMPViewController *skinHidden=[SSMine737KMPViewController new];
+    skinHidden.nativeSkinAvailable=YES;
+    BOOL createsSkin=[skinHidden shouldShowSkinSwitch];
+    skinHidden.minePageKMPDepend=[SSMinePageKMPDepend new];
+    skinHidden.sidebarSnapshot=[HGAMineSidebarSnapshotFixture new];
+    skinHidden.sidebarSnapshot.isVisible=1;
+    [host addChildViewController:skinHidden];
+    skinHidden.view.frame=CGRectMake(0,0,440,150);[root addSubview:skinHidden.view];
+    [skinHidden didMoveToParentViewController:host];
+    skinHidden.minePageKMPHandle=[HGAMineTitleHandleFixture new];
+    UIView *singleTitle=PageChromeControl(skinHidden.view,CGRectMake(0,0,440,106));
+    skinHidden.minePageKMPHandle.titleBarView=singleTitle;
+    UIView *singleRenderer=[[rendererClass alloc] initWithFrame:singleTitle.bounds];[singleTitle addSubview:singleRenderer];
+    UIView *nativeMenu=[[glyphClass alloc] initWithFrame:CGRectMake(400,72,24,24)];[singleRenderer addSubview:nativeMenu];
+    HGAppearanceProcessController(skinHidden);
+    [skinHidden minePageKMPSidebarEntrySnapshot:skinHidden.minePageKMPDepend];
+    HGAppearanceProcessController(skinHidden);
+    BOOL waitsForMenuRemoval=!Find(singleTitle,@"honggo.appearance.mine.menu");
+    [nativeMenu removeFromSuperview];
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+    UIButton *singleMenu=(id)Find(singleTitle,@"honggo.appearance.mine.menu");
+    [singleMenu sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+    Check(!createsSkin && waitsForMenuRemoval && singleMenu && CGRectGetMidX(singleMenu.frame)==412 && skinHidden.sidebarOpens==1,
+        @"a profile launched without its moon keeps the independent menu in the native right slot after hiding More");
+    HGAppearanceSet(@"mine.show.theme",@YES,nil);
+    SSMine737KMPViewController *skinRestored=[SSMine737KMPViewController new];
+    skinRestored.nativeSkinAvailable=YES;
+    SSMine737KMPViewController *skinUnavailable=[SSMine737KMPViewController new];
+    Check([skinRestored shouldShowSkinSwitch] && ![skinUnavailable shouldShowSkinSwitch] && singleMenu.superview==singleTitle,
+        @"the next profile launch restores the theme control only when supported by the host");
+    HGAppearanceSet(@"mine.hide.shortcut.more",@NO,nil);
+    [skinHidden willMoveToParentViewController:nil];[skinHidden.view removeFromSuperview];[skinHidden removeFromParentViewController];
 
     SSMyUser637TabsView *mine=[[SSMyUser637TabsView alloc] initWithFrame:CGRectMake(0,230,290,80)];
     [root addSubview:mine];mine.searchBtn=[[UIButton alloc] initWithFrame:CGRectMake(255,7,25,25)];

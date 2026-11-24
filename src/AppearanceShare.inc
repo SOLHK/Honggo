@@ -538,6 +538,7 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     BOOL enabled=HGAPanelWantsGlass(kind) && root.window;
     UIView *surface=enabled?HGAActionSheetSurface(root):nil;
     BOOL comment=[kind isEqual:@"comment"];
+    BOOL episodes=[kind isEqual:@"episodes"];
     BOOL longPress=[kind isEqual:@"longpress"];
     BOOL share=[kind isEqual:@"share"] || longPress;
     // A nested comment list can have a second controller. Use the outer sheet
@@ -562,14 +563,14 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
         state.effects=[NSMapTable weakToStrongObjectsMapTable];
         state.shareCells=[NSHashTable weakObjectsHashTable];
         state.plates=[NSMapTable weakToStrongObjectsMapTable];
-        if(share || comment)state.labels=[NSMapTable weakToStrongObjectsMapTable];
+        if(share || comment || episodes)state.labels=[NSMapTable weakToStrongObjectsMapTable];
         objc_setAssociatedObject(root,&HGAActionSheetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     CGFloat radius=MIN(28,MIN(surface.bounds.size.width,surface.bounds.size.height)/2);
     BOOL reduceTransparency=UIAccessibilityIsReduceTransparencyEnabled();
     CGFloat opacity=reduceTransparency?1:HGAppearanceNumber(@"panels.opacity");
     NSString *material=HGAppearanceString(@"panels.material");
-    BOOL clear=(share || comment) && !reduceTransparency && HGNativeGlassConfigured() &&
+    BOOL clear=(share || comment || episodes) && !reduceTransparency && HGNativeGlassConfigured() &&
         ([material isEqual:@"regular"] || [material isEqual:@"clear"]);
     if(state.nativeClear && !clear) {
         HGARestoreSheetOptics(state);
@@ -583,7 +584,7 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
     if(!state.overlay || state.overlayOpacity!=opacity) {
         state.overlayOpacity=opacity;
-        state.overlay=comment ? [UIColor.systemBackgroundColor colorWithAlphaComponent:opacity] :
+        state.overlay=comment || episodes ? [UIColor.systemBackgroundColor colorWithAlphaComponent:opacity] :
             HGAActionSheetColor(opacity);
     }
     glass.overlayColor=clear?UIColor.clearColor:state.overlay;
@@ -647,7 +648,7 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
             }
         }
     }
-    if(share || comment) {
+    if(share || comment || episodes) {
         if(!state.dockMount) {
             state.dockMount=[HGAActionSheetMount new];
             state.dockMount.sheetRoot=root;
@@ -678,7 +679,12 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
             HGAClearSheetBackground(state,backing.contentView);
             // Preserve editor controls hosted by the effect's content view.
         }
-        BOOL backing=view.class==UIView.class || view.class==UITableView.class ||
+        BOOL episodeBacking=episodes && ([view isKindOfClass:UIScrollView.class] ||
+            [view isKindOfClass:objc_lookUpClass("FQRJXCategoryTitleView")] ||
+            [view isKindOfClass:objc_lookUpClass("FQRJXCategoryListContainerView")] ||
+            [view isKindOfClass:objc_lookUpClass("SSShortVideoEpisodesViewHeaderView")] ||
+            [view isKindOfClass:objc_lookUpClass("SSShortVideoEpisodePanelCollectView")]);
+        BOOL backing=episodeBacking || view.class==UIView.class || view.class==UITableView.class ||
             view.class==UICollectionView.class || HGAIsActionPanelSurface(view) ||
             (share && view.class==UITableViewCell.class) ||
             (comment && (HGAIsCommentSurface(view) ||
@@ -693,8 +699,15 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     if(clear) {
         for(UILabel *label in state.labels.keyEnumerator.allObjects)
             if(![label isDescendantOfView:surface])HGARestoreSheetLabel(state,label);
-        for(UIView *view in views)
-            if([view isKindOfClass:UILabel.class] && HGAVisible(view))HGAApplySheetLabel(state,(UILabel *)view);
+        for(UIView *view in views) {
+            // The episode heading uses YYLabel, with the same textColor and
+            // attributedText getter/setter ABIs as UILabel in this host.
+            BOOL episodeTitle=episodes && [view isKindOfClass:objc_lookUpClass("YYLabel")] &&
+                [view.superview isKindOfClass:objc_lookUpClass("SSShortVideoEpisodesViewHeaderView")] &&
+                HGAViewGetter(view.superview,"titleLabel",view.superview)==view;
+            if(([view isKindOfClass:UILabel.class] || episodeTitle) && HGAVisible(view))
+                HGAApplySheetLabel(state,(UILabel *)view);
+        }
     }
     HGRecordCapability([@"appearance.panel.surface." stringByAppendingString:kind],
         @{@"module":@"appearance",@"state":compose ? @"partial" : @"installed",
