@@ -65,7 +65,9 @@ static void RunCommentSheetAppearanceChecks(UIViewController *host) {
     FQCShortVideoCommentPanelTitleView *title=[[FQCShortVideoCommentPanelTitleView alloc] initWithFrame:CGRectMake(0,0,width,50)];
     FQCShortVideoCommentListCollectionView *list=[[FQCShortVideoCommentListCollectionView alloc]
         initWithFrame:CGRectMake(0,50,width,330) collectionViewLayout:[UICollectionViewFlowLayout new]];
-    list.backgroundColor=UIColor.whiteColor;title.backgroundColor=UIColor.whiteColor;
+    // UIKit reapplies its adaptive collection background when this list lays out.
+    UIColor *nativeListColor=UIColor.systemBackgroundColor;
+    list.backgroundColor=nativeListColor;title.backgroundColor=UIColor.whiteColor;
     FQCShortVideoBottomToolBar *toolbar=[[FQCShortVideoBottomToolBar alloc] initWithFrame:CGRectMake(0,380,width,70)];
     toolbar.backgroundColor=UIColor.whiteColor;
     UIBlurEffect *stockBlur=[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
@@ -86,10 +88,9 @@ static void RunCommentSheetAppearanceChecks(UIViewController *host) {
     HGAppearanceSet(@"panels.comment",@NO,nil);
     Check([nativeBlur.effect isKindOfClass:UIBlurEffect.class],@"disabling comment glass restores the native toolbar effect");
     Check(!Find(panel.view,@"honggo.appearance.material"),@"disabling comment glass removes its material");
-    Check([list.backgroundColor isEqual:UIColor.whiteColor],
-        [NSString stringWithFormat:@"disabling comment glass restores the list color (%@)",list.backgroundColor]);
-    Check([toolbar.backgroundColor isEqual:UIColor.whiteColor],
-        [NSString stringWithFormat:@"disabling comment glass restores the toolbar color (%@)",toolbar.backgroundColor]);
+    Check([list.backgroundColor isEqual:nativeListColor],@"disabling comment glass restores the adaptive native list color");
+    Check([toolbar.backgroundColor isEqual:UIColor.whiteColor] && [title.backgroundColor isEqual:UIColor.whiteColor],
+        @"disabling comment glass restores the title and toolbar colors");
     Check([editor.text isEqual:@"保留评论输入"],@"disabling comment glass keeps the original input text");
     [panel.view removeFromSuperview];[panel removeFromParentViewController];HGAppearanceSet(@"panels.comment",@YES,nil);
 }
