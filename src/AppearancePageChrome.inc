@@ -201,6 +201,7 @@ static BOOL HGAIsHomeChannel(UIView *view) {
 }
 
 static void HGAHeaderCategoryGeometryChanged(UIView *categories);
+static void HGASyncHeaderChannelLine(UIView *categories);
 
 static void HGAApplyChannelIndicators(UIView *categories,BOOL enabled) {
     id indicators=HGReadObjectGetter(categories,"indicators");
@@ -221,6 +222,7 @@ static void HGAApplyChannelIndicators(UIView *categories,BOOL enabled) {
     }
     for(id indicator in indicators)
         if([indicator isKindOfClass:UIView.class] && [indicator isDescendantOfView:categories])HGASetHidden(indicator,hide);
+    HGASyncHeaderChannelLine(categories);
     if (home) HGAHeaderCategoryGeometryChanged(categories);
 }
 

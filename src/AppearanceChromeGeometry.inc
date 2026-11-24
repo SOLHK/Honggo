@@ -42,9 +42,9 @@ static UIView *HGAHeaderSearchSlotView(UIView *header) {
 @end
 @implementation HGAHeaderChannelLayout @end
 
-static char HGAHeaderLayoutKey;
+static char HGAHeaderLayoutKey, HGAHeaderLineRestoreKey;
 static BOOL HGAHeaderAdaptersReady;
-static IMP HGAHeaderOriginals[5];
+static IMP HGAHeaderOriginals[6];
 
 static CGSize HGAChannelSize(id owner, SEL cmd, UICollectionView *collection, UICollectionViewLayout *layout, NSIndexPath *path) {
     CGSize size = ((CGSize (*)(id,SEL,id,id,id))HGAHeaderOriginals[0])(owner,cmd,collection,layout,path);
@@ -57,7 +57,8 @@ static CGSize HGAChannelSize(id owner, SEL cmd, UICollectionView *collection, UI
 static CGFloat HGAChannelSpacing(id owner, SEL cmd, UICollectionView *collection, UICollectionViewLayout *layout, NSInteger section) {
     HGAHeaderChannelLayout *plan = objc_getAssociatedObject(owner,&HGAHeaderLayoutKey);
     if (plan && collection == plan.collection && section == 0) return 0;
-    return ((CGFloat (*)(id,SEL,id,id,NSInteger))HGAHeaderOriginals[1])(owner,cmd,collection,layout,section);
+    NSUInteger slot = cmd == @selector(collectionView:layout:minimumInteritemSpacingForSectionAtIndex:) ? 5 : 1;
+    return ((CGFloat (*)(id,SEL,id,id,NSInteger))HGAHeaderOriginals[slot])(owner,cmd,collection,layout,section);
 }
 
 static UIEdgeInsets HGAChannelInsets(id owner, SEL cmd, UICollectionView *collection, UICollectionViewLayout *layout, NSInteger section) {
@@ -95,7 +96,9 @@ static void HGAInstallHeaderLayoutAdapters(void) {
         {"collectionView:layout:minimumLineSpacingForSectionAtIndex:", "d40@0:8@16@24q32", (IMP)HGAChannelSpacing},
         {"collectionView:layout:insetForSectionAtIndex:", "{UIEdgeInsets=dddd}40@0:8@16@24q32", (IMP)HGAChannelInsets},
         {"getTargetCellFrame:", "{CGRect={CGPoint=dd}{CGSize=dd}}24@0:8q16", (IMP)HGAChannelFrame},
-        {"getTargetSelectedCellFrame:selectedType:", "{CGRect={CGPoint=dd}{CGSize=dd}}32@0:8q16Q24", (IMP)HGAChannelSelectedFrame}
+        {"getTargetSelectedCellFrame:selectedType:", "{CGRect={CGPoint=dd}{CGSize=dd}}32@0:8q16Q24", (IMP)HGAChannelSelectedFrame},
+        // 7.4.5.33 forwards both delegate spacing queries to innerCellSpacing.
+        {"collectionView:layout:minimumInteritemSpacingForSectionAtIndex:", "d40@0:8@16@24q32", (IMP)HGAChannelSpacing}
     };
     static const struct { const char *name, *encoding; } properties[] = {
         {"titles", "@16@0:8"}, {"indicators", "@16@0:8"}, {"collectionView", "@16@0:8"},
@@ -105,11 +108,11 @@ static void HGAInstallHeaderLayoutAdapters(void) {
         Method m = class_getInstanceMethod(cls,sel_registerName(properties[i].name));
         if (!m || strcmp(method_getTypeEncoding(m),properties[i].encoding)) return;
     }
-    for (NSUInteger i = 0; i < 5; i++) {
+    for (NSUInteger i = 0; i < sizeof(adapters)/sizeof(adapters[0]); i++) {
         Method m = class_getInstanceMethod(cls,sel_registerName(adapters[i].name));
         if (!m || strcmp(method_getTypeEncoding(m),adapters[i].encoding)) return;
     }
-    for (NSUInteger i = 0; i < 5; i++) {
+    for (NSUInteger i = 0; i < sizeof(adapters)/sizeof(adapters[0]); i++) {
         SEL selector = sel_registerName(adapters[i].name);
         if (!HGAHeaderOriginals[i])
             HGAHeaderOriginals[i] = class_getMethodImplementation(cls,selector);
@@ -182,35 +185,52 @@ static HGAHeaderChannelLayout *HGAMakeChannelLayout(UIView *categories, UICollec
     return plan;
 }
 
-static void HGAAlignSettledChannelLine(UIView *categories, UICollectionView *collection, HGAHeaderChannelLayout *plan) {
-    SEL selector = sel_registerName("selectedIndex");
-    Method method = class_getInstanceMethod(categories.class,selector);
-    if (!method || strcmp(method_getTypeEncoding(method),"q16@0:8")) return;
-    NSInteger index = ((NSInteger (*)(id,SEL))objc_msgSend)(categories,selector);
-    if (index < 0 || index >= [collection numberOfItemsInSection:0]) return;
-    CGRect target = HGAChannelFrame(categories,sel_registerName("getTargetCellFrame:"),index);
-    if (CGRectIsEmpty(target) || (plan && (index >= (NSInteger)plan.frames.count || (plan.hiddenMask & (1UL << index))))) return;
+static void HGASyncHeaderChannelLine(UIView *categories) {
+    HGAHeaderChannelLayout *plan = objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
+    BOOL restoring = objc_getAssociatedObject(categories,&HGAHeaderLineRestoreKey) != nil;
+    if ((!plan && !restoring) || !categories.window || HGFeedSidebarOwnsLayout(categories.window)) return;
+    UICollectionView *collection = plan.collection ?: HGReadObjectGetter(categories,"collectionView");
+    if (![collection isKindOfClass:UICollectionView.class] || !collection.numberOfSections ||
+        HGAHeaderScrollInFlight(categories,collection)) return;
+    UIView *header = categories.superview;
+    while (header && !HGAIsHeaderView(header)) header = header.superview;
+    BOOL animating = NO;
+    if (HGABoolGetter(header,@"isHeaderViewLayoutAnimating",&animating) && animating) return;
+
+    NSInteger index = ((NSInteger (*)(id,SEL))objc_msgSend)(categories,sel_registerName("selectedIndex"));
+    if (index < 0 || index >= [collection numberOfItemsInSection:0] ||
+        (plan && (index >= (NSInteger)plan.frames.count || (plan.hiddenMask & (1UL << index))))) return;
+    CGRect target = plan ? plan.frames[index].CGRectValue :
+        HGAChannelFrame(categories,sel_registerName("getTargetCellFrame:"),index);
+    if (CGRectIsEmpty(target)) return;
     NSArray *lines = HGReadObjectGetter(categories,"indicators");
     if (![lines isKindOfClass:NSArray.class]) return;
+    BOOL waitingForAnimation = NO;
     for (UIView *line in lines) {
         if (![line isKindOfClass:NSClassFromString(@"FQRJXCategoryIndicatorLineView")] ||
-            ![line isDescendantOfView:collection] || line.layer.animationKeys.count) continue;
+            ![line isDescendantOfView:collection]) continue;
+        if (line.layer.animationKeys.count) {
+            waitingForAnimation = YES;
+            continue;
+        }
         CGPoint center = line.center;
         CGFloat x = [collection convertPoint:CGPointMake(CGRectGetMidX(target),CGRectGetMidY(target))
                                       toView:line.superview].x;
         if (isfinite(x) && fabs(x-center.x) > 0.25) line.center = CGPointMake(x,center.y);
     }
+    if (restoring && !waitingForAnimation)
+        objc_setAssociatedObject(categories,&HGAHeaderLineRestoreKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static void HGASetChannelLayout(UIView *categories, HGAHeaderChannelLayout *next) {
     HGAHeaderChannelLayout *old = objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
-    if (old == next) return;
-    objc_setAssociatedObject(categories,&HGAHeaderLayoutKey,next,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [old.collection.collectionViewLayout invalidateLayout];
-    if (old.collection != next.collection) [next.collection.collectionViewLayout invalidateLayout];
-    UICollectionView *collection = next.collection ?: old.collection;
-    if (collection.numberOfSections && !HGAHeaderScrollInFlight(categories,collection))
-        HGAAlignSettledChannelLine(categories,collection,next);
+    if (old != next) {
+        objc_setAssociatedObject(categories,&HGAHeaderLayoutKey,next,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(categories,&HGAHeaderLineRestoreKey,next ? nil : @YES,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [old.collection.collectionViewLayout invalidateLayout];
+        if (old.collection != next.collection) [next.collection.collectionViewLayout invalidateLayout];
+    }
+    HGASyncHeaderChannelLine(categories);
 }
 
 static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state) {
@@ -252,7 +272,10 @@ static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state)
         return;
     }
     if (old.collection == collection && old.hiddenMask == mask && old.width == collection.bounds.size.width &&
-        [old.titles isEqualToArray:titles]) return;
+        [old.titles isEqualToArray:titles]) {
+        HGASyncHeaderChannelLine(categories);
+        return;
+    }
     HGASetChannelLayout(categories,HGAMakeChannelLayout(categories,collection,titles,mask));
 }
 

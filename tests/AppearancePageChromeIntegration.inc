@@ -49,6 +49,7 @@
     return CGSizeMake(path.item==2 ? 54 : 36,44);
 }
 - (CGFloat)collectionView:(UICollectionView *)collection layout:(UICollectionViewLayout *)layout minimumLineSpacingForSectionAtIndex:(NSInteger)section { return 24; }
+- (CGFloat)collectionView:(UICollectionView *)collection layout:(UICollectionViewLayout *)layout minimumInteritemSpacingForSectionAtIndex:(NSInteger)section { return 24; }
 - (UIEdgeInsets)collectionView:(UICollectionView *)collection layout:(UICollectionViewLayout *)layout insetForSectionAtIndex:(NSInteger)section {
     return UIEdgeInsetsMake(0,16,0,16);
 }
@@ -166,13 +167,14 @@ static void HGReportChannelLayout(NSString *phase, SSHGBookStoreCategoryTitleVie
     FQRJXCategoryTitleCell *cell = (id)[list cellForItemAtIndexPath:recPath];
     NSIndexPath *hit = [list indexPathForItemAtPoint:CGPointMake(CGRectGetMidX(comic),CGRectGetMidY(comic))];
     NSLog(@"HEADER_GEOMETRY %@ titles=%@ bounds=%@ adjustedInset=%@ delegateMatch=%d direction=%ld estimate=%@ "
-           "delegateComic=%@ delegateHidden=%@ spacing=%g inset=%@ attrs=%@/%@ target=%@/%@ "
+           "delegateComic=%@ delegateHidden=%@ lineSpacing=%g itemSpacing=%g inset=%@ attrs=%@/%@ target=%@/%@ "
            "label=%@ pill=%@ line=%@ centerInList=%@ lineAnimations=%@ hit=%@ nativeTap=%ld selected=%ld",
         phase, categories.titles, NSStringFromCGRect(list.bounds), NSStringFromUIEdgeInsets(list.adjustedContentInset),
         list.delegate == categories, (long)flow.scrollDirection, NSStringFromCGSize(flow.estimatedItemSize),
         NSStringFromCGSize([categories collectionView:list layout:flow sizeForItemAtIndexPath:comicPath]),
         NSStringFromCGSize([categories collectionView:list layout:flow sizeForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]]),
         [categories collectionView:list layout:flow minimumLineSpacingForSectionAtIndex:0],
+        [categories collectionView:list layout:flow minimumInteritemSpacingForSectionAtIndex:0],
         NSStringFromUIEdgeInsets([categories collectionView:list layout:flow insetForSectionAtIndex:0]),
         NSStringFromCGRect(comic), NSStringFromCGRect(rec), NSStringFromCGRect([categories getTargetCellFrame:1]),
         NSStringFromCGRect([categories getTargetSelectedCellFrame:3 selectedType:1]),
@@ -286,6 +288,18 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         fabs(underline.center.x-CGRectGetMidX(comic))<0.5 &&
         fabs(CGRectGetMidX([channels getTargetCellFrame:3])-CGRectGetMidX(rec))<0.5,
         @"native taps and the host click and swipe indicator coordinates use the original channel indices");
+    CGPoint displaced = CGPointMake(CGRectGetMidX(comic)+31,underline.center.y);
+    underline.center = displaced;
+    CABasicAnimation *movingLine = [CABasicAnimation animationWithKeyPath:@"position.x"];
+    movingLine.fromValue = @(displaced.x); movingLine.toValue = @(CGRectGetMidX(comic));
+    movingLine.duration = 10;
+    [underline.layer addAnimation:movingLine forKey:@"fixtureNativeScroll"];
+    Layout(header);
+    BOOL hostAnimationOwned = fabs(underline.center.x-displaced.x)<0.5;
+    [underline.layer removeAnimationForKey:@"fixtureNativeScroll"];
+    Layout(header);
+    Check(hostAnimationOwned && fabs(underline.center.x-CGRectGetMidX([channels getTargetCellFrame:1]))<0.5,
+        @"a later stationary layout realigns the selected line after leaving its host animation untouched");
     CGRect originalBounds=categoryList.bounds;
     categoryList.bounds=CGRectMake(0,0,300,44); Layout(header); Layout(categoryList);
     CGRect rotated=[categoryList layoutAttributesForItemAtIndexPath:comicPath].frame;
