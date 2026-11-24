@@ -169,11 +169,14 @@ static CGRect HGAFinderSearchSurface(UIView *target,CGRect frame) {
     // three capsules share one pixel grid, including on a 2x display.
     CGRect screen=[target convertRect:frame toView:target.window];
     CGFloat scale=MAX(1,target.traitCollection.displayScale);
-    CGFloat left=(round(CGRectGetMinX(screen)*scale)+1)/scale;
-    CGFloat top=(round(CGRectGetMinY(screen)*scale)+1)/scale;
-    CGFloat right=(round(CGRectGetMaxX(screen)*scale)-1)/scale;
-    CGFloat bottom=(round(CGRectGetMaxY(screen)*scale)-1)/scale;
-    return [target convertRect:CGRectMake(left,top,MAX(0,right-left),MAX(0,bottom-top)) fromView:target.window];
+    CGFloat left=round(CGRectGetMinX(screen)*scale)+1;
+    CGFloat top=round(CGRectGetMinY(screen)*scale)+1;
+    CGFloat right=round(CGRectGetMaxX(screen)*scale)-1;
+    CGFloat bottom=round(CGRectGetMaxY(screen)*scale)-1;
+    // Subtract pixel coordinates before converting back to points. A disc
+    // with equal pixel spans gets equal dimensions at every window position.
+    CGRect fitted=CGRectMake(left/scale,top/scale,MAX(0,right-left)/scale,MAX(0,bottom-top)/scale);
+    return [target convertRect:fitted fromView:target.window];
 }
 
 static void HGAApplyFinderSearchMaterial(UIView *target,CGRect frame) {

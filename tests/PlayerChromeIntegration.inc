@@ -90,11 +90,12 @@
 
 @interface SSShortVideoEpisodeSubViewController : UIViewController
 @property(nonatomic,strong) UICollectionView *collectionView;
+@property(nonatomic,strong) UIColor *nativeListBackground;
 - (void)onDarkModeChange:(BOOL)dark;
 @end
 @implementation SSShortVideoEpisodeSubViewController
 - (void)onDarkModeChange:(BOOL)dark {
-    self.collectionView.backgroundColor=dark ? UIColor.blackColor : UIColor.whiteColor;
+    self.collectionView.backgroundColor=dark ? UIColor.blackColor : self.nativeListBackground;
 }
 @end
 
@@ -491,6 +492,7 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     sub.view.frame=CGRectMake(0,148,240,120);
     sub.view.backgroundColor=UIColor.whiteColor;
     sub.collectionView=[[UICollectionView alloc] initWithFrame:sub.view.bounds collectionViewLayout:[UICollectionViewFlowLayout new]];
+    sub.nativeListBackground=sub.collectionView.backgroundColor ?: UIColor.systemBackgroundColor;
     sub.collectionView.backgroundView=[[UIView alloc] initWithFrame:sub.view.bounds];
     sub.collectionView.backgroundView.backgroundColor=UIColor.whiteColor;
     [sub.view addSubview:sub.collectionView];[panel.view addSubview:sub.view];[sub didMoveToParentViewController:panel];
@@ -556,7 +558,7 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     HGAppearanceProcessController(panel);
     Check([sub.view.backgroundColor isEqual:UIColor.whiteColor],
         [NSString stringWithFormat:@"disabling episode glass restores the page background (%@)",sub.view.backgroundColor]);
-    Check([sub.collectionView.backgroundColor isEqual:UIColor.whiteColor],
+    Check([sub.collectionView.backgroundColor isEqual:sub.nativeListBackground],
         [NSString stringWithFormat:@"disabling episode glass restores the list background (%@)",sub.collectionView.backgroundColor]);
     Check([sub.collectionView.backgroundView.backgroundColor isEqual:UIColor.whiteColor],
         [NSString stringWithFormat:@"disabling episode glass restores the list background view (%@)",sub.collectionView.backgroundView.backgroundColor]);
@@ -572,6 +574,13 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
         [collect.iconImageView.tintColor isEqual:UIColor.labelColor] &&
         ImageContentEqual(collect.iconImageView.image,newIcon),
         @"disabling episode glass restores native backgrounds gradient visibility and original foreground");
+    HGAppearanceSet(@"panels.episodes",@YES,nil);
+    [sub onDarkModeChange:YES];
+    Check([sub.collectionView.backgroundColor isEqual:UIColor.clearColor],
+        @"episode glass clears an explicit host night-mode repaint");
+    HGAppearanceSet(@"panels.episodes",@NO,nil);
+    Check([sub.collectionView.backgroundColor isEqual:UIColor.blackColor],
+        [NSString stringWithFormat:@"disabling episode glass restores the explicit host night color (%@)",sub.collectionView.backgroundColor]);
     [panel willMoveToParentViewController:nil];
     [panel.view removeFromSuperview];
     [panel removeFromParentViewController];

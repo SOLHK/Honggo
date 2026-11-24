@@ -1089,7 +1089,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     CGRect recognitionSurface=[recognitionGlass convertRect:recognitionGlass.bounds toView:finder.view];
     Check(searchGlass && recognitionGlass && assistantGlass && !Find(finder.searchView,material) &&
         fabs(CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)-7-2*chromePixel)<0.01 &&
-        assistantGlass.bounds.size.width==assistantGlass.bounds.size.height &&
+        fabs(CGRectGetWidth(assistantGlass.bounds)-(34-2*chromePixel))<0.01 &&
+        fabs(CGRectGetHeight(assistantGlass.bounds)-(34-2*chromePixel))<0.01 &&
         CGRectEqualToRect(finder.searchBgView.frame,nativeSearchField) &&
         CGRectEqualToRect(finder.imageSearchContainer.frame,nativeRecognition) &&
         finder.normalImageSearchView.separatorView.hidden,

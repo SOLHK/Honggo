@@ -4,6 +4,7 @@
 // Keep entries in release order, including locally distributed test builds.
 static NSArray<NSArray<NSString *> *> *HGReleaseNotes(void) {
     return @[
+        @[@"1.5.2beta17", @"找剧页顶部按钮按屏幕像素对齐，统一圆形按钮的宽高。"],
         @[@"1.5.2beta16", @"改进连续切换频道和回弹时再次按住顶部按钮的响应。"],
         @[@"1.5.2beta15", @"顶部频道使用与底栏相同的系统拖动与选中效果。调整播放底边和选集分组背景。追更榜和系列剧入口使用玻璃按钮，可分别隐藏。"],
         @[@"1.5.2beta14", @"顶部频道按住拖动时保留完整底板，文字保持清晰。调整两倍速播放时的视频底边。设置入口改为居中标题。评论区可选模糊玻璃或高斯模糊，收藏按钮可选闪光星。"],
