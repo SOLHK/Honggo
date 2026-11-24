@@ -126,7 +126,53 @@ static BOOL HGAFilteredHomePagerContainsView(UIView *view) {
     return NO;
 }
 
+typedef BOOL (^HGALeftEpisodeDecision)(UIPanGestureRecognizer *gesture);
+static char HGAEpisodeSwipeDecisionKey;
+
+static void HGAWrapEpisodeSwipeDecision(UIViewController *owner) {
+    if (![owner isKindOfClass:UIViewController.class]) return;
+    SEL get=sel_registerName("ss_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock");
+    SEL set=sel_registerName("setSs_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock:");
+    Method getter=class_getInstanceMethod(object_getClass(owner),get);
+    Method setter=class_getInstanceMethod(object_getClass(owner),set);
+    if (!getter || !setter || strcmp(method_getTypeEncoding(getter),"@?16@0:8") ||
+        strcmp(method_getTypeEncoding(setter),"v24@0:8@?16")) return;
+
+    HGALeftEpisodeDecision original=((HGALeftEpisodeDecision(*)(id,SEL))objc_msgSend)(owner,get);
+    if (!original || original==objc_getAssociatedObject(owner,&HGAEpisodeSwipeDecisionKey)) return;
+    HGALeftEpisodeDecision decision=[^BOOL(UIPanGestureRecognizer *gesture) {
+        if (HGAppearanceEnabled() && HGAppearanceFlag(@"player.disableEpisodeSwipe")) return NO;
+        return original(gesture);
+    } copy];
+    objc_setAssociatedObject(owner,&HGAEpisodeSwipeDecisionKey,decision,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    ((void(*)(id,SEL,HGALeftEpisodeDecision))objc_msgSend)(owner,set,decision);
+}
+
+static void HGAInstallEpisodeSwipeSetup(Class target,SEL selector,BOOL argumentIsContext,IMP *installed) {
+    if (*installed) return;
+    Method method=class_getInstanceMethod(target,selector);
+    if (!method || strcmp(method_getTypeEncoding(method),"v24@0:8@16")) return;
+    __block IMP original=method_getImplementation(method);
+    IMP replacement=imp_implementationWithBlock(^void(id receiver,id argument) {
+        ((void(*)(id,SEL,id))original)(receiver,selector,argument);
+        HGAWrapEpisodeSwipeDecision(argumentIsContext ? HGReadObjectGetter(argument,"viewController") : argument);
+    });
+    IMP previous=HGInstallVerifiedHook(target,selector,"v24@0:8@16",replacement,@"appearance");
+    if (previous) {
+        original=previous;
+        *installed=previous;
+    } else imp_removeBlock(replacement);
+}
+
 static void HGAInstallHomeEpisodeSwipeGate(void) {
+    static IMP listSetup,homeSetup;
+    // The home controller registers a separate interactive push that resolves
+    // its destination through SSBizShortVideo; it bypasses the list delegate.
+    HGAInstallEpisodeSwipeSetup(object_getClass(objc_lookUpClass("SSBizVideoImpl")),
+        sel_registerName("setLeftSlideToShortsListVCWithParentVC:"),NO,&homeSetup);
+    HGAInstallEpisodeSwipeSetup(objc_lookUpClass("SSShortVideoGestureComponent"),
+        sel_registerName("setupPanGestureTowardsLeftEnterOtherPage:"),YES,&listSetup);
+
     static IMP original;
     if (original) return;
     Class delegateClass=objc_lookUpClass("SSShortVideoPanGestureLeftTowardDelegate");

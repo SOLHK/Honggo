@@ -31,9 +31,15 @@ static void HGAApplyEpisodeInset(UIView *entry,BOOL enabled) {
     }
     if(!state){state=[HGAEpisodeInsetState new];objc_setAssociatedObject(entry,&HGAEpisodeInsetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     state.sourceBounds=source;state.parent=entry.superview;
-    CGFloat inset=round(MAX(12,MIN(20,width*0.03)));
+    CGFloat inset=round(MAX(12,width*0.09));
     CGRect bounds=source;bounds.size.width-=inset*2;state.appliedBounds=bounds;
     if(!CGRectEqualToRect(entry.bounds,bounds)){entry.bounds=bounds;[entry setNeedsLayout];}
+}
+static CGRect HGAEpisodeGlassFrame(UIView *entry) {
+    CGRect frame=entry.bounds;
+    if(objc_getAssociatedObject(entry,&HGAEpisodeInsetKey) && frame.size.height>36)
+        frame=CGRectInset(frame,0,(frame.size.height-36)/2);
+    return frame;
 }
 @interface HGAEpisodeSurfaceState : NSObject
 @property(nonatomic,weak) UIView *view;

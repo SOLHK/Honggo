@@ -106,19 +106,27 @@ static void HGASetHidden(UIView *view,BOOL hide) {
         if(!view.hidden)view.hidden=YES;
     }
 }
+static void HGASetGlassHostBackground(UIView *view,BOOL clear) {
+    HGAViewState *state=HGAState(view,clear);
+    if(clear) {
+        if(!state.clearsBackground || ![view.backgroundColor isEqual:UIColor.clearColor])state.background=view.backgroundColor;
+        state.clearsBackground=YES;
+        if(![view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=UIColor.clearColor;
+    } else if(state.clearsBackground) {
+        if([view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=state.background;
+        state.clearsBackground=NO;state.background=nil;
+    }
+}
 static void HGARemoveGlass(UIView *view) {
     HGAViewState *state=HGAState(view,NO);
     if(!state)return;
     [state.glass removeFromSuperview];state.glass=nil;
-    if(state.clearsBackground && [view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=state.background;
-    state.clearsBackground=NO;state.background=nil;
+    HGASetGlassHostBackground(view,NO);
 }
 static void HGAInstallGlassInRect(UIView *view,NSString *style,CGRect frame,CGFloat radius,CGFloat opacity) {
     if(!view.window || CGRectIsEmpty(frame)){HGARemoveGlass(view);return;}
     HGAViewState *state=HGAState(view,YES);
-    if(!state.clearsBackground || ![view.backgroundColor isEqual:UIColor.clearColor])state.background=view.backgroundColor;
-    state.clearsBackground=YES;
-    if(![view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=UIColor.clearColor;
+    HGASetGlassHostBackground(view,YES);
     if(!state.glass) {
         state.glass=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
         state.glass.accessibilityIdentifier=@"honggo.appearance.material";
@@ -475,6 +483,9 @@ void HGAppearanceProcessView(UIView *view) {
             for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
             HGAApplyTypography(view);HGRefreshVideoBackdropForPlayer(view);return;
         }
+        if([view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerSingleSeriesControlView")]) {
+            HGRefreshVideoBackdropForPlayer(view);return;
+        }
         if(HGAIsCommentSurface(view)) {
             HGAApplyTypography(view);return;
         }
@@ -496,6 +507,7 @@ void HGAppearanceProcessView(UIView *view) {
             ([role isEqual:@"episodes"] && HGAppearanceFlag(@"player.episodeGlass")));
         BOOL episode=[role isEqual:@"episodes"];
         if(episode && outer)HGAApplyEpisodeInset(view,glass && !view.hidden);
+        CGRect episodeFrame=episode ? HGAEpisodeGlassFrame(view) : CGRectZero;
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
         if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
         HGAApplyIcon(view,role,glass);
@@ -503,7 +515,8 @@ void HGAppearanceProcessView(UIView *view) {
             HGAApplyHeaderSeparatedGlass(view,glass,enabled && outer && !headerShowsFinder && !view.hidden,
                 HGAppearanceString(@"player.material"));
         } else if(glass && !view.hidden) {
-            CGRect glassFrame=view.bounds;CGFloat radius=episode ? episodeRadius : 20;
+            CGRect glassFrame=episode ? episodeFrame : view.bounds;
+            CGFloat radius=episode ? MIN(episodeFrame.size.width,episodeFrame.size.height)/2 : 20;
             if(action) {
                 UIImageView *icon=HGAFindIcon(view);
                 CGRect rect=icon ? [icon convertRect:icon.bounds toView:view] : CGRectMake(0,0,view.bounds.size.width,MIN(52,view.bounds.size.height));
@@ -514,7 +527,13 @@ void HGAppearanceProcessView(UIView *view) {
                 glassFrame=CGRectMake((view.bounds.size.width-side)/2,MAX(0,CGRectGetMidY(rect)-side/2),side,side);
                 radius=side/2;
             }
-            HGAInstallPlaybackGlass(view,HGAppearanceString(@"player.material"),glassFrame,radius,nil);
+            NSString *style=HGAppearanceString(@"player.material");
+            BOOL compactEpisode=episode && !CGRectEqualToRect(episodeFrame,view.bounds);
+            if(compactEpisode && HGAppearanceDockEnabled()) {
+                NSString *dockStyle=HGAppearanceString(@"dock.material");
+                if([dockStyle isEqual:@"regular"] || [dockStyle isEqual:@"clear"])style=dockStyle;
+            }
+            HGAInstallPlaybackGlass(view,style,glassFrame,radius,nil);
         }
         else HGARemoveGlass(view);
         HGAApplyTypography(view);

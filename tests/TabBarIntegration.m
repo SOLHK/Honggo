@@ -63,6 +63,28 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
 @end
 @implementation SSMyUser637NestedContainerScrollView
 @end
+@interface FQTheaterViewController : UIViewController
+@end
+@implementation FQTheaterViewController
+@end
+@interface FQRJXCategoryListContainerView : UIView
+@property(nonatomic,strong) UIScrollView *contentScrollView;
+@end
+@implementation FQRJXCategoryListContainerView
+@end
+@interface FQFeedListView : UIView <UICollectionViewDataSource>
+@property(nonatomic,strong) UICollectionView *listView;
+@end
+@implementation FQFeedListView
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    self.listView.frame = self.bounds;
+}
+- (NSInteger)collectionView:(UICollectionView *)list numberOfItemsInSection:(NSInteger)section { return 1; }
+- (__kindof UICollectionViewCell *)collectionView:(UICollectionView *)list cellForItemAtIndexPath:(NSIndexPath *)path {
+    return [list dequeueReusableCellWithReuseIdentifier:@"finder" forIndexPath:path];
+}
+@end
 @interface SSMine737KMPRootView : UIView
 @end
 @implementation SSMine737KMPRootView
@@ -914,9 +936,73 @@ static UIImage *HGWhiteImage(void) {
     [self runMinePagingChecks];
     [self runMineAppearanceChecks];
     [self runMallMountChecksWithGlass:YES];
+    [self runTheaterViewportChecks];
     [self runNestedChecksForClass:SSNestedContainerScrollView.class];
     [self runNestedChecksForClass:SSMyUser637NestedContainerScrollView.class];
     [self runReturnChecks];
+}
+- (void)runTheaterViewportChecks {
+    [self layoutHost];
+    UIView *root = self.host.view;
+    SSTabBar *bar = self.host.customTabBar;
+    CGFloat width = root.bounds.size.width, height = root.bounds.size.height;
+    self.host.viewport.hidden = YES;
+
+    FQTheaterViewController *theater = [FQTheaterViewController new];
+    [self.host addChildViewController:theater];
+    theater.view.frame = root.bounds;
+    FQRJXCategoryListContainerView *categories = [[FQRJXCategoryListContainerView alloc] initWithFrame:root.bounds];
+    UIScrollView *pager = [[UIScrollView alloc] initWithFrame:categories.bounds];
+    pager.clipsToBounds = YES;
+    pager.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    pager.contentInset = UIEdgeInsetsMake(0,0,7,0);
+    pager.contentSize = CGSizeMake(width*3,height);
+    pager.contentOffset = CGPointMake(width,0);
+    categories.contentScrollView = pager;
+    [categories addSubview:pager];
+    [theater.view addSubview:categories];
+
+    UIView *activePage = [[UIView alloc] initWithFrame:CGRectMake(width,0,width,height)];
+    [pager addSubview:activePage];
+    FQFeedListView *list = [[FQFeedListView alloc] initWithFrame:CGRectMake(0,108,width,height-108-29)];
+    UICollectionViewFlowLayout *flow = [UICollectionViewFlowLayout new];
+    flow.itemSize = CGSizeMake(width-1,height*3);
+    UICollectionView *grid = [[UICollectionView alloc] initWithFrame:list.bounds collectionViewLayout:flow];
+    grid.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    grid.contentInset = UIEdgeInsetsMake(0,0,12,0);
+    [grid registerClass:UICollectionViewCell.class forCellWithReuseIdentifier:@"finder"];
+    grid.dataSource = list;
+    list.listView = grid;
+    [list addSubview:grid];
+    [activePage addSubview:list];
+    [root insertSubview:theater.view belowSubview:bar];
+    [theater didMoveToParentViewController:self.host];
+    [bar layoutSubviews];
+    [self check:fabs(CGRectGetMaxY([grid convertRect:grid.bounds toView:root])-height)<0.75 &&
+        fabs(CGRectGetMaxY([pager convertRect:pager.bounds toView:root])-height)<0.75 &&
+        fabs(grid.contentInset.bottom-41)<0.01 && pager.clipsToBounds && !pager.pagingEnabled &&
+        CGPointEqualToPoint(pager.contentOffset,CGPointMake(width,0)) && pager.contentInset.bottom==7
+        name:@"theatre catalogue fills its missing bottom 29 points without changing the category pager"];
+
+    [grid layoutIfNeeded];
+    grid.contentOffset = CGPointMake(0,180);
+    CGRect native = CGRectMake(0,100,width,height-100-29);
+    list.frame = native;
+    [list layoutSubviews];
+    [self check:fabs(CGRectGetMaxY([grid convertRect:grid.bounds toView:root])-height)<0.75 &&
+        list.frame.origin.y==100 && fabs(grid.contentInset.bottom-41)<0.01 &&
+        CGPointEqualToPoint(grid.contentOffset,CGPointMake(0,180)) &&
+        CGPointEqualToPoint(pager.contentOffset,CGPointMake(width,0))
+        name:@"theatre relayout after a header movement keeps the native top and restores the bottom extension"];
+
+    [theater willMoveToParentViewController:nil];
+    [theater.view removeFromSuperview];
+    [theater removeFromParentViewController];
+    [bar layoutSubviews];
+    [self check:CGRectEqualToRect(list.frame,native) && fabs(grid.contentInset.bottom-12)<0.01
+        name:@"leaving theatre restores the native list frame and inset"];
+    self.host.viewport.hidden = NO;
+    [self layoutHost];
 }
 - (void)runTitleContrastChecks {
     SSTabBar *bar = self.host.customTabBar;

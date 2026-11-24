@@ -13,10 +13,29 @@
 @property(nonatomic,strong) UIView *iconBackgroundView;
 @end
 @implementation SSShortVideoMorePanelShareHeaderCell @end
-@interface FQVShortVideoSettingsCell : UITableViewCell @end
-@implementation FQVShortVideoSettingsCell @end
-@interface FQVShortVideoSettingsArrowCell : FQVShortVideoSettingsCell @end
-@implementation FQVShortVideoSettingsArrowCell @end
+@interface FQVShortVideoSettingsCell : UITableViewCell
+- (void)refreshUIWhenApplayNewStyle;
+@end
+@implementation FQVShortVideoSettingsCell
+- (void)refreshUIWhenApplayNewStyle {}
+@end
+@interface FQVShortVideoSettingsArrowCell : FQVShortVideoSettingsCell
+@property(nonatomic,strong) UIImageView *iconImageView;
+@property(nonatomic,strong) UIImageView *nextImageView;
+@property(nonatomic,strong) UILabel *titleLabel;
+@property(nonatomic,strong) UIColor *nativePaint;
+@property(nonatomic,copy) NSAttributedString *nativeTitle;
+@end
+@implementation FQVShortVideoSettingsArrowCell
+- (void)refreshUIWhenApplayNewStyle {
+    [super refreshUIWhenApplayNewStyle];
+    self.backgroundColor=self.nativePaint;
+    self.contentView.backgroundColor=self.nativePaint;
+    self.titleLabel.attributedText=self.nativeTitle;
+    self.iconImageView.tintColor=UIColor.blackColor;
+    self.nextImageView.tintColor=UIColor.blackColor;
+}
+@end
 @interface FQVShortVideoSettingsOptionView : UIView
 @property(nonatomic,getter=isSelected,setter=setIsSelected:) BOOL selected;
 @end
@@ -342,6 +361,10 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     panel.effectViewContentView.backgroundColor=hostTint;
     [panel.blurView.contentView addSubview:panel.effectViewContentView];[panel.view addSubview:panel.blurView];
     UITableView *table=[[UITableView alloc] initWithFrame:CGRectMake(0,28,panel.view.bounds.size.width,472) style:UITableViewStyleInsetGrouped];
+    panel.tableView=table;
+    UIView *tableBacking=[UIView new];
+    UIColor *tableMatte=[UIColor colorWithWhite:0.14 alpha:0.44];
+    tableBacking.backgroundColor=tableMatte;table.backgroundView=tableBacking;
     table.backgroundColor=UIColor.grayColor;[panel.view addSubview:table];
     SSShortVideoMorePanelShareHeaderView *header=[[SSShortVideoMorePanelShareHeaderView alloc] initWithFrame:CGRectMake(0,0,panel.view.bounds.size.width,98)];
     header.backgroundColor=UIColor.whiteColor;table.tableHeaderView=header;
@@ -437,6 +460,30 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
         Check([lateRow.backgroundColor isEqual:UIColor.clearColor] &&
             [lateRow.contentView.backgroundColor isEqual:UIColor.clearColor],
             @"late-mounted bottom function rows blend into the main glass instead of making an opaque card");
+        FQVShortVideoSettingsArrowCell *nativeRow=[[FQVShortVideoSettingsArrowCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+        nativeRow.frame=CGRectMake(20,380,table.bounds.size.width-40,40);
+        nativeRow.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
+        nativeRow.nativePaint=[UIColor colorWithWhite:0.14 alpha:0.46];
+        nativeRow.nativeTitle=[[NSAttributedString alloc] initWithString:@"清屏播放" attributes:
+            @{NSForegroundColorAttributeName:UIColor.blackColor,NSFontAttributeName:[UIFont boldSystemFontOfSize:14]}];
+        nativeRow.titleLabel=[[UILabel alloc] initWithFrame:CGRectMake(40,8,125,24)];
+        nativeRow.iconImageView=[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"viewfinder"]];
+        nativeRow.iconImageView.frame=CGRectMake(8,8,24,24);
+        nativeRow.nextImageView=[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
+        nativeRow.nextImageView.frame=CGRectMake(nativeRow.bounds.size.width-28,12,16,16);
+        [nativeRow.contentView addSubview:nativeRow.titleLabel];[nativeRow.contentView addSubview:nativeRow.iconImageView];
+        [nativeRow.contentView addSubview:nativeRow.nextImageView];[table addSubview:nativeRow];
+        [nativeRow refreshUIWhenApplayNewStyle];
+        if(nativeGlass) {
+            CGFloat white=0,alpha=0;
+            UIColor *labelInk=[nativeRow.titleLabel.attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
+            [labelInk getWhite:&white alpha:&alpha];
+            Check([tableBacking.backgroundColor isEqual:UIColor.clearColor] &&
+                [nativeRow.backgroundColor isEqual:UIColor.clearColor] && [nativeRow.contentView.backgroundColor isEqual:UIColor.clearColor] &&
+                white>0.9 && alpha>0.9 && [nativeRow.iconImageView.tintColor isEqual:UIColor.whiteColor] &&
+                [nativeRow.nextImageView.tintColor isEqual:[UIColor.whiteColor colorWithAlphaComponent:0.64]],
+                @"an inset row's original theme refresh cannot restore its dark matte or dark text and arrows over clear glass");
+        }
         FQVShortVideoSettingsOptionView *resolution=[[FQVShortVideoSettingsOptionView alloc] initWithFrame:CGRectMake(120,310,45,30)];
         FQVShortVideoSettingsSwitchOptionView *speed=[[FQVShortVideoSettingsSwitchOptionView alloc] initWithFrame:CGRectMake(190,310,62,30)];
         speed.selectionBackgroundView=[[UIView alloc] initWithFrame:speed.bounds];[speed addSubview:speed.selectionBackgroundView];
@@ -505,6 +552,10 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             [transition.bgView.backgroundColor isEqual:scrim] && [destinationLabel.textColor isEqual:UIColor.blackColor] &&
             panel.view.overrideUserInterfaceStyle==UIUserInterfaceStyleDark,
             @"disabling the card restores the verified host blur, tint, scrim and label ink");
+        Check([tableBacking.backgroundColor isEqual:tableMatte] && [nativeRow.backgroundColor isEqual:nativeRow.nativePaint] &&
+            [nativeRow.titleLabel.attributedText isEqual:nativeRow.nativeTitle] &&
+            [nativeRow.nextImageView.tintColor isEqual:UIColor.blackColor],
+            @"disabling the card restores the native table and row paints, rich title and trailing glyph");
         Check(cell.iconView.image==nativeIcon && [cell.iconView.tintColor isEqual:UIColor.systemBlueColor] &&
             [cell.iconBackgroundView.backgroundColor isEqual:UIColor.systemGreenColor],@"share icon, tint and tile restore on disable");
         HGAppearanceSet(@"panels.longpress",@YES,nil);[panel viewDidLayoutSubviews];

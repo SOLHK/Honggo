@@ -51,6 +51,7 @@ static void (*HGOriginalBarTraits)(id, SEL, id);
 static void (*HGOriginalMineLayout)(id, SEL);
 static void (*HGOriginalMineAppear)(id, SEL, BOOL);
 static void (*HGOriginalMallMount)(id, SEL);
+static void (*HGOriginalTheaterListLayout)(id, SEL);
 static void (*HGOriginalToggleFeedSidebar)(id, SEL, double);
 static char HGMineRefreshPendingKey;
 
@@ -455,6 +456,24 @@ static BOOL HGContainerScroll(UIView *view) {
         hasPrefix:@"RKMPandroidx.compose.ui.scene.UIKitTransparentContainerView"];
 }
 
+static UIViewController *HGTheaterPageForView(UIView *view) {
+    Class theater = objc_lookUpClass("FQTheaterViewController");
+    for (UIView *node = view; node; node = node.superview) {
+        UIResponder *owner = node.nextResponder;
+        if ([owner isKindOfClass:theater]) return (id)owner;
+    }
+    return nil;
+}
+
+static BOOL HGTheaterCategoryPager(UIScrollView *scroll) {
+    Class container = objc_lookUpClass("FQRJXCategoryListContainerView");
+    for (UIView *node = scroll.superview; node; node = node.superview) {
+        if (![node isKindOfClass:container]) continue;
+        return HGView(node, "contentScrollView") == scroll && HGTheaterPageForView(node) != nil;
+    }
+    return NO;
+}
+
 static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     // A video feed's page height is also its paging stride. Extending either
     // the feed or an autoresizing ancestor can reveal the following episode
@@ -475,7 +494,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
             if (verticalPages) return YES;
             // Ordinary list cells and carousels do not decide the containing
             // page's viewport. Continue through host container/horizontal pagers.
-            if (!HGContainerScroll(scroll) && !scroll.pagingEnabled) continue;
+            if (!HGContainerScroll(scroll) && !scroll.pagingEnabled && !HGTheaterCategoryPager(scroll)) continue;
         }
         if ([view isKindOfClass:UIControl.class] || [view isKindOfClass:UILabel.class] ||
             [view isKindOfClass:UIImageView.class] || [view isKindOfClass:UIVisualEffectView.class] ||
@@ -649,6 +668,14 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     if (CGRectGetWidth(actual) < rootWidth * 0.80 || CGRectGetMinX(actual) < -2 ||
         CGRectGetMaxX(actual) > CGRectGetMaxX(root.bounds) + 2 ||
         CGRectGetMinY(actual) > barTop - 100 || CGRectGetHeight(actual) < rootHeight * 0.35) return;
+    if ([view isKindOfClass:UIScrollView.class] && HGTheaterCategoryPager((UIScrollView *)view)) {
+        // The Theatre's category coordinator can have pagingEnabled == NO.
+        // Its native offset and insets still belong to horizontal navigation.
+        if (CGRectGetMaxY(actual) < bottom - 0.75) return;
+        for (UIView *child in view.subviews.copy)
+            [self collectViewports:child root:root barTop:barTop bottom:bottom records:records depth:depth + 1];
+        return;
+    }
     HGViewportRecord *record = [self.viewports objectForKey:view];
     CGRect baseline = record && record.resized && view.superview == record.parent &&
         HGRectNear(view.frame, record.appliedFrame) ? record.originalFrame : view.frame;
@@ -1086,6 +1113,21 @@ static void HGMallMount(UIViewController *page, SEL cmd) {
     // Run the existing reversible viewport pass after the initial mount/reset.
     HGRefreshContainingTabBar(page);
 }
+static void HGTheaterListLayout(UIView *list, SEL cmd) {
+    HGOriginalTheaterListLayout(list, cmd);
+    UIWindow *window = list.window;
+    if (!window || list.hidden || (!HGGlassEnabled && !HGAppearanceDockEnabled())) return;
+    CGRect frame = [list convertRect:list.bounds toView:window];
+    if (fabs(CGRectGetMinX(frame) - CGRectGetMinX(window.bounds)) > 2 ||
+        fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(window.bounds)) > 2 ||
+        CGRectGetMaxY(frame) >= CGRectGetMaxY(window.bounds) - 0.75) return;
+    UIViewController *theater = HGTheaterPageForView(list);
+    if (!theater) return;
+    UIViewController *owner = HGContainingTabController(theater);
+    UIView *bar = HGView(owner, "customTabBar");
+    if (bar.window == window && CGRectGetMaxY(frame) >= CGRectGetMinY([bar convertRect:bar.bounds toView:window]) - 2)
+        HGRefreshTabBar(owner);
+}
 static void HGMineLayout(UIViewController *page, SEL cmd) {
     HGOriginalMineLayout(page, cmd);
     // Compose can attach native views after this callback. Coalesce layouts
@@ -1283,6 +1325,10 @@ BOOL HGInstallTabBar(void) {
         if ([mall isSubclassOfClass:UIViewController.class])
             HGOriginalMallMount = (void (*)(id, SEL))HGReplaceMethod(mall,
                 sel_registerName("mountMallViewIfNeeded"), "v16@0:8", (IMP)HGMallMount);
+        Class theaterList = objc_lookUpClass("FQFeedListView");
+        if ([theaterList isSubclassOfClass:UIView.class])
+            HGOriginalTheaterListLayout = (void (*)(id, SEL))HGReplaceMethod(theaterList,
+                @selector(layoutSubviews), "v16@0:8", (IMP)HGTheaterListLayout);
         if (HGGlassEnabled) {
             Class mine = objc_lookUpClass("SSMine737KMPViewController");
             HGOriginalMineLayout = (void (*)(id, SEL))HGReplaceMethod(mine,

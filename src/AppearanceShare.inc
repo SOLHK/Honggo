@@ -41,12 +41,15 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
 @property(nonatomic,weak) UIView *view;
 @property(nonatomic,strong) UIColor *source;
 @property(nonatomic,strong) UIColor *applied;
+@property(nonatomic,copy) NSAttributedString *sourceText;
+@property(nonatomic,copy) NSAttributedString *appliedText;
 @end
 @implementation HGAActionSheetPlate @end
 
 // A single material behind the sheet's native controls and content.
 @interface HGAActionSheetState : NSObject
 @property(nonatomic,weak) UIView *surface;
+@property(nonatomic,weak) UITableView *settingsTable;
 @property(nonatomic,strong) HGAActionSheetMount *dockMount;
 @property(nonatomic,strong) NSMapTable<UIView *,UIColor *> *covers;
 @property(nonatomic,strong) NSMapTable<UIVisualEffectView *,UIVisualEffect *> *effects;
@@ -87,6 +90,7 @@ static void HGARestoreDetachedSheetDimmer(UIView *root) {
 @property(nonatomic,strong) UIImage *original;
 @property(nonatomic,strong) UIImage *applied;
 @property(nonatomic,strong) UIColor *tint;
+@property(nonatomic,strong) UIColor *appliedTint;
 @property(nonatomic,strong) UIColor *paint;
 @end
 @implementation HGAShareInk @end
@@ -133,36 +137,48 @@ static BOOL HGASheetNeutralColor(UIColor *color,UITraitCollection *traits,CGFloa
 
 static void HGARestoreSheetLabel(HGAActionSheetState *state,UILabel *label) {
     HGAActionSheetPlate *ink=[state.labels objectForKey:label];
-    if(ink && [label.textColor isEqual:ink.applied])label.textColor=ink.source;
+    if(ink && [label.textColor isEqual:ink.applied] &&
+        (label.attributedText==ink.appliedText || [label.attributedText isEqual:ink.appliedText])) {
+        label.textColor=ink.source;
+        if(ink.sourceText)label.attributedText=ink.sourceText;
+    }
     [state.labels removeObjectForKey:label];
 }
 
 static void HGAApplySheetLabel(HGAActionSheetState *state,UILabel *label) {
     HGAActionSheetPlate *ink=[state.labels objectForKey:label];
     UIColor *current=label.textColor;
-    UIColor *original=ink && [current isEqual:ink.applied] ? ink.source : current;
     NSAttributedString *text=label.attributedText;
+    BOOL owned=ink && [current isEqual:ink.applied] && (text==ink.appliedText || [text isEqual:ink.appliedText]);
+    UIColor *original=owned ? ink.source : current;
+    if(owned)text=ink.sourceText;
+    BOOL settingsRow=[label isDescendantOfView:state.settingsTable];
+    UIColor *foreground=original;
     if(text.length) {
         NSRange range;
         id color=[text attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:&range];
-        if(range.length!=text.length || (color && ![color isEqual:current])) {
+        if(range.length!=text.length || (color && !settingsRow && ![color isEqual:original])) {
             HGARestoreSheetLabel(state,label);return;
         }
+        if([color isKindOfClass:UIColor.class])foreground=color;
     }
-    BOOL dark=label.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    // Playback settings may pin their rows to the host's light theme. Their
+    // glass contrast follows the sheet rather than that nested override.
+    BOOL dark=(settingsRow ? state.surface : label).traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
     // Keep the text polarity supplied by the host for opaque selection chips.
     for(UIView *parent=label.superview;parent && parent!=state.surface;parent=parent.superview) {
         CGColorRef paint=parent.layer.backgroundColor;
         if(paint && CGColorGetAlpha(paint)>0.82){HGARestoreSheetLabel(state,label);return;}
     }
     CGFloat white=0,alpha=0;
-    if(!HGASheetNeutralColor(original,label.traitCollection,&white,&alpha) ||
+    if(!HGASheetNeutralColor(foreground,label.traitCollection,&white,&alpha) ||
         (dark ? white>=0.66 : white<=0.40)) {HGARestoreSheetLabel(state,label);return;}
     // Preserve disabled/secondary emphasis and any semantic colored text.
     CGFloat level=dark ? (white<0.2 ? 0.98 : 0.76) : (white>0.8 ? 0.10 : 0.30);
     if(!ink){ink=[HGAActionSheetPlate new];[state.labels setObject:ink forKey:label];}
-    ink.source=original;ink.applied=[UIColor colorWithWhite:level alpha:alpha];
+    ink.source=original;ink.sourceText=text;ink.applied=[UIColor colorWithWhite:level alpha:alpha];
     if(![label.textColor isEqual:ink.applied])label.textColor=ink.applied;
+    ink.appliedText=label.attributedText;
 }
 
 static void HGAClearSheetBackground(HGAActionSheetState *state,UIView *view) {
@@ -260,16 +276,12 @@ static void HGARestoreShareInk(UIView *cell) {
     HGAShareInk *ink=objc_getAssociatedObject(cell,&HGAShareInkKey);
     if(!ink)return;
     if(ink.icon.image==ink.applied)ink.icon.image=ink.original;
-    if([ink.icon.tintColor isEqual:HGAShareForeground()])ink.icon.tintColor=ink.tint;
+    if([ink.icon.tintColor isEqual:ink.appliedTint])ink.icon.tintColor=ink.tint;
     if([ink.plate.backgroundColor isEqual:HGASharePlate()])ink.plate.backgroundColor=ink.paint;
     objc_setAssociatedObject(cell,&HGAShareInkKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-static void HGAApplyShareInk(UIView *cell) {
-    UIView *view=HGAViewGetter(cell,"iconView",cell);
-    if(!view)view=HGAViewGetter(cell,"iconImageView",cell);
-    UIView *plate=HGAViewGetter(cell,"iconBackgroundView",cell);
-    if(!plate)plate=HGAViewGetter(cell,"imageBottomMaskView",cell);
+static void HGAApplyShareGlyph(UIView *cell,UIView *view,UIView *plate,UIColor *foreground) {
     UIImageView *icon=[view isKindOfClass:UIImageView.class] ? (id)view : nil;
     HGAShareInk *ink=objc_getAssociatedObject(cell,&HGAShareInkKey);
     if(ink && (ink.icon!=icon || ink.plate!=plate || !icon.image)) {
@@ -285,13 +297,31 @@ static void HGAApplyShareInk(UIView *cell) {
         ink.original=icon.image;
         ink.applied=HGAShareTemplate(icon.image);
     }
-    if(![icon.tintColor isEqual:HGAShareForeground()]){
-        ink.tint=icon.tintColor;icon.tintColor=HGAShareForeground();
-    }
+    if(![icon.tintColor isEqual:ink.appliedTint])ink.tint=icon.tintColor;
+    ink.appliedTint=foreground;
+    if(![icon.tintColor isEqual:foreground])icon.tintColor=foreground;
     if(plate && ![plate.backgroundColor isEqual:HGASharePlate()]) {
         ink.paint=plate.backgroundColor;plate.backgroundColor=HGASharePlate();
     }
     if(icon.image!=ink.applied)icon.image=ink.applied;
+    ink.applied=icon.image;
+}
+
+static void HGAApplyShareInk(HGAActionSheetState *state,UIView *cell) {
+    UIView *icon=HGAViewGetter(cell,"iconView",cell) ?: HGAViewGetter(cell,"iconImageView",cell);
+    UIView *plate=HGAViewGetter(cell,"iconBackgroundView",cell) ?: HGAViewGetter(cell,"imageBottomMaskView",cell);
+    BOOL settingsRow=state.nativeClear && [cell isKindOfClass:objc_lookUpClass("FQVShortVideoSettingsCell")] &&
+        [cell isDescendantOfView:state.settingsTable];
+    UIColor *foreground=settingsRow ? (state.surface.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark
+        ? UIColor.whiteColor : UIColor.blackColor) : HGAShareForeground();
+    HGAApplyShareGlyph(cell,icon,plate,foreground);
+    if(settingsRow) {
+        UIView *arrow=HGAViewGetter(cell,"nextImageView",cell);
+        if([arrow isKindOfClass:UIImageView.class]) {
+            [state.shareCells addObject:arrow];
+            HGAApplyShareGlyph(arrow,arrow,nil,[foreground colorWithAlphaComponent:0.64]);
+        }
+    }
 }
 
 static void HGARestoreSheetRounding(HGAActionSheetState *state) {
@@ -440,9 +470,17 @@ static BOOL HGAApplySettingsPanelPart(HGAActionSheetState *state, UIView *view) 
     }
     if([view isKindOfClass:objc_lookUpClass("FQVShortVideoSettingsCell")]) {
         UITableViewCell *cell=(id)view;
-        HGAClearSheetCover(state,cell);
-        HGAClearSheetCover(state,cell.contentView);
-        HGAClearSheetCover(state,cell.backgroundView);
+        if(state.nativeClear && [cell isDescendantOfView:state.settingsTable]) {
+            // The host repaints the entire row from its settings style model,
+            // including translucent backgrounds below the old opacity cutoff.
+            HGAClearSheetBackground(state,cell);
+            HGAClearSheetBackground(state,cell.contentView);
+            HGAClearSheetBackground(state,cell.backgroundView);
+        } else {
+            HGAClearSheetCover(state,cell);
+            HGAClearSheetCover(state,cell.contentView);
+            HGAClearSheetCover(state,cell.backgroundView);
+        }
         if([view isKindOfClass:objc_lookUpClass("FQVShortVideoSettingsSwitchOptionCell")]) {
             // Its getter lazily creates the native drag view. Paint only the
             // slider the host has already mounted.
@@ -499,7 +537,13 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     NSString *material=HGAppearanceString(@"panels.material");
     BOOL clear=share && !reduceTransparency && HGNativeGlassConfigured() &&
         ([material isEqual:@"regular"] || [material isEqual:@"clear"]);
-    if(state.nativeClear && !clear)HGARestoreSheetOptics(state);
+    if(state.nativeClear && !clear) {
+        HGARestoreSheetOptics(state);
+        for(UIView *entry in state.shareCells.allObjects) {
+            if(![entry isKindOfClass:UIImageView.class])continue;
+            HGARestoreShareInk(entry);[state.shareCells removeObject:entry];
+        }
+    }
     state.nativeClear=clear;
     HGAInstallGlass(surface,clear?@"clear":material,clear?0:radius,opacity);
     HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
@@ -547,6 +591,18 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     }
     if(longPress) {
         UIViewController *owner=HGAOwner(root);
+        UIView *tableView=HGAViewGetter(owner,"tableView",surface);
+        state.settingsTable=[tableView isKindOfClass:UITableView.class] ? (UITableView *)tableView : nil;
+        if(clear && state.settingsTable) {
+            UITableView *table=state.settingsTable;
+            HGAClearSheetBackground(state,table);
+            HGAClearSheetBackground(state,table.backgroundView);
+            // This inner UIKit wrapper is bounded to the observed settings
+            // section. It is not a generally hooked UIKit class.
+            for(UIView *wrapper in table.subviews)
+                if([NSStringFromClass(wrapper.class) isEqual:@"UITableViewWrapperView"])
+                    HGAClearSheetBackground(state,wrapper);
+        }
         BOOL usesBlur=NO;
         if(HGABoolGetter(owner,@"useBlurBackground",&usesBlur) && usesBlur) {
             UIView *backdrop=HGAViewGetter(owner,"blurView",surface);
@@ -575,7 +631,7 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
         if(view==surface || HGAOwnView(view) || view.hidden)continue;
         if(share && [NSStringFromClass(view.class) hasPrefix:@"RKMPandroidx.compose.ui.window.ComposeView"])compose=YES;
         if(share && HGAIsShareCell(view)) {
-            [state.shareCells addObject:view];HGAApplyShareInk(view);
+            [state.shareCells addObject:view];HGAApplyShareInk(state,view);
         }
         if(share)HGAApplySettingsPanelPart(state,view);
         if(CGRectGetHeight(view.bounds)<16 || CGRectGetHeight(view.bounds)>CGRectGetHeight(surface.bounds)+2 ||
@@ -618,7 +674,7 @@ static void HGAUpdateActionPanelSurface(UIView *view) {
             if([child isKindOfClass:UILabel.class] && HGAVisible(child))HGAApplySheetLabel(state,(UILabel *)child);
     if(HGAIsShareCell(view)) {
         if(inActionSheet) {
-            [state.shareCells addObject:view];HGAApplyShareInk(view);
+            [state.shareCells addObject:view];HGAApplyShareInk(state,view);
         }else HGARestoreShareInk(view);
         return;
     }

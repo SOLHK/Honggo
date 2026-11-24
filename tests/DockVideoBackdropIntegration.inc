@@ -32,6 +32,12 @@
 @property(nonatomic,strong) FQVShortVideoGradientLayerView *bottomGradientView;
 @end
 @implementation HGBackdropGradientControl @end
+@interface FQVShortVideoPlayerBottomView : UIView @end
+@implementation FQVShortVideoPlayerBottomView @end
+@interface FQVShortVideoVPlayerSingleSeriesControlView : HGBackdropGradientControl
+@property(nonatomic,strong) FQVShortVideoPlayerBottomView *singleSeriesBottomView;
+@end
+@implementation FQVShortVideoVPlayerSingleSeriesControlView @end
 
 @interface FQVShortVideoPlayerCellView (HGBackdropPaletteFixture)
 - (void)refreshBgColor;
@@ -208,6 +214,48 @@ static HGBackdropRGB HGBackdropAverageColor(UIImage *image,UIWindow *window,CGRe
     result.red/=denominator;result.green/=denominator;result.blue/=denominator;result.valid=YES;
     return result;
 }
+static void RunDetailVideoBackdropChecks(UIView *root) {
+    FQVShortVideoPlayerCellView *canvas=[[FQVShortVideoPlayerCellView alloc] initWithFrame:root.bounds];
+    canvas.clipsToBounds=YES;
+    CGRect crop=canvas.bounds;crop.size.height-=89;
+    UIView *wrapper=[[UIView alloc] initWithFrame:canvas.bounds];
+    FQVPlayer *player=[[FQVPlayer alloc] initWithFrame:wrapper.bounds];
+    TTPlayerView *renderer=[[TTPlayerView alloc] initWithFrame:crop];
+    for(UIView *view in renderer.subviews.copy)[view removeFromSuperview];
+    TTMetalView *metal=[[TTMetalView alloc] initWithFrame:CGRectInset(renderer.bounds,-24,0)];
+    [renderer addSubview:metal];renderer.clipsToBounds=YES;
+    [player addSubview:renderer];[wrapper addSubview:player];[canvas addSubview:wrapper];
+    UIView *cornerHolder=[[UIView alloc] initWithFrame:crop];cornerHolder.userInteractionEnabled=NO;
+    UIImageView *leftBottom=nil,*rightBottom=nil,*leftTop=nil;
+    for(NSUInteger i=0;i<4;i++) {
+        UIImageView *image=[[UIImageView alloc] initWithFrame:CGRectMake(i%2?crop.size.width-12:0,i>=2?crop.size.height-12:0,12,12)];
+        [cornerHolder addSubview:image];
+        if(i==0)leftTop=image;
+        if(i==2)leftBottom=image;
+        if(i==3)rightBottom=image;
+    }
+    [player addSubview:cornerHolder];
+    FQVShortVideoVPlayerSingleSeriesControlView *hud=[[FQVShortVideoVPlayerSingleSeriesControlView alloc] initWithFrame:canvas.bounds];
+    CGRect bottom=CGRectMake(0,crop.size.height,crop.size.width,89);
+    hud.singleSeriesBottomView=[[FQVShortVideoPlayerBottomView alloc] initWithFrame:bottom];
+    hud.singleSeriesBottomView.backgroundColor=UIColor.blackColor;
+    [hud addSubview:hud.singleSeriesBottomView];[canvas addSubview:hud];[root addSubview:canvas];
+    Layout(hud);
+    CATransform3D extend=renderer.layer.sublayerTransform;
+    Check(fabs(extend.m22-canvas.bounds.size.height/crop.size.height)<0.001 && fabs(extend.m42-44.5)<0.001 &&
+        CGRectEqualToRect(renderer.frame,crop) && CGRectEqualToRect(hud.singleSeriesBottomView.frame,bottom) &&
+        canvas.clipsToBounds && !renderer.clipsToBounds,
+        @"portrait detail extends only the live compositor to the bottom of its native HUD");
+    Check(leftBottom.alpha==0 && rightBottom.alpha==0 && leftTop.alpha==1 &&
+        [hud.singleSeriesBottomView.backgroundColor isEqual:UIColor.clearColor],
+        @"detail continuation clears the matched bottom cutouts and old black tray paint");
+    [renderer removeFromSuperview];
+    Check(CATransform3DIsIdentity(renderer.layer.sublayerTransform) && renderer.clipsToBounds &&
+        leftBottom.alpha==1 && rightBottom.alpha==1 && [hud.singleSeriesBottomView.backgroundColor isEqual:UIColor.blackColor],
+        @"renderer transfer restores the native detail crop, corner images and tray fill");
+    [canvas removeFromSuperview];
+}
+
 static void RunDockVideoBackdropChecks(SSTabBarController *host) {
     NSDictionary *saved=HGAppearanceValues();
     UIWindow *originalWindow=host.view.window;
@@ -448,6 +496,9 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         [feed removeFromSuperview];
         Check(feed.clipsToBounds && !feed.superview && CGRectEqualToRect(feed.frame,CGRectMake(0,0,width,feedHeight)),
             @"detaching the feed restores its clip without moving it back into the window");
+        [manager restore];
+        [container.view addSubview:page.view];page.view.frame=container.view.bounds;
+        RunDetailVideoBackdropChecks(page.view);
     }@finally {
         [manager restore];feed.dataSource=nil;
         window.hidden=YES;window.rootViewController=nil;[originalWindow makeKeyAndVisible];

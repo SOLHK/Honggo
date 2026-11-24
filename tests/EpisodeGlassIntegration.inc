@@ -49,6 +49,10 @@ static void RunEpisodeGlassChecks(UIView *root) {
     Check(CGRectGetMinX(wideEntry.frame)>=12 && CGRectGetMaxX(wideEntry.frame)<=screenWidth-12 &&
         CGRectEqualToRect(wideContent.bounds,wideEntry.bounds) && CGAffineTransformIsIdentity(wideEntry.transform),
         @"edge-to-edge episode entry gains side margins through native layout width without scaling text");
+    UIView *wideGlass=Find(wideEntry,@"honggo.appearance.material");
+    Check(wideEntry.bounds.size.width<=screenWidth*0.83 && wideEntry.bounds.size.height==44 &&
+        wideGlass.bounds.size.height==36 && fabs(wideGlass.layer.cornerRadius-18)<0.01,
+        @"the watching entry has a compact glass capsule inside its native-height hit target");
     CGRect insetWideFrame=wideEntry.frame;
     for(NSUInteger i=0;i<5;i++)Layout(wideEntry);
     Check(CGRectEqualToRect(wideEntry.frame,insetWideFrame) && [wideWrapper.backgroundColor isEqual:UIColor.clearColor],

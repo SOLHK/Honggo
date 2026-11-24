@@ -106,6 +106,7 @@
 @implementation SSVideoSharePanelViewController @end
 @interface FQVShortVideoSettingsViewController : UIViewController
 @property(nonatomic) BOOL useBlurBackground;
+@property(nonatomic,strong) UITableView *tableView;
 @property(nonatomic,strong) UIVisualEffectView *blurView;
 @property(nonatomic,strong) UIView *effectViewContentView;
 @end

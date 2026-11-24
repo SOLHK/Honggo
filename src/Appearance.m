@@ -352,6 +352,7 @@ void HGInstallAppearance(void) {
         [classes addObjectsFromArray:HGABottomControlClasses()];
         [classes addObjectsFromArray:HGAPlayerControlClasses()];
         [classes addObjectsFromArray:HGALandscapeChromeClasses()];
+        [classes addObject:@"FQVShortVideoVPlayerSingleSeriesControlView"];
         [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar",@"FQVShortVideoBaseInsertView"]];
         for (NSString *name in classes) {
             Class cls=NSClassFromString(name);
@@ -387,6 +388,10 @@ void HGInstallAppearance(void) {
             if([name isEqual:@"SSBookStoreEntranceView"] || [name isEqual:@"SSBookStoreKingKongBannerView"] ||
                 [name isEqual:@"SSVideoDistributionGoldenPositionCell"])
                 HGAHook(cls,sel_registerName("setModel:"),"v24@0:8@16",NO);
+            if([name isEqual:@"SSVideoDistributionGoldenPositionSubCell"]) {
+                HGAHook(cls,sel_registerName("setData:styleConfig:"),"v32@0:8@16@24",NO);
+                HGAHook(cls,sel_registerName("onDarkModeChange:"),"v20@0:8B16",NO);
+            }
             if([name isEqual:@"SSShortVideoLandscapeBizInteractionView"])
                 HGAHook(cls,sel_registerName("refreshUI"),"v16@0:8",NO);
             if([name isEqual:@"SSHGBookStoreCategoryTitleCell"])
@@ -443,6 +448,12 @@ void HGInstallAppearance(void) {
                     if (class_getInstanceMethod(cls,sel)) HGAHook(cls,sel,types[i],NO);
                 }
             }
+        }
+        // These overrides update their trailing glyph after the base cell's
+        // refresh. Reapply only after the last native paint write.
+        for(NSString *name in @[@"FQVShortVideoSettingsArrowCell",@"FQVShortVideoSettingsArrowWithInfoCell"]) {
+            Class cls=NSClassFromString(name);
+            if(cls)HGAHook(cls,sel_registerName("refreshUIWhenApplayNewStyle"),"v16@0:8",NO);
         }
         Class scrollComponent=NSClassFromString(@"FQVShortVideoListVCScrollComponent");
         Class playerNavigation=NSClassFromString(@"FQVShortVideoListVCNavBarComponent");

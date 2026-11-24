@@ -117,6 +117,76 @@
 - (BOOL)shouldLeftSlideEnterOtherPage:(id)navigation context:(id)context { self.calls++;return YES; }
 @end
 
+@interface HGATestEpisodeSwipeOwner : UIViewController
+@property(nonatomic,copy) BOOL (^ss_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock)(UIPanGestureRecognizer *);
+@property(nonatomic) BOOL needsGesture;
+@property(nonatomic) NSUInteger swipeChecks;
+@property(nonatomic) NSUInteger episodeTaps;
+- (void)installLeftSwipe;
+- (void)openEpisodes:(UIControl *)sender;
+@end
+@implementation HGATestEpisodeSwipeOwner
+- (void)installLeftSwipe {
+    __weak HGATestEpisodeSwipeOwner *weakSelf=self;
+    self.ss_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock=^BOOL(UIPanGestureRecognizer *pan) {
+        HGATestEpisodeSwipeOwner *owner=weakSelf;
+        owner.swipeChecks++;
+        return !owner.needsGesture || pan!=nil;
+    };
+}
+- (void)openEpisodes:(UIControl *)sender { self.episodeTaps++; }
+@end
+
+@interface SSBizVideoImpl : NSObject
++ (void)setLeftSlideToShortsListVCWithParentVC:(HGATestEpisodeSwipeOwner *)owner;
+@end
+@implementation SSBizVideoImpl
++ (void)setLeftSlideToShortsListVCWithParentVC:(HGATestEpisodeSwipeOwner *)owner { [owner installLeftSwipe]; }
+@end
+
+@interface SSShortVideoGestureComponent : NSObject
+- (void)setupPanGestureTowardsLeftEnterOtherPage:(HGATestEpisodeSwipeContext *)context;
+@end
+@implementation SSShortVideoGestureComponent
+- (void)setupPanGestureTowardsLeftEnterOtherPage:(HGATestEpisodeSwipeContext *)context {
+    [(HGATestEpisodeSwipeOwner *)context.viewController installLeftSwipe];
+}
+@end
+
+static void HGRunEpisodeSwipeDecisionChecks(void) {
+    HGATestEpisodeSwipeOwner *home=[HGATestEpisodeSwipeOwner new];
+    HGATestEpisodeSwipeOwner *list=[HGATestEpisodeSwipeOwner new];
+    HGATestEpisodeSwipeContext *context=[HGATestEpisodeSwipeContext new];
+    context.viewController=list;
+    SSShortVideoGestureComponent *component=[SSShortVideoGestureComponent new];
+    [SSBizVideoImpl setLeftSlideToShortsListVCWithParentVC:home];
+    [component setupPanGestureTowardsLeftEnterOtherPage:context];
+    home.needsGesture=YES;list.needsGesture=YES;
+    UIPanGestureRecognizer *pan=[UIPanGestureRecognizer new];
+    Check(home.ss_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock(pan) &&
+        !list.ss_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock(nil) &&
+        home.swipeChecks==1 && list.swipeChecks==1,
+        @"both verified swipe setups preserve the native gesture decision and its argument by default");
+
+    HGAppearanceSet(@"player.disableEpisodeSwipe",@YES,nil);
+    Check(!home.ss_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock(pan) &&
+        !list.ss_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock(pan) &&
+        home.swipeChecks==1 && list.swipeChecks==1,
+        @"changing the episode switch blocks both installed directional pushes before they call the original");
+    UIControl *episodeButton=[UIControl new];
+    [episodeButton addTarget:home action:@selector(openEpisodes:) forControlEvents:UIControlEventTouchUpInside];
+    [episodeButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+    Check(home.episodeTaps==1,@"the explicit episode button still opens the episode view");
+
+    [SSBizVideoImpl setLeftSlideToShortsListVCWithParentVC:home];
+    Check(!home.ss_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock(pan) && home.swipeChecks==1,
+        @"a recreated home swipe preserves the current switch value");
+    HGAppearanceSet(@"player.disableEpisodeSwipe",@NO,nil);
+    Check(home.ss_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock(pan) &&
+        list.ss_shouldBeginPushInteractiveTransitionDirectionHorizontalBlock(pan) && home.swipeChecks==2 && list.swipeChecks==2,
+        @"switching back restores both native gesture decisions without recreating the screens");
+}
+
 @interface SSVideoSeriesFeedHeaderSearchView : UIView
 @property(nonatomic,strong) UIView *searchView;
 @property(nonatomic,strong) UIView *searchBgView;
@@ -186,6 +256,31 @@
 @property(nonatomic,copy) NSArray *goldenLineItemArr;
 @end
 @implementation HGAFinderGoldenModelFixture @end
+@interface SSVideoDistributionGoldenPositionSubCell : UICollectionViewCell
+@property(nonatomic,strong) UIView *innerContentView;
+@property(nonatomic,strong) UIImageView *backgroundImageView;
+@property(nonatomic,strong) UIView *borderView;
+@property(nonatomic,strong) UILabel *titleLabel;
+@property(nonatomic,strong) UIImageView *iconImgView;
+@property(nonatomic,strong) HGAFinderGoldenItemFixture *itemData;
+- (void)setData:(HGAFinderGoldenItemFixture *)item styleConfig:(id)config;
+- (void)onDarkModeChange:(BOOL)dark;
+@end
+@implementation SSVideoDistributionGoldenPositionSubCell
+- (void)setData:(HGAFinderGoldenItemFixture *)item styleConfig:(id)config {
+    self.itemData=item;
+    self.titleLabel.text=item.text;
+    [self onDarkModeChange:NO];
+}
+- (void)onDarkModeChange:(BOOL)dark {
+    UIColor *paint=dark ? UIColor.systemGrayColor : UIColor.whiteColor;
+    self.backgroundColor=paint;
+    self.contentView.backgroundColor=paint;
+    self.innerContentView.backgroundColor=paint;
+    self.backgroundImageView.hidden=NO;
+    self.borderView.hidden=NO;
+}
+@end
 @interface SSVideoDistributionGoldenPositionCell : UICollectionViewCell <UICollectionViewDelegateFlowLayout>
 @property(nonatomic,strong) UICollectionView *collectionView;
 @property(nonatomic,strong) HGAFinderGoldenModelFixture *model;
@@ -491,6 +586,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceSet(@"player.disableEpisodeSwipe",@NO,nil);
     Check([episodePush shouldLeftSlideEnterOtherPage:nil context:swipeContext] && episodePush.calls==3,
         @"turning the full episode swipe switch back off immediately restores native swipe behavior");
+    HGRunEpisodeSwipeDecisionChecks();
     [listContainer removeFromSuperview];
     [channels refreshSelectedCellModel:@3 unselectedCellModel:@1];
 
@@ -662,10 +758,17 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     CGRect ink=CGRectUnion([recognitionText convertRect:recognitionText.bounds toView:finder.imageSearchContainer],
         [camera convertRect:camera.bounds toView:finder.imageSearchContainer]);
     CGRect recognizerRect=[finder.imageSearchContainer convertRect:finder.imageSearchContainer.bounds toView:finder.view];
+    searchSurface=[searchGlass convertRect:searchGlass.bounds toView:finder.view];
+    recognitionSurface=[recognitionGlass convertRect:recognitionGlass.bounds toView:finder.view];
+    CGRect aiSurface=[assistantGlass convertRect:assistantGlass.bounds toView:finder.view];
     Check(recognitionGlass && assistantGlass &&
         fabs(finder.aiSearchEntranceView.frame.origin.x-CGRectGetMaxX(recognizerRect)-12)<0.01 &&
-        recognitionGlass.bounds.size.height==36 && assistantGlass.bounds.size.height==36,
-        @"the nested theatre slot closes the AI gap and aligns both material heights");
+        fabs(CGRectGetMinX(aiSurface)-CGRectGetMaxX(recognitionSurface)-
+            (CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)))<0.01 &&
+        fabs(CGRectGetMidY(searchSurface)-CGRectGetMidY(recognitionSurface))<0.01 &&
+        fabs(CGRectGetMidY(aiSurface)-CGRectGetMidY(recognitionSurface))<0.01 &&
+        CGRectGetHeight(searchSurface)==36 && CGRectGetHeight(recognitionSurface)==36 && CGRectGetHeight(aiSurface)==36,
+        @"the nested theatre search, recognition and AI surfaces have equal gaps and aligned heights");
     Check(recognitionGlass && CGRectGetMaxX(ink)<CGRectGetMaxX(recognitionGlass.frame)-5 &&
         fabs(CGRectGetMidX(ink)-CGRectGetMidX(recognitionGlass.frame))<0.1,
         @"the nested theatre centers camera and recognition text inside the capsule");
@@ -680,6 +783,31 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAFinderGoldenItemFixture *goldenFilter=[HGAFinderGoldenItemFixture new];goldenFilter.text=@"筛选";
     HGAFinderGoldenItemFixture *goldenRank=[HGAFinderGoldenItemFixture new];goldenRank.text=@"排行榜";
     golden.model=[HGAFinderGoldenModelFixture new];golden.model.goldenLineItemArr=@[goldenFilter,goldenRank];
+    SSVideoDistributionGoldenPositionSubCell *entry=[[SSVideoDistributionGoldenPositionSubCell alloc]
+        initWithFrame:CGRectMake(110,0,98,32)];
+    entry.innerContentView=PageChromeControl(entry.contentView,entry.contentView.bounds);
+    entry.backgroundImageView=[[UIImageView alloc] initWithFrame:entry.innerContentView.bounds];
+    [entry.innerContentView addSubview:entry.backgroundImageView];
+    entry.borderView=PageChromeControl(entry.innerContentView,entry.innerContentView.bounds);
+    entry.iconImgView=[[UIImageView alloc] initWithImage:cameraOriginal];
+    [entry.innerContentView addSubview:entry.iconImgView];
+    entry.titleLabel=[[UILabel alloc] initWithFrame:CGRectMake(28,0,64,32)];
+    [entry.innerContentView addSubview:entry.titleLabel];
+    [golden.contentView addSubview:entry];
+    [entry setData:goldenRank styleConfig:nil];
+    [entry onDarkModeChange:YES];
+    UIVisualEffectView *entryGlass=(id)Find(entry.innerContentView,material);
+    Layout(entryGlass);
+    Check(entryGlass && entryGlass.frame.size.height==32 && entryGlass.layer.cornerRadius==16 &&
+        !entryGlass.userInteractionEnabled && entry.backgroundImageView.hidden && entry.borderView.hidden &&
+        [entry.backgroundColor isEqual:UIColor.clearColor] && [entry.contentView.backgroundColor isEqual:UIColor.clearColor] &&
+        [entry.innerContentView.backgroundColor isEqual:UIColor.clearColor] && entry.iconImgView.image==cameraOriginal,
+        @"the real theatre shortcut cell exposes its glass after model and theme changes and preserves its raster icon");
+    HGAppearanceSet(@"player.finderGlass",@NO,nil);
+    Check(!Find(entry,material) && !entry.backgroundImageView.hidden && !entry.borderView.hidden &&
+        [entry.backgroundColor isEqual:UIColor.systemGrayColor] && [entry.contentView.backgroundColor isEqual:UIColor.systemGrayColor],
+        @"disabling theatre glass restores the last native shortcut fill and outline");
+    HGAppearanceSet(@"player.finderGlass",@YES,nil);
     Layout(golden);
     NSIndexPath *filterIndex=[NSIndexPath indexPathForItem:0 inSection:0];
     NSIndexPath *rankIndex=[NSIndexPath indexPathForItem:1 inSection:0];

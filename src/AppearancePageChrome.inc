@@ -273,7 +273,14 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition
     BOOL separate=glass && HGAVisible(field) && HGAVisible(recognition) && recognition!=field;
     if(separate) {
         CGRect button=[recognition convertRect:recognition.bounds toView:field];
-        CGFloat edge=CGRectGetMinX(button)-7;
+        CGFloat gap=7;
+        if(recognition.superview==field && !hideAI && HGAVisible(assistant)) {
+            CGRect ai=[assistant convertRect:assistant.bounds toView:field];
+            CGFloat remaining=CGRectGetMinX(ai)-CGRectGetMaxX(button);
+            // Match the measured right gap after the one-point inset below.
+            if(remaining>=6 && remaining<=16)gap=remaining-1;
+        }
+        CGFloat edge=CGRectGetMinX(button)-gap;
         if(edge>CGRectGetMidX(searchFrame) &&
             (edge<CGRectGetMaxX(searchFrame) || (reflow && !field.clipsToBounds)))
             searchFrame.size.width=edge-CGRectGetMinX(searchFrame);
@@ -736,12 +743,12 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
         for(UIView *target in targets)HGAApplyHistoryGlass(target,NO,NO,YES);
         UIView *icon=mine ? HGAViewGetter(view,"icon",view) : nil;
         HGAApplyPageChromeIcons(view,icon ? @[icon] : nil);
-    } else if([name isEqual:@"SSVideoDistributionGoldenPositionCell"]) {
+    } else if([view isKindOfClass:NSClassFromString(@"SSVideoDistributionGoldenPositionCell")]) {
         HGAUpdateFinderShortcuts(view,enabled);
     } else if([name isEqual:@"FQFeedTabFilterPanelEntranceView"] || [name isEqual:@"SSBookStoreEntranceView"] ||
-        [name isEqual:@"SSBookStoreKingKongBannerView"] || [name isEqual:@"SSVideoDistributionGoldenPositionSubCell"]) {
+        [name isEqual:@"SSBookStoreKingKongBannerView"] || [view isKindOfClass:NSClassFromString(@"SSVideoDistributionGoldenPositionSubCell")]) {
         BOOL filter=[name isEqual:@"FQFeedTabFilterPanelEntranceView"];
-        BOOL golden=[name isEqual:@"SSVideoDistributionGoldenPositionSubCell"];
+        BOOL golden=[view isKindOfClass:NSClassFromString(@"SSVideoDistributionGoldenPositionSubCell")];
         BOOL scoped=enabled && HGAIsFinderView(view);
         NSString *key=filter ? @"filter" : nil;
         if(scoped && !filter) {
@@ -757,6 +764,14 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
         BOOL finder=scoped && key && !hide && HGAppearanceFlag(@"player.finderGlass") && HGAVisible(view);
         HGASetPageChromeCover(view,filter?"backgroundView":golden?"backgroundImageView":"bgImgView",finder);
         UIView *target=golden?HGAViewGetter(view,"innerContentView",view) ?: view:view;
+        if(golden) {
+            UIView *content=[view isKindOfClass:UICollectionViewCell.class] ? ((UICollectionViewCell *)view).contentView : nil;
+            // The native cell paints both the backing and a separate outline.
+            // Only the card paints are replaced. Its colored icon stays intact.
+            HGAHidePageChromeTarget(view,@"finderShortcutBorder",finder ? HGAViewGetter(view,"borderView",view) : nil);
+            if(view!=target)HGASetGlassHostBackground(view,finder);
+            if(content && content!=target)HGASetGlassHostBackground(content,finder);
+        }
         HGAApplyFinderMaterial(target,finder ? CGRectInset(target.bounds,1,0) : CGRectZero);
         // Shortcut artwork is supplied with its own colors and backgrounds.
         // Treating the whole source image as a template fills the rounded icon tile.
