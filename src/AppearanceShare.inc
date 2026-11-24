@@ -54,6 +54,7 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
 @property(nonatomic) CGFloat appliedRadius;
 @property(nonatomic,copy) NSString *sourceCurve;
 @property(nonatomic) CACornerMask sourceCorners;
+@property(nonatomic) CACornerMask appliedCorners;
 @property(nonatomic) BOOL sourceClips;
 @end
 @implementation HGAActionSheetState @end
@@ -89,14 +90,14 @@ static UIColor *HGASharePlate(void) {
     return color;
 }
 
-static UIColor *HGAActionSheetOverlay(CGFloat opacity, BOOL reduceTransparency) {
+static UIColor *HGAActionSheetColor(CGFloat opacity, BOOL overlay) {
     return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
         BOOL dark=traits.userInterfaceStyle==UIUserInterfaceStyleDark;
         // Over a black video surround, directly applying the opacity setting
         // leaves light-mode text on near-black glass. Keep a readable baseline
         // and map the setting over the remaining translucent range.
         CGFloat baseline=dark ? 0.54 : 0.62;
-        CGFloat alpha=reduceTransparency ? 1 : baseline+(1-baseline)*opacity;
+        CGFloat alpha=overlay ? baseline+(1-baseline)*opacity : opacity;
         return [UIColor colorWithWhite:dark ? 0.10 : 1 alpha:alpha];
     }];
 }
@@ -239,7 +240,7 @@ static void HGARestoreActionSheet(UIView *root) {
     if(state.rounding) {
         if(fabs(surface.layer.cornerRadius-state.appliedRadius)<0.01)surface.layer.cornerRadius=state.sourceRadius;
         if([surface.layer.cornerCurve isEqual:kCACornerCurveContinuous])surface.layer.cornerCurve=state.sourceCurve;
-        if(surface.layer.maskedCorners==(kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner))surface.layer.maskedCorners=state.sourceCorners;
+        if(surface.layer.maskedCorners==state.appliedCorners)surface.layer.maskedCorners=state.sourceCorners;
         if(surface.clipsToBounds)surface.clipsToBounds=state.sourceClips;
     }
     objc_setAssociatedObject(root,&HGAActionSheetKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -340,6 +341,7 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     BOOL enabled=HGAPanelWantsGlass(kind) && root.window;
     UIView *surface=enabled?HGAActionSheetSurface(root):nil;
     BOOL comment=[kind isEqual:@"comment"];
+    BOOL share=[kind isEqual:@"share"] || [kind isEqual:@"longpress"];
     // A nested comment list can have a second controller. Use the outer sheet
     // if it already owns a bounded panel that contains the list.
     if(surface && comment) {
@@ -368,20 +370,31 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     BOOL reduceTransparency=UIAccessibilityIsReduceTransparencyEnabled();
     CGFloat opacity=reduceTransparency?1:HGAppearanceNumber(@"panels.opacity");
     HGAInstallGlass(surface,HGAppearanceString(@"panels.material"),radius,opacity);
+    HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
+    if(@available(iOS 26.0,*)) {
+        if(share && fabs([glass effectiveRadiusForCorner:UIRectCornerTopLeft]-radius)>0.01)
+            glass.cornerConfiguration=[UICornerConfiguration configurationWithUniformRadius:[UICornerRadius fixedRadius:radius]];
+    }
     if(!state.overlay || state.overlayOpacity!=opacity) {
         state.overlayOpacity=opacity;
         state.overlay=comment ? [UIColor.systemBackgroundColor colorWithAlphaComponent:opacity] :
-            HGAActionSheetOverlay(opacity,reduceTransparency);
+            HGAActionSheetColor(opacity,YES);
+        if(share) {
+            // Let Liquid Glass apply the tint to its own optical material.
+            // A composited white/black fill obscures its refraction over playback.
+            glass.nativeGlassTint=HGAActionSheetColor(opacity,NO);
+        }
     }
-    HGASetGlassOverlay(surface,state.overlay);
+    glass.overlayColor=state.overlay;
     // Never replace an existing mask (it may encode the host's transition).
     if(!surface.layer.mask) {
         if(!state.rounding || fabs(surface.layer.cornerRadius-state.appliedRadius)>=0.01)state.sourceRadius=surface.layer.cornerRadius;
         if(!state.rounding || ![surface.layer.cornerCurve isEqual:kCACornerCurveContinuous])state.sourceCurve=surface.layer.cornerCurve;
         CACornerMask corners=kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner;
-        if(!state.rounding || surface.layer.maskedCorners!=corners)state.sourceCorners=surface.layer.maskedCorners;
+        if(share)corners|=kCALayerMinXMaxYCorner|kCALayerMaxXMaxYCorner;
+        if(!state.rounding || surface.layer.maskedCorners!=state.appliedCorners)state.sourceCorners=surface.layer.maskedCorners;
         if(!state.rounding || !surface.clipsToBounds)state.sourceClips=surface.clipsToBounds;
-        state.rounding=YES;state.appliedRadius=radius;
+        state.rounding=YES;state.appliedRadius=radius;state.appliedCorners=corners;
         if(fabs(surface.layer.cornerRadius-radius)>=0.01)surface.layer.cornerRadius=radius;
         if(![surface.layer.cornerCurve isEqual:kCACornerCurveContinuous])surface.layer.cornerCurve=kCACornerCurveContinuous;
         if(surface.layer.maskedCorners!=corners)surface.layer.maskedCorners=corners;
@@ -402,7 +415,6 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     for(UIView *cell in state.shareCells.allObjects) {
         if(![cell isDescendantOfView:surface]){HGARestoreShareInk(cell);[state.shareCells removeObject:cell];}
     }
-    BOOL share=[kind isEqual:@"share"] || [kind isEqual:@"longpress"];
     if(share) {
         if(!state.dockMount) {
             state.dockMount=[HGAActionSheetMount new];

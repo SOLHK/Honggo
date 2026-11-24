@@ -243,10 +243,13 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         return;
     }
     [settings loadViewIfNeeded];
-    [self check:[settings.title isEqualToString:@"Honggo"] &&
-        settings.navigationItem.leftBarButtonItem == nil &&
-        [[settings tableView:settings.tableView titleForHeaderInSection:0] containsString:HG_PLUGIN_VERSION]
-        name:@"settings title is Honggo with version header and clean level-1 navigation bar"];
+    UILabel *versionLabel = (UILabel *)settings.navigationItem.leftBarButtonItem.customView;
+    BOOL noCategoryHeaders = YES;
+    for (NSInteger section = 0; section < 3; section++)
+        noCategoryHeaders &= [settings tableView:settings.tableView titleForHeaderInSection:section] == nil;
+    [self check:[settings.title isEqualToString:@"Honggo"] && [versionLabel isKindOfClass:UILabel.class] &&
+        [versionLabel.text isEqual:HG_PLUGIN_VERSION] && noCategoryHeaders
+        name:@"the settings homepage puts the version in the leading navigation position and omits group headings"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
     BOOL level1HasNoInlineSwitches = settings.tableView.numberOfSections == 3;
@@ -293,8 +296,8 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [backupPage setValue:@"backup" forKey:@"pageID"];
     [backupPage setValue:settings forKey:@"rootSettings"];
     [backupPage loadViewIfNeeded];
-    [self check:[backupPage.tableView numberOfRowsInSection:0] == 4
-        name:@"backup subpage exposes export restore reset and appearance backup"];
+    [self check:[backupPage.tableView numberOfRowsInSection:0] == 2
+        name:@"backup subpage exposes only the feature configuration export and restore"];
 
     UITableViewController *adsL2 = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [adsL2 setValue:@"ads" forKey:@"pageID"];
@@ -556,9 +559,8 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [[self settingsCell:settings section:2 row:0].accessibilityIdentifier isEqual:@"honggo.preferences.export"]
         name:@"backup export is distinct from diagnostic log export"];
     [self filterSettings:settings text:@"reset"];
-    [self check:[settings.tableView numberOfRowsInSection:2] == 1 &&
-        [[self settingsCell:settings section:2 row:0].accessibilityIdentifier isEqual:@"honggo.preferences.reset"]
-        name:@"reset search result keeps its destructive action identity"];
+    [self check:[settings.tableView numberOfRowsInSection:2] == 0
+        name:@"search cannot surface the removed global reset action"];
     [self filterSettings:settings text:@"not-a-honggo-setting-123"];
     [self check:[settings.tableView numberOfRowsInSection:0] == 0 &&
         [settings.tableView numberOfRowsInSection:1] == 0 &&
@@ -577,9 +579,8 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self runSearchAction:0 settings:settings completion:completion];
 }
 - (void)runSearchAction:(NSUInteger)index settings:(HGSettingsController *)settings completion:(dispatch_block_t)completion {
-    NSArray<NSString *> *queries = @[@"兼容", @"reset", @"restore import", @"backup export", @"TG Naloiafeed"];
+    NSArray<NSString *> *queries = @[@"兼容", @"restore import", @"backup export", @"TG Naloiafeed"];
     NSArray<NSString *> *names = @[@"active search opens compatibility after search dismissal",
-        @"active search opens the reset confirmation after search dismissal",
         @"active search opens the JSON picker after search dismissal",
         @"active search exports configuration to the native share sheet",
         @"active search opens the Telegram menu only after search dismissal"];
@@ -605,7 +606,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     BOOL diagnosticsConsent = HGEnhancedDiagnostics();
     [self activateSearch:settings query:queries[index] completion:^(BOOL active) {
         if (!active) { completion(); return; }
-        NSInteger section = index == 0 ? 1 : index == 4 ? 3 : 2;
+        NSInteger section = index == 0 ? 1 : index == 3 ? 3 : 2;
         if ([settings.tableView numberOfRowsInSection:section] != 1) {
             [self check:NO name:@"active result list resolves exactly one action"];
             completion();
@@ -615,7 +616,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         // The cold simulator launches the system ShareSheet service lazily.
         // Keep every presentation assertion; only that external-service startup
         // gets a larger bounded budget. Record elapsed time instead of sleeping.
-        NSTimeInterval presentationBudget = index == 3 ? 30 : 8;
+        NSTimeInterval presentationBudget = index == 2 ? 30 : 8;
         NSDate *actionStarted = NSDate.date;
         [self recordSearchState:@"action.selected" settings:settings extra:@{@"query": queries[index],
             @"presentationBudgetSeconds": @(presentationBudget)}];
@@ -625,8 +626,8 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
             if (settings.navigationItem.searchController.active || self.searchEvents.dismissals <= dismissalsBefore) return NO;
             if (index == 0) return settings.navigationController.topViewController != settings;
             UIViewController *presented = settings.presentedViewController;
-            Class expected = (index == 1 || index == 4) ? UIAlertController.class :
-                index == 2 ? UIDocumentPickerViewController.class : UIActivityViewController.class;
+            Class expected = index == 3 ? UIAlertController.class :
+                index == 1 ? UIDocumentPickerViewController.class : UIActivityViewController.class;
             return [presented isKindOfClass:expected] && !presented.isBeingPresented;
         } deadline:[NSDate dateWithTimeInterval:presentationBudget sinceDate:actionStarted] completion:^(BOOL performed) {
             [self recordSearchState:performed ? @"action.finished" : @"action.timeout"
@@ -654,16 +655,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
                     [self runSearchAction:index + 1 settings:settings completion:completion];
                 });
             } else {
-                if (index == 1) {
-                    UIAlertController *alert = (UIAlertController *)settings.presentedViewController;
-                    BOOL hasCancel = NO, hasDestructive = NO;
-                    for (UIAlertAction *action in alert.actions) {
-                        hasCancel |= action.style == UIAlertActionStyleCancel;
-                        hasDestructive |= action.style == UIAlertActionStyleDestructive;
-                    }
-                    [self check:[alert.title isEqual:@"关闭全部功能开关？"] && hasCancel && hasDestructive
-                        name:@"reset requires a concrete confirmation before changing switches"];
-                } else if (index == 4) {
+                if (index == 3) {
                     UIAlertController *menu = (UIAlertController *)settings.presentedViewController;
                     NSMutableSet *titles = [NSMutableSet set];
                     for (UIAlertAction *action in menu.actions) [titles addObject:action.title];
@@ -672,7 +664,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
                         [titles containsObject:@"取消"] && menu.actions.count == 3
                         name:@"channel menu shows the exact destination and explicit open copy cancel choices"];
                     [self capture:@"settings-community-simulator.png"];
-                } else if (index == 2) {
+                } else if (index == 1) {
                     UIDocumentPickerViewController *picker = (UIDocumentPickerViewController *)settings.presentedViewController;
                     [self check:!picker.allowsMultipleSelection && picker.delegate == (id)settings
                         name:@"restore uses a single-document native picker with a plugin delegate"];

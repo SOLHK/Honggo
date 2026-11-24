@@ -309,8 +309,6 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         self.title = @"导出与备份";
         [rows addObject:@{@"kind": @"action", @"section": @2, @"action": @0, @"title": @"导出功能配置", @"id": @"honggo.preferences.export"}];
         [rows addObject:@{@"kind": @"action", @"section": @2, @"action": @1, @"title": @"从文件恢复配置", @"id": @"honggo.preferences.import"}];
-        [rows addObject:@{@"kind": @"action", @"section": @2, @"action": @2, @"title": @"关闭全部功能开关", @"id": @"honggo.preferences.reset", @"destructive": @YES}];
-        [rows addObject:@{@"kind": @"appearance", @"group": @"backup", @"title": @"外观参数备份与重置", @"id": @"honggo.appearance.backup"}];
     } else if ([pid isEqual:@"diagnostics"]) {
         self.title = @"诊断与其他";
         [rows addObject:@{@"kind": @"enhanced", @"title": @"增强诊断", @"id": @"honggo.diagnostics.enhanced"}];
@@ -331,7 +329,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     if ([pid isEqual:@"diagnostics"])
         return @"增强诊断即时生效。复现广告或遮罩后可截屏记录控件结构，随后在诊断日志中查看或导出对应会话。";
     if ([pid isEqual:@"backup"])
-        return @"配置文件仅保存 Honggo 的功能开关。恢复前会核对格式并显示变更数量；账号、宿主设置和增强诊断选择保持不变。恢复或关闭全部开关后，请完全退出再打开。";
+        return @"配置文件仅保存 Honggo 的功能开关。恢复前会核对格式并显示变更数量。恢复后，请完全退出再打开。";
     if ([pid isEqual:@"community"])
         return @"查看插件更新与测试版公告。只有点击打开或复制时才执行操作，不会自动加入频道。";
     if ([pid isEqual:@"base"]) {
@@ -423,6 +421,16 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     self.tableView.accessibilityIdentifier = @"honggo.settings.options";
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 56;
+    UILabel *version = [UILabel new];
+    version.text = HG_PLUGIN_VERSION;
+    version.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    version.adjustsFontForContentSizeCategory = YES;
+    version.textColor = UIColor.secondaryLabelColor;
+    version.accessibilityIdentifier = @"honggo.settings.version";
+    [version sizeToFit];
+    UIBarButtonItem *versionItem = [[UIBarButtonItem alloc] initWithCustomView:version];
+    if (@available(iOS 26.0, *)) versionItem.hidesSharedBackground = YES;
+    self.navigationItem.leftBarButtonItem = versionItem;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
         initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeSettings)];
     // Level 1 mirrors FanqieX: clean category entries only, zero inline switches.
@@ -453,7 +461,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
 - (NSArray<NSString *> *)diagnosticTitles {
     return @[@"增强诊断", @"诊断日志", @"清除全部日志", @"本次启动兼容状态"];
 }
-- (NSArray<NSString *> *)configurationTitles { return @[@"导出功能配置", @"从文件恢复配置", @"关闭全部功能开关"]; }
+- (NSArray<NSString *> *)configurationTitles { return @[@"导出功能配置", @"从文件恢复配置"]; }
 - (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
     NSString *trimmed = [searchController.searchBar.text ?: @""
         stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -473,7 +481,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         if (HGSettingsMatches(text, trimmed)) [features addObject:@(feature)];
     }
     NSArray *diagnosticAliases = @[@"诊断 截屏 现场 排错 debug", @"导出 分享 日志 log", @"清除 删除 日志 log", @"兼容 状态 适配 版本 capability"];
-    NSArray *configurationAliases = @[@"备份 导出 配置 backup export", @"备份 导入 恢复 配置 restore import", @"恢复 默认 重置 关闭 全部 reset"];
+    NSArray *configurationAliases = @[@"备份 导出 配置 backup export", @"备份 导入 恢复 配置 restore import"];
     for (NSUInteger index = 0; index < self.diagnosticTitles.count; index++) {
         if (HGSettingsMatches([self.diagnosticTitles[index] stringByAppendingFormat:@" %@", diagnosticAliases[index]], trimmed))
             [diagnostics addObject:@(index)];
@@ -544,15 +552,15 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
-    if (!self.isFiltering) return @[@"外观与播放 · " HG_PLUGIN_VERSION, @"宿主功能", @"维护与支持"][section];
-    return @[@"版本 " HG_PLUGIN_VERSION, @"诊断与兼容", @"配置管理", @"更新与频道"][section];
+    if (!self.isFiltering) return nil;
+    return @[@"功能开关", @"诊断与兼容", @"配置管理", @"更新与频道"][section];
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
     if (!self.isFiltering) return nil;
     if (section == 3) return @"查看插件更新与测试版公告。只有点击打开或复制时才执行操作，不会自动加入频道。";
     if (section == 1) return @"增强诊断即时生效。复现广告或遮罩后截屏，再回来导出日志；仅记录控件结构，不读取截图像素或页面文字。";
-    if (section == 2) return @"配置文件仅保存 Honggo 的功能开关。恢复或关闭全部开关后，请完全退出再打开。";
+    if (section == 2) return @"配置文件仅保存 Honggo 的功能开关。恢复后，请完全退出再打开。";
     return @"功能开关更改后请完全退出红果短剧，再重新打开。";
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -625,9 +633,8 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     } else {
         NSUInteger action = self.visibleConfiguration[indexPath.row].unsignedIntegerValue;
         cell.textLabel.text = self.configurationTitles[action];
-        cell.accessibilityIdentifier = @[@"honggo.preferences.export", @"honggo.preferences.import", @"honggo.preferences.reset"][action];
+        cell.accessibilityIdentifier = @[@"honggo.preferences.export", @"honggo.preferences.import"][action];
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        if (action == 2) cell.textLabel.textColor = UIColor.systemRedColor;
     }
     return cell;
 }
@@ -745,21 +752,6 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         [controller dismissViewControllerAnimated:YES completion:^{ [self readPreferenceURL:url]; }];
     } else [self readPreferenceURL:url];
 }
-- (void)confirmResetOn:(UIViewController *)presenter {
-    UIViewController *host = [self activePresenter:presenter];
-    if (!host.viewIfLoaded.window || host.presentedViewController) return;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"关闭全部功能开关？"
-        message:@"关闭 Honggo 的全部功能，保留外观参数、账号、宿主设置和增强诊断选择。完全退出并重新打开红果后生效。"
-        preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"全部关闭" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-        HGPreferencesReset();
-        HGAppearanceSet(@"enabled", @NO, nil);
-        HGLog(@"settings.reset", @{@"features": @(HGFeatureCount)});
-        [self.tableView reloadData];
-    }]];
-    [host presentViewController:alert animated:YES completion:nil];
-}
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (self.preferenceOperationInFlight || HGActivateSwitchRow(tableView, indexPath)) return;
@@ -800,7 +792,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
             picker.delegate = self;
             picker.allowsMultipleSelection = NO;
             [host presentViewController:picker animated:YES completion:nil];
-        } else [self confirmResetOn:host];
+        }
         return;
     }
     if (action == 3) {

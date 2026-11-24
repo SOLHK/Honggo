@@ -9,6 +9,7 @@ static NSDictionary<NSString *,NSArray<NSString *> *> *HGAPlayerControlGetters(v
         @"SSShortVideoAlbumSeriesBottomInsertView":@[@"containerView"],
         @"SSShortVideoPugcVideoBottomInsertView":@[@"commentContainerView"],
         @"SSShortVideoTagListBottomInsertView":@[@"episodeInfoView"],
+        @"FQVShortVideoVPlayerEpisodeInfoView":@[],
         @"FQVShortVideoControlCleanSwitchView":@[],
         @"FQCShortVideoDanmakuEntranceView":@[],
         @"SSShortVideoEpisodePanelCollectView":@[@"containerView",@"shareContainerView"],
@@ -64,6 +65,18 @@ static char HGAEpisodeLayerPaintKey;
 static NSString *HGAPlayerDetailEntryMaterial(void) {
     return [HGAppearanceString(@"player.material") isEqual:@"clear"] ? @"clear" : @"regular";
 }
+static CGRect HGAPlayerDetailEntryFrame(UIView *view,BOOL disc) {
+    CGRect bounds=view.bounds;
+    CGRect visible=[view convertRect:bounds toView:view.window];
+    CGFloat width=bounds.size.width,height=bounds.size.height;
+    CGFloat rowHeight=40;
+    if(visible.size.height>rowHeight)height*=rowHeight/visible.size.height;
+    if(disc) {
+        if(visible.size.width>rowHeight)width*=rowHeight/visible.size.width;
+        width=height=MIN(width,height);
+    }
+    return CGRectInset(bounds,(bounds.size.width-width)/2,(bounds.size.height-height)/2);
+}
 static void HGARestorePlayerControlGlass(UIView *target) {
     HGARemoveGlass(target);
     UIColor *paint=objc_getAssociatedObject(target,&HGAEpisodeLayerPaintKey);
@@ -74,9 +87,10 @@ static void HGARestorePlayerControlGlass(UIView *target) {
 }
 static void HGAPlayerControlGlass(UIView *target,BOOL sheet,BOOL episodeEntry) {
     if(!target.window || CGRectIsEmpty(target.bounds)){HGARestorePlayerControlGlass(target);return;}
-    CGFloat radius=MIN(22,MIN(target.bounds.size.width,target.bounds.size.height)/2);
+    CGRect frame=episodeEntry ? HGAPlayerDetailEntryFrame(target,NO) : target.bounds;
+    CGFloat radius=MIN(22,MIN(frame.size.width,frame.size.height)/2);
     if(episodeEntry) {
-        // The tag-list episode pill paints its color directly onto CALayer.
+        // The native episode entries paint their color directly onto CALayer.
         // Preserve that paint separately if UIView doesn't report the color.
         CGColorRef paint=target.layer.backgroundColor;
         UIColor *background=target.backgroundColor;
@@ -85,7 +99,7 @@ static void HGAPlayerControlGlass(UIView *target,BOOL sheet,BOOL episodeEntry) {
     }
     if(sheet) HGAInstallGlass(target,HGAppearanceString(@"panels.material"),radius,0.04);
     else HGAInstallPlaybackGlass(target,episodeEntry ? HGAPlayerDetailEntryMaterial() : HGAppearanceString(@"player.material"),
-        target.bounds,radius,nil);
+        frame,radius,nil);
     if(episodeEntry && target.layer.backgroundColor && CGColorGetAlpha(target.layer.backgroundColor)>0)
         target.layer.backgroundColor=nil;
 }
@@ -171,13 +185,17 @@ static void HGAApplyPlayerControls(UIView *root) {
     BOOL danmaku=[name isEqual:@"FQCShortVideoDanmakuEntranceView"];
     BOOL sheet=HGAEpisodeControl(root);
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(sheet?@"panels.episodes":@"player.controlsGlass") && root.window;
+    if([root isKindOfClass:NSClassFromString(@"FQVShortVideoVPlayerEpisodeInfoView")]) {
+        HGARegisterView(root);
+        if(enabled && HGAVisible(root))HGAPlayerControlGlass(root,NO,YES);
+        else HGARestorePlayerControlGlass(root);
+        return;
+    }
     if([root isKindOfClass:NSClassFromString(@"FQVShortVideoControlCleanSwitchView")]) {
         HGARegisterView(root);
-        if(!enabled || root.hidden || CGRectIsEmpty(root.bounds)){HGARemoveGlass(root);return;}
-        CGRect frame=root.bounds;
-        CGFloat side=MIN(frame.size.width,frame.size.height);
-        frame=CGRectMake(CGRectGetMidX(frame)-side/2,CGRectGetMidY(frame)-side/2,side,side);
-        HGAInstallPlaybackGlass(root,HGAPlayerDetailEntryMaterial(),frame,side/2,nil);
+        if(!enabled || !HGAVisible(root)){HGARemoveGlass(root);return;}
+        CGRect frame=HGAPlayerDetailEntryFrame(root,YES);
+        HGAInstallPlaybackGlass(root,HGAPlayerDetailEntryMaterial(),frame,frame.size.width/2,nil);
         return;
     }
     if([root isKindOfClass:NSClassFromString(@"SSShortVideoBottomInsertView")]) {
@@ -195,7 +213,13 @@ static void HGAApplyPlayerControls(UIView *root) {
         for(NSString *getter in HGAPlayerControlGetters()[NSStringFromClass(cls)]) {
             UIView *target=HGAViewGetter(root,getter.UTF8String,root);
             if(!target)continue;
-            if([getter isEqual:@"episodeInfoView"])episodeEntry=target;
+            if([getter isEqual:@"episodeInfoView"]) {
+                if([target isKindOfClass:NSClassFromString(@"FQVShortVideoVPlayerEpisodeInfoView")]) {
+                    HGAApplyPlayerControls(target);
+                    continue;
+                }
+                episodeEntry=target;
+            }
             [targets addObject:target];
         }
     }

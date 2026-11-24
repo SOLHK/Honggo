@@ -139,6 +139,7 @@ static void HGAInstallHomeEpisodeSwipeGate(void) {
         // The host's interactive push consults this gate before it opens
         // episode detail. Explicit taps use their original action instead.
         if (NSThread.isMainThread && HGAppearanceEnabled()) {
+            if (HGAppearanceFlag(@"player.disableEpisodeSwipe")) return NO;
             UIViewController *owner=HGReadObjectGetter(context,"viewController");
             if ([owner isKindOfClass:UIViewController.class]) {
                 UIView *view=owner.viewIfLoaded;

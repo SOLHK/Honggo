@@ -253,7 +253,8 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     UIView *root=host.view;
     NSDictionary *before=HGAppearanceValues();
     HGAppearanceApply(@{@"enabled":@YES,@"icons.enabled":@YES,@"icons.preset":@"filled",@"icons.size":@26,
-        @"player.rightGlass":@YES,@"panels.longpress":@YES,@"panels.share":@YES},nil);
+        @"player.rightGlass":@YES,@"panels.longpress":@YES,@"panels.share":@YES,
+        @"panels.material":@"regular",@"panels.opacity":@0.28},nil);
     SSShortVideoRightInteractionCommentView *comment=[[SSShortVideoRightInteractionCommentView alloc] initWithFrame:CGRectMake(20,100,46,62)];
     comment.iconImageView.tintColor=UIColor.systemBlueColor;comment.iconImageView.contentMode=UIViewContentModeScaleToFill;
     UIImageSymbolConfiguration *nativeConfiguration=[UIImageSymbolConfiguration configurationWithPointSize:32 weight:UIImageSymbolWeightHeavy];
@@ -348,14 +349,24 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
         UIVisualEffectView *base=(id)Find(panel.view,@"honggo.appearance.material");Layout(base);
         UITraitCollection *light=[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight];
         UITraitCollection *dark=[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark];
+        BOOL nativeGlass=HGNativeGlassConfigured();
+        UIColor *paint=base.contentView.backgroundColor;
+        if(@available(iOS 26.0,*)) {
+            if(nativeGlass && [base.effect isKindOfClass:UIGlassEffect.class]) {
+                Check([paint isEqual:UIColor.clearColor],@"the native card has no flat overlay above its optical material");
+                paint=[(UIGlassEffect *)base.effect tintColor];
+            }
+        }
         CGFloat lightWhite=0,lightAlpha=0,darkWhite=0,darkAlpha=0;
-        [[base.contentView.backgroundColor resolvedColorWithTraitCollection:light] getWhite:&lightWhite alpha:&lightAlpha];
-        [[base.contentView.backgroundColor resolvedColorWithTraitCollection:dark] getWhite:&darkWhite alpha:&darkAlpha];
-        Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
+        [[paint resolvedColorWithTraitCollection:light] getWhite:&lightWhite alpha:&lightAlpha];
+        [[paint resolvedColorWithTraitCollection:dark] getWhite:&darkWhite alpha:&darkAlpha];
+        Class expectedEffect=nativeGlass ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
+        BOOL configuredTint=fabs(lightAlpha-0.28)<0.01 && fabs(darkAlpha-0.28)<0.01;
+        BOOL readableBlur=lightAlpha>0.68 && lightAlpha<1 && darkAlpha>0.60 && darkAlpha<1;
         Check(base && [base.effect isKindOfClass:expectedEffect] && !base.userInteractionEnabled &&
-            lightWhite>0.95 && lightAlpha>0.68 && lightAlpha<1 && darkWhite<0.2 && darkAlpha>0.60 && darkAlpha<1 &&
+            lightWhite>0.95 && darkWhite<0.2 && (nativeGlass ? configuredTint : readableBlur) &&
             panel.view.subviews.firstObject==base,
-            @"longpress glass keeps a readable adaptive backing over a dark video surround");
+            @"the longpress card uses native glass tint or a readable adaptive blur fill");
         HGAppearanceLayoutDock(host.customTabBar,host);
         Check(dock.hidden,@"mounted longpress sheet keeps the Dock out of its backdrop even after a Dock refresh");
 
@@ -400,10 +411,11 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
         Check(HGAActionPixelAlpha(cell.iconView.image,8,8)==0 && HGAActionPixelAlpha(cell.iconView.image,24,24)>200,
             @"a destination image with a baked brand tile keeps an opaque glyph and transparent surrounding pixels");
         cell.iconView.image=nativeIcon;Layout(cell);
+        CACornerMask cardCorners=kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner|kCALayerMinXMaxYCorner|kCALayerMaxXMaxYCorner;
         Check(panel.view.clipsToBounds && fabs(panel.view.layer.cornerRadius-28)<0.01 &&
-            panel.view.layer.maskedCorners==(kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner) &&
+            panel.view.layer.maskedCorners==cardCorners &&
             CGRectEqualToRect(table.frame,originalTable) && CGRectEqualToRect(destination.frame,originalDestination),
-            @"sheet clips continuous top corners without moving native table rows or share destinations");
+            @"sheet uses one continuous four-corner card without moving native table rows or share destinations");
         [destination sendActionsForControlEvents:UIControlEventTouchUpInside];
         Check(action.taps==1 && [destination titleForState:UIControlStateNormal].length>0 && destination.superview==header,
             @"longpress share destination retains its original title hierarchy and action");
@@ -453,8 +465,9 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             fullScreen.view.bounds.size.width,250)];
         shareSheet.backgroundColor=UIColor.whiteColor;
         fullScreen.panelView=shareSheet;[fullScreen.view addSubview:shareSheet];[fullScreen viewDidLayoutSubviews];
-        UIVisualEffectView *nativeSharePanel=(id)Find(shareSheet,@"honggo.appearance.material");
-        Check(nativeSharePanel.superview==shareSheet && Count(fullScreen.view,@"honggo.appearance.material")==1 &&
+        UIVisualEffectView *nativeSharePanel=(id)Find(shareSheet,@"honggo.appearance.material");Layout(nativeSharePanel);
+        Check(nativeSharePanel.superview==shareSheet && [nativeSharePanel.effect isKindOfClass:expectedEffect] &&
+            Count(fullScreen.view,@"honggo.appearance.material")==1 && shareSheet.layer.maskedCorners==cardCorners &&
             [fullScreen.view.backgroundColor isEqual:dismissalColour] && !nativeSharePanel.userInteractionEnabled && dock.hidden,
             @"verified native share panel receives the same material within its dismissible full-screen wrapper");
         HGAppearanceSet(@"panels.share",@NO,nil);

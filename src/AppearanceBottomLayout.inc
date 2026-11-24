@@ -105,8 +105,8 @@ static BOOL HGABottomViewIsA(UIView *view,NSString *name) {
 }
 static BOOL HGABottomNativeCoordinates(UIView *view,UIView *control) {
     for(NSUInteger depth=0;view && depth<12;depth++,view=view.superview) {
-        if(!CGAffineTransformIsIdentity(view.transform))return NO;
         if(view==control)return YES;
+        if(!CGAffineTransformIsIdentity(view.transform))return NO;
     }
     return NO;
 }
@@ -141,12 +141,13 @@ static void HGAResumeCategoryFeeds(UIView *pager) {
 
 // A horizontal channel pager can carry the entire video feed, so its canvas
 // and its vertical collection move together. Compare both coordinate spaces.
-static BOOL HGABottomCanvasIsCurrent(UIView *control, UIScrollView **nativeFeed, BOOL *visibleInFeed) {
+static BOOL HGABottomCanvasIsCurrent(UIView *control, UIScrollView **nativeFeed, BOOL *visibleInFeed,
+    BOOL *movingSideways) {
     UIView *canvas = HGAPlayerCanvas(control);
     UIWindow *window = control.window;
     if (!canvas || !window) return NO;
     UIScrollView *feed = nil;
-    BOOL verticalScroll = NO, outerScroll = NO;
+    BOOL verticalScroll = NO, outerScroll = NO, horizontalScroll = NO;
     for (UIView *node = canvas.superview; node && node != window; node = node.superview) {
         if (![node isKindOfClass:UIScrollView.class]) continue;
         UIScrollView *scroll = (UIScrollView *)node;
@@ -154,23 +155,32 @@ static BOOL HGABottomCanvasIsCurrent(UIView *control, UIScrollView **nativeFeed,
         if (!feed && HGABottomViewIsA(scroll, @"FQVCollectionView")) {
             feed = scroll;
             verticalScroll = scrolling;
-        } else if (scrolling) outerScroll = YES;
+        } else if (scrolling) {
+            outerScroll = YES;
+            horizontalScroll |= scroll.contentSize.width > scroll.bounds.size.width + 1;
+        }
     }
     *nativeFeed = feed;
-    if (outerScroll || !HGABottomNativeCoordinates(control, canvas)) return NO;
+    if (!CGAffineTransformEqualToTransform(canvas.transform, CGAffineTransformMakeTranslation(canvas.transform.tx, 0)) ||
+        !HGABottomNativeCoordinates(control, canvas)) return NO;
     CGRect viewport = feed ? [feed convertRect:feed.bounds toView:window] : window.bounds;
     CGRect rect = [canvas convertRect:canvas.bounds toView:window];
-    BOOL aligned = !CGRectIsEmpty(rect) && fabs(CGRectGetMinX(rect) - CGRectGetMinX(viewport)) <= 1 &&
-        (!feed || fabs(CGRectGetMidX(viewport) - CGRectGetMidX(window.bounds)) <= 1);
-    if (visibleInFeed) *visibleInFeed = feed && aligned && !CGRectIsEmpty(CGRectIntersection(rect, viewport));
-    return aligned && !verticalScroll && fabs(CGRectGetMinY(rect) - CGRectGetMinY(viewport)) <= 1;
+    if (CGRectIsEmpty(rect)) return NO;
+    BOOL aligned = fabs(CGRectGetMinX(rect) - CGRectGetMinX(viewport)) <= 1 &&
+        fabs(CGRectGetMidX(viewport) - CGRectGetMidX(window.bounds)) <= 1;
+    BOOL settledVertically = !verticalScroll && fabs(CGRectGetMinY(rect) - CGRectGetMinY(viewport)) <= 1;
+    if (movingSideways) *movingSideways = (!aligned || horizontalScroll) && settledVertically &&
+        !CGRectIsEmpty(CGRectIntersection(rect, window.bounds));
+    if (visibleInFeed) *visibleInFeed = feed && aligned && !outerScroll &&
+        !CGRectIsEmpty(CGRectIntersection(rect, viewport));
+    return aligned && settledVertically && !outerScroll;
 }
 
 static void HGAResumeSettledHUDs(UIScrollView *feed) {
     NSHashTable *pending = objc_getAssociatedObject(feed, &HGDeferredHUDsKey);
     for (UIView *control in pending.allObjects) {
         UIScrollView *currentFeed = nil;
-        BOOL current = HGABottomCanvasIsCurrent(control, &currentFeed, NULL);
+        BOOL current = HGABottomCanvasIsCurrent(control, &currentFeed, NULL, NULL);
         if (currentFeed != feed || current) [pending removeObject:control];
         if (currentFeed == feed && current) [control setNeedsLayout];
     }
@@ -257,11 +267,12 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
         HGABottomHasCustomGeometry()) {HGARestoreBottomState(state);return;}
     UIScrollView *feed = nil;
     BOOL visibleInFeed = NO;
-    BOOL currentCanvas = HGABottomCanvasIsCurrent(control, &feed, &visibleInFeed);
+    BOOL movingSideways = NO;
+    BOOL currentCanvas = HGABottomCanvasIsCurrent(control, &feed, &visibleInFeed, &movingSideways);
     if (feed && !currentCanvas) {
         [HGADeferredViews(feed, &HGDeferredHUDsKey) addObject:control];
         HGARegisterCategoryFeed(feed);
-        if (!visibleInFeed) {HGARestoreBottomState(state);return;}
+        if (!visibleInFeed && !(movingSideways && state.lastLift > 0)) {HGARestoreBottomState(state);return;}
     }
     UIView *progress=nil,*wrapper=nil,*info=nil;
     BOOL ambiguous=NO,ambiguousInfo=NO;
@@ -320,8 +331,10 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
         needed=10;
     } else {HGARestoreBottomState(state);return;}
     if(!isfinite(needed) || needed>20) {HGARestoreBottomState(state);return;}
-    CGFloat progressLift=0;
-    CGRect dock=HGADockRectInView(control);
+    // The outgoing video and Dock may move in different coordinate spaces.
+    // Carry forward the settled clearance until the horizontal transition ends.
+    CGFloat progressLift=movingSideways && HGAppearanceDockEnabled() ? state.lastProgressLift : 0;
+    CGRect dock=currentCanvas ? HGADockRectInView(control) : CGRectNull;
     if(measured && currentCanvas && !CGRectIsNull(dock) && !CGRectIsEmpty(dock) &&
         CGRectGetMinY(dock)>height*0.65 && CGRectGetMinY(dock)<height+100 &&
         CGRectGetMaxX(dock)>width*0.25 && CGRectGetMinX(dock)<width*0.75) {

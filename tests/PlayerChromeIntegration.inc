@@ -30,6 +30,14 @@
 @interface FQVShortVideoControlCleanSwitchView : UIView @end
 @implementation FQVShortVideoControlCleanSwitchView @end
 
+@interface FQVShortVideoVPlayerEpisodeInfoView : UIView
+@property(nonatomic,strong) UIColor *nativePaint;
+- (void)refreshSubviews;
+@end
+@implementation FQVShortVideoVPlayerEpisodeInfoView
+- (void)refreshSubviews { self.layer.backgroundColor=self.nativePaint.CGColor; }
+@end
+
 @interface SSShortVideoTagListBottomInsertView : SSShortVideoBottomInsertView
 @property(nonatomic,strong) UIView *contentView;
 @property(nonatomic,strong) UIButton *episodeInfoView;
@@ -261,7 +269,7 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     [insert.episodeInfoView addTarget:episodeAction action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
     [insert.contentView addSubview:insert.episodeInfoView];
     [insert addSubview:insert.contentView];
-    insert.cleanSwitchView=[[FQVShortVideoControlCleanSwitchView alloc] initWithFrame:CGRectMake(314,0,46,40)];
+    insert.cleanSwitchView=[[FQVShortVideoControlCleanSwitchView alloc] initWithFrame:CGRectMake(303,-12,62,64)];
     insert.cleanScreenView=[[UIView alloc] initWithFrame:insert.cleanSwitchView.bounds];
     UIButton *cleanButton=[UIButton buttonWithType:UIButtonTypeCustom];
     cleanButton.frame=insert.cleanSwitchView.bounds;
@@ -277,9 +285,9 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     UIVisualEffectView *episodeGlass=(id)Find(insert.episodeInfoView,@"honggo.appearance.material");
     CGColorRef paint=insert.episodeInfoView.layer.backgroundColor;
     Check(cleanGlass.superview==insert.cleanSwitchView && !Find(insert.cleanScreenView,@"honggo.appearance.material") &&
-        CGRectEqualToRect(cleanGlass.frame,CGRectMake(3,0,40,40)) &&
+        CGRectEqualToRect(cleanGlass.frame,CGRectMake(11,12,40,40)) &&
         [insert hitTest:CGPointMake(337,20) withEvent:nil]==cleanButton,
-        @"detail clean switch has a centered round material and the original hit target");
+        @"detail clean switch caps oversized glass at the 40pt episode-row height and preserves the hit target");
     Check(episodeGlass.superview==insert.episodeInfoView && episodeGlass.layer.cornerRadius==20 &&
         (!paint || CGColorGetAlpha(paint)==0) && Count(insert,@"honggo.appearance.material")==2 &&
         [insert hitTest:CGPointMake(120,20) withEvent:nil]==insert.episodeInfoView,
@@ -299,6 +307,23 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
         paint && CGColorEqualToColor(paint,entryPaint.CGColor),
         @"disabling detail bottom glass restores the native paint and preserves both actions");
     [insert removeFromSuperview];
+
+    HGAppearanceSet(@"player.controlsGlass",@YES,nil);
+    FQVShortVideoVPlayerEpisodeInfoView *nativeEntry=[[FQVShortVideoVPlayerEpisodeInfoView alloc]
+        initWithFrame:CGRectMake(12,160,304,40)];
+    nativeEntry.nativePaint=entryPaint;
+    [nativeEntry refreshSubviews];
+    [host.view addSubview:nativeEntry];
+    [nativeEntry refreshSubviews];
+    UIView *nativeGlass=Find(nativeEntry,@"honggo.appearance.material");
+    paint=nativeEntry.layer.backgroundColor;
+    Check(nativeGlass && nativeGlass.layer.cornerRadius==20 && (!paint || CGColorGetAlpha(paint)==0),
+        @"the native episode entry gets rounded glass after refreshing its layer color");
+    HGAppearanceSet(@"player.controlsGlass",@NO,nil);
+    paint=nativeEntry.layer.backgroundColor;
+    Check(!Find(nativeEntry,@"honggo.appearance.material") && paint && CGColorEqualToColor(paint,entryPaint.CGColor),
+        @"the native episode entry restores its own background when glass is disabled");
+    [nativeEntry removeFromSuperview];
 
     SSShortVideoIntroductionTabViewController *panel=[SSShortVideoIntroductionTabViewController new];
     [host addChildViewController:panel];

@@ -380,6 +380,8 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName("setVideoDataModel:"),"v24@0:8@16",NO);
             if([name isEqual:@"FQVShortVideoControlCleanSwitchView"])
                 HGAHook(cls,sel_registerName("refreshLayout"),"v16@0:8",NO);
+            if([name isEqual:@"FQVShortVideoVPlayerEpisodeInfoView"])
+                HGAHook(cls,sel_registerName("refreshSubviews"),"v16@0:8",NO);
             if([name isEqual:@"SSShortVideoBottomDistributionView"])
                 HGAHook(cls,sel_registerName("renderWithModel:"),"v24@0:8@16",NO);
             if([name isEqual:@"SSBookStoreEntranceView"] || [name isEqual:@"SSBookStoreKingKongBannerView"] ||

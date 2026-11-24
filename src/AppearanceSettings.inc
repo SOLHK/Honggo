@@ -9,7 +9,6 @@
 @property(nonatomic,copy) dispatch_block_t pendingAction;
 @property(nonatomic,copy) NSString *assetKey;
 @property(nonatomic,copy) NSString *colorKey;
-@property(nonatomic,copy) NSString *documentPurpose;
 @property(nonatomic) BOOL busy;
 @end
 
@@ -107,8 +106,7 @@ static NSString *HGAGroupDisplayTitle(NSString *group) {
         @"player":@"播放布局与玻璃",
         @"panels":@"弹出面板",
         @"icons":@"动作图标",
-        @"fonts":@"字体与字号",
-        @"backup":@"外观参数备份与重置"
+        @"fonts":@"字体与字号"
     };
     if(titles[group])return titles[group];
     if([group hasPrefix:@"role."]) {
@@ -220,8 +218,6 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"图标与文字");
         [rows addObject:HGASubpage(@"@group.icons",@"动作图标",HGAppearanceFlag(@"icons.enabled")?@"已开启":@"默认")];
         [rows addObject:HGASubpage(@"@group.fonts",@"字体与字号",HGAppearanceFlag(@"fonts.enabled")?@"已开启":@"默认")];
-        section(@"配置管理");
-        [rows addObject:HGASubpage(@"@group.backup",@"外观参数备份与重置",@"导出、恢复或重置外观")];
     } else if([self.group isEqual:@"general"]) {
         HGAAddDefs(rows,@[@"enabled"]);
     } else if([self.group isEqual:@"dock"]) {
@@ -269,7 +265,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search"]);
     } else if([self.group isEqual:@"player"]) {
         section(@"播放与材质");
-        HGAAddDefs(rows,@[@"player.fullscreen",@"player.separateProgress",@"player.rightGlass",@"player.material"]);
+        HGAAddDefs(rows,@[@"player.fullscreen",@"player.disableEpisodeSwipe",@"player.separateProgress",@"player.rightGlass",@"player.material"]);
         NSArray *roles = HGAppearanceRoles(), *roleTitles = HGAppearanceRoleTitles();
         for (NSUInteger i = 0; i < roles.count; i++) {
             NSString *role = roles[i];
@@ -319,11 +315,6 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"fonts.name",@"fonts.asset"]);
         section(@"");
         [rows addObject:HGATool(@"@fonts.reset",@"恢复宿主原字体与字号")];
-    } else if([self.group isEqual:@"backup"]) {
-        [rows addObject:HGATool(@"@export",@"导出外观参数")];
-        [rows addObject:HGATool(@"@import",@"从文件恢复外观参数")];
-        section(@"");
-        [rows addObject:HGATool(@"@reset",@"恢复全部外观默认值")];
     }
     self.sections = sections;
     self.sectionTitles = titles;
@@ -394,7 +385,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             NSUInteger i=[row[@"choices"] indexOfObject:value];cell.detailTextLabel.text=i!=NSNotFound?row[@"labels"][i]:@"默认";
         }else if([kind isEqual:@"image"] || [kind isEqual:@"fontfile"])cell.detailTextLabel.text=value.length?@"已选择本地资源，点击可更换或清除":@"未选择";
         else if(![kind isEqual:@"action"])cell.detailTextLabel.text=value.length?value:@"跟随系统／预设";
-        if([key isEqual:@"@reset"] || [key hasPrefix:@"@role.reset."])cell.textLabel.textColor=UIColor.systemRedColor;
+        if([key hasPrefix:@"@role.reset."])cell.textLabel.textColor=UIColor.systemRedColor;
     }return cell;
 }
 - (void)message:(NSString *)title detail:(NSString *)detail {
@@ -439,12 +430,6 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         [self afterSearch:^{[self openRow:row];}];
     }
 }
-- (void)confirm:(NSString *)title detail:(NSString *)detail action:(dispatch_block_t)action {
-    UIAlertController *a=[UIAlertController alertControllerWithTitle:title message:detail preferredStyle:UIAlertControllerStyleAlert];
-    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [a addAction:[UIAlertAction actionWithTitle:@"应用" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *button){action();[self reloadRows];}]];
-    [self presentViewController:a animated:YES completion:nil];
-}
 - (void)openRow:(NSDictionary *)row {
     if(self.busy)return;
     NSString *key=row[@"key"],*kind=row[@"kind"];
@@ -462,10 +447,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         [self reloadRows];
         return;
     }
-    if([key isEqual:@"@reset"]){[self confirm:@"恢复外观默认值？" detail:@"关闭新外观定制并恢复宿主控件。原有去广告设置不变。" action:^{HGAppearanceReset();}];return;}
     if([key isEqual:@"@fonts.reset"]){HGAppearanceApply(@{@"fonts.enabled":@NO,@"fonts.name":@"",@"fonts.asset":@"",@"fonts.scale":@1},nil);[self reloadRows];return;}
-    if([key isEqual:@"@export"]){[self exportConfiguration];return;}
-    if([key isEqual:@"@import"]){[self pickDocument:@"configuration"];return;}
     if([kind isEqual:@"choice"]) {
         UIAlertController *a=[UIAlertController alertControllerWithTitle:row[@"title"] message:nil preferredStyle:UIAlertControllerStyleActionSheet];
         NSArray *values=row[@"choices"],*labels=row[@"labels"];
@@ -519,7 +501,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         configuration.includeFaces=YES;
         UIFontPickerViewController *picker=[[UIFontPickerViewController alloc] initWithConfiguration:configuration];picker.delegate=self;
         [self presentViewController:picker animated:YES completion:nil];
-    }else [self pickDocument:@"font"];
+    }else [self pickFontDocument];
 }
 - (void)colorPickerViewController:(UIColorPickerViewController *)controller didSelectColor:(UIColor *)color continuously:(BOOL)continuously {
     CGFloat r=0,g=0,b=0,a=0;
@@ -554,11 +536,9 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         }];
     }];
 }
-- (void)pickDocument:(NSString *)purpose {
-    self.documentPurpose=purpose;
+- (void)pickFontDocument {
     NSMutableArray<UTType *> *types=[NSMutableArray array];
-    if([purpose isEqual:@"configuration"])[types addObject:UTTypeJSON];
-    else for(NSString *extension in @[@"ttf",@"otf",@"ttc"]) {
+    for(NSString *extension in @[@"ttf",@"otf",@"ttc"]) {
         UTType *type=[UTType typeWithFilenameExtension:extension];if(type)[types addObject:type];
     }
     if(!types.count)[types addObject:UTTypeData];
@@ -566,22 +546,22 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     picker.delegate=self;picker.allowsMultipleSelection=NO;[self presentViewController:picker animated:YES completion:nil];
 }
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    NSURL *url=urls.firstObject;NSString *purpose=self.documentPurpose;self.documentPurpose=nil;if(!url)return;
+    NSURL *url=urls.firstObject;if(!url)return;
     self.busy=YES;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
         BOOL scope=[url startAccessingSecurityScopedResource];
         __block NSData *data=nil;__block NSError *readError=nil;NSError *coordinationError=nil;
         NSFileCoordinator *coordinator=[[NSFileCoordinator alloc] initWithFilePresenter:nil];
         [coordinator coordinateReadingItemAtURL:url options:0 error:&coordinationError byAccessor:^(NSURL *local){
-            data=HGAReadFile(local,[purpose isEqual:@"font"]?50*1024*1024:128*1024,&readError);
+            data=HGAReadFile(local,50*1024*1024,&readError);
         }];
         if(scope)[url stopAccessingSecurityScopedResource];
-        NSError *error=coordinationError ?: readError;NSDictionary *configuration=nil;NSArray *fonts=nil;NSURL *stored=nil;
-        if(data && !error && [purpose isEqual:@"font"]) {
+        NSError *error=coordinationError ?: readError;NSArray *fonts=nil;NSURL *stored=nil;
+        if(data && !error) {
             NSString *extension=url.pathExtension.lowercaseString;
             if(![@[@"ttf",@"otf",@"ttc"] containsObject:extension])error=HGAAssetError(@"仅支持 TTF、OTF 或 TTC 字体。");
             else {stored=HGAStoreAsset(data,extension,&error);if(stored)fonts=HGARegisterFont(stored,&error);}
-        }else if(data && !error)configuration=HGAppearanceParse(data,&error);
+        }
         dispatch_async(dispatch_get_main_queue(),^{
             self.busy=NO;
             // The native picker dismisses itself; defer UI until that transition finishes.
@@ -593,38 +573,11 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
                         HGAppearanceApply(@{@"fonts.asset":stored.lastPathComponent,@"fonts.name":name},nil);[self reloadRows];
                     }]];
                     [choice addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];[self presentSheet:choice];
-                }else if(configuration){[self confirm:@"恢复外观参数？" detail:@"只修改文件中列出的 Honggo 外观设置。字体与图片需要在本机存在。" action:^{
-                    NSError *applyError=nil;
-                    if(!HGAppearanceApply(configuration,&applyError))dispatch_async(dispatch_get_main_queue(),^{[self message:@"未恢复" detail:applyError.localizedDescription];});
-                }];}
+                }
             };
             if(self.presentedViewController==controller)[controller dismissViewControllerAnimated:YES completion:finish];
             else if(controller.transitionCoordinator)[controller.transitionCoordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context){finish();}];
             else finish();
-        });
-    });
-}
-- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller{self.documentPurpose=nil;}
-- (void)exportConfiguration {
-    NSError *error=nil;NSData *data=HGAppearanceExport(&error);
-    if(!data){[self message:@"导出失败" detail:error.localizedDescription];return;}
-    self.busy=YES;
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
-        NSURL *directory=[NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString] isDirectory:YES];
-        NSError *failure=nil;
-        BOOL ok=[NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&failure];
-        NSURL *url=[directory URLByAppendingPathComponent:@"Honggo-appearance.json"];
-        if(ok)ok=[data writeToURL:url options:NSDataWritingAtomic error:&failure];
-        dispatch_async(dispatch_get_main_queue(),^{
-            self.busy=NO;
-            if(!ok){[self message:@"导出失败" detail:failure.localizedDescription];return;}
-            UIActivityViewController *share=[[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
-            share.popoverPresentationController.sourceView=self.view;
-            share.popoverPresentationController.sourceRect=CGRectMake(CGRectGetMidX(self.view.bounds),CGRectGetMidY(self.view.bounds),1,1);
-            share.completionWithItemsHandler=^(UIActivityType type,BOOL completed,NSArray *items,NSError *shareError){
-                dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{[NSFileManager.defaultManager removeItemAtURL:directory error:nil];});
-            };
-            if(self.viewIfLoaded.window && !self.presentedViewController)[self presentViewController:share animated:YES completion:nil];
         });
     });
 }

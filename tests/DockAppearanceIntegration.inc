@@ -309,8 +309,9 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
         UIEdgeInsetsEqualToEdgeInsets(list.contentInset,settledInset),
         @"custom dock repeated layouts do not accumulate viewport height or bottom padding");
     UIView *capsule=Find(bar,@"honggo.appearance.dock.capsule");
-    Check(Find(capsule,@"honggo.appearance.material") && !capsule.hidden &&
-        Find(bar,@"honggo.appearance.dock.selection"),
+    BOOL nativeDock=Find(capsule,@"honggo.appearance.dock.native")!=nil;
+    Check(!capsule.hidden && (nativeDock || (Find(capsule,@"honggo.appearance.material") &&
+        Find(bar,@"honggo.appearance.dock.selection"))),
         @"host background cleanup leaves the plugin-owned capsule and selection intact");
     bar.hidden=YES;
     BOOL geometryRestored=bar.layer.mask==hostMask && bar.clipsToBounds &&
@@ -395,6 +396,7 @@ static void HGRunExpandedDockGeometryChecks(SSTabBarController *host) {
     [host.view addSubview:bar];
     HGAppearanceApply(HGAppearancePreset(@"glass"),nil);
     HGAppearanceSet(@"dock.content",@"icon",nil);
+    HGAppearanceSet(@"dock.tint",@"#404040",nil);
     HGAppearanceLayoutDock(bar,host);
     UIView *dock=Find(bar,@"honggo.appearance.dock");
     UIView *capsule=Find(dock,@"honggo.appearance.dock.capsule");
@@ -424,6 +426,7 @@ static void HGRunExpandedDockGeometryChecks(SSTabBarController *host) {
 
     bar.frame=CGRectMake(0,rootHeight-60,320,60);
     HGAppearanceApply(HGAppearancePreset(@"glass"),nil);
+    HGAppearanceSet(@"dock.tint",@"#404040",nil);
     HGAppearanceLayoutDock(bar,host);
     circle=[extra convertRect:extra.bounds toView:dock];
     occupied=CGRectUnion(capsule.frame,circle);
@@ -432,6 +435,51 @@ static void HGRunExpandedDockGeometryChecks(SSTabBarController *host) {
         @"a short dock host keeps safe clearance and accessible targets by shrinking the row");
     HGAppearanceRestoreDock(bar);[bar removeFromSuperview];
     HGAppearanceApply(saved,nil);
+}
+
+static void HGRunNativeDockInteractionChecks(SSTabBarController *host) {
+    if(!HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled())return;
+    NSDictionary *saved=HGAppearanceValues();
+    NSUInteger selected=host.selectedIndex;
+    host.selectedIndex=0;
+    HGAppearanceApply(HGAppearancePreset(@"glass"),nil);
+    HGAppearanceApply(@{@"dock.content":@"icon",@"dock.action":@"mine",@"dock.extra":@YES,
+        @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.mine":@NO,@"dock.hide.store":@YES},nil);
+    SSTabBar *bar=host.customTabBar;
+    HGAppearanceLayoutDock(bar,host);Layout(bar);
+    UIView *dock=Find(bar,@"honggo.appearance.dock");
+    UIView *capsule=Find(dock,@"honggo.appearance.dock.capsule");
+    UITabBar *native=(id)Find(capsule,@"honggo.appearance.dock.native");
+    if([native isKindOfClass:UITabBar.class] && native.items.count==2) {
+        UITabBarItem *home=native.items.firstObject,*theater=native.items.lastObject;
+        CGPoint point=[capsule convertPoint:CGPointMake(CGRectGetWidth(capsule.bounds)*0.25,
+            CGRectGetMidY(capsule.bounds)) toView:dock];
+        UIView *hit=[dock hitTest:point withEvent:nil];
+        Check(home.tag==0 && theater.tag==1 && native.selectedItem==home && hit && [hit isDescendantOfView:native] &&
+            !Find(capsule,@"honggo.appearance.dock.selection") && !Find(capsule,@"honggo.appearance.material"),
+            @"the iOS 26 tab bar alone owns the glass capsule, touch routing and selected item");
+        NSUInteger taps=host.nativeTaps;
+        native.selectedItem=theater;
+        HGAppearanceLayoutDock(bar,host);
+        Check(native.selectedItem==theater && host.selectedIndex==0 && host.nativeTaps==taps,
+            @"repeat host layouts leave a UIKit selection preview alone until the selection callback");
+        [native.delegate tabBar:native didSelectItem:theater];
+        HGAppearanceLayoutDock(bar,host);Layout(bar);
+        Check(host.nativeTaps==taps+1 && host.selectedIndex==1 && native.selectedItem==theater &&
+            native.items.firstObject==home && native.items.lastObject==theater,
+            @"native selection forwards one host action and retains its UIKit items across layout");
+        host.selectedIndex=3;
+        HGAppearanceLayoutDock(bar,host);Layout(bar);
+        UIButton *action=(id)Find(dock,@"honggo.appearance.dock.extra");
+        Check(!native.selectedItem && action.selected,
+            @"the detached tab is selected independently of the native capsule");
+        HGAppearanceSet(@"dock.material",@"blur",nil);
+        Check(!native.superview && Find(capsule,@"honggo.appearance.dock.selection"),
+            @"choosing classic blur reacquires fallback selection and tap targets");
+    }else {
+        Check(NO,@"floating UIKit tab bar is available in the Liquid Glass fixture");
+    }
+    host.selectedIndex=selected;HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(bar,host);
 }
 
 @interface HGADockPanFixture : UIPanGestureRecognizer
@@ -566,7 +614,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     roomyBar.origin.y=host.view.bounds.size.height-84;
     host.customTabBar.frame=roomyBar;
     HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.material":@"regular",
-        @"dock.content":@"icon",@"dock.height":@62,@"dock.width":@0.905,@"dock.radius":@31,
+        @"dock.content":@"icon",@"dock.height":@62,@"dock.width":@0.905,@"dock.radius":@30,
         @"dock.iconSize":@26,@"dock.extra":@YES,@"dock.extraSize":@62,@"dock.action":@"mine",
         @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@YES,@"dock.hide.mine":@YES,
         @"dock.selected":@"",@"dock.normal":@"",@"dock.tint":@""},nil);
@@ -589,8 +637,8 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"all navigation and accessory glyphs belong to the actual system material foreground");
     Check(fabs(capsule.bounds.size.height-62)<0.01 && fabs(extra.bounds.size.width-62)<0.01 &&
         fabs(extra.bounds.size.height-62)<0.01 && fabs(CGRectGetMidY(capsule.frame)-CGRectGetMidY(extraInDock))<0.01 &&
-        fabs(capsule.layer.cornerRadius-31)<0.01 && fabs(extraMaterial.layer.cornerRadius-31)<0.01,
-        @"capsule and independent action are equally thick with aligned circular ends");
+        fabs(capsule.layer.cornerRadius-30)<0.01 && fabs(extraMaterial.layer.cornerRadius-31)<0.01,
+        @"the custom capsule radius and equally thick circular action are preserved");
     Check(fabs(CGRectGetMinX(extraInDock)-CGRectGetMaxX(capsule.frame)-12)<0.01 &&
         fabs(CGRectGetWidth(CGRectUnion(capsule.frame,extraInDock))/dock.bounds.size.width-0.905)<0.001,
         @"reference-width dock uses symmetric margins and a twelve-point accessory gap");

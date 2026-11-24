@@ -506,7 +506,7 @@ static BOOL HGAIsMineKMPController(UIViewController *controller) {
     return [controller isKindOfClass:NSClassFromString(@"SSMine737KMPViewController")];
 }
 
-static char HGAMineShortcutMaskKey;
+static char HGAMineShortcutMaskKey,HGAMineTitleGlassKey;
 static void HGAApplyMineKMPChrome(UIViewController *controller) {
     UIView *root=controller.viewIfLoaded;
     BOOL enabled=HGAppearanceEnabled() && root.window;
@@ -549,10 +549,30 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
             fabs(CGRectGetMidY(targets[0].frame)-CGRectGetMidY(targets[1].frame))<1)break;
         [targets removeAllObjects];
     }
-    HGAUpdatePageChromeTargets(root,targets);
-    for(UIView *target in targets) {
-        CGFloat enlargement=target.clipsToBounds?0:6;
-        HGAApplyFinderMaterial(target,CGRectInset(target.bounds,-enlargement,-enlargement));
+    NSArray<UIView *> *backings=objc_getAssociatedObject(root,&HGAMineTitleGlassKey);
+    if(targets.count!=2) {
+        for(UIView *backing in backings)[backing removeFromSuperview];
+        if(backings)objc_setAssociatedObject(root,&HGAMineTitleGlassKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    if(!backings) {
+        backings=@[[UIView new],[UIView new]];
+        for(UIView *backing in backings) {
+            backing.accessibilityIdentifier=@"honggo.appearance.mine.title";
+            backing.userInteractionEnabled=NO;
+            backing.accessibilityElementsHidden=YES;
+        }
+        objc_setAssociatedObject(root,&HGAMineTitleGlassKey,backings,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    for(NSUInteger index=0;index<targets.count;index++) {
+        UIView *glyph=targets[index],*backing=backings[index];
+        CGRect ink=[glyph convertRect:glyph.bounds toView:titleBar];
+        CGRect frame=CGRectMake(CGRectGetMidX(ink)-18,CGRectGetMidY(ink)-18,36,36);
+        if(!CGRectEqualToRect(backing.frame,frame))backing.frame=frame;
+        // The Compose glyphs are clipped to 24pt. Use their title bar for the
+        // glass so the original touch views, clipping and unread dot stay intact.
+        if(backing.superview!=titleBar)[titleBar insertSubview:backing atIndex:0];
+        HGAApplyFinderMaterial(backing,backing.bounds);
     }
 }
 
@@ -738,8 +758,8 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
         HGASetPageChromeCover(view,filter?"backgroundView":golden?"backgroundImageView":"bgImgView",finder);
         UIView *target=golden?HGAViewGetter(view,"innerContentView",view) ?: view:view;
         HGAApplyFinderMaterial(target,finder ? CGRectInset(target.bounds,1,0) : CGRectZero);
-        UIView *icon=finder ? HGAViewGetter(view,filter ? "icon" : "iconImgView",view) : nil;
-        HGAApplyPageChromeIcons(view,icon ? @[icon] : nil);
+        // Shortcut artwork is supplied with its own colors and backgrounds.
+        // Treating the whole source image as a template fills the rounded icon tile.
     }
 }
 

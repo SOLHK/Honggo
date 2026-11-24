@@ -485,6 +485,12 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         @"restoring the four channels restores native layout, selection geometry and unmodified cell transforms");
     Check([episodePush shouldLeftSlideEnterOtherPage:nil context:swipeContext] && episodePush.calls==2,
         @"turning off channel filtering restores the interactive series push");
+    HGAppearanceSet(@"player.disableEpisodeSwipe",@YES,nil);
+    Check(![episodePush shouldLeftSlideEnterOtherPage:nil context:swipeContext] && episodePush.calls==2,
+        @"the full episode swipe switch blocks the interactive push with the regular channel layout");
+    HGAppearanceSet(@"player.disableEpisodeSwipe",@NO,nil);
+    Check([episodePush shouldLeftSlideEnterOtherPage:nil context:swipeContext] && episodePush.calls==3,
+        @"turning the full episode swipe switch back off immediately restores native swipe behavior");
     [listContainer removeFromSuperview];
     [channels refreshSelectedCellModel:@3 unselectedCellModel:@1];
 
@@ -552,6 +558,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         shortcut.bgImgView=[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"rectangle.fill"]];
         shortcut.bgImgView.frame=shortcut.bounds;[shortcut addSubview:shortcut.bgImgView];
         shortcut.iconImgView=[[UIImageView alloc] initWithImage:cameraOriginal];
+        shortcut.iconImgView.tintColor=UIColor.systemOrangeColor;
         [shortcut addSubview:shortcut.iconImgView];
         shortcut.nameLabel=[[UILabel alloc] initWithFrame:shortcut.bounds];shortcut.nameLabel.text=labels[i];
         [shortcut addSubview:shortcut.nameLabel];[finder.view addSubview:shortcut];[shortcuts addObject:shortcut];Layout(shortcut);
@@ -605,7 +612,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     for(NSUInteger i=0;i<shortcuts.count;i++) {
         SSBookStoreEntranceView *shortcut=shortcuts[i];
         scoped&=(Find(shortcut,material)!=nil)==(i<4) && shortcut.bgImgView.hidden==(i<4) && !shortcut.nameLabel.hidden &&
-            (shortcut.iconImgView.image.renderingMode==UIImageRenderingModeAlwaysTemplate)==(i<4);
+            shortcut.iconImgView.image==cameraOriginal && [shortcut.iconImgView.tintColor isEqual:UIColor.systemOrangeColor];
     }
     SSBookStoreEntranceView *reused=shortcuts.firstObject;
     UIImageView *previousCover=reused.bgImgView;
@@ -628,7 +635,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         [finder.searchBgView.backgroundColor isEqual:UIColor.systemGrayColor] && camera.image==cameraOriginal &&
         [camera.tintColor isEqual:UIColor.systemOrangeColor] && !finder.aiSearchEntranceImageView.hidden && !aiGlyph.superview;
     for(SSBookStoreEntranceView *shortcut in shortcuts)scoped&=!shortcut.bgImgView.hidden && shortcut.bgImgView.image!=nil;
-    Check(scoped,@"finder glass targets the four shortcuts and restores native search backgrounds on disable");
+    Check(scoped,@"finder glass keeps the four shortcut icons' native colors and restores search backgrounds on disable");
     HGAppearanceSet(@"player.finderAI",@NO,nil);
     HGAppearanceProcessController(finder);
     Check(finder.aiSearchEntranceView.hidden && !Find(finder.view,material) &&
@@ -716,11 +723,20 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     UIView *renderer=[[rendererClass alloc] initWithFrame:titleBar.bounds];[titleBar addSubview:renderer];
     UIView *moon=[[glyphClass alloc] initWithFrame:CGRectMake(360,72,24,24)];[renderer addSubview:moon];
     UIView *menu=[[glyphClass alloc] initWithFrame:CGRectMake(400,72,24,24)];[renderer addSubview:menu];
+    moon.clipsToBounds=YES;menu.clipsToBounds=YES;
     HGAppearanceProcessController(nativeMine);
-    UIView *moonGlass=Find(moon,material),*menuGlass=Find(menu,material);
-    Check(moonGlass && menuGlass && !moonGlass.userInteractionEnabled && !menuGlass.userInteractionEnabled &&
-        moonGlass.bounds.size.width==36 && menuGlass.bounds.size.width==36 && CGRectEqualToRect(moon.frame,CGRectMake(360,72,24,24)),
-        @"Mine attaches bounded liquid glass behind the two verified title-bar glyphs");
+    BOOL moonGlass=NO,menuGlass=NO;
+    for(UIView *backing in titleBar.subviews) {
+        UIView *glass=Find(backing,material);
+        if(!glass || backing.userInteractionEnabled || glass.userInteractionEnabled)continue;
+        CGRect frame=[glass convertRect:glass.bounds toView:titleBar];
+        moonGlass|=CGRectEqualToRect(frame,CGRectMake(354,66,36,36));
+        menuGlass|=CGRectEqualToRect(frame,CGRectMake(394,66,36,36));
+    }
+    Check(moonGlass && menuGlass && titleBar.subviews.lastObject==renderer &&
+        moon.clipsToBounds && menu.clipsToBounds && CGRectEqualToRect(moon.frame,CGRectMake(360,72,24,24)) &&
+        CGRectEqualToRect(menu.frame,CGRectMake(400,72,24,24)),
+        @"Mine places equal 36pt glass behind both clipped title glyphs while keeping the native frames");
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
     Check(!Find(nativeMine.view,material),@"Mine's title-bar materials restore together with the appearance switch");
     HGAppearanceSet(@"player.mineGlass",@YES,nil);

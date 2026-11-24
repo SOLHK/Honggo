@@ -369,6 +369,8 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     BOOL reducedTransparency=UIAccessibilityIsReduceTransparencyEnabled();
     UIColor *chromeColor=[UIColor colorWithWhite:0.10 alpha:reducedTransparency?1:0.12];
     Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
+    // Exercise the custom-radius glass path independently of UIKit's capsule.
+    HGAppearanceSet(@"dock.radius",@21,nil);
     HGAppearanceLayoutDock(self.host.customTabBar,self.host);
     UIView *capsule=Find(self.host.customTabBar,@"honggo.appearance.dock.capsule");
     BOOL matchingGlass=YES;
@@ -469,6 +471,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(Count(bar,@"honggo.appearance.dock")==1,@"dock does not duplicate across repeated host layouts");
     HGRunDockAppearanceChecks(self.host);
     HGRunExpandedDockGeometryChecks(self.host);
+    HGRunNativeDockInteractionChecks(self.host);
     RunDockVideoBackdropChecks(self.host);
     HGAppearanceReset();Layout(like);Layout(bar);
     Check(CGRectEqualToRect(like.frame,original) && !like.hidden,@"reset restores original playback geometry and visibility");

@@ -224,11 +224,20 @@ static void RunOutterEpisodeSpacingChecks(UIView *root) {
         Check(CGRectEqualToRect(progress.frame,nativeProgress) && fabs(wrapper.frame.origin.y-811)<0.01,
             @"a partially visible vertical page keeps local spacing without borrowing dock clearance");
         canvas.frame=nativeCanvas;Layout(control);
+        CGPoint settledEntry=wrapper.center,settledProgress=progress.center,settledRight=right.center;
         horizontal.contentOffset = CGPointMake(70, 0);
         Layout(control);
-        Check(adjustedHere && fabs(wrapper.frame.origin.y-822)<0.01 && CGRectEqualToRect(progress.frame,nativeProgress) &&
-            CGRectEqualToRect(right.frame,nativeRight), @"a horizontal channel swipe yields the whole HUD to the host");
+        CGRect swipeRail=[track convertRect:track.bounds toView:control];
+        Check(adjustedHere && CGPointEqualToPoint(wrapper.center,settledEntry) &&
+            CGPointEqualToPoint(progress.center,settledProgress) && CGPointEqualToPoint(right.center,settledRight) &&
+            CGRectGetMinY(swipeRail)-CGRectGetMaxY(wrapper.frame)>=8,
+            @"the outgoing horizontal page retains its settled episode and rail clearance");
         horizontal.contentOffset = CGPointZero;
+        canvas.transform=CGAffineTransformMakeTranslation(-70,0);
+        Layout(control);
+        Check(CGPointEqualToPoint(wrapper.center,settledEntry) && CGPointEqualToPoint(progress.center,settledProgress),
+            @"a translated outgoing player keeps the rail and episode separated during an interactive push");
+        canvas.transform=CGAffineTransformIdentity;
         canvas.frame = CGRectOffset(nativeCanvas,0,-nativeCanvas.size.height);
         Layout(control);
         Check(fabs(wrapper.frame.origin.y-822)<0.01 && CGRectEqualToRect(right.frame,nativeRight),
