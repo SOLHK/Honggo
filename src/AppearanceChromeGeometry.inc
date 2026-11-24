@@ -5,6 +5,9 @@
 @property(nonatomic,copy) NSArray *observedTitles;
 @property(nonatomic) CGSize observedSize;
 @property(nonatomic,weak) UICollectionView *observedCollection;
+@property(nonatomic,strong) NSHashTable<UIView *> *visibleSideTools;
+@property(nonatomic) NSUInteger channelSelectionDepth;
+@property(nonatomic) BOOL ownsSideToolTransition;
 @end
 @implementation HGAHeaderInsetState @end
 static char HGAHeaderInsetKey;
@@ -313,7 +316,17 @@ static BOOL HGAChannelSelectCell(UIView *categories, SEL cmd, NSInteger index, N
     HGAHeaderChannelLayout *plan=objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
     BOOL compact=plan && categories.window && HGAppearanceEnabled() && HGAIsHomeChannel(categories);
     if (compact && index>=0 && index<(NSInteger)plan.frames.count && (plan.hiddenMask & (1UL<<index))) return NO;
-    BOOL selected=((BOOL (*)(id,SEL,NSInteger,NSUInteger,BOOL))HGAHeaderOriginalSelectCell)(categories,cmd,index,type,animated);
+    UIView *header=compact ? categories.superview : nil;
+    while (header && !HGAIsHeaderView(header)) header=header.superview;
+    HGAHeaderInsetState *state=compact ? objc_getAssociatedObject(header,&HGAHeaderInsetKey) : nil;
+    BOOL selected=NO;
+    if (state) state.channelSelectionDepth++;
+    @try {
+        selected=((BOOL (*)(id,SEL,NSInteger,NSUInteger,BOOL))HGAHeaderOriginalSelectCell)(categories,cmd,index,type,animated);
+        if (state) HGAppearanceProcessView(header);
+    } @finally {
+        if (state) state.channelSelectionDepth--;
+    }
     if (compact && selected && !animated) HGARefreshHeaderChannelLine(categories,YES);
     return selected;
 }
@@ -676,6 +689,69 @@ static CGRect HGAHeaderVisibleChannelsRect(UIView *header) {
     return CGRectInset(unionRect,-16.0,0);
 }
 
+static BOOL HGAHeaderToolTransitionAnimating(UIView *header) {
+    BOOL layout=NO,dismissing=NO;
+    HGABoolGetter(header,@"isHeaderViewLayoutAnimating",&layout);
+    HGABoolGetter(header,@"isSearchBarDismissAnimating",&dismissing);
+    return layout || dismissing;
+}
+
+static BOOL HGABeginNativeHeaderToolTransition(UIView *header,BOOL animated) {
+    HGAHeaderInsetState *state=objc_getAssociatedObject(header,&HGAHeaderInsetKey);
+    if (!animated || !state.channelSelectionDepth || !state.visibleSideTools.count) return NO;
+    state.ownsSideToolTransition=YES;
+    return YES;
+}
+
+static void HGAFinishNativeHeaderToolTransition(UIView *header) {
+    HGAHeaderInsetState *state=objc_getAssociatedObject(header,&HGAHeaderInsetKey);
+    if (!HGAHeaderToolTransitionAnimating(header)) state.ownsSideToolTransition=NO;
+}
+
+static void HGAKeepHomeHeaderToolVisible(HGAHeaderInsetState *state,UIView *view,BOOL keep,BOOL repairing) {
+    if (!view) return;
+    if (!keep) { [state.visibleSideTools removeObject:view]; return; }
+    if (CGRectIsEmpty(view.bounds)) return;
+    if (HGAVisible(view) && view.alpha>=0.999) {
+        if (!state.visibleSideTools) state.visibleSideTools=[NSHashTable weakObjectsHashTable];
+        [state.visibleSideTools addObject:view];
+    }
+    if (!repairing || ![state.visibleSideTools containsObject:view]) return;
+    BOOL fading=[view.layer animationForKey:@"opacity"]!=nil;
+    if (!view.hidden && view.alpha>=0.999 && !fading) return;
+
+    // The compact video channels use the same mounted native side tools. A
+    // stock transition can briefly fade or hide those tools before settling.
+    // Retain known visible instances rather than manufacturing any missing one.
+    [UIView performWithoutAnimation:^{
+        if (view.hidden) view.hidden=NO;
+        if (view.alpha<0.999) view.alpha=1;
+        if (fading) [view.layer removeAnimationForKey:@"opacity"];
+    }];
+}
+
+static void HGAKeepCompactHeaderSideTools(UIView *header,HGAHeaderInsetState *state,UIView *sidebar,UIView *searchSlot) {
+    HGAHeaderChannelLayout *plan=objc_getAssociatedObject(state.categories,&HGAHeaderLayoutKey);
+    NSUInteger visibleCount=plan.titles.count-(NSUInteger)__builtin_popcountll(plan.hiddenMask);
+    NSUInteger comic=[plan.titles indexOfObject:@"漫剧"],recommend=[plan.titles indexOfObject:@"推荐"];
+    BOOL keepsTools=visibleCount==2 && comic<plan.titles.count && recommend<plan.titles.count &&
+        !HGAHiddenChannelIndex(plan,(NSInteger)comic) && !HGAHiddenChannelIndex(plan,(NSInteger)recommend) &&
+        HGAVisible(header) && !HGFeedSidebarOwnsLayout(header.window);
+    if (!keepsTools) {
+        [state.visibleSideTools removeAllObjects];
+        state.ownsSideToolTransition=NO;
+        return;
+    }
+
+    BOOL repairing=state.channelSelectionDepth || (state.ownsSideToolTransition && HGAHeaderToolTransitionAnimating(header));
+    HGAKeepHomeHeaderToolVisible(state,sidebar,!HGAppearanceFlag(@"layout.channels.hide.sidebar"),repairing);
+    UIView *search=HGAViewGetter(header,"searchViewContainer",header);
+    BOOL keepSearch=!HGAppearanceFlag(@"layout.channels.hide.search") && searchSlot && searchSlot!=search;
+    HGAKeepHomeHeaderToolVisible(state,search,keepSearch,repairing);
+    HGAKeepHomeHeaderToolVisible(state,searchSlot,keepSearch,repairing);
+    HGAKeepHomeHeaderToolVisible(state,HGAViewGetter(search,"searchButtonView",searchSlot),keepSearch,repairing);
+}
+
 // Separate the home header into three native liquid-glass surfaces (left menu
 // circle, center category capsule, right search circle) without moving,
 // reparenting or intercepting any host tap target.
@@ -699,6 +775,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
     // empty gap inside the center capsule.
     HGACompactHeaderChannels(header,state);
     if(!enabled) {
+        [state.visibleSideTools removeAllObjects];
         [state.sidebarGlass removeFromSuperview];
         [state.searchGlass removeFromSuperview];
         HGARemoveGlass(header);
@@ -706,6 +783,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
     }
     UIView *sidebar=HGAViewGetter(header,"sideBar",header);
     UIView *searchSlot=HGAHeaderSearchSlotView(header);
+    HGAKeepCompactHeaderSideTools(header,state,sidebar,searchSlot);
 
     CGFloat headerW=CGRectGetWidth(header.bounds);
     CGFloat headerH=CGRectGetHeight(header.bounds);

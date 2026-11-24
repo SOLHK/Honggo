@@ -25,6 +25,14 @@
 @interface FQRJXCategoryIndicatorLineView : UIView @end
 @implementation FQRJXCategoryIndicatorLineView @end
 
+@interface SSVideoSeriesFeedHeaderView (PageChromeFixture)
+- (void)setupSideBarViewIfNeeded;
+- (void)relayoutHeaderWithSearchBar;
+- (void)tryShowSearchIconWithInteract:(BOOL)interactive ratio:(double)ratio toShowSearchIcon:(BOOL)visible animated:(BOOL)animated;
+- (void)applySearchIconVisible:(BOOL)visible tabContainerTop:(double)top;
+- (void)finishSearchIconVisibilityTransition:(BOOL)visible;
+@end
+
 @interface SSHGBookStoreCategoryTitleView : FQRJXCategoryTitleView <UICollectionViewDataSource,UICollectionViewDelegateFlowLayout>
 @property(nonatomic,strong) UICollectionView *collectionView;
 @property(nonatomic,strong) UIScrollView *contentScrollView;
@@ -32,6 +40,7 @@
 @property(nonatomic) NSInteger lastNativeTap;
 @property(nonatomic) NSUInteger nativeSelections;
 @property(nonatomic) BOOL nativeSelectionAnimated;
+@property(nonatomic,weak) SSVideoSeriesFeedHeaderView *channelHeaderFixture;
 - (BOOL)selectItemAtIndex:(NSInteger)index needAnimation:(BOOL)animated;
 - (BOOL)selectCellAtIndex:(NSInteger)index selectedType:(NSUInteger)type needAnimation:(BOOL)animated;
 - (CGRect)getTargetCellFrame:(NSInteger)index;
@@ -77,6 +86,7 @@
 - (BOOL)selectCellAtIndex:(NSInteger)index selectedType:(NSUInteger)type needAnimation:(BOOL)animated {
     self.nativeSelections++;
     self.nativeSelectionAnimated=animated;
+    [self.channelHeaderFixture tryShowSearchIconWithInteract:NO ratio:0.5 toShowSearchIcon:NO animated:YES];
     [self.contentScrollView setContentOffset:CGPointMake(self.contentScrollView.bounds.size.width*index,0) animated:animated];
     [self refreshSelectedCellModel:@(index) unselectedCellModel:@(self.selectedIndex)];
     [self.listContainer listDidAppear:index];
@@ -204,15 +214,34 @@ static void HGRunEpisodeSwipeDecisionChecks(void) {
 @property(nonatomic,strong) UILabel *textLabel;
 @end
 @implementation HGAFinderRecognitionFixture @end
-@interface SSVideoSeriesFeedHeaderView (PageChromeFixture)
-- (void)setupSideBarViewIfNeeded;
-- (void)relayoutHeaderWithSearchBar;
-@end
+static char HGAFixtureHeaderAnimationKey;
 @implementation SSVideoSeriesFeedHeaderView (PageChromeFixture)
 - (void)setupSideBarViewIfNeeded {self.sideBar.hidden=NO;}
 - (void)relayoutHeaderWithSearchBar {
     SSVideoSeriesFeedHeaderSearchView *search=(id)self.searchViewContainer;
     search.searchButtonSlotView.hidden=NO;
+}
+- (BOOL)isHeaderViewLayoutAnimating {
+    return [objc_getAssociatedObject(self,&HGAFixtureHeaderAnimationKey) boolValue];
+}
+- (void)tryShowSearchIconWithInteract:(BOOL)interactive ratio:(double)ratio toShowSearchIcon:(BOOL)visible animated:(BOOL)animated {
+    objc_setAssociatedObject(self,&HGAFixtureHeaderAnimationKey,@(animated),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [self applySearchIconVisible:visible tabContainerTop:0];
+}
+- (void)applySearchIconVisible:(BOOL)visible tabContainerTop:(double)top {
+    SSVideoSeriesFeedHeaderSearchView *search=(id)self.searchViewContainer;
+    self.sideBar.hidden=!visible;
+    search.alpha=visible ? 1 : 0;
+    search.searchButtonSlotView.hidden=!visible;
+    if (!visible && [self isHeaderViewLayoutAnimating]) {
+        CABasicAnimation *fade=[CABasicAnimation animationWithKeyPath:@"opacity"];
+        fade.fromValue=@1;fade.toValue=@0;fade.duration=10;
+        [self.sideBar.layer addAnimation:fade forKey:@"opacity"];
+    }
+}
+- (void)finishSearchIconVisibilityTransition:(BOOL)visible {
+    objc_setAssociatedObject(self,&HGAFixtureHeaderAnimationKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [self applySearchIconVisible:visible tabContainerTop:0];
 }
 @end
 @interface HGAObservedHeaderFixture : SSVideoSeriesFeedHeaderView @end
@@ -551,6 +580,9 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         @"completed swipes skip hidden indices in both directions with immediate native selection and keep native taps unchanged");
     BOOL stableChannels=YES;
     NSUInteger originalSelections=channels.nativeSelections;
+    UIView *stableLeft=Find(header,@"honggo.appearance.header.sidebar");
+    UIView *stableRight=Find(header,@"honggo.appearance.header.search");
+    channels.channelHeaderFixture=header;
     for (NSUInteger pass=0;pass<8;pass++) {
         NSInteger source=channels.selectedIndex, destination=source==1 ? 3 : 1;
         stableChannels &= ![channels selectCellAtIndex:2 selectedType:2 needAnimation:NO] && channels.selectedIndex==source;
@@ -561,12 +593,23 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         [underline.layer addAnimation:stale forKey:@"fixtureInterruptedUnderline"];
         sample.fixtureTravel=CGPointMake(destination==3 ? -70 : 70,0);
         [channelPaging page:sample];
+        [header applySearchIconVisible:NO tabContainerTop:0];
+        [header finishSearchIconVisibilityTransition:NO];
         stableChannels &= channels.selectedIndex==destination && pageScroll.contentOffset.x==pageWidth*destination &&
             fabs(underline.center.x-CGRectGetMidX([channels getTargetCellFrame:destination]))<0.5 &&
             ![underline.layer animationForKey:@"fixtureInterruptedUnderline"];
+        stableChannels &= !header.sideBar.hidden && search.alpha==1 && !search.searchButtonSlotView.hidden &&
+            ![header.sideBar.layer animationForKey:@"opacity"] &&
+            Find(header,@"honggo.appearance.header.sidebar")==stableLeft &&
+            Find(header,@"honggo.appearance.header.search")==stableRight;
     }
+    channels.channelHeaderFixture=nil;
     Check(stableChannels && channels.nativeSelections==originalSelections+8 && !pageScroll.panGestureRecognizer.enabled,
-        @"repeated alternating swipes reject hidden native selections and settle a stale line under each visible channel");
+        @"repeated alternating swipes keep the original side tools and glass mounted and settle the selected line");
+    [header applySearchIconVisible:NO tabContainerTop:0];
+    Check(header.sideBar.hidden && search.alpha==0 && search.searchButtonSlotView.hidden,
+        @"native visibility changes outside a channel transition still hide the home tools");
+    [header applySearchIconVisible:YES tabContainerTop:0];
     listContainer.currentIndex=2;
     pageScroll.contentOffset=CGPointMake(pageWidth*2,0);
     NSUInteger beforeRepair=channels.nativeSelections;

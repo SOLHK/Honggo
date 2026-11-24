@@ -1,3 +1,12 @@
+#import <UIKit/UIGestureRecognizerSubclass.h>
+
+@class HGAAppearanceDock;
+@interface HGADockPointer : UIGestureRecognizer
+@property(nonatomic,weak) HGAAppearanceDock *dock;
+@property(nonatomic,weak) UITouch *trackedTouch;
+@property(nonatomic) CGPoint dockPoint;
+@end
+
 @interface HGAAppearanceDock : UIView <UIGestureRecognizerDelegate>
 @property(nonatomic,weak) UIView *hostBar;
 @property(nonatomic,weak) UIViewController *hostController;
@@ -16,10 +25,15 @@
 @property(nonatomic,strong) NSMutableDictionary<NSString *,UIButton *> *buttons;
 @property(nonatomic,strong) NSArray<UISwipeGestureRecognizer *> *swipes;
 @property(nonatomic,strong) UIPanGestureRecognizer *selectionPan;
-@property(nonatomic,strong) UILongPressGestureRecognizer *dockTouch;
+@property(nonatomic,strong) HGADockPointer *dockTouch;
 @property(nonatomic,weak) UIButton *dockTouchButton;
 @property(nonatomic) CGPoint dockTouchStart;
+@property(nonatomic) CFTimeInterval dockTouchStartedAt;
+@property(nonatomic,strong) CADisplayLink *dockReleaseLink;
+@property(nonatomic,weak) UIButton *pendingDockTap;
+@property(nonatomic) BOOL dockReleaseObservedFrame;
 @property(nonatomic,strong) HGAAppearanceMaterial *dragLens;
+@property(nonatomic) BOOL selectionLensActive;
 @property(nonatomic,weak) UIButton *pressedTab;
 @property(nonatomic) NSUInteger selectionGeneration;
 @property(nonatomic) BOOL selectionDragging;
@@ -32,6 +46,44 @@
 - (void)restore;
 - (void)setCollapsed:(BOOL)value animated:(BOOL)animated;
 - (void)dragSelection:(UIPanGestureRecognizer *)gesture;
+- (void)beginDockTouchAtPoint:(CGPoint)point;
+- (void)moveDockTouchToPoint:(CGPoint)point;
+- (void)endDockTouchAtPoint:(CGPoint)point cancelled:(BOOL)cancelled;
+@end
+
+@implementation HGADockPointer
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if(self.trackedTouch || touches.count!=1) {
+        self.state=self.trackedTouch ? UIGestureRecognizerStateCancelled : UIGestureRecognizerStateFailed;
+        return;
+    }
+    UITouch *touch=touches.anyObject;
+    self.trackedTouch=touch;
+    self.dockPoint=[touch locationInView:self.dock];
+    [self.dock beginDockTouchAtPoint:self.dockPoint];
+    self.state=UIGestureRecognizerStateBegan;
+}
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *touch=self.trackedTouch;
+    if(!touch || ![touches containsObject:touch])return;
+    self.dockPoint=[touch locationInView:self.dock];
+    [self.dock moveDockTouchToPoint:self.dockPoint];
+    self.state=UIGestureRecognizerStateChanged;
+}
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *touch=self.trackedTouch;
+    if(!touch || ![touches containsObject:touch])return;
+    self.dockPoint=[touch locationInView:self.dock];
+    self.state=UIGestureRecognizerStateEnded;
+}
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    self.state=UIGestureRecognizerStateCancelled;
+}
+- (void)reset {
+    [self.dock endDockTouchAtPoint:self.dockPoint cancelled:YES];
+    self.trackedTouch=nil;
+    [super reset];
+}
 @end
 static char HGADockKey;
 static const CGFloat HGADockAccessoryGap=12;
@@ -211,9 +263,9 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.selectionPan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragSelection:)];
         self.selectionPan.delegate=self;
         self.selectionPan.maximumNumberOfTouches=1;
-        self.dockTouch=[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(trackDockTouch:)];
-        self.dockTouch.minimumPressDuration=0;
-        self.dockTouch.allowableMovement=CGFLOAT_MAX;
+        self.dockTouch=[[HGADockPointer alloc] initWithTarget:self action:@selector(finishDockPointer:)];
+        self.dockTouch.dock=self;
+        self.dockTouch.name=@"Honggo.DockPointer";
         self.dockTouch.delaysTouchesBegan=YES;
         self.dockTouch.cancelsTouchesInView=YES;
         self.dockTouch.delegate=self;
@@ -444,8 +496,14 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     NSString *content=HGAppearanceString(@"dock.content");
     CGFloat unselectedOpacity=self.traitCollection.accessibilityContrast==UIAccessibilityContrastHigh ? 0.94 : 0.80;
     CGFloat requestedIcon=HGAppearanceNumber(@"dock.iconSize");
-    UIView *capsuleContent=HGADockMaterialContent(self.capsule,style,self.collapsed?22:radius,fill,NO);
-    if(self.selection.superview!=capsuleContent)[capsuleContent insertSubview:self.selection atIndex:0];
+    HGADockMaterialContent(self.capsule,style,self.collapsed?22:radius,fill,NO);
+    // The moving material sits above the capsule background and beneath the
+    // actual controls, outside the background effect's content tree.
+    UIView *background=HGAState(self.capsule,NO).glass;
+    if(self.selection.superview!=self.capsule) {
+        if(background)[self.capsule insertSubview:self.selection aboveSubview:background];
+        else [self.capsule insertSubview:self.selection atIndex:0];
+    }
     UIView *extraContent=HGADockMaterialContent(self.extra,style,circle/2,fill,YES);
     UIView *expandContent=HGADockMaterialContent(self.expand,style,22,fill,YES);
     // UIKit can adapt dynamic label colors to the material's own background
@@ -477,7 +535,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         [UIColor colorWithWhite:light?0:1 alpha:light?0.08:0.12] : (translucent && !reduced ?
         [UIColor colorWithWhite:0 alpha:(light?0.12:0.30)] :
         [UIColor colorWithWhite:darkSurface?1:0 alpha:(darkSurface?0.18:0.08)]);
-    if(!self.dragLens) {
+    if(!self.selectionLensActive) {
         self.selection.backgroundColor=selectionBg;
     }
     CGRect selectedFrame=CGRectNull;
@@ -485,7 +543,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     CGFloat slotWidth=(expanded.size.width-2*slotInset)/visible.count;
     for(NSString *key in self.buttons) {
         UIButton *b=self.buttons[key];NSUInteger index=[HGATabIDs() indexOfObject:key];
-        if(b.superview!=capsuleContent)[capsuleContent addSubview:b];
+        if(b.superview!=self.capsule)[self.capsule addSubview:b];
         NSUInteger position=[visible indexOfObject:key];
         b.hidden=position==NSNotFound;
         if(b.hidden)continue;
@@ -518,6 +576,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.selection.hidden=CGRectIsNull(selectedFrame);
         if(!self.selection.hidden)[self placeSelection:selectedFrame];
     }
+    [self prepareSelectionLens];
     NSString *action=HGAppearanceString(@"dock.action");
     NSUInteger detachedIndex=[HGATabIDs() indexOfObject:action];
     UIControl *detachedSource=detachedIndex!=NSNotFound ? [self.targets objectForKey:action] : nil;
@@ -572,6 +631,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         BOOL backgroundOwned=self.backgroundOwned,opaque=self.hostOpaque;
         UIColor *background=self.hostBackground;
         self.backgroundOwned=NO;self.collapsed=NO;
+        [self stopDockReleaseLink];
         [self clearSelectionDrag];
         self.dockTouchButton=nil;
         [self.dockTouch.view removeGestureRecognizer:self.dockTouch];
@@ -594,10 +654,10 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(HGAppearanceFlag(@"dock.haptics"))[[[UISelectionFeedbackGenerator alloc] init] selectionChanged];
 }
 - (void)tabTapped:(UIButton *)sender {
-    if(self.dockTouchButton || self.selectionDragging || !sender.enabled || sender.hidden ||
+    if(self.dockTouchButton || self.pendingDockTap || self.selectionDragging || !sender.enabled || sender.hidden ||
         (self.pressedTab && self.pressedTab!=sender))return;
     if(!self.pressedTab)[self pressTab:sender];
-    [self activateTabAtIndex:sender.tag animation:self.dragLens ? @"glass" : @"spring"];
+    [self activateTabAtIndex:sender.tag animation:[self dockMotionMode]];
     if(self.pressedTab==sender)[self settleSelection];
 }
 - (void)activateTabAtIndex:(NSInteger)index animation:(NSString *)animation {
@@ -613,11 +673,11 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     dispatch_async(dispatch_get_main_queue(),^{[self refresh];});
 }
 - (void)placeSelection:(CGRect)frame {
-    self.selection.frame=frame;
+    if(!CGRectEqualToRect(self.selection.frame,frame))self.selection.frame=frame;
     CGFloat radius=MIN(frame.size.width,frame.size.height)/2;
-    self.selection.layer.cornerRadius=radius;
-    self.dragLens.frame=self.selection.bounds;
-    self.dragLens.layer.cornerRadius=radius;
+    if(self.selection.layer.cornerRadius!=radius)self.selection.layer.cornerRadius=radius;
+    if(!CGRectEqualToRect(self.dragLens.frame,self.selection.bounds))self.dragLens.frame=self.selection.bounds;
+    if(self.dragLens.layer.cornerRadius!=radius)self.dragLens.layer.cornerRadius=radius;
 }
 - (UIButton *)positionDragSelection:(CGFloat)x {
     CGFloat first=CGFLOAT_MAX,last=-CGFLOAT_MAX,distance=CGFLOAT_MAX;
@@ -644,14 +704,19 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.selectionGeneration++;
     self.pressedTab=nil;
     self.selectionDragging=NO;
-    [self.dragLens removeFromSuperview];
-    self.dragLens=nil;
+    self.selectionLensActive=NO;
+    self.dragLens.hidden=YES;
     [self.selection.layer removeAnimationForKey:@"honggo.dock.press"];
 }
-- (void)installSelectionLens {
-    if(self.dragLens || !HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled())return;
+- (void)prepareSelectionLens {
     NSString *style=HGAppearanceString(@"dock.material");
-    if(![style isEqual:@"regular"] && ![style isEqual:@"clear"])return;
+    if(!HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled() ||
+        (![style isEqual:@"regular"] && ![style isEqual:@"clear"])) {
+        self.selectionLensActive=NO;
+        [self.dragLens removeFromSuperview];self.dragLens=nil;
+        return;
+    }
+    if(self.dragLens || CGRectIsEmpty(self.selection.bounds))return;
     HGAAppearanceMaterial *lens=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
     lens.accessibilityIdentifier=@"honggo.appearance.dock.drag-lens";
     lens.style=@"clear";lens.interactiveGlass=YES;
@@ -660,9 +725,24 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     lens.layer.cornerCurve=kCACornerCurveContinuous;lens.clipsToBounds=YES;
     lens.userInteractionEnabled=NO;lens.accessibilityElementsHidden=YES;
     self.dragLens=lens;
-    self.selection.backgroundColor=UIColor.clearColor;
     [self.selection addSubview:lens];
     [lens setNeedsLayout];[lens layoutIfNeeded];
+    lens.hidden=YES;
+}
+- (void)installSelectionLens {
+    [self prepareSelectionLens];
+    if(!self.dragLens)return;
+    self.selectionLensActive=YES;
+    self.dragLens.hidden=NO;
+    if(!self.dragLens.effect) {
+        [self.dragLens setNeedsLayout];[self.dragLens layoutIfNeeded];
+    }
+    self.selection.backgroundColor=UIColor.clearColor;
+}
+- (NSString *)dockMotionMode {
+    if(UIAccessibilityIsReduceMotionEnabled())return @"reduced-motion";
+    Class glass=NSClassFromString(@"UIGlassEffect");
+    return self.selectionLensActive && [self.dragLens.effect isKindOfClass:glass] ? @"glass" : @"spring";
 }
 - (void)pressTab:(UIButton *)button {
     if(self.selectionDragging || self.pressedTab==button || !button.enabled || button.hidden)return;
@@ -673,6 +753,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         [self positionDragSelection:position];
         return;
     }
+    if(CGRectIsEmpty(self.selection.bounds))[self positionDragSelection:position];
     [self installSelectionLens];
     CASpringAnimation *pulse=[CASpringAnimation animationWithKeyPath:@"transform.scale"];
     pulse.fromValue=@0.90;pulse.toValue=@1;
@@ -692,11 +773,10 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         return;
     }
     NSUInteger generation=++self.selectionGeneration;
-    HGAAppearanceMaterial *lens=self.dragLens;
     [UIView animateWithDuration:0.27 delay:0 usingSpringWithDamping:0.76 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
         animations:^{[self renderGeometry];} completion:^(BOOL finished){
-            if(self.selectionGeneration!=generation || self.dragLens!=lens)return;
+            if(self.selectionGeneration!=generation)return;
             [self clearSelectionDrag];
             if(self.window && !self.collapsed && !self.restoring)[self renderGeometry];
         }];
@@ -721,45 +801,108 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
             button.imageView.transform=pressed ? CGAffineTransformMakeScale(0.83,0.83) : CGAffineTransformIdentity;
         } completion:nil];
 }
-- (void)trackDockTouch:(UILongPressGestureRecognizer *)gesture {
-    CGPoint point=[gesture locationInView:self];
-    if(gesture.state==UIGestureRecognizerStateBegan) {
-        self.dockTouchStart=point;
-        self.dockTouchButton=[self dockButtonAtPoint:point event:nil];
-        UIButton *button=self.dockTouchButton;
-        if(!button)return;
-        BOOL accessory=button==self.extraButton || button==self.expandButton;
-        if(accessory)[self animateDockAccessory:button pressed:YES];
-        else [self pressTab:button];
-        HGLog(@"appearance.dock-touch",@{@"phase":@"begin",@"action":accessory?@"accessory":@"capsule",
-            @"mode":self.dragLens?@"glass":@"spring"});
+- (void)stopDockReleaseLink {
+    [self.dockReleaseLink invalidate];
+    self.dockReleaseLink=nil;
+    self.pendingDockTap=nil;
+}
+- (void)willMoveToWindow:(UIWindow *)window {
+    if(!window) {
+        [self stopDockReleaseLink];
+        self.dockTouchButton=nil;
+        [self clearSelectionDrag];
+        self.extraButton.imageView.transform=CGAffineTransformIdentity;
+        self.expandButton.imageView.transform=CGAffineTransformIdentity;
+    }
+    [super willMoveToWindow:window];
+}
+- (void)releaseDockButton:(UIButton *)button {
+    if(button==self.extraButton || button==self.expandButton) {
+        [self animateDockAccessory:button pressed:NO];
+        if(button==self.extraButton)[self extraTapped:button];
+        else [self expandTapped:button];
         return;
     }
+    [self activateTabAtIndex:button.tag animation:[self dockMotionMode]];
+    [self settleSelection];
+}
+- (void)commitPendingDockTap {
+    UIButton *button=self.pendingDockTap;
+    [self stopDockReleaseLink];
+    if(button && self.window && !self.hidden && button.enabled && !button.hidden) {
+        [self releaseDockButton:button];
+    }else if(button==self.extraButton || button==self.expandButton) {
+        [self animateDockAccessory:button pressed:NO];
+    }else if(button) {
+        [self settleSelection];
+    }
+}
+- (void)observeDockReleaseFrame:(CADisplayLink *)link {
+    if(!self.dockReleaseObservedFrame) {
+        self.dockReleaseObservedFrame=YES;
+        return;
+    }
+    if(link.timestamp<self.dockTouchStartedAt+0.08)return;
+    // A tap can begin and end in one event turn. Let the pressed state reach
+    // the display before re-entering the host's synchronous tab switch.
+    UIButton *button=self.pendingDockTap;
+    UIView *surface=(button==self.extraButton || button==self.expandButton) ? button.imageView : self.selection;
+    CALayer *presentation=surface.layer.presentationLayer;
+    HGLog(@"appearance.dock-touch",@{@"phase":@"frame",@"action":@"tap",@"mode":[self dockMotionMode],
+        @"height":@(presentation ? CGRectGetHeight(presentation.bounds) : 0)});
+    [self commitPendingDockTap];
+}
+- (void)beginDockTouchAtPoint:(CGPoint)point {
+    if(self.pendingDockTap)[self commitPendingDockTap];
+    self.dockTouchStart=point;
+    self.dockTouchStartedAt=CACurrentMediaTime();
+    self.dockTouchButton=[self dockButtonAtPoint:point event:nil];
+    UIButton *button=self.dockTouchButton;
+    if(!button)return;
+    BOOL accessory=button==self.extraButton || button==self.expandButton;
+    if(accessory)[self animateDockAccessory:button pressed:YES];
+    else [self pressTab:button];
+    HGLog(@"appearance.dock-touch",@{@"phase":@"begin",@"action":accessory?@"accessory":@"capsule",
+        @"mode":[self dockMotionMode]});
+}
+- (void)moveDockTouchToPoint:(CGPoint)point {
     UIButton *button=self.dockTouchButton;
     if(!button)return;
     BOOL accessory=button==self.extraButton || button==self.expandButton;
     CGFloat x=[self convertPoint:point toView:self.capsule].x;
     CGFloat dx=point.x-self.dockTouchStart.x,dy=point.y-self.dockTouchStart.y;
-    BOOL vertical=fabs(dy)>14 && fabs(dy)>fabs(dx);
-    if(gesture.state==UIGestureRecognizerStateChanged && !vertical) {
-        if(!accessory && !self.selectionDragging && fabs(dx)>7)[self beginDockDragAtX:x];
-        if(self.selectionDragging)[self positionDragSelection:x];
-        return;
+    if(fabs(dy)>14 && fabs(dy)>fabs(dx)) {
+        [self endDockTouchAtPoint:point cancelled:YES];return;
     }
-    BOOL ended=gesture.state==UIGestureRecognizerStateEnded && !vertical;
+    if(!accessory && !self.selectionDragging && fabs(dx)>7)[self beginDockDragAtX:x];
+    if(self.selectionDragging)[self positionDragSelection:x];
+}
+- (void)finishDockPointer:(HGADockPointer *)gesture {
+    if(gesture.state==UIGestureRecognizerStateEnded || gesture.state==UIGestureRecognizerStateCancelled)
+        [self endDockTouchAtPoint:gesture.dockPoint cancelled:gesture.state==UIGestureRecognizerStateCancelled];
+}
+- (void)endDockTouchAtPoint:(CGPoint)point cancelled:(BOOL)cancelled {
+    UIButton *button=self.dockTouchButton;
+    if(!button)return;
+    BOOL accessory=button==self.extraButton || button==self.expandButton;
     BOOL dragged=self.selectionDragging;
-    NSString *mode=self.dragLens?@"glass":@"spring";
+    NSString *mode=[self dockMotionMode];
     UIButton *destination=nil;
-    if(ended)destination=dragged ? [self positionDragSelection:x] : ([self dockButtonAtPoint:point event:nil]==button ? button : nil);
+    if(!cancelled)destination=dragged ? [self positionDragSelection:[self convertPoint:point toView:self.capsule].x] :
+        ([self dockButtonAtPoint:point event:nil]==button ? button : nil);
     self.dockTouchButton=nil;
     HGLog(@"appearance.dock-touch",@{@"phase":destination?@"end":@"cancel",@"mode":mode,
         @"action":accessory?@"accessory":(dragged?@"drag":@"tap")});
-    if(accessory) {
+    if(destination && (!dragged || !destination.selected)) {
+        if(!dragged && !UIAccessibilityIsReduceMotionEnabled() && CACurrentMediaTime()-self.dockTouchStartedAt<0.08) {
+            self.pendingDockTap=destination;
+            self.dockReleaseObservedFrame=NO;
+            self.dockReleaseLink=[CADisplayLink displayLinkWithTarget:self selector:@selector(observeDockReleaseFrame:)];
+            [self.dockReleaseLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+        }else [self releaseDockButton:destination];
+    }else if(accessory) {
         [self animateDockAccessory:button pressed:NO];
-        if(destination==self.extraButton)[self extraTapped:destination];
-        else if(destination==self.expandButton)[self expandTapped:destination];
     }else {
-        if(destination && (!dragged || !destination.selected))[self activateTabAtIndex:destination.tag animation:mode];
         [self settleSelection];
     }
 }
@@ -767,21 +910,21 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     CGFloat position=[gesture locationInView:self.capsule].x;
     if(gesture.state==UIGestureRecognizerStateBegan) {
         [self beginDockDragAtX:position];
-        HGLog(@"appearance.dock-touch",@{@"phase":@"begin",@"action":@"player-overlap",@"mode":self.dragLens?@"glass":@"spring"});
+        HGLog(@"appearance.dock-touch",@{@"phase":@"begin",@"action":@"player-overlap",@"mode":[self dockMotionMode]});
     }else if(self.selectionDragging) {
         if(gesture.state==UIGestureRecognizerStateChanged){[self positionDragSelection:position];return;}
         if(gesture.state==UIGestureRecognizerStateEnded) {
             UIButton *destination=[self positionDragSelection:position];
             if(destination && !destination.selected)
-                [self activateTabAtIndex:destination.tag animation:self.dragLens ? @"glass" : @"spring"];
+                [self activateTabAtIndex:destination.tag animation:[self dockMotionMode]];
         }
         HGLog(@"appearance.dock-touch",@{@"phase":gesture.state==UIGestureRecognizerStateEnded?@"end":@"cancel",
-            @"action":@"player-overlap",@"mode":self.dragLens?@"glass":@"spring"});
+            @"action":@"player-overlap",@"mode":[self dockMotionMode]});
         [self settleSelection];
     }
 }
 - (void)extraTapped:(UIButton *)sender {
-    if(self.dockTouchButton)return;
+    if(self.dockTouchButton || self.pendingDockTap)return;
     NSString *action=HGAppearanceString(@"dock.action");
     if([action isEqual:@"settings"]) { HGOpenAppearance(self.hostController ?: HGAOwner(self.hostBar),nil);return; }
     NSUInteger index=[HGATabIDs() indexOfObject:action];
@@ -813,7 +956,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     });
 }
 - (void)expandTapped:(UIButton *)button {
-    if(!self.dockTouchButton)[self setCollapsed:NO animated:YES];
+    if(!self.dockTouchButton && !self.pendingDockTap)[self setCollapsed:NO animated:YES];
 }
 - (void)swipe:(UISwipeGestureRecognizer *)gesture {
     if(HGAppearanceFlag(@"dock.collapse"))[self setCollapsed:gesture.direction==UISwipeGestureRecognizerDirectionUp animated:YES];

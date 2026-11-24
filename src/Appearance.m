@@ -292,6 +292,18 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             ((void(*)(id,SEL,id,id))original)(object,selector,first,second);
             HGAppearanceProcessView(object);
         });
+    } else if (!strcmp(encoding,"v36@0:8B16d20B28B32")) {
+        replacement=imp_implementationWithBlock(^(id object,BOOL interactive,double ratio,BOOL visible,BOOL animated) {
+            BOOL owned=HGABeginNativeHeaderToolTransition(object,animated);
+            ((void(*)(id,SEL,BOOL,double,BOOL,BOOL))original)(object,selector,interactive,ratio,visible,animated);
+            HGAppearanceProcessView(object);
+            if(owned)HGAFinishNativeHeaderToolTransition(object);
+        });
+    } else if (!strcmp(encoding,"v28@0:8B16d20")) {
+        replacement=imp_implementationWithBlock(^(id object,BOOL visible,double top) {
+            ((void(*)(id,SEL,BOOL,double))original)(object,selector,visible,top);
+            HGAppearanceProcessView(object);
+        });
     } else if (!strcmp(encoding,"v28@0:8B16@20")) {
         replacement=imp_implementationWithBlock(^(id object,BOOL value,id title) {
             ((void(*)(id,SEL,BOOL,id))original)(object,selector,value,title);
@@ -299,6 +311,20 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         });
     } else if (!strcmp(encoding,"v20@0:8B16")) {
         replacement=imp_implementationWithBlock(^(id object,BOOL value) {
+            if(selector==sel_registerName("finishSearchIconVisibilityTransition:")) {
+                HGAHeaderInsetState *state=objc_getAssociatedObject(object,&HGAHeaderInsetKey);
+                BOOL owned=state.ownsSideToolTransition && HGAHeaderToolTransitionAnimating(object);
+                if(owned)state.channelSelectionDepth++;
+                @try {
+                    ((void(*)(id,SEL,BOOL))original)(object,selector,value);
+                    HGAppearanceProcessView(object);
+                    if(owned)HGARefreshHeaderChannelLine(state.categories,YES);
+                } @finally {
+                    if(owned)state.channelSelectionDepth--;
+                    HGAFinishNativeHeaderToolTransition(object);
+                }
+                return;
+            }
             ((void(*)(id,SEL,BOOL))original)(object,selector,value);
             if (scrubClipping) {
                 // Ending a seek reclips the control's feed ancestors. Reapply
@@ -408,6 +434,9 @@ void HGInstallAppearance(void) {
             if([name isEqual:@"SSVideoSeriesFeedHeaderView"]) {
                 HGAHook(cls,sel_registerName("setupSideBarViewIfNeeded"),"v16@0:8",NO);
                 HGAHook(cls,sel_registerName("relayoutHeaderWithSearchBar"),"v16@0:8",NO);
+                HGAHook(cls,sel_registerName("tryShowSearchIconWithInteract:ratio:toShowSearchIcon:animated:"),"v36@0:8B16d20B28B32",NO);
+                HGAHook(cls,sel_registerName("applySearchIconVisible:tabContainerTop:"),"v28@0:8B16d20",NO);
+                HGAHook(cls,sel_registerName("finishSearchIconVisibilityTransition:"),"v20@0:8B16",NO);
             }
             if([name isEqual:@"SSShortVideoEpisodesViewItemCell"] || [name isEqual:@"FQVShortVideoSettingsOptionView"])
                 HGAHook(cls,sel_registerName("setIsSelected:"),"v20@0:8B16",NO);
