@@ -155,6 +155,33 @@ static UIView *PageChromeControl(UIView *parent,CGRect frame) {
     return view;
 }
 
+static void HGReportChannelLayout(NSString *phase, SSHGBookStoreCategoryTitleView *categories,
+        UIView *header, UIView *line, UIView *pill) {
+    UICollectionView *list = categories.collectionView;
+    UICollectionViewFlowLayout *flow = (id)list.collectionViewLayout;
+    NSIndexPath *comicPath = [NSIndexPath indexPathForItem:1 inSection:0];
+    NSIndexPath *recPath = [NSIndexPath indexPathForItem:3 inSection:0];
+    CGRect comic = [list layoutAttributesForItemAtIndexPath:comicPath].frame;
+    CGRect rec = [list layoutAttributesForItemAtIndexPath:recPath].frame;
+    FQRJXCategoryTitleCell *cell = (id)[list cellForItemAtIndexPath:recPath];
+    NSIndexPath *hit = [list indexPathForItemAtPoint:CGPointMake(CGRectGetMidX(comic),CGRectGetMidY(comic))];
+    NSLog(@"HEADER_GEOMETRY %@ titles=%@ bounds=%@ adjustedInset=%@ delegateMatch=%d direction=%ld estimate=%@ "
+           "delegateComic=%@ delegateHidden=%@ spacing=%g inset=%@ attrs=%@/%@ target=%@/%@ "
+           "label=%@ pill=%@ line=%@ centerInList=%@ lineAnimations=%@ hit=%@ nativeTap=%ld selected=%ld",
+        phase, categories.titles, NSStringFromCGRect(list.bounds), NSStringFromUIEdgeInsets(list.adjustedContentInset),
+        list.delegate == categories, (long)flow.scrollDirection, NSStringFromCGSize(flow.estimatedItemSize),
+        NSStringFromCGSize([categories collectionView:list layout:flow sizeForItemAtIndexPath:comicPath]),
+        NSStringFromCGSize([categories collectionView:list layout:flow sizeForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]]),
+        [categories collectionView:list layout:flow minimumLineSpacingForSectionAtIndex:0],
+        NSStringFromUIEdgeInsets([categories collectionView:list layout:flow insetForSectionAtIndex:0]),
+        NSStringFromCGRect(comic), NSStringFromCGRect(rec), NSStringFromCGRect([categories getTargetCellFrame:1]),
+        NSStringFromCGRect([categories getTargetSelectedCellFrame:3 selectedType:1]),
+        NSStringFromCGRect([cell.titleLabel convertRect:cell.titleLabel.bounds toView:header]),
+        NSStringFromCGRect(pill.frame), NSStringFromCGRect([line convertRect:line.bounds toView:header]),
+        NSStringFromCGPoint([line.superview convertPoint:line.center toView:list]), line.layer.animationKeys,
+        hit, (long)categories.lastNativeTap, (long)categories.selectedIndex);
+}
+
 static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host) {
     NSString *material=@"honggo.appearance.material";
     SSVideoSeriesFeedHeaderView *header=[[HGAObservedHeaderFixture alloc]
@@ -244,11 +271,17 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     CGRect recLabel=[visibleRec.titleLabel convertRect:visibleRec.titleLabel.bounds toView:header];
     CGRect comicLabel=[visibleComic.titleLabel convertRect:visibleComic.titleLabel.bounds toView:header];
     CGFloat recX=CGRectGetMidX(recLabel);
+    HGReportChannelLayout(@"compact",channels,header,underline,compactedPill);
+    for (NSDictionary *entry in HGRuntimeSnapshot()[@"entries"]) {
+        if ([entry[@"class"] isEqual:@"SSHGBookStoreCategoryTitleView"])
+            NSLog(@"HEADER_ADAPTER %@ %@ %@",entry[@"selector"],entry[@"state"],entry[@"actual"]);
+    }
     Check(compactedPill && CGRectContainsPoint(compactedPill.frame,CGPointMake(lineX,CGRectGetMidY(compactedPill.frame))) &&
         fabs(lineX-recX)<0.5 && fabs(CGRectGetMinX(recLabel)-CGRectGetMaxX(comicLabel)-20)<0.5,
         @"the compact capsule contains the native underline below the selected channel with a 20pt label gap");
     NSIndexPath *tap=[categoryList indexPathForItemAtPoint:CGPointMake(CGRectGetMidX(comic),CGRectGetMidY(comic))];
     if (tap) [categoryList.delegate collectionView:categoryList didSelectItemAtIndexPath:tap];
+    HGReportChannelLayout(@"tap",channels,header,underline,compactedPill);
     Check([tap isEqual:comicPath] && channels.lastNativeTap==1 && channels.selectedIndex==1 &&
         fabs(underline.center.x-CGRectGetMidX(comic))<0.5 &&
         fabs(CGRectGetMidX([channels getTargetCellFrame:3])-CGRectGetMidX(rec))<0.5,
@@ -256,12 +289,14 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     CGRect originalBounds=categoryList.bounds;
     categoryList.bounds=CGRectMake(0,0,300,44); Layout(header); Layout(categoryList);
     CGRect rotated=[categoryList layoutAttributesForItemAtIndexPath:comicPath].frame;
+    HGReportChannelLayout(@"resized",channels,header,underline,Find(header,material));
     Check(fabs(underline.center.x-CGRectGetMidX(rotated))<0.5 && CGRectGetMidX(rotated)>CGRectGetMidX(comic)+10,
         @"resizing the category collection recenters the selected title and underline together");
     categoryList.bounds=originalBounds;
     HGAppearanceApply(@{@"layout.channels.hide.follow":@NO,@"layout.channels.hide.live":@NO},nil);
     Layout(header); Layout(categoryList);
     CGRect stock=[categoryList layoutAttributesForItemAtIndexPath:comicPath].frame;
+    HGReportChannelLayout(@"stock",channels,header,underline,Find(header,material));
     Check(fabs(CGRectGetMidX(stock)-CGRectGetMidX([channels getTargetCellFrame:1]))<0.5 &&
         fabs(underline.center.x-CGRectGetMidX(stock))<0.5 &&
         CGAffineTransformIsIdentity(((UIView *)controls[2]).transform) &&
