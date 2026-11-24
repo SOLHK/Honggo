@@ -260,6 +260,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             else if(categoryPager) {
                 HGATraceCategoryCallback(selector, @"return");
                 HGAResumeCategoryFeeds(object);
+                HGAHomeChannelPagerDidSettle(object);
             }
             else if(scrollComponent)HGARefreshBackdropAfterScroll(argument);
             else if(!transfer && !episodeMove && !bottomMove)HGAppearanceProcessView(object);
@@ -270,7 +271,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             ((void(*)(id,SEL,id,BOOL))original)(object,selector,argument,animated);
             if(categoryPager) {
                 HGATraceCategoryCallback(selector, @"return");
-                if(!animated) HGAResumeCategoryFeeds(object);
+                if(!animated) {
+                    HGAResumeCategoryFeeds(object);
+                    HGAHomeChannelPagerDidSettle(object);
+                }
             } else if(scrollComponent) {
                 if(!animated)HGARefreshBackdropAfterScroll(argument);
             } else HGAppearanceProcessView(object);
@@ -281,6 +285,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             ((void(*)(id,SEL,NSInteger))original)(object,selector,index);
             HGATraceCategoryCallback(selector, @"return");
             HGAResumeCategoryFeeds(object);
+            HGAHomeChannelPagerDidSettle(object);
         });
     } else if (!strcmp(encoding,"v32@0:8@16@24")) {
         replacement=imp_implementationWithBlock(^(id object,id first,id second) {

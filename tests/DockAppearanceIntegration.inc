@@ -309,10 +309,8 @@ static void HGRunDockSurfaceChecks(SSTabBarController *host) {
         UIEdgeInsetsEqualToEdgeInsets(list.contentInset,settledInset),
         @"custom dock repeated layouts do not accumulate viewport height or bottom padding");
     UIView *capsule=Find(bar,@"honggo.appearance.dock.capsule");
-    UIView *nativeBar=Find(capsule.superview,@"honggo.appearance.dock.native");
-    BOOL nativeDock=nativeBar.alpha>0.5;
-    Check(!capsule.hidden && (nativeDock || (Find(capsule,@"honggo.appearance.material") &&
-        Find(bar,@"honggo.appearance.dock.selection"))),
+    Check(!capsule.hidden && Find(capsule,@"honggo.appearance.material") &&
+        Find(bar,@"honggo.appearance.dock.selection"),
         @"host background cleanup leaves the plugin-owned capsule and selection intact");
     bar.hidden=YES;
     BOOL geometryRestored=bar.layer.mask==hostMask && bar.clipsToBounds &&
@@ -438,59 +436,6 @@ static void HGRunExpandedDockGeometryChecks(SSTabBarController *host) {
     HGAppearanceApply(saved,nil);
 }
 
-static void HGRunNativeDockInteractionChecks(SSTabBarController *host) {
-    if(!HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled())return;
-    NSDictionary *saved=HGAppearanceValues();
-    NSUInteger selected=host.selectedIndex;
-    CGRect savedBarFrame=host.customTabBar.frame;
-    CGRect roomyBar=savedBarFrame;roomyBar.size.height=84;
-    roomyBar.origin.y=host.view.bounds.size.height-84;
-    host.customTabBar.frame=roomyBar;
-    host.selectedIndex=0;
-    HGAppearanceApply(HGAppearancePreset(@"glass"),nil);
-    HGAppearanceApply(@{@"dock.content":@"icon",@"dock.action":@"mine",@"dock.extra":@YES,
-        @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.mine":@NO,@"dock.hide.store":@YES},nil);
-    SSTabBar *bar=host.customTabBar;
-    HGAppearanceLayoutDock(bar,host);Layout(bar);
-    UIView *dock=Find(bar,@"honggo.appearance.dock");
-    UIView *capsule=Find(dock,@"honggo.appearance.dock.capsule");
-    UITabBar *native=(id)Find(dock,@"honggo.appearance.dock.native");
-    if([native isKindOfClass:UITabBar.class] && native.items.count==2 && native.alpha<0.5) {
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
-        Layout(bar);
-    }
-    if([native isKindOfClass:UITabBar.class] && native.items.count==2 && native.alpha>0.5) {
-        UITabBarItem *home=native.items.firstObject,*theater=native.items.lastObject;
-        CGPoint point=[capsule convertPoint:CGPointMake(CGRectGetWidth(capsule.bounds)*0.25,
-            CGRectGetMidY(capsule.bounds)) toView:dock];
-        UIView *hit=[dock hitTest:point withEvent:nil];
-        Check(home.tag==0 && theater.tag==1 && native.selectedItem==home && hit && [hit isDescendantOfView:native] &&
-            !Find(capsule,@"honggo.appearance.dock.selection") && !Find(capsule,@"honggo.appearance.material"),
-            @"the iOS 26 tab bar alone owns the glass capsule, touch routing and selected item");
-        NSUInteger taps=host.nativeTaps;
-        native.selectedItem=theater;
-        HGAppearanceLayoutDock(bar,host);
-        Check(native.selectedItem==theater && host.selectedIndex==0 && host.nativeTaps==taps,
-            @"repeat host layouts leave a UIKit selection preview alone until the selection callback");
-        [native.delegate tabBar:native didSelectItem:theater];
-        HGAppearanceLayoutDock(bar,host);Layout(bar);
-        Check(host.nativeTaps==taps+1 && host.selectedIndex==1 && native.selectedItem==theater &&
-            native.items.firstObject==home && native.items.lastObject==theater,
-            @"native selection forwards one host action and retains its UIKit items across layout");
-        host.selectedIndex=3;
-        HGAppearanceLayoutDock(bar,host);Layout(bar);
-        UIButton *action=(id)Find(dock,@"honggo.appearance.dock.extra");
-        Check(!native.selectedItem && action.selected,
-            @"the detached tab is selected independently of the native capsule");
-        HGAppearanceSet(@"dock.material",@"blur",nil);
-        Check(!native.superview && Find(capsule,@"honggo.appearance.dock.selection"),
-            @"choosing classic blur reacquires fallback selection and tap targets");
-    }else {
-        Check(NO,@"floating UIKit tab bar is available in the Liquid Glass fixture");
-    }
-    host.selectedIndex=selected;bar.frame=savedBarFrame;HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(bar,host);
-}
-
 @interface HGADockPanFixture : UIPanGestureRecognizer
 @property(nonatomic) CGPoint fixtureLocation;
 @property(nonatomic) UIGestureRecognizerState fixtureState;
@@ -502,12 +447,78 @@ static void HGRunNativeDockInteractionChecks(SSTabBarController *host) {
 
 @interface HGAAppearanceDock (TouchFixture) <UIGestureRecognizerDelegate>
 - (BOOL)acceptsSelectionTouchAtPoint:(CGPoint)point inView:(UIView *)hit;
+- (BOOL)acceptsDockTouchAtPoint:(CGPoint)point fromView:(UIView *)hit;
+- (void)trackDockTouch:(UILongPressGestureRecognizer *)gesture;
+@end
+
+@interface HGADockPressFixture : UILongPressGestureRecognizer
+@property(nonatomic) CGPoint fixtureLocation;
+@property(nonatomic) UIGestureRecognizerState fixtureState;
+@end
+@implementation HGADockPressFixture
+- (CGPoint)locationInView:(UIView *)view { return self.fixtureLocation; }
+- (UIGestureRecognizerState)state { return self.fixtureState; }
+@end
+
+@interface HGADockCompatibilityWrapperFixture : UIView @end
+@implementation HGADockCompatibilityWrapperFixture
+- (Class)class { return NSClassFromString(@"UIKit._UITabBarContainerWrapperView") ?: [super class]; }
 @end
 
 static void HGWaitForDockSelectionLensToSettle(UIView *selection) {
     CFTimeInterval deadline=CACurrentMediaTime()+0.55;
     while(Find(selection,@"honggo.appearance.dock.drag-lens") && CACurrentMediaTime()<deadline)
         CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+}
+
+static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDock *dock,UIView *capsule,
+    UIView *selection,UIButton *home,UIButton *theater) {
+    UIView *bar=host.customTabBar,*container=bar.superview;
+    UILongPressGestureRecognizer *installed=nil;
+    for(UIGestureRecognizer *gesture in container.gestureRecognizers)
+        if(gesture.delegate==(id)dock && [gesture isKindOfClass:UILongPressGestureRecognizer.class])installed=(id)gesture;
+    Check(installed && installed.minimumPressDuration==0 && installed.delaysTouchesBegan && installed.cancelsTouchesInView,
+        @"the actual shared bar parent owns a finger-down recognizer for the Dock");
+    CGPoint start=[home convertPoint:CGPointMake(CGRectGetMidX(home.bounds),CGRectGetMidY(home.bounds)) toView:dock];
+    CGPoint finish=[theater convertPoint:CGPointMake(CGRectGetMidX(theater.bounds),CGRectGetMidY(theater.bounds)) toView:dock];
+    Check([dock acceptsDockTouchAtPoint:start fromView:home] &&
+        ![dock acceptsDockTouchAtPoint:CGPointMake(start.x,CGRectGetMaxY(capsule.frame)+4) fromView:bar],
+        @"Dock presses claim visible tab surfaces and pass through the home-indicator strip below them");
+    HGADockCompatibilityWrapperFixture *wrapper=[[HGADockCompatibilityWrapperFixture alloc] initWithFrame:bar.frame];
+    [container insertSubview:wrapper aboveSubview:bar];
+    if(NSClassFromString(@"UIKit._UITabBarContainerWrapperView")) {
+        UIView *hit=[container hitTest:[dock convertPoint:start toView:container] withEvent:nil];
+        Check(hit==wrapper && [dock acceptsDockTouchAtPoint:start fromView:hit],
+            @"the verified UIKit wrapper may win hit testing without intercepting Dock motion");
+        UIButton *visibleControl=[[UIButton alloc] initWithFrame:wrapper.bounds];
+        [wrapper addSubview:visibleControl];
+        Check(![dock acceptsDockTouchAtPoint:start fromView:visibleControl],
+            @"the wrapper route leaves real controls alone");
+        [visibleControl removeFromSuperview];
+    }
+    NSUInteger taps=host.nativeTaps;
+    CGFloat resting=selection.bounds.size.height;
+    HGADockPressFixture *press=[HGADockPressFixture new];
+    press.fixtureLocation=start;press.fixtureState=UIGestureRecognizerStateBegan;
+    [dock trackDockTouch:press];
+    if(!UIAccessibilityIsReduceMotionEnabled())
+        Check(selection.bounds.size.height>resting && selection.alpha==1,
+            @"the main capsule expands its opaque-to-compositing glass lens on finger down");
+    HGAppearanceLayoutDock(bar,host);Layout(bar);
+    press.fixtureLocation=CGPointMake((start.x+finish.x)/2,start.y);
+    press.fixtureState=UIGestureRecognizerStateChanged;
+    [dock trackDockTouch:press];
+    Check(host.nativeTaps==taps && fabs(CGRectGetMidX(selection.frame)-(CGRectGetMidX(home.frame)+CGRectGetMidX(theater.frame))/2)<0.01,
+        @"after host layout the same press tracks a live intermediate drag position without switching tabs");
+    [home sendActionsForControlEvents:UIControlEventTouchUpInside];
+    press.fixtureLocation=finish;press.fixtureState=UIGestureRecognizerStateEnded;
+    [dock trackDockTouch:press];
+    [dock trackDockTouch:press];
+    Check(host.nativeTaps==taps+1 && host.selectedIndex==1,
+        @"shared Dock drag activation forwards one action even with an underlying control event and repeated end");
+    HGWaitForDockSelectionLensToSettle(selection);
+    Check(!Find(selection,@"honggo.appearance.dock.drag-lens"),@"shared Dock release removes the settled glass lens");
+    [wrapper removeFromSuperview];
 }
 
 static void HGRunDockTouchRoutingChecks(HGAAppearanceDock *dock,UIView *bar,UIView *capsule,UIButton *home) {
@@ -558,6 +569,8 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     host.selectedIndex=0;
     HGAppearanceLayoutDock(host.customTabBar,host);
     HGRunDockTouchRoutingChecks(dock,host.customTabBar,capsule,home);
+    HGRunDockPressGestureChecks(host,dock,capsule,selection,home,theater);
+    taps=host.nativeTaps;host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);
     BOOL originalCollapse=HGAppearanceFlag(@"dock.collapse");
     HGAppearanceSet(@"dock.collapse",@YES,nil);
     [dock setCollapsed:YES animated:YES];

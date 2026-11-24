@@ -42,9 +42,11 @@ static UIView *HGAHeaderSearchSlotView(UIView *header) {
 @end
 @implementation HGAHeaderChannelLayout @end
 
-static char HGAHeaderLayoutKey, HGAHeaderLineRestoreKey, HGAHeaderPagerKey;
+static char HGAHeaderLayoutKey, HGAHeaderLineRestoreKey, HGAHeaderPagerKey, HGAHeaderSettlementKey;
 static BOOL HGAHeaderAdaptersReady;
 static IMP HGAHeaderOriginals[6];
+static IMP HGAHeaderOriginalSelectCell;
+static void HGARefreshHeaderChannelLine(UIView *categories,BOOL completed);
 
 @interface HGAFixedChannelPan : UIPanGestureRecognizer
 @property(nonatomic,weak) UIPanGestureRecognizer *nativePan;
@@ -58,10 +60,29 @@ static IMP HGAHeaderOriginals[6];
 @interface HGAFixedChannelPager : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic,weak) UIView *categories;
 @property(nonatomic,strong) HGAFixedChannelPan *pan;
+@property(nonatomic) BOOL suspendsNativePan;
+- (void)updateNativePan;
+- (void)detach;
 - (BOOL)isFiltering;
 @end
 @implementation HGAFixedChannelPager
-- (void)dealloc { [self.pan.view removeGestureRecognizer:self.pan]; }
+- (void)dealloc { [self detach]; }
+
+- (void)updateNativePan {
+    UIScrollView *scroll=(UIScrollView *)self.pan.view;
+    if (scroll.scrollEnabled && self.pan.nativePan.enabled) {
+        self.suspendsNativePan=YES;
+        self.pan.nativePan.enabled=NO;
+    }
+}
+
+- (void)detach {
+    UIScrollView *scroll=(UIScrollView *)self.pan.view;
+    BOOL suspended=self.suspendsNativePan;
+    self.suspendsNativePan=NO;
+    if (self.pan.view) [scroll removeGestureRecognizer:self.pan];
+    if (suspended && scroll.scrollEnabled) self.pan.nativePan.enabled=YES;
+}
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)other {
     return other==self.pan.nativePan;
@@ -84,7 +105,7 @@ static IMP HGAHeaderOriginals[6];
     UIView *categories = self.categories;
     UIScrollView *scroll = (UIScrollView *)self.pan.view;
     return HGAppearanceEnabled() && categories.window && categories.window==scroll.window && scroll.scrollEnabled &&
-        self.pan.nativePan.enabled && !HGFeedSidebarOwnsLayout(scroll.window) &&
+        self.suspendsNativePan && !HGFeedSidebarOwnsLayout(scroll.window) &&
         HGAIsHomeChannel(categories);
 }
 
@@ -110,7 +131,8 @@ static IMP HGAHeaderOriginals[6];
         if (layout.hiddenMask & (1UL << next)) continue;
         // Commit via the host's selection and list lifecycle with its native
         // index. Animated offsets expose the intervening hidden pages.
-        ((BOOL (*)(id,SEL,NSInteger,BOOL))objc_msgSend)(categories,sel_registerName("selectItemAtIndex:needAnimation:"),next,NO);
+        if (((BOOL (*)(id,SEL,NSInteger,BOOL))objc_msgSend)(categories,sel_registerName("selectItemAtIndex:needAnimation:"),next,NO))
+            HGARefreshHeaderChannelLine(categories,YES);
         break;
     }
 }
@@ -221,8 +243,11 @@ static UIScrollView *HGAHomeChannelScroll(id categories) {
 static void HGAUpdateChannelPager(UIView *categories,HGAHeaderChannelLayout *layout) {
     HGAFixedChannelPager *state = objc_getAssociatedObject(categories,&HGAHeaderPagerKey);
     UIScrollView *scroll = layout ? HGAHomeChannelScroll(categories) : nil;
-    if (state.pan.view==scroll) return;
-    [state.pan.view removeGestureRecognizer:state.pan];
+    if (state.pan.view==scroll) {
+        [state updateNativePan];
+        return;
+    }
+    [state detach];
     objc_setAssociatedObject(categories,&HGAHeaderPagerKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if (!scroll) return;
     Method select = class_getInstanceMethod(categories.class,sel_registerName("selectItemAtIndex:needAnimation:"));
@@ -235,6 +260,9 @@ static void HGAUpdateChannelPager(UIView *categories,HGAHeaderChannelLayout *lay
     state.pan.maximumNumberOfTouches = 1;
     [scroll addGestureRecognizer:state.pan];
     objc_setAssociatedObject(categories,&HGAHeaderPagerKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // A native pan settling on a 0.01pt-hidden title still exposes that page.
+    // The mounted filtered pager uses the host's selection API on release.
+    [state updateNativePan];
 }
 
 static CGSize HGAChannelSize(id owner, SEL cmd, UICollectionView *collection, UICollectionViewLayout *layout, NSIndexPath *path) {
@@ -281,6 +309,15 @@ static CGRect HGAChannelSelectedFrame(id owner, SEL cmd, NSInteger index, NSUInt
     return HGACompactTargetFrame(owner,index,native);
 }
 
+static BOOL HGAChannelSelectCell(UIView *categories, SEL cmd, NSInteger index, NSUInteger type, BOOL animated) {
+    HGAHeaderChannelLayout *plan=objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
+    BOOL compact=plan && categories.window && HGAppearanceEnabled() && HGAIsHomeChannel(categories);
+    if (compact && index>=0 && index<(NSInteger)plan.frames.count && (plan.hiddenMask & (1UL<<index))) return NO;
+    BOOL selected=((BOOL (*)(id,SEL,NSInteger,NSUInteger,BOOL))HGAHeaderOriginalSelectCell)(categories,cmd,index,type,animated);
+    if (compact && selected && !animated) HGARefreshHeaderChannelLine(categories,YES);
+    return selected;
+}
+
 static void HGAInstallHeaderLayoutAdapters(void) {
     if (HGAHeaderAdaptersReady) return;
     Class cls = NSClassFromString(@"SSHGBookStoreCategoryTitleView");
@@ -313,6 +350,13 @@ static void HGAInstallHeaderLayoutAdapters(void) {
         IMP original = HGInstallVerifiedHook(cls,selector,adapters[i].encoding,adapters[i].replacement,@"appearance");
         if (!original || class_getMethodImplementation(cls,selector) != adapters[i].replacement) return;
         HGAHeaderOriginals[i] = original;
+    }
+    SEL select=sel_registerName("selectCellAtIndex:selectedType:needAnimation:");
+    const char *selectEncoding="B36@0:8q16Q24B32";
+    Method selection=class_getInstanceMethod(cls,select);
+    if (selection && !strcmp(method_getTypeEncoding(selection),selectEncoding)) {
+        HGAHeaderOriginalSelectCell=method_getImplementation(selection);
+        HGAHeaderOriginalSelectCell=HGInstallVerifiedHook(cls,select,selectEncoding,(IMP)HGAChannelSelectCell,@"appearance");
     }
     HGAHeaderAdaptersReady = YES;
 }
@@ -379,7 +423,7 @@ static HGAHeaderChannelLayout *HGAMakeChannelLayout(UIView *categories, UICollec
     return plan;
 }
 
-static void HGASyncHeaderChannelLine(UIView *categories) {
+static void HGARefreshHeaderChannelLine(UIView *categories,BOOL completed) {
     HGAHeaderChannelLayout *plan = objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
     BOOL restoring = objc_getAssociatedObject(categories,&HGAHeaderLineRestoreKey) != nil;
     if ((!plan && !restoring) || !categories.window || HGFeedSidebarOwnsLayout(categories.window)) return;
@@ -403,17 +447,96 @@ static void HGASyncHeaderChannelLine(UIView *categories) {
     for (UIView *line in lines) {
         if (![line isKindOfClass:NSClassFromString(@"FQRJXCategoryIndicatorLineView")] ||
             ![line isDescendantOfView:collection]) continue;
-        if (line.layer.animationKeys.count) {
+        if (line.layer.animationKeys.count && !(completed && plan)) {
             waitingForAnimation = YES;
             continue;
         }
         CGPoint center = line.center;
         CGFloat x = [collection convertPoint:CGPointMake(CGRectGetMidX(target),CGRectGetMidY(target))
                                       toView:line.superview].x;
-        if (isfinite(x) && fabs(x-center.x) > 0.25) line.center = CGPointMake(x,center.y);
+        if (!isfinite(x)) continue;
+        if (completed && plan) [line.layer removeAllAnimations];
+        if (fabs(x-center.x) > 0.25)
+            [UIView performWithoutAnimation:^{line.center=CGPointMake(x,center.y);}];
     }
     if (restoring && !waitingForAnimation)
         objc_setAssociatedObject(categories,&HGAHeaderLineRestoreKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void HGASyncHeaderChannelLine(UIView *categories) {
+    HGARefreshHeaderChannelLine(categories,NO);
+}
+
+static BOOL HGAHiddenChannelIndex(HGAHeaderChannelLayout *plan,NSInteger index) {
+    return index>=0 && index<(NSInteger)plan.frames.count && (plan.hiddenMask & (1UL<<index));
+}
+
+static void HGASettleHomeChannel(UIView *categories) {
+    HGAHeaderChannelLayout *plan=objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
+    if (!plan || !categories.window || !HGAppearanceEnabled() ||
+        HGFeedSidebarOwnsLayout(categories.window) || !HGAIsHomeChannel(categories) ||
+        HGAHeaderScrollInFlight(categories,plan.collection)) return;
+    HGAFixedChannelPager *state=objc_getAssociatedObject(categories,&HGAHeaderPagerKey);
+    [state updateNativePan];
+    NSInteger selected=((NSInteger (*)(id,SEL))objc_msgSend)(categories,sel_registerName("selectedIndex"));
+    if (HGAHiddenChannelIndex(plan,selected)) {
+        NSInteger nearest=NSNotFound;
+        for (NSInteger index=0;index<(NSInteger)plan.frames.count;index++) {
+            if (!(plan.hiddenMask & (1UL<<index)) &&
+                (nearest==NSNotFound || labs(index-selected)<labs(nearest-selected))) nearest=index;
+        }
+        SEL select=sel_registerName("selectItemAtIndex:needAnimation:");
+        Method method=class_getInstanceMethod(categories.class,select);
+        if (nearest!=NSNotFound && method && !strcmp(method_getTypeEncoding(method),"B28@0:8q16B24") &&
+            ((BOOL (*)(id,SEL,NSInteger,BOOL))objc_msgSend)(categories,select,nearest,NO)) selected=nearest;
+    }
+    UIScrollView *scroll=HGAHomeChannelScroll(categories);
+    CGFloat stride=scroll ? CGRectGetWidth(scroll.bounds) : 0;
+    if (selected>=0 && selected<(NSInteger)plan.frames.count && !HGAHiddenChannelIndex(plan,selected) && stride>0) {
+        CGFloat page=scroll.contentOffset.x/stride;
+        UIView *container=HGReadObjectGetter(categories,"listContainer");
+        SEL current=sel_registerName("currentIndex"), click=sel_registerName("didClickSelectedItemAtIndex:");
+        Method currentMethod=class_getInstanceMethod(object_getClass(container),current);
+        BOOL hasCurrent=currentMethod && !strcmp(method_getTypeEncoding(currentMethod),"q16@0:8");
+        NSInteger nativeIndex=hasCurrent ? ((NSInteger (*)(id,SEL))objc_msgSend)(container,current) : NSNotFound;
+        BOOL hiddenOffset=isfinite(page) && page>=0 && page<(CGFloat)plan.frames.count &&
+            HGAHiddenChannelIndex(plan,lround(page));
+        if (hiddenOffset || HGAHiddenChannelIndex(plan,nativeIndex)) {
+            // The selection veto can preserve the previous visible title
+            // while the native scroll view has already reached a hidden page.
+            // Restore its verified width × index position, then let the list
+            // container finalize the transition if scrolling did not do so.
+            [scroll setContentOffset:CGPointMake(stride*selected,scroll.contentOffset.y) animated:NO];
+            Method clickMethod=class_getInstanceMethod(object_getClass(container),click);
+            if (hasCurrent && ((NSInteger (*)(id,SEL))objc_msgSend)(container,current)!=selected &&
+                clickMethod && !strcmp(method_getTypeEncoding(clickMethod),"v24@0:8q16"))
+                ((void (*)(id,SEL,NSInteger))objc_msgSend)(container,click,selected);
+        }
+    }
+    HGAApplyChannelIndicators(categories,YES);
+    HGARefreshHeaderChannelLine(categories,YES);
+}
+
+static void HGAScheduleHomeChannelSettlement(UIView *categories) {
+    if (!categories.window || objc_getAssociatedObject(categories,&HGAHeaderSettlementKey)) return;
+    objc_setAssociatedObject(categories,&HGAHeaderSettlementKey,@YES,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak UIView *weakCategories=categories;
+    dispatch_async(dispatch_get_main_queue(),^{
+        UIView *live=weakCategories;
+        if (!live) return;
+        HGASettleHomeChannel(live);
+        objc_setAssociatedObject(live,&HGAHeaderSettlementKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    });
+}
+
+static void HGAHomeChannelPagerDidSettle(UIView *container) {
+    UIScrollView *scroll=(id)HGAViewGetter(container,"contentScrollView",container);
+    if (![scroll isKindOfClass:UIScrollView.class]) return;
+    for (UIGestureRecognizer *recognizer in scroll.gestureRecognizers) {
+        if (![recognizer isKindOfClass:HGAFixedChannelPan.class]) continue;
+        HGAFixedChannelPager *state=(id)recognizer.delegate;
+        if (state.categories) HGAScheduleHomeChannelSettlement(state.categories);
+    }
 }
 
 static void HGASetChannelLayout(UIView *categories, HGAHeaderChannelLayout *next) {
@@ -426,6 +549,7 @@ static void HGASetChannelLayout(UIView *categories, HGAHeaderChannelLayout *next
     }
     HGAUpdateChannelPager(categories,next);
     HGASyncHeaderChannelLine(categories);
+    if (next && old != next) HGAScheduleHomeChannelSettlement(categories);
 }
 
 static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state) {

@@ -476,7 +476,6 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(Count(bar,@"honggo.appearance.dock")==1,@"dock does not duplicate across repeated host layouts");
     HGRunDockAppearanceChecks(self.host);
     HGRunExpandedDockGeometryChecks(self.host);
-    HGRunNativeDockInteractionChecks(self.host);
     RunDockVideoBackdropChecks(self.host);
     HGAppearanceReset();Layout(like);Layout(bar);
     Check(CGRectEqualToRect(like.frame,original) && !like.hidden,@"reset restores original playback geometry and visibility");

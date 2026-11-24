@@ -106,6 +106,7 @@ static void CheckEvents(NSURL *root) {
     HGLog(@"nil.fields", nil);
     HGLog(@"privacy.fixture", @{@"cookie": @"diagnostic-private-cookie", @"手机号": @13800138000,
         @"accountId": @495202, @"reason": @"https://example.test/private", @"selector": @"safeAction:"});
+    HGLog(@"navigation.dock", @{@"tab": @"home", @"phase": @"enter", @"mode": @"glass"});
     HGSetEnhancedDiagnostics(YES);
     Check(HGEnhancedDiagnostics(), @"enhanced mode changes immediately");
     NSURL *immutable = nil;
@@ -116,6 +117,8 @@ static void CheckEvents(NSURL *root) {
     Check(Event(report, @"legacy.retained") && !Event(report, @"legacy.expired") && !Event(report, @"legacy.bad"),
         @"migration retains old valid records and rejects expired or malformed input");
     Check(Event(report, @"nil.fields") && Event(report, @"startup.stage"), @"startup stages and nil payloads use the same journal");
+    Check([Event(report, @"navigation.dock")[@"fields"][@"mode"] isEqual:@"glass"],
+        @"the Dock interaction mode survives journal filtering and export");
     Check([sessions.lastObject objectForKey:@"device"] && [sessions.lastObject objectForKey:@"appVersion"] &&
         [sessions.lastObject objectForKey:@"pluginVersion"], @"current session contains environment metadata");
     NSData *saved = [NSData dataWithContentsOfURL:immutable];

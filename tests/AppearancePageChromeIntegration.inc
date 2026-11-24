@@ -33,6 +33,7 @@
 @property(nonatomic) NSUInteger nativeSelections;
 @property(nonatomic) BOOL nativeSelectionAnimated;
 - (BOOL)selectItemAtIndex:(NSInteger)index needAnimation:(BOOL)animated;
+- (BOOL)selectCellAtIndex:(NSInteger)index selectedType:(NSUInteger)type needAnimation:(BOOL)animated;
 - (CGRect)getTargetCellFrame:(NSInteger)index;
 - (CGRect)getTargetSelectedCellFrame:(NSInteger)index selectedType:(NSUInteger)type;
 - (void)refreshState;
@@ -71,6 +72,9 @@
     self.indicators.firstObject.center = center;
 }
 - (BOOL)selectItemAtIndex:(NSInteger)index needAnimation:(BOOL)animated {
+    return [self selectCellAtIndex:index selectedType:1 needAnimation:animated];
+}
+- (BOOL)selectCellAtIndex:(NSInteger)index selectedType:(NSUInteger)type needAnimation:(BOOL)animated {
     self.nativeSelections++;
     self.nativeSelectionAnimated=animated;
     [self.contentScrollView setContentOffset:CGPointMake(self.contentScrollView.bounds.size.width*index,0) animated:animated];
@@ -504,7 +508,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     BOOL vertical=[channelPaging gestureRecognizerShouldBegin:sample];
     sample.fixtureVelocity=CGPointMake(-450,60);
     BOOL horizontal=[channelPaging gestureRecognizerShouldBegin:sample];
-    Check(pageScroll.gestureRecognizers.count==stockGestures+1 && !vertical && horizontal &&
+    Check(pageScroll.gestureRecognizers.count==stockGestures+1 && !pageScroll.panGestureRecognizer.enabled && !vertical && horizontal &&
         [channelPaging gestureRecognizer:filterPan shouldBeRequiredToFailByGestureRecognizer:pageScroll.panGestureRecognizer] &&
         ![channelPaging gestureRecognizer:filterPan shouldBeRequiredToFailByGestureRecognizer:sample],
         @"filtering prioritizes the horizontal channel gesture over the native pager only");
@@ -545,6 +549,45 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     Check(delayed && leftSwipe && edge && channels.selectedIndex==1 && pageScroll.contentOffset.x==pageWidth &&
         channels.nativeSelections==2 && listContainer.nativeEnds==2 && channels.lastNativeTap==1,
         @"completed swipes skip hidden indices in both directions with immediate native selection and keep native taps unchanged");
+    BOOL stableChannels=YES;
+    NSUInteger originalSelections=channels.nativeSelections;
+    for (NSUInteger pass=0;pass<8;pass++) {
+        NSInteger source=channels.selectedIndex, destination=source==1 ? 3 : 1;
+        stableChannels &= ![channels selectCellAtIndex:2 selectedType:2 needAnimation:NO] && channels.selectedIndex==source;
+        CGPoint seam=CGPointMake(CGRectGetMidX([channels getTargetCellFrame:2]),underline.center.y);
+        underline.center=seam;
+        CABasicAnimation *stale=[CABasicAnimation animationWithKeyPath:@"position.x"];
+        stale.fromValue=@(seam.x);stale.duration=10;
+        [underline.layer addAnimation:stale forKey:@"fixtureInterruptedUnderline"];
+        sample.fixtureTravel=CGPointMake(destination==3 ? -70 : 70,0);
+        [channelPaging page:sample];
+        stableChannels &= channels.selectedIndex==destination && pageScroll.contentOffset.x==pageWidth*destination &&
+            fabs(underline.center.x-CGRectGetMidX([channels getTargetCellFrame:destination]))<0.5 &&
+            ![underline.layer animationForKey:@"fixtureInterruptedUnderline"];
+    }
+    Check(stableChannels && channels.nativeSelections==originalSelections+8 && !pageScroll.panGestureRecognizer.enabled,
+        @"repeated alternating swipes reject hidden native selections and settle a stale line under each visible channel");
+    listContainer.currentIndex=2;
+    pageScroll.contentOffset=CGPointMake(pageWidth*2,0);
+    NSUInteger beforeRepair=channels.nativeSelections;
+    [listContainer scrollViewDidEndDecelerating:pageScroll];
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+    Check(channels.selectedIndex==1 && pageScroll.contentOffset.x==pageWidth && listContainer.currentIndex==1 &&
+        channels.nativeSelections==beforeRepair && listContainer.nativeSelectionRepairs==1,
+        @"a native deceleration at a hidden physical page restores the visible selection without another tab action");
+    [header removeFromSuperview];
+    HGAppearanceProcessView(header);
+    BOOL restoredPan=pageScroll.panGestureRecognizer.enabled && filterPan.view==nil;
+    channels.selectedIndex=2;
+    pageScroll.contentOffset=CGPointMake(pageWidth*2,0);
+    [root addSubview:header];Layout(header);Layout(categoryList);
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+    for (UIGestureRecognizer *gesture in pageScroll.gestureRecognizers)
+        if ([NSStringFromClass(gesture.class) isEqual:@"HGAFixedChannelPan"]) filterPan=(id)gesture;
+    Check(restoredPan && filterPan.view==pageScroll && !pageScroll.panGestureRecognizer.enabled &&
+        channels.selectedIndex==1 && pageScroll.contentOffset.x==pageWidth && !underline.hidden &&
+        fabs(underline.center.x-CGRectGetMidX([channels getTargetCellFrame:1]))<0.5,
+        @"leaving restores the host pan and re-entering repairs a stale hidden channel and underline");
     HGAppearanceSet(@"player.headerGlass",@NO,nil);
     Layout(header);
     Check(filterPan.view==pageScroll && !Find(header,material),@"hidden channels remain filtered with header glass disabled");
@@ -574,7 +617,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGReportChannelLayout(@"stock",channels,header,underline,Find(header,material));
     Check(fabs(CGRectGetMidX(stock)-CGRectGetMidX([channels getTargetCellFrame:1]))<0.5 &&
         fabs(underline.center.x-CGRectGetMidX(stock))<0.5 &&
-        !filterPan.view && pageScroll.gestureRecognizers.count==stockGestures &&
+        !filterPan.view && pageScroll.panGestureRecognizer.enabled && pageScroll.gestureRecognizers.count==stockGestures &&
         CGAffineTransformIsIdentity(((UIView *)controls[2]).transform) &&
         CGAffineTransformIsIdentity(((UIView *)controls[4]).transform),
         @"restoring the four channels restores native layout, selection geometry and unmodified cell transforms");

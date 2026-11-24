@@ -41,12 +41,16 @@
 
 @interface FQRJXCategoryListContainerView : UIView <UIScrollViewDelegate>
 @property(nonatomic) NSUInteger nativeEnds;
+@property(nonatomic) NSInteger currentIndex;
+@property(nonatomic) NSUInteger nativeSelectionRepairs;
+- (void)didClickSelectedItemAtIndex:(NSInteger)index;
 @property(nonatomic,strong) UIScrollView *contentScrollView;
 @end
 @implementation FQRJXCategoryListContainerView
 - (void)scrollViewDidEndDecelerating:(UIScrollView *)scroll { self.nativeEnds++; }
 - (void)scrollViewDidEndDragging:(UIScrollView *)scroll willDecelerate:(BOOL)decelerate { self.nativeEnds++; }
-- (void)listDidAppear:(NSInteger)index { self.nativeEnds++; }
+- (void)listDidAppear:(NSInteger)index { self.currentIndex=index;self.nativeEnds++; }
+- (void)didClickSelectedItemAtIndex:(NSInteger)index { self.currentIndex=index;self.nativeSelectionRepairs++; }
 @end
 
 static void RunInnerEpisodeSpacingChecks(UIView *root) {
