@@ -651,14 +651,17 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     FQRJXCategoryTitleCell *films=PageChromeTitle(finder.tabContainer,@"电影",64);
     HGAppearanceProcessController(finder);
     recognitionGlass=Find(finder.imageSearchContainer,material);
+    assistantGlass=Find(finder.aiSearchEntranceView,material);
     CGRect ink=CGRectUnion([recognitionText convertRect:recognitionText.bounds toView:finder.imageSearchContainer],
         [camera convertRect:camera.bounds toView:finder.imageSearchContainer]);
     CGRect recognizerRect=[finder.imageSearchContainer convertRect:finder.imageSearchContainer.bounds toView:finder.view];
-    Check(recognitionGlass && fabs(finder.aiSearchEntranceView.frame.origin.x-CGRectGetMaxX(recognizerRect)-12)<0.01 &&
-        CGRectGetMaxX(ink)<CGRectGetMaxX(recognitionGlass.frame)-5 &&
-        fabs(CGRectGetMidX(ink)-CGRectGetMidX(recognitionGlass.frame))<0.1 &&
-        recognitionGlass.bounds.size.height==assistantGlass.bounds.size.height,
-        @"the nested theatre slot closes the AI gap and centers camera and recognition text inside the capsule");
+    Check(recognitionGlass && assistantGlass &&
+        fabs(finder.aiSearchEntranceView.frame.origin.x-CGRectGetMaxX(recognizerRect)-12)<0.01 &&
+        recognitionGlass.bounds.size.height==36 && assistantGlass.bounds.size.height==36,
+        @"the nested theatre slot closes the AI gap and aligns both material heights");
+    Check(recognitionGlass && CGRectGetMaxX(ink)<CGRectGetMaxX(recognitionGlass.frame)-5 &&
+        fabs(CGRectGetMidX(ink)-CGRectGetMidX(recognitionGlass.frame))<0.1,
+        @"the nested theatre centers camera and recognition text inside the capsule");
     HGAppearanceSet(@"finder.hide.category.novels",@YES,nil);
     HGAppearanceSet(@"finder.hide.shortcut.filter",@YES,nil);
     Check(novels.hidden && !films.hidden && filterShortcut.hidden && !((UIView *)shortcuts[1]).hidden,
