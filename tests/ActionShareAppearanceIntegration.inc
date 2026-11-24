@@ -85,9 +85,12 @@ static void RunCommentSheetAppearanceChecks(UIViewController *host) {
         @"comment covers and native toolbar blur are cleared without replacing the text field");
     HGAppearanceSet(@"panels.comment",@NO,nil);
     Check([nativeBlur.effect isKindOfClass:UIBlurEffect.class],@"disabling comment glass restores the native toolbar effect");
-    Check(!Find(panel.view,@"honggo.appearance.material") && [list.backgroundColor isEqual:UIColor.whiteColor] &&
-        [toolbar.backgroundColor isEqual:UIColor.whiteColor] &&
-        [editor.text isEqual:@"保留评论输入"],@"disabling comment glass restores the native backdrop and composer");
+    Check(!Find(panel.view,@"honggo.appearance.material"),@"disabling comment glass removes its material");
+    Check([list.backgroundColor isEqual:UIColor.whiteColor],
+        [NSString stringWithFormat:@"disabling comment glass restores the list color (%@)",list.backgroundColor]);
+    Check([toolbar.backgroundColor isEqual:UIColor.whiteColor],
+        [NSString stringWithFormat:@"disabling comment glass restores the toolbar color (%@)",toolbar.backgroundColor]);
+    Check([editor.text isEqual:@"保留评论输入"],@"disabling comment glass keeps the original input text");
     [panel.view removeFromSuperview];[panel removeFromParentViewController];HGAppearanceSet(@"panels.comment",@YES,nil);
 }
 static void RunFeedShareRouteChecks(void) {
