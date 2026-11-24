@@ -178,8 +178,8 @@ static BOOL HGASaveDockPreview(SSTabBarController *host,UIView *dock) {
         CGPoint glassPoint=[capsule convertPoint:CGPointMake(CGRectGetMaxX(selection.frame)+14,CGRectGetMidY(selection.frame)) toView:window];
         CGFloat selectedTone=HGADockCompositorLuminance(full,selectedPoint);
         CGFloat glassTone=HGADockCompositorLuminance(full,glassPoint);
-        Check(selectedTone>0.03 && selectedTone+0.015<glassTone,
-            @"selected fill adds contrast while preserving the composited material underneath");
+        Check(selectedTone>0.03 && selectedTone>=glassTone-0.025 && selectedTone<=glassTone+0.20,
+            @"the idle indicator preserves the underlying glass without casting a dark patch");
     }
     UIButton *profile=(id)Find(dock,@"honggo.appearance.dock.extra");
     Check(HGADockCompositorGlyphIsCrisp(full,profile,window),
@@ -496,10 +496,14 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
     }
     NSUInteger taps=host.nativeTaps;
     CGFloat resting=selection.bounds.size.height;
+    CGFloat restingWidth=selection.bounds.size.width;
+    UIView *highlight=Find(selection,@"honggo.appearance.dock.selection-highlight");
     [dock beginDockTouchAtPoint:start];
     if(!UIAccessibilityIsReduceMotionEnabled())
-        Check(selection.bounds.size.height>resting && selection.alpha==1,
-            @"the main capsule expands its opaque-to-compositing glass lens on finger down");
+        Check(selection.bounds.size.height>resting+capsule.bounds.size.height*0.30 &&
+            selection.bounds.size.width>restingWidth*1.30 && CGRectGetMinY(selection.frame)<0 &&
+            selection.alpha==1 && highlight.alpha==1 && home.imageView.transform.a>1.10,
+            @"same-tab press expands and lifts the glass, reveals its highlight and enlarges its glyph");
     HGAppearanceLayoutDock(bar,host);Layout(bar);
     [dock moveDockTouchToPoint:CGPointMake((start.x+finish.x)/2,start.y)];
     Check(host.nativeTaps==taps && fabs(CGRectGetMidX(selection.frame)-(CGRectGetMidX(home.frame)+CGRectGetMidX(theater.frame))/2)<0.01,
@@ -509,6 +513,9 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
     [dock endDockTouchAtPoint:finish cancelled:NO];
     Check(host.nativeTaps==taps+1 && host.selectedIndex==1,
         @"shared Dock drag activation forwards one action even with an underlying control event and repeated end");
+    Check(!HGDockVisibleSelectionLens(selection).effect && highlight.alpha==0 &&
+        CGAffineTransformIsIdentity(theater.imageView.transform),
+        @"release animates the glass effect to nil, fades the highlight and returns the glyph to rest");
     HGWaitForDockSelectionLensToSettle(selection);
     Check(!HGDockVisibleSelectionLens(selection),@"shared Dock release hides the settled glass lens");
 
@@ -524,11 +531,23 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
         while(host.nativeTaps==taps+1 && CACurrentMediaTime()<deadline) {
             CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.004,false);
             CALayer *presentation=selection.layer.presentationLayer;
-            if(host.nativeTaps==taps+1 && CGRectGetHeight(presentation.bounds)>resting+0.25)displayed=YES;
+            CGFloat opacity=highlight.layer.presentationLayer.opacity;
+            if(host.nativeTaps==taps+1 && CGRectGetHeight(presentation.bounds)>resting+8 &&
+                opacity>0.25 && opacity<0.95)displayed=YES;
         }
-        Check(displayed,@"the expanded press appears in the presentation layer before host navigation");
+        Check(displayed,@"the expanded and illuminated press appears in the presentation layer before host navigation");
     }
     Check(host.nativeTaps==taps+2 && host.selectedIndex==0,@"the quick press still forwards a single tap to the destination");
+    if(!UIAccessibilityIsReduceMotionEnabled()) {
+        CFTimeInterval releasedAt=CACurrentMediaTime();
+        BOOL fadeDisplayed=NO;
+        while(!fadeDisplayed && CACurrentMediaTime()-releasedAt<0.26) {
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.005,false);
+            CGFloat opacity=highlight.layer.presentationLayer.opacity;
+            fadeDisplayed=CACurrentMediaTime()-releasedAt>0.035 && opacity>0.05 && opacity<0.95;
+        }
+        Check(fadeDisplayed,@"release displays an intermediate fade frame before the resting highlight");
+    }
     HGWaitForDockSelectionLensToSettle(selection);
     [wrapper removeFromSuperview];
 }
@@ -598,9 +617,10 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     HGAppearanceSet(@"dock.material",@"clear",nil);
     [theater sendActionsForControlEvents:UIControlEventTouchDown];
     Layout(HGDockVisibleSelectionLens(selection));
+    UIView *previewHighlight=Find(selection,@"honggo.appearance.dock.selection-highlight");
     Check(fabs(CGRectGetMidX(selection.frame)-theaterX)<0.01 && host.nativeTaps==taps &&
         (UIAccessibilityIsReduceMotionEnabled() ||
-         [selection.layer animationForKey:@"honggo.dock.press"]!=nil),
+         (previewHighlight.alpha==1 && theater.imageView.transform.a>1.10)),
         @"fallback press previews the destination immediately without forwarding its action");
     if(@available(iOS 26.0,*)) {
         if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
@@ -619,8 +639,8 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     Check(host.nativeTaps==taps+1 && host.selectedIndex==1 && theater.selected,
         @"fallback press and release send one navigation action and select the destination");
     if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() && !UIAccessibilityIsReduceMotionEnabled())
-        Check(HGDockVisibleSelectionLens(selection)!=nil,
-            @"releasing the press leaves the live glass visible through the settling spring");
+        Check(HGDockVisibleSelectionLens(selection)!=nil && !HGDockVisibleSelectionLens(selection).effect,
+            @"releasing the press starts native glass dematerialization while the lens remains in the hierarchy");
     HGWaitForDockSelectionLensToSettle(selection);
     Check(!HGDockVisibleSelectionLens(selection),@"finished tap spring hides its lens");
     taps=host.nativeTaps;host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);
@@ -636,7 +656,7 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
         @"selection follows an intermediate drag position without opening a tab during the drag");
     UIVisualEffectView *lens=HGDockVisibleSelectionLens(selection);
     if(@available(iOS 26.0,*)) {
-        if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled()) {
+        if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() && !UIAccessibilityIsReduceMotionEnabled()) {
             Layout(lens);
             Check([lens.effect isKindOfClass:UIGlassEffect.class] && ((UIGlassEffect *)lens.effect).interactive,
                 @"Liquid Glass drag installs an interactive native refraction lens beneath the glyphs");
@@ -719,11 +739,12 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         fabs(CGRectGetWidth(CGRectUnion(capsule.frame,extraInDock))/dock.bounds.size.width-0.905)<0.001,
         @"reference-width dock uses symmetric margins and a twelve-point accessory gap");
     BOOL reduceTransparency=UIAccessibilityIsReduceTransparencyEnabled();
+    BOOL increasedContrast=dock.traitCollection.accessibilityContrast==UIAccessibilityContrastHigh;
+    CGFloat selectionAlpha=reduceTransparency || increasedContrast ? 0.18 : 0.09;
     Check(selection && !selection.hidden && !selection.userInteractionEnabled &&
         HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection) &&
-        !capsuleMaterial.maskView && (reduceTransparency ||
-            [selection.backgroundColor isEqual:[UIColor colorWithWhite:0 alpha:0.30]]),
-        @"selection remains translucent over the unmasked system material");
+        !capsuleMaterial.maskView && [selection.backgroundColor isEqual:[UIColor colorWithWhite:1 alpha:selectionAlpha]],
+        @"resting selection uses a subtle light tint over unmasked glass");
     Check(CGRectGetMinY(selection.frame)>=3 && CGRectGetMaxY(selection.frame)<=capsule.bounds.size.height-3 &&
         selection.bounds.size.width<=capsule.bounds.size.height*1.53 && home.bounds.size.width>=44,
         @"two-tab dock keeps a compact inset selection pill and full accessible touch targets");
