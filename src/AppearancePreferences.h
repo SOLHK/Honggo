@@ -5,6 +5,7 @@ FOUNDATION_EXPORT NSString *const HGAppearanceDidChangeNotification;
 FOUNDATION_EXPORT const double HGADockDefaultWidth;
 // Typed, independent appearance domain. No host preferences or old switch IDs.
 NSArray<NSDictionary *> *HGAppearanceCatalog(void);
+NSArray<NSDictionary *> *HGAppearanceSearch(NSString *query);
 NSArray<NSString *> *HGAppearanceGroups(void);
 NSArray<NSString *> *HGAppearanceGroupTitles(void);
 NSArray<NSString *> *HGAppearanceRoles(void);

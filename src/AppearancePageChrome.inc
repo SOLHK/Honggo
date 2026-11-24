@@ -467,12 +467,43 @@ static NSUInteger HGAFinderHiddenMask(NSArray *titles) {
 }
 
 static IMP HGAOriginalMineFunctionItems,HGAOriginalMineFunctionSnapshot;
+static IMP HGAOriginalMineSidebarSnapshot;
+static char HGAMineEntryStateKey,HGAMineMenuButtonKey;
 static _Thread_local BOOL HGAMineSnapshotInFlight;
 static BOOL HGAMineFilterInstalled;
 
+static BOOL HGAMineHidesMore(void) {
+    return HGAppearanceFlag(@"mine.hide.shortcut.row") || HGAppearanceFlag(@"mine.hide.shortcut.more");
+}
+
+// MoreSelectionItem is appended by Compose, outside functionItems. The same
+// immutable Kotlin state also supplies the profile title bar's sidebar entry.
+static id HGAMineSidebarSnapshot(UIViewController *owner,SEL cmd,id depend) {
+    id original=((id (*)(id,SEL,id))HGAOriginalMineSidebarSnapshot)(owner,cmd,depend);
+    if(!HGAMineHidesMore() || depend!=HGReadObjectGetter(owner,"minePageKMPDepend"))return original;
+    SEL copy=sel_registerName("doCopyIsVisible:showRedDot:");
+    SEL visible=sel_registerName("isVisible"), dot=sel_registerName("showRedDot");
+    Class cls=object_getClass(original);
+    Method clone=class_getInstanceMethod(cls,copy), v=class_getInstanceMethod(cls,visible), d=class_getInstanceMethod(cls,dot);
+    if(!clone || !v || !d || strcmp(method_getTypeEncoding(clone),"@18@0:8c16c17") ||
+       strcmp(method_getTypeEncoding(v),"c16@0:8") || strcmp(method_getTypeEncoding(d),"c16@0:8"))return original;
+    BOOL shown=((signed char (*)(id,SEL))objc_msgSend)(original,visible);
+    BOOL red=shown && ((signed char (*)(id,SEL))objc_msgSend)(original,dot);
+    id filtered=shown ? ((id (*)(id,SEL,signed char,signed char))objc_msgSend)(original,copy,0,0) : original;
+    if(!filtered)return original;
+    NSNumber *value=@(shown ? (red ? 2 : 1) : 0);
+    NSNumber *previous=objc_getAssociatedObject(owner,&HGAMineEntryStateKey);
+    if(![previous isEqual:value]) {
+        objc_setAssociatedObject(owner,&HGAMineEntryStateKey,value,OBJC_ASSOCIATION_RETAIN);
+        dispatch_async(dispatch_get_main_queue(),^{ [owner.viewIfLoaded setNeedsLayout]; });
+    }
+    return filtered;
+}
+
 static NSArray *HGAMineFunctionItems(id owner,SEL cmd) {
     NSArray *items=((id (*)(id,SEL))HGAOriginalMineFunctionItems)(owner,cmd);
-    if(!HGAMineSnapshotInFlight || !HGAppearanceEnabled() || ![items isKindOfClass:NSArray.class])return items;
+    if(!HGAMineSnapshotInFlight || ![items isKindOfClass:NSArray.class])return items;
+    if(HGAppearanceFlag(@"mine.hide.shortcut.row"))return @[];
     NSMutableArray *visible=[NSMutableArray arrayWithCapacity:items.count];
     for(id item in items) {
         NSString *key=HGAMineShortcutKey(HGReadObjectGetter(item,"title"));
@@ -492,6 +523,13 @@ static id HGAMineFunctionSnapshot(id owner,SEL cmd) {
 }
 
 static void HGAInstallMineShortcutHooks(void) {
+    if(!HGAOriginalMineSidebarSnapshot) {
+        Class page=objc_lookUpClass("SSMine737KMPViewController");
+        Method open=class_getInstanceMethod(page,sel_registerName("minePageKMPDepend:setSidebarOpen:"));
+        if(open && !strcmp(method_getTypeEncoding(open),"v28@0:8@16B24"))
+            HGAOriginalMineSidebarSnapshot=HGInstallVerifiedHook(page,sel_registerName("minePageKMPSidebarEntrySnapshot:"),
+                "@24@0:8@16",(IMP)HGAMineSidebarSnapshot,@"appearance");
+    }
     if(HGAMineFilterInstalled)return;
     Class type=NSClassFromString(@"SSMinePageKMPFunctionDepend");
     SEL source=sel_registerName("functionItems"), snapshot=sel_registerName("getFunctionSnapshot");
@@ -513,7 +551,88 @@ static BOOL HGAIsMineKMPController(UIViewController *controller) {
     return [controller isKindOfClass:NSClassFromString(@"SSMine737KMPViewController")];
 }
 
+@interface HGAMineTitleWatch : NSObject
+@property(nonatomic,weak) UIViewController *page;
+@property(nonatomic,weak) UIView *renderer;
+@property(nonatomic) BOOL queued;
+@end
+@implementation HGAMineTitleWatch @end
+static char HGAMineTitleWatchKey;
+static IMP HGAMineTitleDidAdd,HGAMineTitleWillRemove;
+static void HGAMineTitleGlyphsChanged(UIView *renderer,SEL cmd,UIView *item) {
+    IMP original=cmd==@selector(didAddSubview:) ? HGAMineTitleDidAdd : HGAMineTitleWillRemove;
+    ((void (*)(id,SEL,id))original)(renderer,cmd,item);
+    HGAMineTitleWatch *watch=objc_getAssociatedObject(renderer,&HGAMineTitleWatchKey);
+    if(!watch || watch.queued || ![NSStringFromClass(item.class) isEqual:@"DanceUI._InheritedView"])return;
+    watch.queued=YES;
+    dispatch_async(dispatch_get_main_queue(),^{
+        watch.queued=NO;
+        if(watch.renderer.window && watch.page.viewIfLoaded.window)HGAppearanceProcessController(watch.page);
+    });
+}
+static void HGAWatchMineTitleRenderer(UIViewController *page,UIView *renderer) {
+    HGAMineTitleWatch *watch=objc_getAssociatedObject(page,&HGAMineTitleWatchKey);
+    if(watch.renderer==renderer)return;
+    if(watch.renderer)objc_setAssociatedObject(watch.renderer,&HGAMineTitleWatchKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    watch.renderer=nil;
+    if(!renderer) {
+        objc_setAssociatedObject(page,&HGAMineTitleWatchKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    Class cls=objc_lookUpClass("DanceUICompose.ComposeRenderingUIViewImpl");
+    if(!HGAMineTitleDidAdd)HGAMineTitleDidAdd=HGInstallVerifiedHook(cls,@selector(didAddSubview:),"v24@0:8@16",(IMP)HGAMineTitleGlyphsChanged,@"appearance");
+    if(!HGAMineTitleWillRemove)HGAMineTitleWillRemove=HGInstallVerifiedHook(cls,@selector(willRemoveSubview:),"v24@0:8@16",(IMP)HGAMineTitleGlyphsChanged,@"appearance");
+    if(!HGAMineTitleDidAdd || !HGAMineTitleWillRemove)return;
+    if(!watch)watch=[HGAMineTitleWatch new];
+    watch.page=page;watch.renderer=renderer;
+    objc_setAssociatedObject(page,&HGAMineTitleWatchKey,watch,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(renderer,&HGAMineTitleWatchKey,watch,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 static char HGAMineShortcutMaskKey,HGAMineTitleGlassKey;
+static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMutableArray<UIView *> *glyphs) {
+    UIButton *button=objc_getAssociatedObject(controller,&HGAMineMenuButtonKey);
+    NSNumber *source=objc_getAssociatedObject(controller,&HGAMineEntryStateKey);
+    if(!HGAMineHidesMore() || !source.integerValue || !titleBar.window || glyphs.count>=2) {
+        [button removeFromSuperview];
+        if(button)objc_setAssociatedObject(controller,&HGAMineMenuButtonKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    if(!button) {
+        __weak UIViewController *weakPage=controller;
+        UIAction *open=[UIAction actionWithHandler:^(UIAction *action) {
+            UIViewController *page=weakPage;
+            id depend=HGReadObjectGetter(page,"minePageKMPDepend");
+            if(depend)((void (*)(id,SEL,id,BOOL))objc_msgSend)(page,sel_registerName("minePageKMPDepend:setSidebarOpen:"),depend,YES);
+        }];
+        button=[UIButton buttonWithType:UIButtonTypeSystem primaryAction:open];
+        button.accessibilityIdentifier=@"honggo.appearance.mine.menu";
+        button.accessibilityLabel=@"菜单";
+        UIImageSymbolConfiguration *icon=[UIImageSymbolConfiguration configurationWithPointSize:21 weight:UIImageSymbolWeightMedium];
+        [button setImage:[UIImage systemImageNamed:@"line.3.horizontal" withConfiguration:icon] forState:UIControlStateNormal];
+        button.tintColor=UIColor.labelColor;
+        UIView *dot=[[UIView alloc] initWithFrame:CGRectMake(29,8,6,6)];
+        dot.layer.cornerRadius=3; dot.userInteractionEnabled=NO; dot.accessibilityElementsHidden=YES;
+        dot.backgroundColor=UIColor.systemOrangeColor;
+        dot.accessibilityIdentifier=@"honggo.appearance.mine.menu.badge";
+        [button addSubview:dot];
+        objc_setAssociatedObject(controller,&HGAMineMenuButtonKey,button,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    CGFloat x=CGRectGetMaxX(titleBar.bounds)-28,y=CGRectGetMaxY(titleBar.bounds)-22;
+    UIView *neighbour=glyphs.firstObject;
+    if(neighbour) {
+        CGRect occupied=[neighbour convertRect:neighbour.bounds toView:titleBar];
+        y=CGRectGetMidY(occupied);
+        if(fabs(x-CGRectGetMidX(occupied))<32)x=CGRectGetMidX(occupied)-40;
+    }
+    CGRect frame=CGRectMake(x-22,y-22,44,44);
+    if(!CGRectEqualToRect(button.frame,frame))button.frame=frame;
+    for(UIView *child in button.subviews)if([child.accessibilityIdentifier isEqual:@"honggo.appearance.mine.menu.badge"])
+        child.hidden=source.integerValue!=2;
+    button.accessibilityValue=source.integerValue==2 ? @"有新消息" : nil;
+    if(button.superview!=titleBar)[titleBar addSubview:button];
+}
+
 static void HGAApplyMineKMPChrome(UIViewController *controller) {
     UIView *root=controller.viewIfLoaded;
     BOOL enabled=HGAppearanceEnabled() && root.window;
@@ -523,27 +642,39 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
         SEL notify=sel_registerName("notifyFunctionDataChanged");
         Method method=class_getInstanceMethod(object_getClass(depend),notify);
         if([depend isKindOfClass:type] && method && !strcmp(method_getTypeEncoding(method),"v16@0:8")) {
-            NSUInteger mask=0;
+            NSUInteger mask=HGAppearanceFlag(@"mine.hide.shortcut.row") ? 1UL<<HGAMineShortcuts().count : 0;
             NSArray *keys=HGAMineShortcuts();
-            if(HGAppearanceEnabled())for(NSUInteger index=0;index<keys.count;index++)
+            for(NSUInteger index=0;index<keys.count;index++)
                 if(HGAppearanceFlag([@"mine.hide.shortcut." stringByAppendingString:keys[index]]))mask|=1UL<<index;
             NSNumber *previous=objc_getAssociatedObject(depend,&HGAMineShortcutMaskKey);
             if(mask!=previous.unsignedIntegerValue) {
+                NSUInteger moreBits=(1UL<<(keys.count-1)) | (1UL<<keys.count);
+                BOOL refreshEntry=((mask & moreBits)!=0)!=((previous.unsignedIntegerValue & moreBits)!=0);
+                if(refreshEntry)objc_setAssociatedObject(controller,&HGAMineEntryStateKey,nil,OBJC_ASSOCIATION_RETAIN);
                 objc_setAssociatedObject(depend,&HGAMineShortcutMaskKey,@(mask),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                 __weak id weakDepend=depend;
                 dispatch_async(dispatch_get_main_queue(), ^{
                     id liveDepend=weakDepend;
-                    if(liveDepend)((void (*)(id,SEL))objc_msgSend)(liveDepend,notify);
+                    if(liveDepend) {
+                        ((void (*)(id,SEL))objc_msgSend)(liveDepend,notify);
+                        SEL change=sel_registerName("notifySidebarEntryStateChanged");
+                        Method m=class_getInstanceMethod(object_getClass(liveDepend),change);
+                        if(refreshEntry && HGAOriginalMineSidebarSnapshot && m && !strcmp(method_getTypeEncoding(m),"v16@0:8"))
+                            ((void (*)(id,SEL))objc_msgSend)(liveDepend,change);
+                    }
                 });
             }
         }
     }
-    UIView *titleBar=enabled && HGAppearanceFlag(@"player.mineGlass") ?
+    BOOL glass=enabled && HGAppearanceFlag(@"player.mineGlass");
+    UIView *titleBar=glass || HGAMineHidesMore() ?
         HGAViewGetter(HGReadObjectGetter(controller,"minePageKMPHandle"),"titleBarView",root) : nil;
     NSMutableArray<UIView *> *targets=[NSMutableArray array];
+    UIView *renderer=nil;
     for(UIView *node in HGADescendants(titleBar,28)) {
         if(![NSStringFromClass(node.class) isEqual:@"DanceUICompose.ComposeRenderingUIViewImpl"] ||
             !HGAVisible(node))continue;
+        renderer=node;
         CGFloat edge=CGRectGetMaxX(node.bounds);
         for(UIView *item in node.subviews) {
             CGRect rect=item.frame;
@@ -552,12 +683,16 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
                 CGRectGetMinX(rect)>edge-100 && CGRectGetMaxX(rect)<=edge-8)
                 [targets addObject:item];
         }
-        if(targets.count==2 &&
-            fabs(CGRectGetMidY(targets[0].frame)-CGRectGetMidY(targets[1].frame))<1)break;
+        if(targets.count==1 || (targets.count==2 &&
+            fabs(CGRectGetMidY(targets[0].frame)-CGRectGetMidY(targets[1].frame))<1))break;
         [targets removeAllObjects];
     }
+    HGAWatchMineTitleRenderer(controller,HGAMineHidesMore() ? renderer : nil);
+    HGAUpdateMineMenu(controller,renderer ? titleBar : nil,targets);
+    UIButton *menu=objc_getAssociatedObject(controller,&HGAMineMenuButtonKey);
+    if(targets.count==1 && menu.imageView)[targets addObject:menu.imageView];
     NSArray<UIView *> *backings=objc_getAssociatedObject(root,&HGAMineTitleGlassKey);
-    if(targets.count!=2) {
+    if(!glass || targets.count!=2) {
         for(UIView *backing in backings)[backing removeFromSuperview];
         if(backings)objc_setAssociatedObject(root,&HGAMineTitleGlassKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return;
@@ -716,7 +851,8 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
     } else if([name isEqual:@"SSMyUser637JGZoneCell"]) {
         NSString *title=HGAPageChromeLabel(view,"titleLabel");
         NSString *key=HGAMineShortcutKey(title);
-        BOOL hide=enabled && key && HGAppearanceFlag([@"mine.hide.shortcut." stringByAppendingString:key]);
+        BOOL hide=HGAppearanceFlag(@"mine.hide.shortcut.row") ||
+            (key && HGAppearanceFlag([@"mine.hide.shortcut." stringByAppendingString:key]));
         HGASetHidden(view,hide);
         HGAApplyPageChrome(view,enabled && !hide && HGAppearanceFlag(@"player.mineGlass") && key);
     } else if([view isKindOfClass:NSClassFromString(@"SSMyUser637TabsView")]) {

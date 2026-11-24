@@ -273,7 +273,9 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     HGAppearanceSet(@"player.actionStyle",@"flat",nil);
     play.selected=YES;
     [play sendActionsForControlEvents:UIControlEventTouchUpInside];
-    Check(!Find(play,@"honggo.appearance.material") && play.currentImage==[play imageForState:UIControlStateSelected] &&
+    UIVisualEffectView *flatPlay=(id)Find(play,@"honggo.appearance.material");
+    Layout(flatPlay);
+    Check(flatPlay && !flatPlay.effect && play.currentImage==[play imageForState:UIControlStateSelected] &&
         action.taps==3,@"flat play keeps the host's current playback glyph and its original action");
     [playback removeFromSuperview];
 

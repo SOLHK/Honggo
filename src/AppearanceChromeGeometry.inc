@@ -89,7 +89,7 @@ API_AVAILABLE(ios(26.0))
 @end
 
 @class HGAHeaderToolButton;
-@interface HGAHeaderInsetState : NSObject
+@interface HGAHeaderInsetState : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic,strong) HGAAppearanceMaterial *sidebarGlass;
 @property(nonatomic,strong) HGAAppearanceMaterial *searchGlass;
 @property(nonatomic,strong) HGAHeaderToolButton *sidebarButton;
@@ -99,6 +99,11 @@ API_AVAILABLE(ios(26.0))
 @property(nonatomic,weak) UICollectionView *channelCollection;
 @property(nonatomic,copy) NSArray<NSNumber *> *channelIndices;
 @property(nonatomic,copy) NSArray<NSString *> *channelTitles;
+@property(nonatomic,weak) UIPanGestureRecognizer *observedPagePan;
+@property(nonatomic,strong) UIVisualEffectView *channelLens;
+@property(nonatomic,weak) UIVisualEffectView *settlingLens;
+@property(nonatomic,strong) CADisplayLink *pageCoasting;
+@property(nonatomic) NSInteger previewOrigin;
 @property(nonatomic,weak) UIView *categories;
 @property(nonatomic,copy) NSArray *observedTitles;
 @property(nonatomic) CGSize observedSize;
@@ -108,6 +113,8 @@ API_AVAILABLE(ios(26.0))
 @property(nonatomic) BOOL ownsSideToolTransition;
 - (void)activateTool:(HGAHeaderToolButton *)sender;
 - (void)changeChannel:(UIControl<HGAHeaderSelecting> *)sender;
+- (void)followPagePan:(UIPanGestureRecognizer *)pan;
+- (void)finishChannelMotion;
 @end
 static char HGAHeaderInsetKey;
 
@@ -143,6 +150,149 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
 @end
 
 @implementation HGAHeaderInsetState
+- (NSInteger)hostSegment {
+    NSInteger host=((NSInteger (*)(id,SEL))objc_msgSend)(self.categories,sel_registerName("selectedIndex"));
+    return (NSInteger)[self.channelIndices indexOfObject:@(host)];
+}
+- (CGFloat)segmentForPageOffset:(CGFloat)page {
+    // The host pager is indexed before channel filtering. Interpolate within
+    // each pair of visible host pages, including gaps such as 1 -> 3.
+    NSArray<NSNumber *> *indices=self.channelIndices;
+    for (NSUInteger i=1;i<indices.count;i++) {
+        CGFloat left=indices[i-1].integerValue, right=indices[i].integerValue;
+        if (page<=right) return (i-1)+MAX(0,(page-left)/(right-left));
+    }
+    return MAX(0,(NSInteger)indices.count-1);
+}
+- (CGRect)lensFrameAtSegment:(CGFloat)index lifted:(BOOL)lifted {
+    UIView *control=self.channelControl;
+    CGFloat count=self.channelIndices.count, width=CGRectGetWidth(control.bounds);
+    CGFloat slot=width/count;
+    CGFloat stretch=lifted ? fabs(sin(index*M_PI)) : 0;
+    CGSize size=CGSizeMake(MIN(width,slot*(lifted ? 1.08+0.16*stretch : 1)-2),
+        CGRectGetHeight(control.bounds)*(lifted ? 1.10-0.06*stretch : 1)-2);
+    CGFloat center=(index+0.5)*slot;
+    if (control.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft) center=width-center;
+    CGFloat left=MIN(width-size.width,MAX(0,center-size.width/2));
+    return [control convertRect:CGRectMake(left,(CGRectGetHeight(control.bounds)-size.height)/2,size.width,size.height)
+                         toView:control.superview];
+}
+- (void)previewSegment:(CGFloat)index {
+    UIControl<HGAHeaderSelecting> *control=self.channelControl;
+    if (!control.window || self.channelIndices.count<2 || UIAccessibilityIsReduceMotionEnabled()) return;
+    index=MIN((CGFloat)self.channelIndices.count-1,MAX(0,index));
+    CGRect frame=[self lensFrameAtSegment:index lifted:YES];
+    if (!self.channelLens) {
+        NSInteger origin=[self hostSegment];
+        if (origin==NSNotFound) origin=control.selectedSegmentIndex;
+        if (origin<0 || origin>=(NSInteger)self.channelIndices.count) return;
+        self.previewOrigin=origin;
+        [self.settlingLens removeFromSuperview];
+        UIVisualEffect *effect=nil;
+        if (@available(iOS 26.0,*)) {
+            if (HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled())
+                effect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
+        }
+        UIVisualEffectView *lens=[[UIVisualEffectView alloc] initWithEffect:nil];
+        lens.frame=frame;
+        lens.layer.cornerRadius=CGRectGetHeight(frame)/2;
+        lens.userInteractionEnabled=NO;
+        lens.accessibilityElementsHidden=YES;
+        lens.accessibilityIdentifier=@"honggo.appearance.header.swipeLens";
+        lens.layer.cornerCurve=kCACornerCurveContinuous;
+        lens.clipsToBounds=YES;
+        lens.contentView.backgroundColor=[UIColor colorWithWhite:1 alpha:effect ? 0.06 : 0.27];
+        [control.superview insertSubview:lens aboveSubview:control];
+        lens.effect=effect;
+        self.channelLens=lens;
+        [UIView performWithoutAnimation:^{control.selectedSegmentIndex=UISegmentedControlNoSegment;}];
+    }
+    if (!CGRectEqualToRect(self.channelLens.frame,frame)) {
+        self.channelLens.frame=frame;
+        self.channelLens.layer.cornerRadius=CGRectGetHeight(frame)/2;
+    }
+}
+- (void)finishChannelMotion {
+    [self.pageCoasting invalidate];
+    self.pageCoasting=nil;
+    UIVisualEffectView *lens=self.channelLens;
+    if (!lens) return;
+    self.channelLens=nil;
+    self.settlingLens=lens;
+    NSInteger selected=[self hostSegment];
+    UIControl<HGAHeaderSelecting> *control=self.channelControl;
+    if (!control.window) {[lens removeFromSuperview];return;}
+    if (selected==NSNotFound) selected=self.previewOrigin;
+    [UIView performWithoutAnimation:^{control.selectedSegmentIndex=selected;}];
+    CGRect frame=[self lensFrameAtSegment:selected lifted:NO];
+    [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:0.84 initialSpringVelocity:0
+        options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
+        lens.frame=frame;
+        lens.layer.cornerRadius=CGRectGetHeight(frame)/2;
+        lens.effect=nil;
+        lens.contentView.backgroundColor=UIColor.clearColor;
+    } completion:^(BOOL finished){[lens removeFromSuperview];}];
+}
+- (void)followPageDeceleration:(CADisplayLink *)link {
+    UIScrollView *page=(id)self.observedPagePan.view;
+    if (!page.window || !self.channelControl.window || !page.decelerating) {
+        [self finishChannelMotion];
+        return;
+    }
+    [self previewSegment:[self segmentForPageOffset:page.contentOffset.x/MAX(1,CGRectGetWidth(page.bounds))]];
+}
+- (void)followPagePan:(UIPanGestureRecognizer *)pan {
+    if (pan.state!=UIGestureRecognizerStateBegan && pan.state!=UIGestureRecognizerStateChanged) {
+        if (pan==self.observedPagePan && self.channelLens && pan.state==UIGestureRecognizerStateEnded) {
+            if (!self.pageCoasting) {
+                self.pageCoasting=[CADisplayLink displayLinkWithTarget:self selector:@selector(followPageDeceleration:)];
+                [self.pageCoasting addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+            }
+            return;
+        }
+        [self finishChannelMotion];
+        return;
+    }
+    if (self.pageCoasting) [self finishChannelMotion];
+    UIView *page=pan.view ?: self.observedPagePan.view;
+    if (!page.window || !self.channelControl.window || HGFeedSidebarOwnsLayout(page.window)) return;
+    CGPoint travel=[pan translationInView:page];
+    if (!self.channelLens && fabs(travel.x)<=fabs(travel.y)) return;
+    if (pan==self.observedPagePan) {
+        UIScrollView *scroll=(id)page;
+        [self previewSegment:[self segmentForPageOffset:scroll.contentOffset.x/MAX(1,CGRectGetWidth(page.bounds))]];
+        return;
+    }
+    NSInteger origin=self.channelLens ? self.previewOrigin : [self hostSegment];
+    if (origin==NSNotFound) return;
+    // The filtered pager skips hidden host pages on release; its gesture has
+    // no contentOffset updates. Drive the lens from the actual finger travel.
+    CGFloat stride=MAX(1,CGRectGetWidth(page.bounds)*0.42);
+    CGFloat direction=self.channelControl.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft ? 1 : -1;
+    [self previewSegment:origin+MAX(-1,MIN(1,direction*travel.x/stride))];
+}
+- (BOOL)gestureRecognizerShouldBegin:(UIPanGestureRecognizer *)pan {
+    CGPoint velocity=[pan velocityInView:pan.view];
+    return fabs(velocity.x)>fabs(velocity.y) && !UIAccessibilityIsReduceMotionEnabled();
+}
+- (void)scrubChannels:(UIPanGestureRecognizer *)pan {
+    UIControl<HGAHeaderSelecting> *control=self.channelControl;
+    if (!control.window || !self.channelIndices.count) return;
+    CGPoint p=[pan locationInView:control];
+    CGFloat width=MAX(1,CGRectGetWidth(control.bounds));
+    CGFloat x=control.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft ? width-p.x : p.x;
+    CGFloat position=x*self.channelIndices.count/width-0.5;
+    if (pan.state==UIGestureRecognizerStateBegan || pan.state==UIGestureRecognizerStateChanged) {
+        [self previewSegment:position];
+    } else {
+        if (pan.state==UIGestureRecognizerStateEnded && CGRectContainsPoint(control.bounds,p)) {
+            NSInteger index=MIN((NSInteger)self.channelIndices.count-1,MAX(0,lround(position)));
+            control.selectedSegmentIndex=index;
+            [self changeChannel:control];
+        }
+        [self finishChannelMotion];
+    }
+}
 - (void)activateTool:(HGAHeaderToolButton *)sender {
     BOOL sidebar=sender==self.sidebarButton;
     UIView *source=sender.source;
@@ -275,8 +425,19 @@ static void HGARefreshHeaderChannelLine(UIView *categories,BOOL completed);
 }
 
 - (void)page:(UIPanGestureRecognizer *)gesture {
-    if (gesture.state!=UIGestureRecognizerStateEnded) return;
     UIView *categories = self.categories;
+    UIView *header=categories.superview;
+    while (header && !HGAIsHeaderView(header)) header=header.superview;
+    HGAHeaderInsetState *headerState=objc_getAssociatedObject(header,&HGAHeaderInsetKey);
+    if (gesture.state!=UIGestureRecognizerStateEnded) {
+        [headerState followPagePan:gesture];
+        return;
+    }
+    [self commitPage:gesture];
+    [headerState finishChannelMotion];
+}
+- (void)commitPage:(UIPanGestureRecognizer *)gesture {
+    UIView *categories=self.categories;
     HGAHeaderChannelLayout *layout = objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
     if (!layout || ![self isFiltering] || ((UIScrollView *)self.pan.view).isDecelerating) return;
     CGPoint travel = [gesture translationInView:self.pan.view];
@@ -285,6 +446,7 @@ static void HGARefreshHeaderChannelLine(UIView *categories,BOOL completed);
 
     NSInteger index = ((NSInteger (*)(id,SEL))objc_msgSend)(categories,sel_registerName("selectedIndex"));
     NSInteger step = travel.x<0 ? 1 : -1;
+    if (categories.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft) step=-step;
     if (index<0 || index>=(NSInteger)layout.titles.count) return;
     for (NSInteger next=index+step; next>=0 && next<(NSInteger)layout.titles.count; next+=step) {
         if (layout.hiddenMask & (1UL << next)) continue;
@@ -638,7 +800,7 @@ static void HGASyncHeaderChannelLine(UIView *categories) {
         if (!HGAIsHeaderView(header)) continue;
         HGAHeaderInsetState *state=objc_getAssociatedObject(header,&HGAHeaderInsetKey);
         UIControl<HGAHeaderSelecting> *control=state.channelControl;
-        if (state.categories==categories && control && !control.isTracking) {
+        if (state.categories==categories && control && !control.isTracking && !state.channelLens) {
             NSInteger selected=((NSInteger (*)(id,SEL))objc_msgSend)(categories,sel_registerName("selectedIndex"));
             NSUInteger segment=[state.channelIndices indexOfObject:@(selected)];
             if (segment!=NSNotFound && control.selectedSegmentIndex!=(NSInteger)segment)
@@ -882,6 +1044,13 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
 }
 
 static void HGARemoveHeaderChannelControl(HGAHeaderInsetState *state) {
+    [state.pageCoasting invalidate];
+    state.pageCoasting=nil;
+    [state.observedPagePan removeTarget:state action:@selector(followPagePan:)];
+    state.observedPagePan=nil;
+    [state.channelLens removeFromSuperview];
+    state.channelLens=nil;
+    [state.settlingLens removeFromSuperview];
     [state.channelControl removeFromSuperview];
     state.channelControl=nil;
     state.channelStyle=nil;
@@ -939,6 +1108,10 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
         control.accessibilityIdentifier=@"honggo.appearance.material";
         control.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
         [control addTarget:state action:@selector(changeChannel:) forControlEvents:UIControlEventValueChanged];
+        UIPanGestureRecognizer *scrub=[[UIPanGestureRecognizer alloc] initWithTarget:state action:@selector(scrubChannels:)];
+        scrub.maximumNumberOfTouches=1;
+        scrub.delegate=state;
+        [control addGestureRecognizer:scrub];
         state.channelControl=control;
         state.channelIndices=indices;
         state.channelStyle=controlStyle;
@@ -947,6 +1120,12 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
     }
     if (control.superview!=header) [header addSubview:control];
     if (!CGRectEqualToRect(control.frame,frame)) control.frame=frame;
+    UIPanGestureRecognizer *pagePan=HGAHomeChannelScroll(categories).panGestureRecognizer;
+    if (pagePan!=state.observedPagePan) {
+        [state.observedPagePan removeTarget:state action:@selector(followPagePan:)];
+        state.observedPagePan=pagePan;
+        [pagePan addTarget:state action:@selector(followPagePan:)];
+    }
     HGASyncHeaderChannelLine(categories);
     HGASetHidden(collection,YES);
     return YES;

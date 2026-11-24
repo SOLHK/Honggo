@@ -713,6 +713,12 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
             [native.delegate tabBar:native didSelectItem:tab];
         }
         Check(host.nativeTaps==taps+1 && host.selectedIndex==1,@"a UIKit selection forwards exactly one mapped host action");
+        Check(HGAppearanceSuspendDockForSidebar(host.customTabBar) && !dock.userInteractionEnabled &&
+            native.window==host.view.window && host.customTabBar.contentView.hidden,
+            @"the drawer retains the mounted native platter with host labels hidden");
+        HGAppearanceLayoutDock(host.customTabBar,host);
+        Check(dock.userInteractionEnabled && [dock valueForKey:@"systemTabBar"]==native,
+            @"returning from the drawer resumes the same UIKit tab bar");
     }else {
         Check(!carrier && !manual.hidden && Find(capsule,@"honggo.appearance.material"),
             @"a provider without a reachable floating platter leaves only the compatibility Dock mounted");
@@ -901,17 +907,25 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     UISegmentedControl *track=(id)Find(capsule,@"honggo.appearance.dock.flat");
     UISegmentedControl *extraTrack=(id)Find(extra.superview,@"honggo.appearance.dock.flat");
     Check([track isKindOfClass:UISegmentedControl.class] && track.numberOfSegments==2 &&
-        track.overrideUserInterfaceStyle==UIUserInterfaceStyleDark && track.selectedSegmentIndex==0 &&
+        track.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark && track.selectedSegmentIndex==0 &&
         CGRectEqualToRect(track.frame,capsule.bounds) && !Find(capsule,@"honggo.appearance.material") &&
-        !Find(capsule,@"honggo.appearance.dock.drag-lens") && selection.hidden && extraTrack.numberOfSegments==1,
+        !HGDockVisibleSelectionLens(selection).effect && selection.hidden && extraTrack.numberOfSegments==1,
         @"flat tabs and the independent action use the header's dark UIKit segment track without glass");
     NSUInteger flatTaps=host.nativeTaps;
     HGAAppearanceDock *flatDock=(id)dock;
     [flatDock beginDockTouchAtPoint:homePoint];
-    [flatDock moveDockTouchToPoint:theaterPoint];
+    CGPoint between=CGPointMake((homePoint.x+theaterPoint.x)/2,homePoint.y);
+    [flatDock moveDockTouchToPoint:between];
     HGAppearanceLayoutDock(host.customTabBar,host);
-    Check(track.selectedSegmentIndex==1 && host.nativeTaps==flatTaps && selection.hidden,
-        @"flat dragging previews the destination even when the host lays out the Dock");
+    CGFloat relativeX=CGRectGetMidX(selection.frame);
+    Check(track.selectedSegmentIndex==UISegmentedControlNoSegment && host.nativeTaps==flatTaps &&
+        !selection.hidden && relativeX>CGRectGetMidX(home.frame) && relativeX<CGRectGetMidX(theater.frame) &&
+        (UIAccessibilityIsReduceMotionEnabled() || CGRectGetHeight(selection.bounds)>CGRectGetHeight(capsule.bounds)),
+        @"flat Dock lifts its selection and tracks the finger between the original two hit targets");
+    if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() && !UIAccessibilityIsReduceMotionEnabled())
+        Check([HGDockVisibleSelectionLens(selection).effect isKindOfClass:NSClassFromString(@"UIGlassEffect")],
+            @"an active optical surface travels above the flat Dock symbols");
+    [flatDock moveDockTouchToPoint:theaterPoint];
     [flatDock endDockTouchAtPoint:theaterPoint cancelled:YES];
     Check(track.selectedSegmentIndex==0 && host.nativeTaps==flatTaps,
         @"cancelled flat scrubbing restores the host selection");
@@ -919,6 +933,29 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGAppearanceLayoutDock(host.customTabBar,host);
     Check(track.selectedSegmentIndex==1 && host.nativeTaps==flatTaps+1 && host.selectedIndex==1,
         @"the flat last segment activates its host tab exactly once");
+    if(@available(iOS 17.0,*))[track updateTraitsIfNeeded];
+    Check(track.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && HGADockGlyphMatches(theater,NO),
+        @"flat navigation on a light host page keeps the selected glyph dark");
+    [flatDock beginDockTouchAtPoint:theaterPoint];
+    [flatDock moveDockTouchToPoint:homePoint];
+    Check(HGAppearanceSuspendDockForSidebar(host.customTabBar) &&
+        host.customTabBar.contentView.hidden && [host.customTabBar.backgroundColor isEqual:UIColor.clearColor] &&
+        flatDock.superview==host.customTabBar && !flatDock.userInteractionEnabled &&
+        track.selectedSegmentIndex==1 && selection.hidden,
+        @"opening the drawer cancels a live scrub while keeping the flat Dock and its clear host background");
+    [flatDock endDockTouchAtPoint:homePoint cancelled:NO];
+    [home sendActionsForControlEvents:UIControlEventTouchUpInside];
+    CGRect beforeDrawer=host.customTabBar.frame;
+    host.customTabBar.frame=CGRectOffset(beforeDrawer,240,0);
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    Check(!flatDock.userInteractionEnabled && flatDock.superview==host.customTabBar &&
+        host.customTabBar.contentView.hidden && host.nativeTaps==flatTaps+1,
+        @"a displaced drawer leaves native labels hidden and discards a pending release");
+    host.customTabBar.frame=beforeDrawer;
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    Check(flatDock.userInteractionEnabled && track.selectedSegmentIndex==1 &&
+        [dock hitTest:homePoint withEvent:nil]==home && host.customTabBar.contentView.hidden,
+        @"a returned or cancelled drawer resumes hit testing on the same flat Dock");
     HGAppearanceSet(@"dock.style",@"glass",nil);
     HGAppearanceLayoutDock(host.customTabBar,host);
     Check(!Find(capsule,@"honggo.appearance.dock.flat") && Find(capsule,@"honggo.appearance.material"),

@@ -270,11 +270,6 @@ static UIImage *HGAIcon(NSString *role,BOOL selected,BOOL flat,BOOL custom,BOOL 
         if(symbol.length)image=[UIImage systemImageNamed:symbol];
         if(image)return image;
     }
-    if(flat) {
-        NSString *symbol=@{@"collect":@"star",@"comment":@"bubble.left",
-            @"like":@"heart",@"share":@"arrowshape.turn.up.right"}[role];
-        return [UIImage systemImageNamed:selected ? [symbol stringByAppendingString:@".fill"] : symbol];
-    }
     *drawnPreset=YES;
-    return HGAActionPresetImage(role,selected,HGAppearanceString(@"icons.preset"));
+    return HGAActionPresetImage(role,selected,flat ? @"circle" : HGAppearanceString(@"icons.preset"));
 }

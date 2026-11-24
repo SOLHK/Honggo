@@ -106,6 +106,9 @@ int main(void) {@autoreleasepool {
     Check(unique && keys.count>100,@"every visual option has one stable key");
     Check(defaults && [onWhenEnabled isSubsetOfSet:keys] && !HGAppearanceEnabled() && !HGAppearanceNeedsGlass(),
         @"appearance remains opt-in with the new scoped defaults ready under its master switch");
+    Check([HGAppearanceSearch(@"双指清屏").firstObject[@"key"] isEqual:@"gestures.pinchClean"] &&
+        [HGAppearanceSearch(@"双击评论").firstObject[@"key"] isEqual:@"gestures.doubleTapComments"],
+        @"global search recognizes the commonly used gesture names");
     Check(HGFlatTopStyle() && !HGFlatDockStyle() && !HGFlatPlayerStyle(),
         @"existing appearance settings start with flat top channels and glass dock and player actions");
     Check(HGAppearanceSet(@"dock.style",@"flat",nil) && HGFlatDockStyle() && HGFlatTopStyle() && !HGFlatPlayerStyle(),

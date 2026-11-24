@@ -244,15 +244,16 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     }
     [settings loadViewIfNeeded];
     UILabel *versionLabel = (UILabel *)settings.navigationItem.leftBarButtonItem.customView;
-    BOOL noCategoryHeaders = YES;
-    for (NSInteger section = 0; section < 3; section++)
-        noCategoryHeaders &= [settings tableView:settings.tableView titleForHeaderInSection:section] == nil;
+    NSArray *expectedHeaders=@[@"界面与导航",@"短剧播放",@"过滤与兼容",@"管理与支持"];
+    BOOL categoryHeaders = settings.tableView.numberOfSections==(NSInteger)expectedHeaders.count;
+    for (NSUInteger section=0; categoryHeaders && section<expectedHeaders.count; section++)
+        categoryHeaders = [[settings tableView:settings.tableView titleForHeaderInSection:section] isEqual:expectedHeaders[section]];
     [self check:[settings.title isEqualToString:@"Honggo"] && [versionLabel isKindOfClass:UILabel.class] &&
-        [versionLabel.text isEqual:HG_PLUGIN_VERSION] && noCategoryHeaders
-        name:@"the settings homepage puts the version in the leading navigation position and omits group headings"];
+        [versionLabel.text isEqual:HG_PLUGIN_VERSION] && categoryHeaders
+        name:@"the settings homepage shows its version with navigation, playback, filtering and management sections"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
-    BOOL level1HasNoInlineSwitches = settings.tableView.numberOfSections == 3;
+    BOOL level1HasNoInlineSwitches = settings.tableView.numberOfSections == 4;
     NSMutableSet *categories = [NSMutableSet set];
     for (NSInteger section = 0; section < settings.tableView.numberOfSections; section++) {
         for (NSInteger r = 0; r < [settings.tableView numberOfRowsInSection:section]; r++) {
@@ -262,8 +263,10 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
             if (row.accessibilityIdentifier) [categories addObject:row.accessibilityIdentifier];
         }
     }
-    [self check:level1HasNoInlineSwitches && categories.count == 8
-        name:@"all eight home shortcuts remain available in three native sections"];
+    [self check:level1HasNoInlineSwitches && categories.count == 14 &&
+        [categories containsObject:@"honggo.settings.category.gestures"] &&
+        [categories containsObject:@"honggo.settings.category.mine"]
+        name:@"gestures and profile are directly reachable alongside all other home categories"];
 
     // Verify Level-2 and Level-3 subpages expose all 18 switches, diagnostics, backup, and channel.
     Class subpageClass = NSClassFromString(@"HGSettingsSubpageController");
@@ -561,6 +564,14 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self filterSettings:settings text:@"reset"];
     [self check:[settings.tableView numberOfRowsInSection:2] == 0
         name:@"search cannot surface the removed global reset action"];
+    [self filterSettings:settings text:@"双指 清屏"];
+    [self check:[settings.tableView numberOfRowsInSection:4]==1 &&
+        [[self settingsCell:settings section:4 row:0].accessibilityIdentifier isEqual:@"honggo.appearance.setting.gestures.pinchClean"]
+        name:@"global search finds the two-finger gesture by its Chinese name"];
+    [self filterSettings:settings text:@"我的 订单"];
+    [self check:[settings.tableView numberOfRowsInSection:4]==1 &&
+        [[self settingsCell:settings section:4 row:0].accessibilityIdentifier isEqual:@"honggo.appearance.setting.mine.hide.shortcut.store"]
+        name:@"global search combines page and card names"];
     [self filterSettings:settings text:@"not-a-honggo-setting-123"];
     [self check:[settings.tableView numberOfRowsInSection:0] == 0 &&
         [settings.tableView numberOfRowsInSection:1] == 0 &&
@@ -568,13 +579,13 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [settings.tableView.backgroundView.accessibilityIdentifier isEqual:@"honggo.settings.search.empty"]
         name:@"unmatched search has no stale rows and exposes an accessible empty state"];
     [self filterSettings:settings text:@" \n\t "];
-    [self check:[settings.tableView numberOfSections] == 3 &&
-        [settings.tableView numberOfRowsInSection:0] == 3 &&
+    [self check:[settings.tableView numberOfSections] == 4 &&
+        [settings.tableView numberOfRowsInSection:0] == 5 &&
         settings.tableView.backgroundView == nil
         name:@"whitespace search restores the clean level-1 category list and removes the empty state"];
     [self filterSettings:settings text:@""];
-    [self check:[settings.tableView numberOfSections] == 3 &&
-        [settings.tableView numberOfRowsInSection:0] == 3
+    [self check:[settings.tableView numberOfSections] == 4 &&
+        [settings.tableView numberOfRowsInSection:0] == 5
         name:@"clearing the query restores the clean level-1 category list"];
     [self runSearchAction:0 settings:settings completion:completion];
 }

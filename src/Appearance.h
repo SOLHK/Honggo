@@ -8,7 +8,7 @@ void HGAppearanceProcessController(UIViewController *controller);
 BOOL HGAppearanceDockEnabled(void);
 void HGAppearanceLayoutDock(UIView *bar, UIViewController *controller);
 void HGAppearanceRestoreDock(UIView *bar);
-void HGAppearanceSuspendDockForSidebar(UIView *bar);
+BOOL HGAppearanceSuspendDockForSidebar(UIView *bar);
 void HGAppearanceUpdateSidebarLayout(UIWindow *window, BOOL suspended);
 void HGScheduleFeedLayoutRefresh(UIScrollView *feed);
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed);

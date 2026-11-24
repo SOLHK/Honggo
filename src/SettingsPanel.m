@@ -248,6 +248,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleFeatures;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleDiagnostics;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleConfiguration;
+@property(nonatomic, copy) NSArray<NSDictionary *> *visibleAppearance;
 @property(nonatomic) BOOL preferenceOperationInFlight;
 @property(nonatomic) BOOL communityVisible;
 @property(nonatomic, copy) dispatch_block_t afterSearchDismissal;
@@ -433,11 +434,16 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     self.navigationItem.leftBarButtonItem = versionItem;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
         initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeSettings)];
-    // Level 1 mirrors FanqieX: clean category entries only, zero inline switches.
     self.rootCategories = @[
-        @[@{@"kind": @"appearance", @"group": @"", @"title": @"外观", @"id": @"honggo.settings.category.appearance"},
+        @[@{@"kind": @"appearance", @"group": @"general", @"title": @"外观总开关", @"id": @"honggo.settings.category.appearance"},
+        @{@"kind": @"appearance", @"group": @"chrome", @"title": @"顶部导航与找剧", @"id": @"honggo.settings.category.chrome"},
         @{@"kind": @"appearance", @"group": @"dock", @"title": @"悬浮底栏", @"id": @"honggo.settings.category.dock"},
-        @{@"kind": @"appearance", @"group": @"player", @"title": @"播放布局与玻璃", @"id": @"honggo.settings.category.player"}],
+        @{@"kind": @"appearance", @"group": @"mine", @"title": @"我的页面", @"id": @"honggo.settings.category.mine"},
+        @{@"kind": @"appearance", @"group": @"fonts", @"title": @"字体与字号", @"id": @"honggo.settings.category.fonts"}],
+        @[@{@"kind": @"appearance", @"group": @"player", @"title": @"播放布局与控件", @"id": @"honggo.settings.category.player"},
+        @{@"kind": @"appearance", @"group": @"gestures", @"title": @"播放手势", @"id": @"honggo.settings.category.gestures"},
+        @{@"kind": @"appearance", @"group": @"icons", @"title": @"动作图标", @"id": @"honggo.settings.category.icons"},
+        @{@"kind": @"appearance", @"group": @"panels", @"title": @"弹出面板", @"id": @"honggo.settings.category.panels"}],
         @[@{@"kind": @"subpage", @"page": @"ads", @"title": @"广告与推广拦截", @"id": @"honggo.settings.category.ads"},
         @{@"kind": @"subpage", @"page": @"base", @"title": @"基础与兼容开关", @"id": @"honggo.settings.category.base"}],
         @[@{@"kind": @"subpage", @"page": @"backup", @"title": @"导出与备份", @"id": @"honggo.settings.category.backup"},
@@ -470,6 +476,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         self.visibleFeatures = @[];
         self.visibleDiagnostics = @[];
         self.visibleConfiguration = @[];
+        self.visibleAppearance = @[];
         self.communityVisible = NO;
         self.tableView.backgroundView = nil;
         [self.tableView reloadData];
@@ -493,9 +500,10 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     self.visibleFeatures = features;
     self.visibleDiagnostics = diagnostics;
     self.visibleConfiguration = configuration;
+    self.visibleAppearance = HGAppearanceSearch(trimmed);
     self.communityVisible = HGCommunityMatchesQuery(trimmed);
     UILabel *empty = nil;
-    if (features.count + diagnostics.count + configuration.count == 0 && !self.communityVisible) {
+    if (features.count + diagnostics.count + configuration.count + self.visibleAppearance.count == 0 && !self.communityVisible) {
         empty = [[UILabel alloc] initWithFrame:self.tableView.bounds];
         empty.text = @"未找到匹配的设置\n试试“玻璃”“直播”或“日志”";
         empty.numberOfLines = 0;
@@ -542,22 +550,23 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     });
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return self.isFiltering ? 4 : self.rootCategories.count;
+    return self.isFiltering ? 5 : self.rootCategories.count;
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (!self.isFiltering) return self.rootCategories[section].count;
+    if (section == 4) return self.visibleAppearance.count;
     if (section == 3) return self.communityVisible ? 1 : 0;
     return section == 0 ? self.visibleFeatures.count : section == 1 ? self.visibleDiagnostics.count :
         section == 2 ? self.visibleConfiguration.count : 0;
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
-    if (!self.isFiltering) return nil;
-    return @[@"功能开关", @"诊断与兼容", @"配置管理", @"更新与频道"][section];
+    if (!self.isFiltering) return @[@"界面与导航",@"短剧播放",@"过滤与兼容",@"管理与支持"][section];
+    return @[@"功能开关", @"诊断与兼容", @"配置管理", @"更新与频道", @"界面与播放设置"][section];
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
-    if (!self.isFiltering) return nil;
+    if (!self.isFiltering || section == 4) return nil;
     if (section == 3) return @"查看插件更新与测试版公告。只有点击打开或复制时才执行操作，不会自动加入频道。";
     if (section == 1) return @"增强诊断即时生效。复现广告或遮罩后截屏，再回来导出日志；仅记录控件结构，不读取截图像素或页面文字。";
     if (section == 2) return @"配置文件仅保存 Honggo 的功能开关。恢复后，请完全退出再打开。";
@@ -573,6 +582,17 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         cell.textLabel.numberOfLines = 0;
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         cell.accessibilityIdentifier = category[@"id"];
+        return cell;
+    }
+    if (indexPath.section == 4) {
+        NSDictionary *setting=self.visibleAppearance[indexPath.row];
+        UITableViewCell *cell=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+        cell.textLabel.text=setting[@"title"];
+        NSUInteger group=[HGAppearanceGroups() indexOfObject:setting[@"group"]];
+        if(group!=NSNotFound)cell.detailTextLabel.text=HGAppearanceGroupTitles()[group];
+        cell.textLabel.numberOfLines=0;
+        cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;
+        cell.accessibilityIdentifier=[@"honggo.appearance.setting." stringByAppendingString:setting[@"key"]];
         return cell;
     }
     if (indexPath.section == 3) {
@@ -773,6 +793,11 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         return;
     }
     if (indexPath.section == 0) return;
+    if (indexPath.section == 4) {
+        NSString *destination=[@"setting." stringByAppendingString:self.visibleAppearance[indexPath.row][@"key"]];
+        [self performAfterSearchDismissal:^{ HGOpenAppearance(self,destination); }];
+        return;
+    }
     if (indexPath.section == 3) {
         [self performAfterSearchDismissal:^{ HGShowCommunity(self); }];
         return;

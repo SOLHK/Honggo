@@ -101,16 +101,19 @@
 
 @interface HGATestChannelPan : UIPanGestureRecognizer
 @property(nonatomic) UIGestureRecognizerState fixtureState;
-@property(nonatomic) CGPoint fixtureTravel,fixtureVelocity;
+@property(nonatomic) CGPoint fixtureTravel,fixtureVelocity,fixtureLocation;
 @end
 
 @protocol HGATestChannelPaging <UIGestureRecognizerDelegate>
 - (void)page:(UIPanGestureRecognizer *)gesture;
+- (void)scrubChannels:(UIPanGestureRecognizer *)gesture;
+- (CGFloat)segmentForPageOffset:(CGFloat)page;
 @end
 @implementation HGATestChannelPan
 - (UIGestureRecognizerState)state { return self.fixtureState; }
 - (CGPoint)translationInView:(UIView *)view { return self.fixtureTravel; }
 - (CGPoint)velocityInView:(UIView *)view { return self.fixtureVelocity; }
+- (CGPoint)locationInView:(UIView *)view { return self.fixtureLocation; }
 @end
 
 @interface HGATestEpisodeSwipeContext : NSObject
@@ -357,10 +360,43 @@ static char HGAFixtureHeaderAnimationKey;
 @end
 @implementation HGAMineTitleHandleFixture @end
 
+@interface HGAMineSidebarSnapshotFixture : NSObject
+@property(nonatomic) signed char isVisible;
+@property(nonatomic) signed char showRedDot;
+@end
+static id HGACopyMineSidebarFixture(id self,SEL cmd,signed char visible,signed char red) {
+    HGAMineSidebarSnapshotFixture *result=[HGAMineSidebarSnapshotFixture new];
+    result.isVisible=visible;result.showRedDot=red;
+    return result;
+}
+@implementation HGAMineSidebarSnapshotFixture
++ (void)initialize {
+    if(self==HGAMineSidebarSnapshotFixture.class)
+        class_addMethod(self,sel_registerName("doCopyIsVisible:showRedDot:"),(IMP)HGACopyMineSidebarFixture,"@18@0:8c16c17");
+}
+@end
+@interface SSMinePageKMPDepend : NSObject
+- (void)notifyFunctionDataChanged;
+- (void)notifySidebarEntryStateChanged;
+@end
+@implementation SSMinePageKMPDepend
+- (void)notifyFunctionDataChanged {}
+- (void)notifySidebarEntryStateChanged {}
+@end
 @interface SSMine737KMPViewController : UIViewController
 @property(nonatomic,strong) HGAMineTitleHandleFixture *minePageKMPHandle;
+@property(nonatomic,strong) SSMinePageKMPDepend *minePageKMPDepend;
+@property(nonatomic,strong) HGAMineSidebarSnapshotFixture *sidebarSnapshot;
+@property(nonatomic) NSUInteger sidebarOpens;
+- (HGAMineSidebarSnapshotFixture *)minePageKMPSidebarEntrySnapshot:(id)depend;
+- (void)minePageKMPDepend:(id)depend setSidebarOpen:(BOOL)open;
 @end
-@implementation SSMine737KMPViewController @end
+@implementation SSMine737KMPViewController
+- (HGAMineSidebarSnapshotFixture *)minePageKMPSidebarEntrySnapshot:(id)depend {return self.sidebarSnapshot;}
+- (void)minePageKMPDepend:(id)depend setSidebarOpen:(BOOL)open {
+    if(depend==self.minePageKMPDepend && open)self.sidebarOpens++;
+}
+@end
 
 static Class HGAPageFixtureViewClass(const char *name) {
     Class type=objc_getClass(name);
@@ -617,6 +653,14 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     sample.fixtureTravel=CGPointMake(-64,2);
     [channelPaging page:sample];
     BOOL delayed=channels.nativeSelections==0;
+    if (segments && !UIAccessibilityIsReduceMotionEnabled()) {
+        UIVisualEffectView *lens=(id)Find(header,@"honggo.appearance.header.swipeLens");
+        CGFloat center=CGRectGetMidX(lens.frame)-CGRectGetMinX(segments.frame);
+        Check(lens && center>CGRectGetWidth(segments.bounds)*0.25 && center<CGRectGetWidth(segments.bounds)*0.75 &&
+            CGRectGetHeight(lens.bounds)>CGRectGetHeight(segments.bounds)-2 &&
+            segments.selectedSegmentIndex==UISegmentedControlNoSegment && delayed,
+            @"a partially completed page-body swipe lifts the header lens between titles before any navigation");
+    }
     sample.fixtureState=UIGestureRecognizerStateEnded;
     sample.fixtureVelocity=CGPointZero;
     [channelPaging page:sample];
@@ -671,6 +715,25 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         Check(channels.nativeSelections==selections+2 && channels.selectedIndex==1 &&
             pageScroll.contentOffset.x==pageWidth,
             @"returning to the first segment commits native channel one");
+        if (!UIAccessibilityIsReduceMotionEnabled()) {
+            id<HGATestChannelPaging> scrubber=nil;
+            for (UIGestureRecognizer *gesture in segments.gestureRecognizers) {
+                if ([gesture.delegate respondsToSelector:@selector(scrubChannels:)]) scrubber=(id)gesture.delegate;
+            }
+            Check(scrubber && fabs([scrubber segmentForPageOffset:2]-0.5)<0.001 &&
+                fabs([scrubber segmentForPageOffset:2.5]-0.75)<0.001 && [scrubber segmentForPageOffset:3]==1,
+                @"a native pager coasting through pages one to three maps continuously onto two visible channels");
+            sample.fixtureLocation=CGPointMake(segments.bounds.size.width*0.62,CGRectGetMidY(segments.bounds));
+            sample.fixtureState=UIGestureRecognizerStateChanged;
+            [scrubber scrubChannels:sample];
+            UIVisualEffectView *lens=(id)Find(header,@"honggo.appearance.header.swipeLens");
+            Check(lens && !lens.userInteractionEnabled && channels.nativeSelections==selections+2,
+                @"direct horizontal header tracking shows the lens before selection");
+            sample.fixtureState=UIGestureRecognizerStateCancelled;
+            [scrubber scrubChannels:sample];
+            Check(segments.selectedSegmentIndex==0 && channels.nativeSelections==selections+2,
+                @"cancelling a direct header scrub restores the selected page without sending its action");
+        }
     }
     if (@available(iOS 26.0,*)) {
         if (HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled()) {
@@ -1055,6 +1118,37 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         @"Mine places equal 36pt glass behind both clipped title glyphs while keeping the native frames");
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
     Check(!Find(nativeMine.view,material),@"Mine's title-bar materials restore together with the appearance switch");
+    nativeMine.minePageKMPDepend=[SSMinePageKMPDepend new];
+    nativeMine.sidebarSnapshot=[HGAMineSidebarSnapshotFixture new];
+    nativeMine.sidebarSnapshot.isVisible=1;nativeMine.sidebarSnapshot.showRedDot=1;
+    BOOL originalMaster=HGAppearanceEnabled();
+    HGAppearanceApply(@{@"enabled":@NO,@"mine.hide.shortcut.more":@YES},nil);
+    HGAppearanceProcessController(nativeMine);
+    HGAMineSidebarSnapshotFixture *filtered=[nativeMine minePageKMPSidebarEntrySnapshot:nativeMine.minePageKMPDepend];
+    HGAppearanceProcessController(nativeMine);
+    Check(!filtered.isVisible && nativeMine.sidebarSnapshot.isVisible &&
+        !Find(titleBar,@"honggo.appearance.mine.menu") && ![functions.getFunctionSnapshot containsObject:items[4]],
+        @"hiding More filters the separate Compose entry and preserves the original sidebar state and visible title buttons");
+    [menu removeFromSuperview];
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+    UIButton *titleMenu=(id)Find(titleBar,@"honggo.appearance.mine.menu");
+    [titleMenu sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+    Check(titleMenu && !CGRectIntersectsRect(moon.frame,[titleMenu.superview convertRect:titleMenu.frame toView:renderer]) &&
+        [titleMenu.accessibilityValue isEqual:@"有新消息"] && nativeMine.sidebarOpens==1,
+        @"the title menu remains actionable and announces the host badge after Compose removes the shared menu glyph");
+    nativeMine.sidebarSnapshot.showRedDot=0;
+    [nativeMine minePageKMPSidebarEntrySnapshot:nativeMine.minePageKMPDepend];
+    HGAppearanceProcessController(nativeMine);
+    Check(!titleMenu.accessibilityValue && Find(titleMenu,@"honggo.appearance.mine.menu.badge").hidden,
+        @"changes in the native sidebar snapshot update the replacement menu badge");
+    HGAppearanceApply(@{@"mine.hide.shortcut.more":@NO,@"mine.hide.shortcut.row":@YES},nil);
+    Check(!functions.getFunctionSnapshot.count && ![nativeMine minePageKMPSidebarEntrySnapshot:nativeMine.minePageKMPDepend].isVisible &&
+        [functions.functionItems isEqual:items],@"hiding the whole row filters every card and the separate More entry without modifying route data");
+    HGAppearanceApply(@{@"mine.hide.shortcut.row":@NO,@"enabled":@(originalMaster)},nil);
+    HGAppearanceProcessController(nativeMine);
+    Check([nativeMine minePageKMPSidebarEntrySnapshot:nativeMine.minePageKMPDepend]==nativeMine.sidebarSnapshot &&
+        [functions.getFunctionSnapshot isEqual:items] && !Find(titleBar,@"honggo.appearance.mine.menu"),
+        @"restoring the row returns both original snapshots and releases the temporary menu");
     HGAppearanceSet(@"player.mineGlass",@YES,nil);
     [nativeMine willMoveToParentViewController:nil];[nativeMine.view removeFromSuperview];[nativeMine removeFromParentViewController];
 

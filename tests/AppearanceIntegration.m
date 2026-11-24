@@ -194,6 +194,7 @@ static BOOL HGInstallMaterialEffectSpy(void) {
 #include "EpisodeSpacingIntegration.inc"
 #include "ActionShareAppearanceIntegration.inc"
 #include "PlayerChromeIntegration.inc"
+#include "PlayerGestureIntegration.inc"
 #include "AppearanceLandscapeChromeIntegration.inc"
 #include "DockVideoBackdropIntegration.inc"
 #include "AppearancePageChromeIntegration.inc"
@@ -294,6 +295,14 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(rolesRouted && visitedRoles == HGAppearanceRoles().count,
         @"every playback control opens its own editor through the table delegate");
     Check(choiceOpened, @"a pushed playback menu presents its layout choice sheet");
+    HGOpenAppearance(home,@"setting.gestures.pinchClean");
+    UITableViewController *result=(id)navigation.topViewController;
+    NSIndexPath *gesturePath=HGMenuPath(result,@"gestures.pinchClean");
+    BOOL wasEnabled=HGAppearanceFlag(@"gestures.pinchClean");
+    if(gesturePath)[result tableView:result.tableView didSelectRowAtIndexPath:gesturePath];
+    Check(result!=home && gesturePath && HGAppearanceFlag(@"gestures.pinchClean")!=wasEnabled && HGAppearanceEnabled()==original,
+        @"the global search destination edits the requested gesture without changing the appearance master");
+    HGAppearanceSet(@"gestures.pinchClean",@(wasEnabled),nil);
     window.rootViewController = previousRoot;
     [window makeKeyAndVisible];
 }
@@ -412,6 +421,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     RunEpisodeGlassChecks(root);
     RunEpisodeSpacingChecks(root);
     RunPlayerChromeChecks(self.host);
+    RunPlayerGestureChecks(self.host.view);
     RunLandscapeChromeChecks(self.host);
 
     SSShortVideoOutterSeriesInfoView *info=[[SSShortVideoOutterSeriesInfoView alloc] initWithFrame:CGRectMake(20,280,280,60)];[root addSubview:info];
@@ -530,7 +540,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     }
     NSIndexPath *swipeSetting=HGMenuPath(playerPage,@"player.disableEpisodeSwipe");
     UITableViewCell *swipeCell=swipeSetting ? [playerPage tableView:playerPage.tableView cellForRowAtIndexPath:swipeSetting] : nil;
-    Check(playerPage.tableView.numberOfSections==4 && playerRows==5+(NSInteger)HGAppearanceRoles().count &&
+    Check(playerPage.tableView.numberOfSections==4 && playerRows==8+(NSInteger)HGAppearanceRoles().count &&
         noInlineRoleSliders && swipeSetting && swipeSetting.section==0 && [swipeCell.accessoryView isKindOfClass:UISwitch.class],
         @"playback settings include the episode swipe switch and per-control subpages");
     UITableViewController *rolePage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];

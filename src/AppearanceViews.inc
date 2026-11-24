@@ -156,6 +156,12 @@ static void HGAInstallGlass(UIView *view,NSString *style,CGFloat radius,CGFloat 
 static void HGASetGlassOverlay(UIView *view,UIColor *color) {
     HGAState(view,NO).glass.overlayColor=color;
 }
+static void HGAInstallFlatPlaybackButton(UIView *view,CGRect frame) {
+    CGFloat radius=MIN(CGRectGetWidth(frame),CGRectGetHeight(frame))/2;
+    HGAInstallGlassInRect(view,@"solid",frame,radius,0);
+    // The solid glyph keeps its contrast as the video beneath it changes.
+    HGASetGlassOverlay(view,[UIColor colorWithWhite:0.16 alpha:UIAccessibilityIsReduceTransparencyEnabled() ? 1 : 0.74]);
+}
 static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius,UIColor *tint) {
     HGAInstallGlassInRect(view,style,frame,radius,0);
     HGAAppearanceMaterial *glass=HGAState(view,NO).glass;
@@ -284,7 +290,7 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL glass,BOOL flat) {
     }
     CGFloat requested=HGAppearanceNumber(@"icons.size");
     CGFloat ownerLimit=MAX(20,root.bounds.size.width-8);
-    if(glass) {
+    if(glass || flat) {
         // Keep the glyph readable while reserving the glass rim even at the
         // largest preference size or when a host provides a narrower owner.
         requested=MIN(requested*0.94,HGAActionGlassDiameter(root)*0.64);
@@ -519,7 +525,7 @@ void HGAppearanceProcessView(UIView *view) {
         if(header) {
             HGAApplyHeaderSeparatedGlass(view,glass,enabled && outer && !headerShowsFinder && !view.hidden,
                 HGAppearanceString(@"player.material"));
-        } else if(glass && !view.hidden) {
+        } else if((glass || (flat && ![role isEqual:@"avatar"] && ![role isEqual:@"more"])) && !view.hidden) {
             CGRect glassFrame=episode ? episodeFrame : view.bounds;
             CGFloat radius=episode ? MIN(episodeFrame.size.width,episodeFrame.size.height)/2 : 20;
             if(action) {
@@ -541,7 +547,8 @@ void HGAppearanceProcessView(UIView *view) {
                 NSString *dockStyle=HGAppearanceString(@"dock.material");
                 if([dockStyle isEqual:@"regular"] || [dockStyle isEqual:@"clear"])style=dockStyle;
             }
-            HGAInstallPlaybackGlass(view,style,glassFrame,radius,nil);
+            if(flat)HGAInstallFlatPlaybackButton(view,glassFrame);
+            else HGAInstallPlaybackGlass(view,style,glassFrame,radius,nil);
         }
         else HGARemoveGlass(view);
         HGAApplyTypography(view);

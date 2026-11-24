@@ -274,14 +274,17 @@ static void RunActionIconChoices(UIView *root) {
     for(HGAActionFixture *action in controls) {
         Layout(action);
         [action sendActionsForControlEvents:UIControlEventTouchUpInside];
-        flatActions &= !Find(action,@"honggo.appearance.material") && action.iconImageView.image.isSymbolImage &&
+        UIVisualEffectView *plate=(id)Find(action,@"honggo.appearance.material");
+        Layout(plate);
+        flatActions &= plate && !plate.effect && !plate.userInteractionEnabled && !action.iconImageView.image.isSymbolImage &&
+            HGAActionPixelAlpha(action.iconImageView.image,13,15)>230 &&
             [action.countLabel.text isEqual:@"123"] && action.taps==1;
     }
-    Check(flatActions,@"flat actions draw standalone symbols and retain native counts and taps with custom icons off");
+    Check(flatActions,@"flat actions draw filled glyphs on a neutral disc and retain their host counts and taps");
     SSShortVideoRightInteractionLikeView *like=(id)controls[2];
-    UIImage *outline=like.iconImageView.image;
+    UIImage *unselected=like.iconImageView.image;
     like.model.isLiked=YES; Layout(like);
-    Check(![outline isEqual:like.iconImageView.image] && [like.iconImageView.tintColor isEqual:UIColor.systemPinkColor],
+    Check(![unselected isEqual:like.iconImageView.image] && [like.iconImageView.tintColor isEqual:UIColor.systemPinkColor],
         @"the flat heart follows the current liked state");
     HGAppearanceSet(@"player.actionStyle",@"glass",nil);
     Layout(like);

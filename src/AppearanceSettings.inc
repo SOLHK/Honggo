@@ -91,6 +91,7 @@ static NSString *HGAIconRoleSummary(NSString *role) {
 
 static NSString *HGAGroupDisplayTitle(NSString *group) {
     if(!group.length)return @"外观";
+    if([group hasPrefix:@"setting."])return HGAGroupDisplayTitle(HGACatalogDef([group substringFromIndex:8])[@"group"]);
     NSDictionary<NSString *,NSString *> *titles=@{
         @"general":@"外观总开关",
         @"dock":@"悬浮底栏",
@@ -99,11 +100,13 @@ static NSString *HGAGroupDisplayTitle(NSString *group) {
         @"dock.extra":@"独立圆形按钮",
         @"dock.collapse":@"收缩与手势",
         @"dock.hide":@"底栏导航项隐藏",
-        @"chrome":@"顶部与页面玻璃",
+        @"chrome":@"顶部导航与找剧",
+        @"mine":@"我的页面",
+        @"gestures":@"播放手势",
         @"chrome.hide":@"顶部按钮与频道隐藏",
         @"chrome.finder.hide":@"找剧频道与快捷入口",
         @"chrome.mine.hide":@"我的快捷入口",
-        @"player":@"播放布局与玻璃",
+        @"player":@"播放布局与控件",
         @"panels":@"弹出面板",
         @"icons":@"动作图标",
         @"fonts":@"字体与字号"
@@ -197,28 +200,23 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         }
     };
     if(query.length) {
-        for(NSDictionary *def in HGAppearanceCatalog()) {
-            NSString *key=def[@"key"];
-            if([key hasPrefix:@"icons.comment.selected."] || [key hasPrefix:@"icons.share.selected."])continue;
-            NSString *haystack=[NSString stringWithFormat:@"%@ %@ %@",def[@"title"],def[@"key"],
-                [def[@"labels"] componentsJoinedByString:@" "] ?: @""];
-            BOOL match=YES;
-            for(NSString *word in [query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet])
-                if(word.length && [haystack rangeOfString:word options:NSCaseInsensitiveSearch|NSDiacriticInsensitiveSearch].location==NSNotFound){match=NO;break;}
-            if(match)[rows addObject:def];
-        }
+        [rows addObjectsFromArray:HGAppearanceSearch(query)];
         if(!self.group && HGCommunityMatchesQuery(query))
             [rows addObject:HGATool(@"@community",@"TG 更新频道 · @Naloiafeed")];
     } else if(!self.group.length) {
         HGAAddDefs(rows, @[@"enabled"]);
         section(@"界面与播放");
         [rows addObject:HGASubpage(@"@group.dock",@"悬浮底栏",HGAppearanceFlag(@"dock.enabled")?@"已开启":@"默认")];
-        [rows addObject:HGASubpage(@"@group.chrome",@"顶部与页面玻璃",@"独立顶栏按钮、找剧与我的页面")];
-        [rows addObject:HGASubpage(@"@group.player",@"播放布局与玻璃",@"播放方式、控件位置与大小")];
+        [rows addObject:HGASubpage(@"@group.chrome",@"顶部导航与找剧",@"频道、搜索与快捷入口")];
+        [rows addObject:HGASubpage(@"@group.mine",@"我的页面",@"订单、消息、游戏、追更与更多功能")];
+        [rows addObject:HGASubpage(@"@group.player",@"播放布局与控件",@"播放方式、控件位置与大小")];
+        [rows addObject:HGASubpage(@"@group.gestures",@"播放手势",@"双指清屏与双击评论")];
         [rows addObject:HGASubpage(@"@group.panels",@"弹出面板",@"评论、选集、分享与倍速面板")];
         section(@"图标与文字");
         [rows addObject:HGASubpage(@"@group.icons",@"动作图标",HGAppearanceFlag(@"icons.enabled")?@"已开启":@"默认")];
         [rows addObject:HGASubpage(@"@group.fonts",@"字体与字号",HGAppearanceFlag(@"fonts.enabled")?@"已开启":@"默认")];
+    } else if([self.group hasPrefix:@"setting."]) {
+        HGAAddDefs(rows,@[[self.group substringFromIndex:8]]);
     } else if([self.group isEqual:@"general"]) {
         HGAAddDefs(rows,@[@"enabled"]);
     } else if([self.group isEqual:@"dock"]) {
@@ -248,12 +246,15 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"找剧");
         HGAAddDefs(rows,@[@"player.finderGlass",@"player.finderAI"]);
         [rows addObject:HGASubpage(@"@group.chrome.finder.hide",@"找剧频道与快捷入口",@"逐项隐藏频道、筛选等入口")];
-        section(@"我的与播放");
-        HGAAddDefs(rows,@[@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass"]);
-        [rows addObject:HGASubpage(@"@group.chrome.mine.hide",@"我的快捷入口",@"逐项隐藏商城、消息等卡片")];
-    } else if([self.group isEqual:@"chrome.finder.hide"] || [self.group isEqual:@"chrome.mine.hide"]) {
-        BOOL finder=[self.group isEqual:@"chrome.finder.hide"];
-        NSArray *prefixes=finder ? @[@"finder.hide.category.",@"finder.hide.shortcut."] : @[@"mine.hide.shortcut."];
+    } else if([self.group isEqual:@"mine"] || [self.group isEqual:@"chrome.mine.hide"]) {
+        HGAAddDefs(rows,@[@"player.mineGlass"]);
+        section(@"我的快捷入口");
+        HGAAddDefs(rows,@[@"mine.hide.shortcut.row",@"mine.hide.shortcut.store",@"mine.hide.shortcut.messages",
+            @"mine.hide.shortcut.games",@"mine.hide.shortcut.updates",@"mine.hide.shortcut.more"]);
+    } else if([self.group isEqual:@"gestures"]) {
+        HGAAddDefs(rows,@[@"gestures.pinchClean",@"gestures.doubleTapComments"]);
+    } else if([self.group isEqual:@"chrome.finder.hide"]) {
+        NSArray *prefixes=@[@"finder.hide.category.",@"finder.hide.shortcut."];
         for(NSString *prefix in prefixes) {
             section([prefix hasSuffix:@"category."] ? @"频道" : @"快捷入口");
             NSMutableArray *keys=[NSMutableArray array];
@@ -269,7 +270,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     } else if([self.group isEqual:@"player"]) {
         section(@"播放与材质");
         HGAAddDefs(rows,@[@"player.fullscreen",@"player.disableEpisodeSwipe",@"player.separateProgress",
-            @"player.rightGlass",@"player.actionStyle",@"player.material"]);
+            @"player.rightGlass",@"player.actionStyle",@"player.material",@"player.episodeGlass",@"player.controlsGlass"]);
         NSArray *roles = HGAppearanceRoles(), *roleTitles = HGAppearanceRoleTitles();
         for (NSUInteger i = 0; i < roles.count; i++) {
             NSString *role = roles[i];
@@ -336,8 +337,9 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (self.search.searchBar.text.length) return nil;
-    if (!self.group.length && section == 0)
+    if ((!self.group.length || [self.group isEqual:@"general"] || [self.group isEqual:@"setting.enabled"]) && section == 0)
         return @"首次启用原生玻璃后，请完全退出红果再打开。";
+    if ([self.group isEqual:@"gestures"])return @"在短剧播放画面上使用。开启双击评论后，双击会打开当前短剧的评论区。";
     if ([self.group hasPrefix:@"role."] && section == 1)
         return @"50% 对应控件原来的位置和大小。";
     if ([self.group isEqual:@"fonts"] && section == 0)

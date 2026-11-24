@@ -1193,8 +1193,15 @@ static HGSidebarTransition *HGSuspendSidebarAppearance(UIViewController *page, U
         [UIView performWithoutAnimation:^{
             UIView *bar = HGView(HGContainingTabController(page), "customTabBar");
             HGTabState *state = objc_getAssociatedObject(bar, &HGStateKey);
-            HGAppearanceSuspendDockForSidebar(bar);
-            [state restore];
+            if (HGAppearanceSuspendDockForSidebar(bar)) {
+                // The drawer owns scroll geometry. Keep the mounted Dock,
+                // clear host surfaces and live video extension together as
+                // SSTabBar moves horizontally with the feed.
+                HGRestoreViewports(state.viewports.objectEnumerator.allObjects);
+                [state.viewports removeAllObjects];
+            } else {
+                [state restore];
+            }
             HGAppearanceUpdateSidebarLayout(window, YES);
         }];
     }

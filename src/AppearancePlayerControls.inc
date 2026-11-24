@@ -1,3 +1,4 @@
+#include "AppearancePlayerGestures.inc"
 // Host 7.4.3.33: each named object getter has @16@0:8. Keep the original
 // controls, gestures and labels; decorate only their existing bounds.
 static NSDictionary<NSString *,NSArray<NSString *> *> *HGAPlayerControlGetters(void) {
@@ -185,8 +186,8 @@ static HGAPlayerChromeState *HGAPlayerChromeTargets(id owner,NSArray<UIView *> *
 // state images and visibility are changed by the player itself.
 static char HGAPlaybackButtonKey;
 static void HGAApplyPlaybackButton(UIView *root) {
-    BOOL glass=root.window && HGAppearanceEnabled() && HGAppearanceFlag(@"player.rightGlass") && !HGFlatPlayerStyle();
-    UIButton *button=glass ? (id)HGAViewGetter(root,"playBtn",root) : nil;
+    BOOL styled=root.window && HGAppearanceEnabled() && HGAppearanceFlag(@"player.rightGlass");
+    UIButton *button=styled ? (id)HGAViewGetter(root,"playBtn",root) : nil;
     if(![button isKindOfClass:UIButton.class] || !button.currentImage)button=nil;
     UIButton *previous=objc_getAssociatedObject(root,&HGAPlaybackButtonKey);
     if(previous!=button) {
@@ -200,11 +201,15 @@ static void HGAApplyPlaybackButton(UIView *root) {
     CGFloat side=MIN(MIN(CGRectGetWidth(bounds),CGRectGetHeight(bounds)),
         MIN(64,MAX(44,MAX(CGRectGetWidth(glyph),CGRectGetHeight(glyph))+8)));
     CGRect frame=CGRectMake(CGRectGetMidX(glyph)-side/2,CGRectGetMidY(glyph)-side/2,side,side);
-    HGAInstallPlaybackGlass(button,HGALiquidPlayerMaterial(),frame,side/2,nil);
+    if(HGFlatPlayerStyle())HGAInstallFlatPlaybackButton(button,frame);
+    else HGAInstallPlaybackGlass(button,HGALiquidPlayerMaterial(),frame,side/2,nil);
 }
 static void HGAApplyPlayerControls(UIView *root) {
     NSString *name=NSStringFromClass(root.class);
-    if([root isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerControlView")])HGAApplyPlaybackButton(root);
+    if([root isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerControlView")]) {
+        HGAUpdatePlayerGestures(root);
+        HGAApplyPlaybackButton(root);
+    }
     BOOL danmaku=[name isEqual:@"FQCShortVideoDanmakuEntranceView"];
     BOOL sheet=HGAEpisodeControl(root);
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(sheet?@"panels.episodes":@"player.controlsGlass") && root.window;

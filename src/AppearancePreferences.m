@@ -21,8 +21,8 @@ static NSObject *HGALock(void) { static NSObject *lock; static dispatch_once_t o
                 @synchronized(lock) { HGACachedValues=nil; }
             }];
     }); return lock; }
-NSArray *HGAppearanceGroups(void) { return @[@"general", @"dock", @"player", @"panels", @"icons", @"fonts"]; }
-NSArray *HGAppearanceGroupTitles(void) { return @[@"总开关与预设", @"悬浮底栏", @"播放布局与玻璃", @"弹出面板", @"动作图标", @"字体与字号"]; }
+NSArray *HGAppearanceGroups(void) { return @[@"general",@"dock",@"chrome",@"mine",@"player",@"gestures",@"panels",@"icons",@"fonts"]; }
+NSArray *HGAppearanceGroupTitles(void) { return @[@"外观总开关",@"悬浮底栏 Dock",@"顶部导航与找剧",@"我的页面",@"播放布局与控件",@"播放手势",@"弹出面板",@"动作图标",@"字体与字号"]; }
 NSArray *HGAppearanceRoles(void) { return @[@"avatar", @"collect", @"comment", @"like", @"share", @"more", @"channels", @"info", @"tags", @"progress", @"danmaku", @"episodes", @"notice"]; }
 NSArray *HGAppearanceRoleTitles(void) { return @[@"作者头像", @"收藏", @"评论", @"点赞", @"分享", @"更多", @"顶部频道", @"作者与剧集信息", @"分类标签", @"进度条", @"弹幕入口", @"观看全集入口", @"内容声明"]; }
 static NSDictionary *HGADef(NSString *key, NSString *group, NSString *title, NSString *kind, id value, NSDictionary *extra) {
@@ -69,32 +69,37 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         for (NSUInteger i=0; i<tabIDs.count; i++) flag([@"dock.hide." stringByAppendingString:tabIDs[i]],@"dock",[@"隐藏" stringByAppendingString:tabNames[i]]);
         flag(@"player.rightGlass",@"player",@"自定义播放动作按钮");
         buttonStyle(@"player.actionStyle",@"player",@"播放动作按钮风格",@"glass");
-        flag(@"player.headerGlass",@"player",@"自定义顶部按钮");
-        buttonStyle(@"player.headerStyle",@"player",@"顶部按钮风格",@"flat");
+        flag(@"player.headerGlass",@"chrome",@"自定义顶部按钮");
+        buttonStyle(@"player.headerStyle",@"chrome",@"顶部按钮风格",@"flat");
         NSArray *channelIDs=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
         NSArray *channelNames=@[@"菜单",@"关注",@"漫剧",@"真人剧",@"推荐",@"搜索"];
         for(NSUInteger i=0;i<channelIDs.count;i++)
-            flag([@"layout.channels.hide." stringByAppendingString:channelIDs[i]],@"player",
+            flag([@"layout.channels.hide." stringByAppendingString:channelIDs[i]],@"chrome",
                 [@"隐藏顶部" stringByAppendingString:channelNames[i]]);
-        [a addObject:HGADef(@"player.finderGlass",@"player",@"找剧搜索与快捷入口玻璃",@"bool",@YES,nil)];
-        [a addObject:HGADef(@"player.finderAI",@"player",@"显示找剧 AI 入口",@"bool",@YES,nil)];
-        [a addObject:HGADef(@"player.mineGlass",@"player",@"我的页面控件玻璃",@"bool",@YES,nil)];
-        flag(@"finder.hide.category.row",@"player",@"隐藏整个找剧频道栏");
+        [a addObject:HGADef(@"player.finderGlass",@"chrome",@"找剧搜索与快捷入口玻璃",@"bool",@YES,nil)];
+        [a addObject:HGADef(@"player.finderAI",@"chrome",@"显示找剧 AI 入口",@"bool",@YES,nil)];
+        [a addObject:HGADef(@"player.mineGlass",@"mine",@"我的页面控件玻璃",@"bool",@YES,nil)];
+        flag(@"finder.hide.category.row",@"chrome",@"隐藏整个找剧频道栏");
         NSArray *finderTabs=@[@"dramas",@"live",@"community",@"comics",@"films",@"audio",@"novels",@"manga",@"long"];
         NSArray *finderNames=@[@"找剧",@"真人剧",@"社区",@"漫剧",@"电影",@"听书",@"小说",@"漫画",@"长视频"];
         for(NSUInteger i=0;i<finderTabs.count;i++)
-            flag([@"finder.hide.category." stringByAppendingString:finderTabs[i]],@"player",
+            flag([@"finder.hide.category." stringByAppendingString:finderTabs[i]],@"chrome",
                 [@"隐藏" stringByAppendingString:finderNames[i]]);
         NSArray *finderShortcuts=@[@"filter",@"ranking",@"new",@"reserve"];
         NSArray *finderShortcutNames=@[@"筛选",@"排行榜",@"新剧",@"预约"];
         for(NSUInteger i=0;i<finderShortcuts.count;i++)
-            flag([@"finder.hide.shortcut." stringByAppendingString:finderShortcuts[i]],@"player",
+            flag([@"finder.hide.shortcut." stringByAppendingString:finderShortcuts[i]],@"chrome",
                 [@"隐藏" stringByAppendingString:finderShortcutNames[i]]);
+        flag(@"mine.hide.shortcut.row",@"mine",@"隐藏整行快捷入口");
         NSArray *mineShortcuts=@[@"store",@"messages",@"games",@"updates",@"more"];
-        NSArray *mineShortcutNames=@[@"商城／订单",@"消息",@"游戏",@"追更",@"更多功能"];
+        NSArray *mineShortcutNames=@[@"订单／商城",@"消息",@"游戏",@"追更",@"更多功能"];
         for(NSUInteger i=0;i<mineShortcuts.count;i++)
-            flag([@"mine.hide.shortcut." stringByAppendingString:mineShortcuts[i]],@"player",
+            flag([@"mine.hide.shortcut." stringByAppendingString:mineShortcuts[i]],@"mine",
                 [@"隐藏" stringByAppendingString:mineShortcutNames[i]]);
+        [a addObject:HGADef(@"gestures.pinchClean",@"gestures",@"双指展开清屏、收缩恢复",@"bool",@NO,
+            @{@"keywords":@"双指清屏 捏合恢复 双指放大 双指缩小"})];
+        [a addObject:HGADef(@"gestures.doubleTapComments",@"gestures",@"双击短剧画面打开评论区",@"bool",@NO,
+            @{@"keywords":@"双击评论 双击打开评论"})];
         [a addObject:HGADef(@"player.episodeGlass",@"player",@"全集入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
@@ -136,6 +141,27 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         catalog = a.copy;
     });
     return catalog;
+}
+NSArray<NSDictionary *> *HGAppearanceSearch(NSString *query) {
+    NSArray *words=[query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSArray *groups=HGAppearanceGroups(), *titles=HGAppearanceGroupTitles();
+    NSMutableArray *matches=[NSMutableArray array];
+    for(NSDictionary *entry in HGAppearanceCatalog()) {
+        NSString *key=entry[@"key"];
+        if([key hasPrefix:@"icons.comment.selected."] || [key hasPrefix:@"icons.share.selected."])continue;
+        NSUInteger index=[groups indexOfObject:entry[@"group"]];
+        NSString *description=[NSString stringWithFormat:@"%@ %@ %@ %@ %@",entry[@"title"],key,
+            index==NSNotFound ? @"" : titles[index],[entry[@"labels"] componentsJoinedByString:@" "] ?: @"",entry[@"keywords"] ?: @""];
+        BOOL matched=YES;
+        for(NSString *word in words) {
+            if(word.length && [description rangeOfString:word options:NSCaseInsensitiveSearch|NSDiacriticInsensitiveSearch|NSWidthInsensitiveSearch].location==NSNotFound) {
+                matched=NO;
+                break;
+            }
+        }
+        if(matched)[matches addObject:entry];
+    }
+    return matches;
 }
 static NSDictionary *HGADefinition(NSString *key) {
     static NSDictionary *map; static dispatch_once_t once;
