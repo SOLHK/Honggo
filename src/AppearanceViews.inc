@@ -5,7 +5,6 @@
 @property(nonatomic,copy) NSString *materialSignature;
 @property(nonatomic) CGFloat overlayOpacity;
 @property(nonatomic,strong) UIColor *overlayColor;
-@property(nonatomic,strong) UIColor *nativeGlassTint;
 @property(nonatomic) BOOL interactiveGlass;
 - (void)requestMaterialRefresh;
 @end
@@ -13,10 +12,6 @@
 - (void)setOverlayColor:(UIColor *)color {
     if(_overlayColor==color || [_overlayColor isEqual:color])return;
     _overlayColor=color;self.materialSignature=nil;[self setNeedsLayout];
-}
-- (void)setNativeGlassTint:(UIColor *)color {
-    if(_nativeGlassTint==color || [_nativeGlassTint isEqual:color])return;
-    _nativeGlassTint=color;self.materialSignature=nil;[self setNeedsLayout];
 }
 - (void)willMoveToWindow:(UIWindow *)window {
     // A live glass effect must never be carried into a detached scene. Its
@@ -46,14 +41,8 @@
     UIColor *color=self.overlayColor ?: [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
         effect ? self.overlayOpacity : 1];
     if(@available(iOS 26.0,*)) {
-        if([effect isKindOfClass:UIGlassEffect.class]) {
-            UIGlassEffect *glass=(UIGlassEffect *)effect;
-            glass.interactive=self.interactiveGlass;
-            if(self.nativeGlassTint) {
-                glass.tintColor=self.nativeGlassTint;
-                color=UIColor.clearColor;
-            }
-        }
+        if(self.interactiveGlass && [effect isKindOfClass:UIGlassEffect.class])
+            ((UIGlassEffect *)effect).interactive=YES;
     }
     self.effect=effect;
     if(![self.contentView.backgroundColor isEqual:color])self.contentView.backgroundColor=color;

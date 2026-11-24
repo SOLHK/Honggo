@@ -104,7 +104,11 @@
 @property(nonatomic,strong) UIView *panelView;
 @end
 @implementation SSVideoSharePanelViewController @end
-@interface FQVShortVideoSettingsViewController : UIViewController @end
+@interface FQVShortVideoSettingsViewController : UIViewController
+@property(nonatomic) BOOL useBlurBackground;
+@property(nonatomic,strong) UIVisualEffectView *blurView;
+@property(nonatomic,strong) UIView *effectViewContentView;
+@end
 @implementation FQVShortVideoSettingsViewController @end
 @interface FQVShortVideoNewSpeedSelectController : UIViewController @end
 @implementation FQVShortVideoNewSpeedSelectController @end

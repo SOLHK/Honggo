@@ -2,6 +2,7 @@
 // This noninteractive marker follows the sheet through interactive dismissal
 // and also handles hosts that remove their content without a controller callback.
 static void HGARefreshSheetDockVisibility(UIWindow *window);
+static void HGARestoreDetachedSheetDimmer(UIView *root);
 static NSHashTable<UIView *> *HGAMountedActionSheets;
 static BOOL HGAWindowHasActionSheet(UIWindow *window) {
     if(!window)return NO;
@@ -17,6 +18,7 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
 }
 @interface HGAActionSheetMount : UIView
 @property(nonatomic,weak) UIWindow *previousWindow;
+@property(nonatomic,weak) UIView *sheetRoot;
 @end
 @implementation HGAActionSheetMount
 - (void)didMoveToWindow {
@@ -27,7 +29,10 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
         if(!HGAMountedActionSheets)HGAMountedActionSheets=[NSHashTable weakObjectsHashTable];
         [HGAMountedActionSheets addObject:self];
     } else [HGAMountedActionSheets removeObject:self];
-    if(old && old!=self.window)HGARefreshSheetDockVisibility(old);
+    if(old && old!=self.window) {
+        HGARestoreDetachedSheetDimmer(self.sheetRoot);
+        HGARefreshSheetDockVisibility(old);
+    }
     HGARefreshSheetDockVisibility(self.window);
 }
 @end
@@ -47,8 +52,15 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
 @property(nonatomic,strong) NSMapTable<UIVisualEffectView *,UIVisualEffect *> *effects;
 @property(nonatomic,strong) NSHashTable<UIView *> *shareCells;
 @property(nonatomic,strong) NSMapTable<CALayer *,HGAActionSheetPlate *> *plates;
+@property(nonatomic,strong) NSMapTable<UILabel *,HGAActionSheetPlate *> *labels;
+@property(nonatomic,weak) UIView *dimmer;
+@property(nonatomic,strong) UIColor *dimmerPaint;
 @property(nonatomic,strong) UIColor *overlay;
 @property(nonatomic) CGFloat overlayOpacity;
+@property(nonatomic) BOOL nativeClear;
+@property(nonatomic) BOOL unclipped;
+@property(nonatomic) UIUserInterfaceStyle originalStyle;
+@property(nonatomic) UIUserInterfaceStyle appliedStyle;
 @property(nonatomic) BOOL rounding;
 @property(nonatomic) CGFloat sourceRadius;
 @property(nonatomic) CGFloat appliedRadius;
@@ -59,6 +71,15 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
 @end
 @implementation HGAActionSheetState @end
 static char HGAActionSheetKey;
+
+static void HGARestoreSheetDimmer(HGAActionSheetState *state) {
+    if([state.dimmer.backgroundColor isEqual:UIColor.clearColor])state.dimmer.backgroundColor=state.dimmerPaint;
+    state.dimmer=nil;state.dimmerPaint=nil;
+}
+
+static void HGARestoreDetachedSheetDimmer(UIView *root) {
+    HGARestoreSheetDimmer(objc_getAssociatedObject(root,&HGAActionSheetKey));
+}
 
 @interface HGAShareInk : NSObject
 @property(nonatomic,weak) UIImageView *icon;
@@ -90,16 +111,65 @@ static UIColor *HGASharePlate(void) {
     return color;
 }
 
-static UIColor *HGAActionSheetColor(CGFloat opacity, BOOL overlay) {
+static UIColor *HGAActionSheetColor(CGFloat opacity) {
     return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
         BOOL dark=traits.userInterfaceStyle==UIUserInterfaceStyleDark;
         // Over a black video surround, directly applying the opacity setting
         // leaves light-mode text on near-black glass. Keep a readable baseline
         // and map the setting over the remaining translucent range.
         CGFloat baseline=dark ? 0.54 : 0.62;
-        CGFloat alpha=overlay ? baseline+(1-baseline)*opacity : opacity;
+        CGFloat alpha=baseline+(1-baseline)*opacity;
         return [UIColor colorWithWhite:dark ? 0.10 : 1 alpha:alpha];
     }];
+}
+
+static BOOL HGASheetNeutralColor(UIColor *color,UITraitCollection *traits,CGFloat *white,CGFloat *alpha) {
+    CGFloat red=0,green=0,blue=0;
+    if(![[color resolvedColorWithTraitCollection:traits] getRed:&red green:&green blue:&blue alpha:alpha] ||
+        MAX(red,MAX(green,blue))-MIN(red,MIN(green,blue))>=0.10)return NO;
+    *white=0.2126*red+0.7152*green+0.0722*blue;
+    return YES;
+}
+
+static void HGARestoreSheetLabel(HGAActionSheetState *state,UILabel *label) {
+    HGAActionSheetPlate *ink=[state.labels objectForKey:label];
+    if(ink && [label.textColor isEqual:ink.applied])label.textColor=ink.source;
+    [state.labels removeObjectForKey:label];
+}
+
+static void HGAApplySheetLabel(HGAActionSheetState *state,UILabel *label) {
+    HGAActionSheetPlate *ink=[state.labels objectForKey:label];
+    UIColor *current=label.textColor;
+    UIColor *original=ink && [current isEqual:ink.applied] ? ink.source : current;
+    NSAttributedString *text=label.attributedText;
+    if(text.length) {
+        NSRange range;
+        id color=[text attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:&range];
+        if(range.length!=text.length || (color && ![color isEqual:current])) {
+            HGARestoreSheetLabel(state,label);return;
+        }
+    }
+    BOOL dark=label.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    // Keep the text polarity supplied by the host for opaque selection chips.
+    for(UIView *parent=label.superview;parent && parent!=state.surface;parent=parent.superview) {
+        CGColorRef paint=parent.layer.backgroundColor;
+        if(paint && CGColorGetAlpha(paint)>0.82){HGARestoreSheetLabel(state,label);return;}
+    }
+    CGFloat white=0,alpha=0;
+    if(!HGASheetNeutralColor(original,label.traitCollection,&white,&alpha) ||
+        (dark ? white>=0.66 : white<=0.40)) {HGARestoreSheetLabel(state,label);return;}
+    // Preserve disabled/secondary emphasis and any semantic colored text.
+    CGFloat level=dark ? (white<0.2 ? 0.98 : 0.76) : (white>0.8 ? 0.10 : 0.30);
+    if(!ink){ink=[HGAActionSheetPlate new];[state.labels setObject:ink forKey:label];}
+    ink.source=original;ink.applied=[UIColor colorWithWhite:level alpha:alpha];
+    if(![label.textColor isEqual:ink.applied])label.textColor=ink.applied;
+}
+
+static void HGAClearSheetBackground(HGAActionSheetState *state,UIView *view) {
+    UIColor *source=view.backgroundColor;
+    if(source && ![source isEqual:UIColor.clearColor]) {
+        [state.covers setObject:source forKey:view];view.backgroundColor=UIColor.clearColor;
+    }
 }
 
 static void HGARestoreSheetPlate(HGAActionSheetState *state, CALayer *layer) {
@@ -134,7 +204,7 @@ static void HGAClearSheetCover(HGAActionSheetState *state,UIView *view) {
     CGFloat r=0,g=0,b=0,a=0;
     if([[source resolvedColorWithTraitCollection:view.traitCollection] getRed:&r green:&g blue:&b alpha:&a] &&
         a>0.8 && MAX(r,MAX(g,b))-MIN(r,MIN(g,b))<0.08) {
-        [state.covers setObject:source forKey:view];view.backgroundColor=UIColor.clearColor;
+        HGAClearSheetBackground(state,view);
     }
 }
 
@@ -224,12 +294,72 @@ static void HGAApplyShareInk(UIView *cell) {
     if(icon.image!=ink.applied)icon.image=ink.applied;
 }
 
+static void HGARestoreSheetRounding(HGAActionSheetState *state) {
+    if(!state.rounding)return;
+    UIView *surface=state.surface;
+    if(fabs(surface.layer.cornerRadius-state.appliedRadius)<0.01)surface.layer.cornerRadius=state.sourceRadius;
+    if([surface.layer.cornerCurve isEqual:kCACornerCurveContinuous])surface.layer.cornerCurve=state.sourceCurve;
+    if(surface.layer.maskedCorners==state.appliedCorners)surface.layer.maskedCorners=state.sourceCorners;
+    if(surface.clipsToBounds)surface.clipsToBounds=state.sourceClips;
+    state.rounding=NO;
+}
+
+static void HGARestoreSheetOptics(HGAActionSheetState *state) {
+    UIView *surface=state.surface;
+    if(state.unclipped)surface.clipsToBounds=YES;
+    state.unclipped=NO;
+    if(state.appliedStyle!=UIUserInterfaceStyleUnspecified && surface.overrideUserInterfaceStyle==state.appliedStyle)
+        surface.overrideUserInterfaceStyle=state.originalStyle;
+    state.appliedStyle=UIUserInterfaceStyleUnspecified;
+    HGARestoreSheetDimmer(state);
+    for(UILabel *label in state.labels.keyEnumerator.allObjects)HGARestoreSheetLabel(state,label);
+}
+
+static void HGAApplySheetOptics(HGAActionSheetState *state) {
+    UIView *surface=state.surface;
+    HGARestoreSheetRounding(state);
+    // The glass owns its optical shape. A host mask can belong to a transition.
+    if(!surface.layer.mask && surface.clipsToBounds){state.unclipped=YES;surface.clipsToBounds=NO;}
+    UIView *transition=surface.superview;
+    Class type=objc_lookUpClass("FQVTransitionView");
+    while(transition && ![transition isKindOfClass:type])transition=transition.superview;
+    if(!transition)return;
+
+    // This playback transition places the video above the card, over an
+    // almost-black surround. Let a known solid surround choose the local ink.
+    CGFloat red=0,green=0,blue=0,alpha=0;
+    UIColor *surround=[transition.backgroundColor resolvedColorWithTraitCollection:transition.traitCollection];
+    BOOL light=[surround getRed:&red green:&green blue:&blue alpha:&alpha] &&
+        alpha>0.82 && 0.2126*red+0.7152*green+0.0722*blue>0.50;
+    UIUserInterfaceStyle desired=light ? UIUserInterfaceStyleLight : UIUserInterfaceStyleDark;
+    if(surface.overrideUserInterfaceStyle!=desired) {
+        if(state.appliedStyle==UIUserInterfaceStyleUnspecified || surface.overrideUserInterfaceStyle!=state.appliedStyle)
+            state.originalStyle=surface.overrideUserInterfaceStyle;
+        state.appliedStyle=desired;
+        surface.overrideUserInterfaceStyle=desired;
+        if(@available(iOS 17.0,*))[surface updateTraitsIfNeeded];
+    }
+
+    // The verified transition getter identifies the visual scrim. Keep its
+    // UIView and gestures in place so touches outside the card still dismiss.
+    UIView *dimmer=HGAViewGetter(transition,"bgView",transition);
+    if(state.dimmer!=dimmer)HGARestoreSheetDimmer(state);
+    CGFloat white=0;
+    if(dimmer.superview==transition && dimmer.subviews.count==0 &&
+        CGRectContainsRect(dimmer.frame,[surface convertRect:surface.bounds toView:transition]) &&
+        HGASheetNeutralColor(dimmer.backgroundColor,dimmer.traitCollection,&white,&alpha) &&
+        white<0.20 && alpha*dimmer.alpha>0.02 && alpha*dimmer.alpha<0.95) {
+        state.dimmer=dimmer;state.dimmerPaint=dimmer.backgroundColor;dimmer.backgroundColor=UIColor.clearColor;
+    }
+}
+
 static void HGARestoreActionSheet(UIView *root) {
     HGAActionSheetState *state=objc_getAssociatedObject(root,&HGAActionSheetKey);
     if(!state)return;
     UIView *surface=state.surface;
     [state.dockMount removeFromSuperview];
     HGARemoveGlass(surface);
+    HGARestoreSheetOptics(state);
     for(UIView *cover in state.covers.keyEnumerator.allObjects) {
         if([cover.backgroundColor isEqual:UIColor.clearColor])cover.backgroundColor=[state.covers objectForKey:cover];
     }
@@ -237,12 +367,7 @@ static void HGARestoreActionSheet(UIView *root) {
         if(!backing.effect)backing.effect=[state.effects objectForKey:backing];
     for(UIView *cell in state.shareCells)HGARestoreShareInk(cell);
     for(CALayer *layer in state.plates.keyEnumerator.allObjects)HGARestoreSheetPlate(state,layer);
-    if(state.rounding) {
-        if(fabs(surface.layer.cornerRadius-state.appliedRadius)<0.01)surface.layer.cornerRadius=state.sourceRadius;
-        if([surface.layer.cornerCurve isEqual:kCACornerCurveContinuous])surface.layer.cornerCurve=state.sourceCurve;
-        if(surface.layer.maskedCorners==state.appliedCorners)surface.layer.maskedCorners=state.sourceCorners;
-        if(surface.clipsToBounds)surface.clipsToBounds=state.sourceClips;
-    }
+    HGARestoreSheetRounding(state);
     objc_setAssociatedObject(root,&HGAActionSheetKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 static UIView *HGAActionSheetSurface(UIView *root) {
@@ -341,7 +466,8 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     BOOL enabled=HGAPanelWantsGlass(kind) && root.window;
     UIView *surface=enabled?HGAActionSheetSurface(root):nil;
     BOOL comment=[kind isEqual:@"comment"];
-    BOOL share=[kind isEqual:@"share"] || [kind isEqual:@"longpress"];
+    BOOL longPress=[kind isEqual:@"longpress"];
+    BOOL share=[kind isEqual:@"share"] || longPress;
     // A nested comment list can have a second controller. Use the outer sheet
     // if it already owns a bounded panel that contains the list.
     if(surface && comment) {
@@ -364,30 +490,34 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
         state.effects=[NSMapTable weakToStrongObjectsMapTable];
         state.shareCells=[NSHashTable weakObjectsHashTable];
         state.plates=[NSMapTable weakToStrongObjectsMapTable];
+        if(share)state.labels=[NSMapTable weakToStrongObjectsMapTable];
         objc_setAssociatedObject(root,&HGAActionSheetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     CGFloat radius=MIN(28,MIN(surface.bounds.size.width,surface.bounds.size.height)/2);
     BOOL reduceTransparency=UIAccessibilityIsReduceTransparencyEnabled();
     CGFloat opacity=reduceTransparency?1:HGAppearanceNumber(@"panels.opacity");
-    HGAInstallGlass(surface,HGAppearanceString(@"panels.material"),radius,opacity);
+    NSString *material=HGAppearanceString(@"panels.material");
+    BOOL clear=share && !reduceTransparency && HGNativeGlassConfigured() &&
+        ([material isEqual:@"regular"] || [material isEqual:@"clear"]);
+    if(state.nativeClear && !clear)HGARestoreSheetOptics(state);
+    state.nativeClear=clear;
+    HGAInstallGlass(surface,clear?@"clear":material,clear?0:radius,opacity);
     HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
-    if(@available(iOS 26.0,*)) {
-        if(share && fabs([glass effectiveRadiusForCorner:UIRectCornerTopLeft]-radius)>0.01)
-            glass.cornerConfiguration=[UICornerConfiguration configurationWithUniformRadius:[UICornerRadius fixedRadius:radius]];
-    }
     if(!state.overlay || state.overlayOpacity!=opacity) {
         state.overlayOpacity=opacity;
         state.overlay=comment ? [UIColor.systemBackgroundColor colorWithAlphaComponent:opacity] :
-            HGAActionSheetColor(opacity,YES);
-        if(share) {
-            // Let Liquid Glass apply the tint to its own optical material.
-            // A composited white/black fill obscures its refraction over playback.
-            glass.nativeGlassTint=HGAActionSheetColor(opacity,NO);
-        }
+            HGAActionSheetColor(opacity);
     }
-    glass.overlayColor=state.overlay;
-    // Never replace an existing mask (it may encode the host's transition).
-    if(!surface.layer.mask) {
+    glass.overlayColor=clear?UIColor.clearColor:state.overlay;
+    glass.clipsToBounds=!clear;
+    if(clear) {
+        glass.opaque=NO;
+        HGAApplySheetOptics(state);
+        if(@available(iOS 26.0,*)) {
+            if(fabs([glass effectiveRadiusForCorner:UIRectCornerTopLeft]-radius)>0.01)
+                glass.cornerConfiguration=[UICornerConfiguration configurationWithUniformRadius:[UICornerRadius fixedRadius:radius]];
+        }
+    } else if(!surface.layer.mask) {
         if(!state.rounding || fabs(surface.layer.cornerRadius-state.appliedRadius)>=0.01)state.sourceRadius=surface.layer.cornerRadius;
         if(!state.rounding || ![surface.layer.cornerCurve isEqual:kCACornerCurveContinuous])state.sourceCurve=surface.layer.cornerCurve;
         CACornerMask corners=kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner;
@@ -415,9 +545,22 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     for(UIView *cell in state.shareCells.allObjects) {
         if(![cell isDescendantOfView:surface]){HGARestoreShareInk(cell);[state.shareCells removeObject:cell];}
     }
+    if(longPress) {
+        UIViewController *owner=HGAOwner(root);
+        BOOL usesBlur=NO;
+        if(HGABoolGetter(owner,@"useBlurBackground",&usesBlur) && usesBlur) {
+            UIView *backdrop=HGAViewGetter(owner,"blurView",surface);
+            if([backdrop isKindOfClass:UIVisualEffectView.class]) {
+                UIVisualEffectView *effectView=(id)backdrop;
+                if(effectView.effect){[state.effects setObject:effectView.effect forKey:effectView];effectView.effect=nil;}
+                HGAClearSheetBackground(state,HGAViewGetter(owner,"effectViewContentView",surface));
+            }
+        }
+    }
     if(share) {
         if(!state.dockMount) {
             state.dockMount=[HGAActionSheetMount new];
+            state.dockMount.sheetRoot=root;
             state.dockMount.accessibilityIdentifier=@"honggo.appearance.sheet.mount";
             state.dockMount.accessibilityElementsHidden=YES;state.dockMount.userInteractionEnabled=NO;
             [surface addSubview:state.dockMount];
@@ -427,7 +570,8 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
         if(![[state.plates objectForKey:layer].view isDescendantOfView:surface])HGARestoreSheetPlate(state,layer);
     }
     BOOL compose=NO;
-    for(UIView *view in HGADescendants(surface,240)) {
+    NSArray<UIView *> *views=HGADescendants(surface,240);
+    for(UIView *view in views) {
         if(view==surface || HGAOwnView(view) || view.hidden)continue;
         if(share && [NSStringFromClass(view.class) hasPrefix:@"RKMPandroidx.compose.ui.window.ComposeView"])compose=YES;
         if(share && HGAIsShareCell(view)) {
@@ -450,8 +594,15 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
                 [view isKindOfClass:NSClassFromString(@"FQCShortVideoCommentCell")]));
         if(backing)HGAClearSheetCover(state,view);
     }
+    if(clear) {
+        for(UILabel *label in state.labels.keyEnumerator.allObjects)
+            if(![label isDescendantOfView:surface])HGARestoreSheetLabel(state,label);
+        for(UIView *view in views)
+            if([view isKindOfClass:UILabel.class] && HGAVisible(view))HGAApplySheetLabel(state,(UILabel *)view);
+    }
     HGRecordCapability([@"appearance.panel.surface." stringByAppendingString:kind],
         @{@"module":@"appearance",@"state":compose ? @"partial" : @"installed",
+          @"material":clear ? @"clear" : (reduceTransparency ? @"solid" : material),
           @"reason":compose ? @"bounded glass behind the host Compose canvas; in-canvas paint and icons are controlled by the host renderer" :
             @"single bounded glass sheet behind native content and actions"});
 }
@@ -462,6 +613,9 @@ static void HGAUpdateActionPanelSurface(UIView *view) {
     BOOL inActionSheet=([kind isEqual:@"share"] || [kind isEqual:@"longpress"]) &&
         HGAPanelWantsGlass(kind) && view.window && [view isDescendantOfView:state.surface];
     BOOL settingsPart=inActionSheet && HGAApplySettingsPanelPart(state,view);
+    if(inActionSheet && state.nativeClear && (settingsPart || HGAIsShareCell(view)))
+        for(UIView *child in HGADescendants(view,32))
+            if([child isKindOfClass:UILabel.class] && HGAVisible(child))HGAApplySheetLabel(state,(UILabel *)child);
     if(HGAIsShareCell(view)) {
         if(inActionSheet) {
             [state.shareCells addObject:view];HGAApplyShareInk(view);

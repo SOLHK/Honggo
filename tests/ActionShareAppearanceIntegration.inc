@@ -1,5 +1,9 @@
 @interface FQVShortVideoSettingsViewController_hmd_subfix_ : FQVShortVideoSettingsViewController @end
 @implementation FQVShortVideoSettingsViewController_hmd_subfix_ @end
+@interface FQVTransitionView : UIView
+@property(nonatomic,strong) UIView *bgView;
+@end
+@implementation FQVTransitionView @end
 @interface SSShortVideoMorePanelShareHeaderView : UIView
 @property(nonatomic,strong) UICollectionView *collectionView;
 @end
@@ -318,7 +322,25 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     FQVShortVideoSettingsViewController_hmd_subfix_ *panel=[FQVShortVideoSettingsViewController_hmd_subfix_ new];
     [host addChildViewController:panel];[panel loadViewIfNeeded];
     panel.view.frame=CGRectMake(0,root.bounds.size.height-500,root.bounds.size.width,500);panel.view.backgroundColor=UIColor.grayColor;
-    panel.view.layer.cornerRadius=6;panel.view.layer.maskedCorners=kCALayerMinXMaxYCorner;panel.view.clipsToBounds=NO;
+    panel.view.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
+    panel.view.layer.cornerRadius=6;panel.view.layer.maskedCorners=kCALayerMinXMaxYCorner;panel.view.clipsToBounds=YES;
+    FQVTransitionView *transition=[[FQVTransitionView alloc] initWithFrame:root.bounds];
+    UIColor *darkSurround=[UIColor colorWithWhite:0.09 alpha:1];
+    transition.backgroundColor=darkSurround;
+    transition.bgView=[[UIView alloc] initWithFrame:transition.bounds];
+    UIColor *scrim=[UIColor.blackColor colorWithAlphaComponent:0.32];
+    transition.bgView.backgroundColor=scrim;
+    [transition addSubview:transition.bgView];
+    UIButton *outsideTap=[UIButton buttonWithType:UIButtonTypeCustom];outsideTap.frame=transition.bounds;
+    [transition addSubview:outsideTap];
+
+    UIBlurEffect *hostBlur=[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark];
+    panel.useBlurBackground=YES;
+    panel.blurView=[[UIVisualEffectView alloc] initWithEffect:hostBlur];panel.blurView.frame=panel.view.bounds;
+    panel.effectViewContentView=[[UIView alloc] initWithFrame:panel.view.bounds];
+    UIColor *hostTint=[UIColor.whiteColor colorWithAlphaComponent:0.45];
+    panel.effectViewContentView.backgroundColor=hostTint;
+    [panel.blurView.contentView addSubview:panel.effectViewContentView];[panel.view addSubview:panel.blurView];
     UITableView *table=[[UITableView alloc] initWithFrame:CGRectMake(0,28,panel.view.bounds.size.width,472) style:UITableViewStyleInsetGrouped];
     table.backgroundColor=UIColor.grayColor;[panel.view addSubview:table];
     SSShortVideoMorePanelShareHeaderView *header=[[SSShortVideoMorePanelShareHeaderView alloc] initWithFrame:CGRectMake(0,0,panel.view.bounds.size.width,98)];
@@ -330,11 +352,19 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     cell.iconView=[[UIImageView alloc] initWithImage:nativeIcon];cell.iconView.frame=CGRectMake(12,12,28,28);
     cell.iconView.tintColor=UIColor.systemBlueColor;
     [cell.contentView addSubview:cell.iconBackgroundView];[cell.contentView addSubview:cell.iconView];[header addSubview:cell];
+    UILabel *destinationLabel=[[UILabel alloc] initWithFrame:CGRectMake(4,54,48,16)];
+    destinationLabel.text=@"分享";destinationLabel.textColor=UIColor.blackColor;
+    [cell.contentView addSubview:destinationLabel];
+    UIView *selection=[[UIView alloc] initWithFrame:CGRectMake(170,8,42,24)];selection.backgroundColor=UIColor.whiteColor;
+    UILabel *selectionLabel=[[UILabel alloc] initWithFrame:selection.bounds];selectionLabel.text=@"720P";
+    selectionLabel.textColor=UIColor.blackColor;[selection addSubview:selectionLabel];[header addSubview:selection];
     UIButton *destination=[UIButton buttonWithType:UIButtonTypeCustom];destination.frame=CGRectMake(20,8,52,52);
     destination.backgroundColor=UIColor.systemGreenColor;[destination setTitle:@"微信" forState:UIControlStateNormal];
     [header addSubview:destination];
     HGAEpisodeTapFixture *action=[HGAEpisodeTapFixture new];
     [destination addTarget:action action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
+    HGAEpisodeTapFixture *outsideAction=[HGAEpisodeTapFixture new];
+    [outsideTap addTarget:outsideAction action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
     HGASheetDrawingFixture *drawing=[[HGASheetDrawingFixture alloc] initWithFrame:CGRectMake(0,120,panel.view.bounds.size.width,80)];
     drawing.backgroundColor=UIColor.whiteColor;[panel.view addSubview:drawing];
     UIView *handle=[[UIView alloc] initWithFrame:CGRectMake((panel.view.bounds.size.width-36)/2,8,36,4)];
@@ -343,30 +373,58 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     HGAppearanceLayoutDock(host.customTabBar,host);
     UIView *dock=Find(host.customTabBar,@"honggo.appearance.dock");
     Check(dock && !dock.hidden,@"custom dock is visible before a bottom action sheet appears");
-    [root addSubview:panel.view];[panel didMoveToParentViewController:host];Layout(panel.view);[panel viewDidLayoutSubviews];
+    [transition addSubview:panel.view];[root addSubview:transition];[panel didMoveToParentViewController:host];
+    Layout(panel.view);[panel viewDidLayoutSubviews];
     CGRect originalTable=table.frame,originalDestination=destination.frame;
     @try {
         UIVisualEffectView *base=(id)Find(panel.view,@"honggo.appearance.material");Layout(base);
         UITraitCollection *light=[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight];
         UITraitCollection *dark=[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark];
-        BOOL nativeGlass=HGNativeGlassConfigured();
+        BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
+        BOOL nativeGlass=HGNativeGlassConfigured() && !reduced;
         UIColor *paint=base.contentView.backgroundColor;
+        BOOL clearOptics=NO;
         if(@available(iOS 26.0,*)) {
             if(nativeGlass && [base.effect isKindOfClass:UIGlassEffect.class]) {
-                Check([paint isEqual:UIColor.clearColor],@"the native card has no flat overlay above its optical material");
-                paint=[(UIGlassEffect *)base.effect tintColor];
+                clearOptics=[paint isEqual:UIColor.clearColor] && !((UIGlassEffect *)base.effect).tintColor &&
+                    !base.clipsToBounds && !panel.view.clipsToBounds &&
+                    fabs([base effectiveRadiusForCorner:UIRectCornerTopLeft]-28)<0.01 &&
+                    fabs([base effectiveRadiusForCorner:UIRectCornerBottomRight]-28)<0.01;
             }
         }
         CGFloat lightWhite=0,lightAlpha=0,darkWhite=0,darkAlpha=0;
         [[paint resolvedColorWithTraitCollection:light] getWhite:&lightWhite alpha:&lightAlpha];
         [[paint resolvedColorWithTraitCollection:dark] getWhite:&darkWhite alpha:&darkAlpha];
         Class expectedEffect=nativeGlass ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
-        BOOL configuredTint=fabs(lightAlpha-0.28)<0.01 && fabs(darkAlpha-0.28)<0.01;
-        BOOL readableBlur=lightAlpha>0.68 && lightAlpha<1 && darkAlpha>0.60 && darkAlpha<1;
-        Check(base && [base.effect isKindOfClass:expectedEffect] && !base.userInteractionEnabled &&
-            lightWhite>0.95 && darkWhite<0.2 && (nativeGlass ? configuredTint : readableBlur) &&
+        BOOL readableFill=lightWhite>0.95 && darkWhite<0.2 && lightAlpha>0.68 && darkAlpha>0.60;
+        Check(base && (reduced ? !base.effect : [base.effect isKindOfClass:expectedEffect]) && !base.userInteractionEnabled &&
+            (nativeGlass ? clearOptics : readableFill) &&
             panel.view.subviews.firstObject==base,
-            @"the longpress card uses native glass tint or a readable adaptive blur fill");
+            @"longpress uses one untinted, unclipped native glass card or its accessible fallback fill");
+        Check(!panel.blurView.effect && [panel.effectViewContentView.backgroundColor isEqual:UIColor.clearColor],
+            @"a verified native settings blur and its tint are removed beneath the replacement card");
+        if(nativeGlass) {
+            CGFloat labelLevel=0;
+            [destinationLabel.textColor getWhite:&labelLevel alpha:NULL];
+            UIColor *iconDark=[cell.iconView.tintColor resolvedColorWithTraitCollection:cell.iconView.traitCollection];
+            Check(labelLevel>0.9 && [iconDark isEqual:UIColor.whiteColor] && [selectionLabel.textColor isEqual:UIColor.blackColor] &&
+                [transition.bgView.backgroundColor isEqual:UIColor.clearColor] &&
+                [transition hitTest:CGPointMake(100,80) withEvent:nil]==outsideTap,
+                @"dark playback uses light ink, preserves selection contrast and clears only the scrim paint");
+            [outsideTap sendActionsForControlEvents:UIControlEventTouchUpInside];
+            Check(outsideAction.taps==1,@"clearing a separate scrim preserves the native outside dismissal action");
+            transition.backgroundColor=[UIColor colorWithWhite:0.96 alpha:1];
+            [panel viewDidLayoutSubviews];Layout(panel.view);
+            UIColor *iconLight=[cell.iconView.tintColor resolvedColorWithTraitCollection:cell.iconView.traitCollection];
+            Check([destinationLabel.textColor isEqual:UIColor.blackColor] && [iconLight isEqual:UIColor.blackColor],
+                @"the same card uses dark labels and icons over a light playback surround");
+            HGAppearanceSet(@"panels.material",@"blur",nil);Layout(base);
+            Check([base.effect isKindOfClass:UIBlurEffect.class] && [transition.bgView.backgroundColor isEqual:scrim] &&
+                panel.view.clipsToBounds,@"classic blur restores the native scrim and uses traditional card clipping");
+            HGAppearanceSet(@"panels.material",@"regular",nil);
+            transition.backgroundColor=darkSurround;
+            [panel viewDidLayoutSubviews];Layout(panel.view);
+        }
         HGAppearanceLayoutDock(host.customTabBar,host);
         Check(dock.hidden,@"mounted longpress sheet keeps the Dock out of its backdrop even after a Dock refresh");
 
@@ -412,8 +470,9 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             @"a destination image with a baked brand tile keeps an opaque glyph and transparent surrounding pixels");
         cell.iconView.image=nativeIcon;Layout(cell);
         CACornerMask cardCorners=kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner|kCALayerMinXMaxYCorner|kCALayerMaxXMaxYCorner;
-        Check(panel.view.clipsToBounds && fabs(panel.view.layer.cornerRadius-28)<0.01 &&
-            panel.view.layer.maskedCorners==cardCorners &&
+        BOOL shape=nativeGlass ? !panel.view.clipsToBounds : (panel.view.clipsToBounds &&
+            fabs(panel.view.layer.cornerRadius-28)<0.01 && panel.view.layer.maskedCorners==cardCorners);
+        Check(shape &&
             CGRectEqualToRect(table.frame,originalTable) && CGRectEqualToRect(destination.frame,originalDestination),
             @"sheet uses one continuous four-corner card without moving native table rows or share destinations");
         [destination sendActionsForControlEvents:UIControlEventTouchUpInside];
@@ -426,7 +485,7 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
         table.dataSource=previewRows;table.rowHeight=56;[table reloadData];Layout(table);
         drawing.hidden=YES;
         UIView *previewBackdrop=[[UIView alloc] initWithFrame:root.bounds];previewBackdrop.backgroundColor=[UIColor colorWithWhite:0.08 alpha:1];
-        [root insertSubview:previewBackdrop belowSubview:panel.view];
+        [transition insertSubview:previewBackdrop belowSubview:panel.view];
         Check(HGAWriteModulePreview(panel.view,@"share-preview.png"),@"controlled UIKit longpress sheet preview renders to PNG for visual review");
         [previewBackdrop removeFromSuperview];drawing.hidden=NO;
         table.dataSource=nil;[table reloadData];
@@ -439,9 +498,13 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             @"disabling longpress glass restores both native selected plates");
         Check(!Find(panel.view,@"honggo.appearance.material") &&
             [table.backgroundColor isEqual:UIColor.grayColor] && [header.backgroundColor isEqual:UIColor.whiteColor] &&
-            [panel.view.backgroundColor isEqual:UIColor.grayColor] && !panel.view.clipsToBounds &&
+            [panel.view.backgroundColor isEqual:UIColor.grayColor] && panel.view.clipsToBounds &&
             fabs(panel.view.layer.cornerRadius-6)<0.01 && panel.view.layer.maskedCorners==kCALayerMinXMaxYCorner,
             @"disabling longpress styling fully restores its native fills clipping and corners");
+        Check([panel.blurView.effect isEqual:hostBlur] && [panel.effectViewContentView.backgroundColor isEqual:hostTint] &&
+            [transition.bgView.backgroundColor isEqual:scrim] && [destinationLabel.textColor isEqual:UIColor.blackColor] &&
+            panel.view.overrideUserInterfaceStyle==UIUserInterfaceStyleDark,
+            @"disabling the card restores the verified host blur, tint, scrim and label ink");
         Check(cell.iconView.image==nativeIcon && [cell.iconView.tintColor isEqual:UIColor.systemBlueColor] &&
             [cell.iconBackgroundView.backgroundColor isEqual:UIColor.systemGreenColor],@"share icon, tint and tile restore on disable");
         HGAppearanceSet(@"panels.longpress",@YES,nil);[panel viewDidLayoutSubviews];
@@ -455,7 +518,7 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
         UIColor *dismissalColour=[UIColor.blackColor colorWithAlphaComponent:0.4];fullScreen.view.backgroundColor=dismissalColour;
         UIButton *dismiss=[UIButton buttonWithType:UIButtonTypeCustom];dismiss.frame=fullScreen.view.bounds;
         [dismiss addTarget:action action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
-        [fullScreen.view addSubview:dismiss];[root addSubview:fullScreen.view];
+        [fullScreen.view addSubview:dismiss];[transition addSubview:fullScreen.view];
         [fullScreen didMoveToParentViewController:host];[fullScreen viewDidLayoutSubviews];
         Check(!Find(fullScreen.view,@"honggo.appearance.material") && [fullScreen.view.backgroundColor isEqual:dismissalColour],
             @"an unverified full-screen share dismissal region is never converted to an opaque sheet");
@@ -466,19 +529,23 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
         shareSheet.backgroundColor=UIColor.whiteColor;
         fullScreen.panelView=shareSheet;[fullScreen.view addSubview:shareSheet];[fullScreen viewDidLayoutSubviews];
         UIVisualEffectView *nativeSharePanel=(id)Find(shareSheet,@"honggo.appearance.material");Layout(nativeSharePanel);
-        Check(nativeSharePanel.superview==shareSheet && [nativeSharePanel.effect isKindOfClass:expectedEffect] &&
+        Check(nativeSharePanel.superview==shareSheet && (reduced ? !nativeSharePanel.effect : [nativeSharePanel.effect isKindOfClass:expectedEffect]) &&
             Count(fullScreen.view,@"honggo.appearance.material")==1 && shareSheet.layer.maskedCorners==cardCorners &&
             [fullScreen.view.backgroundColor isEqual:dismissalColour] && !nativeSharePanel.userInteractionEnabled && dock.hidden,
             @"verified native share panel receives the same material within its dismissible full-screen wrapper");
+        if(nativeGlass)Check([nativeSharePanel.contentView.backgroundColor isEqual:UIColor.clearColor] &&
+            [transition.bgView.backgroundColor isEqual:UIColor.clearColor],@"share also uses the untinted backdrop");
         HGAppearanceSet(@"panels.share",@NO,nil);
         Check(!Find(shareSheet,@"honggo.appearance.material") && [shareSheet.backgroundColor isEqual:UIColor.whiteColor],
             @"standalone share control restores its native backing independently of longpress");
         HGAppearanceSet(@"panels.share",@YES,nil);[fullScreen viewDidLayoutSubviews];
         Check(dock.hidden,@"reattaching native share glass hides the underlying Dock again");
         [fullScreen.view removeFromSuperview];[fullScreen removeFromParentViewController];
-        Check(!dock.hidden,@"native share dismissal restores the Dock when the sheet detaches");
+        Check(!dock.hidden && [transition.bgView.backgroundColor isEqual:scrim],
+            @"native share dismissal restores the Dock and separate scrim when the sheet detaches");
     }@finally {
         [panel.view removeFromSuperview];[panel removeFromParentViewController];
+        [transition removeFromSuperview];
         HGAppearanceReset();HGAppearanceApply(before,nil);
     }
 }
