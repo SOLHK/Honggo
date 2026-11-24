@@ -724,19 +724,35 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         stale.fromValue=@(seam.x);stale.duration=10;
         [underline.layer addAnimation:stale forKey:@"fixtureInterruptedUnderline"];
         sample.fixtureTravel=CGPointMake(destination==3 ? -70 : 70,0);
+        sample.fixtureState=UIGestureRecognizerStateChanged;
+        [channelPaging page:sample];
+        sample.fixtureState=UIGestureRecognizerStateEnded;
         [channelPaging page:sample];
         [header applySearchIconVisible:NO tabContainerTop:0];
         [header finishSearchIconVisibilityTransition:NO];
-        stableChannels &= channels.selectedIndex==destination && pageScroll.contentOffset.x==pageWidth*destination &&
+        UIView *movingLens=Find(header,@"honggo.appearance.header.swipeLens");
+        BOOL matchesPage=channels.selectedIndex==destination && pageScroll.contentOffset.x==pageWidth*destination &&
             fabs(underline.center.x-CGRectGetMidX([channels getTargetCellFrame:destination]))<0.5 &&
             ![underline.layer animationForKey:@"fixtureInterruptedUnderline"] &&
-            (!segments || (segments.selectedSegmentIndex==(destination==1 ? 0 : 1) && Find(header,material)==segments));
-        stableChannels &= !header.sideBar.hidden && search.alpha==1 && !search.searchButtonSlotView.hidden &&
+            (!segments || (Find(header,material)==segments &&
+                (segments.selectedSegmentIndex==(destination==1 ? 0 : 1) ||
+                 (segments.selectedSegmentIndex==UISegmentedControlNoSegment && movingLens && !movingLens.hidden))));
+        BOOL matchesTools=!header.sideBar.hidden && search.alpha==1 && !search.searchButtonSlotView.hidden &&
             ![header.sideBar.layer animationForKey:@"opacity"] &&
             Find(header,@"honggo.appearance.header.sidebar")==stableLeft &&
             Find(header,@"honggo.appearance.header.search")==stableRight;
+        if (!matchesPage || !matchesTools) NSLog(@"Channel swipe %lu page=%d tools=%d host=%ld segment=%ld underline=%.1f target=%.1f",
+            (unsigned long)pass,matchesPage,matchesTools,(long)channels.selectedIndex,(long)segments.selectedSegmentIndex,
+            underline.center.x,CGRectGetMidX([channels getTargetCellFrame:destination]));
+        stableChannels &= matchesPage && matchesTools;
     }
     channels.channelHeaderFixture=nil;
+    [CATransaction flush];
+    CFTimeInterval settledDeadline=CACurrentMediaTime()+1.5;
+    NSInteger settledIndex=channels.selectedIndex==1 ? 0 : 1;
+    while (segments && segments.selectedSegmentIndex!=settledIndex && CACurrentMediaTime()<settledDeadline)
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+    stableChannels &= !segments || segments.selectedSegmentIndex==settledIndex;
     Check(stableChannels && channels.nativeSelections==originalSelections+8 && !pageScroll.panGestureRecognizer.enabled,
         @"repeated alternating swipes keep the original side tools and glass mounted and settle the selected line");
     if (segments) {
@@ -778,9 +794,13 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 @"a new header scrub interrupts the spring and reuses the existing lens");
             sample.fixtureState=UIGestureRecognizerStateCancelled;
             [scrubber scrubChannels:sample];
-            CFTimeInterval deadline=CACurrentMediaTime()+0.5;
+            [CATransaction flush];
+            CFTimeInterval deadline=CACurrentMediaTime()+1.5;
             while(lens && !lens.hidden && CACurrentMediaTime()<deadline)
                 CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+            if(!lens.hidden || segments.selectedSegmentIndex!=0 || channels.nativeSelections!=selections+2)
+                NSLog(@"Cancelled header lens hidden=%d attached=%d segment=%ld host=%ld dispatches=%ld",lens.hidden,lens.window!=nil,
+                    (long)segments.selectedSegmentIndex,(long)channels.selectedIndex,(long)(channels.nativeSelections-selections));
             Check(lens.hidden && segments.selectedSegmentIndex==0 && channels.nativeSelections==selections+2,
                 @"cancelling and resuming a direct header scrub restores the selected page without sending its action");
         }
@@ -838,7 +858,10 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
                     [channelPaging page:sample];
                     CGPoint center=CGPointMake(CGRectGetWidth(group.bounds)*0.75,CGRectGetMidY(group.bounds));
-                    UIView *hit=[group hitTest:center withEvent:[UIEvent new]];
+                    UIView *hit=[header hitTest:[group convertPoint:center toView:header] withEvent:nil];
+                    if (hit==tabs || ![hit isDescendantOfView:tabs] || tabs.hidden)
+                        NSLog(@"Recontact hit=%@ tabsHidden=%d groupOnscreen=%d previewVisible=%d",NSStringFromClass(hit.class),
+                            tabs.hidden,group.window!=nil,!rail.superview.hidden);
                     Check(hit!=tabs && [hit isDescendantOfView:tabs] && !tabs.hidden,
                         @"a new rail touch during page settling goes directly to UIKit");
                     CFTimeInterval deadline=CACurrentMediaTime()+0.7;

@@ -443,6 +443,8 @@ static void HGAApplyEpisodeController(UIViewController *controller) {
 }
 
 static void HGARefreshEpisodePage(UIViewController *page) {
+    // A child can repaint while its parent's glass is being removed.
+    if(!page.viewIfLoaded.window || !HGAPanelWantsGlass(@"episodes"))return;
     for(UIViewController *parent=page.parentViewController;parent;parent=parent.parentViewController) {
         HGAActionSheetState *state=objc_getAssociatedObject(parent.viewIfLoaded,&HGAActionSheetKey);
         if(!state || ![HGAPanelKind(parent) isEqual:@"episodes"] ||

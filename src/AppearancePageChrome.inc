@@ -163,14 +163,22 @@ static void HGAApplyFinderMaterial(UIView *target,CGRect frame,BOOL shortcut) {
     HGASetGlassOverlay(target,tint);
 }
 
-static void HGAApplyFinderSearchMaterial(UIView *target,CGRect frame) {
-    if (CGRectIsEmpty(frame)) { HGARemoveGlass(target); return; }
+static CGRect HGAFinderSearchSurface(UIView *target,CGRect frame) {
+    if(!target.window || CGRectIsEmpty(frame))return CGRectZero;
+    // The nested recognition slot often starts at a fractional point. All
+    // three capsules share one pixel grid, including on a 2x display.
+    CGRect screen=[target convertRect:frame toView:target.window];
     CGFloat scale=MAX(1,target.traitCollection.displayScale);
-    CGFloat left=(ceil(CGRectGetMinX(frame)*scale)+1)/scale;
-    CGFloat top=(ceil(CGRectGetMinY(frame)*scale)+1)/scale;
-    CGFloat right=(floor(CGRectGetMaxX(frame)*scale)-1)/scale;
-    CGFloat bottom=(floor(CGRectGetMaxY(frame)*scale)-1)/scale;
-    frame=CGRectMake(left,top,MAX(0,right-left),MAX(0,bottom-top));
+    CGFloat left=(round(CGRectGetMinX(screen)*scale)+1)/scale;
+    CGFloat top=(round(CGRectGetMinY(screen)*scale)+1)/scale;
+    CGFloat right=(round(CGRectGetMaxX(screen)*scale)-1)/scale;
+    CGFloat bottom=(round(CGRectGetMaxY(screen)*scale)-1)/scale;
+    return [target convertRect:CGRectMake(left,top,MAX(0,right-left),MAX(0,bottom-top)) fromView:target.window];
+}
+
+static void HGAApplyFinderSearchMaterial(UIView *target,CGRect frame) {
+    frame=HGAFinderSearchSurface(target,frame);
+    if (CGRectIsEmpty(frame)) { HGARemoveGlass(target); return; }
     if (@available(iOS 26.0,*)) {
         if (HGAFinderControlReady(target) && HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() && !CGRectIsEmpty(frame)) {
             HGAInstallGlassInRect(target,HGAFinderMaterial(),frame,CGRectGetHeight(frame)/2,0);
@@ -325,9 +333,15 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition
     if(recognitionLabel && recognitionIcon && recognitionContent!=recognition) {
         // The native icon and label consume the right edge. Center their group
         // inside the measured capsule while preserving the native hit owner.
-        CGRect ink=CGRectUnion([recognitionLabel convertRect:recognitionLabel.bounds toView:recognitionContent],
-            [recognitionIcon convertRect:recognitionIcon.bounds toView:recognitionContent]);
-        CGFloat offset=CGRectGetMidX(recognitionContent.bounds)-CGRectGetMidX(ink);
+        UIView *parent=recognitionContent.superview;
+        CGRect ink=CGRectUnion([recognitionLabel convertRect:recognitionLabel.bounds toView:parent],
+            [recognitionIcon convertRect:recognitionIcon.bounds toView:parent]);
+        CGRect surface=[recognition convertRect:HGAFinderSearchSurface(recognition,recognition.bounds) toView:parent];
+        HGAViewState *state=HGAState(recognitionContent,NO);
+        CGFloat applied=state.geometry && state.geometrySuperview==parent &&
+            CGAffineTransformEqualToTransform(recognitionContent.transform,state.appliedTransform) ?
+            state.appliedTransform.tx-state.sourceTransform.tx : 0;
+        CGFloat offset=CGRectGetMidX(surface)-CGRectGetMidX(ink)+applied;
         HGASetGeometry(recognitionContent,separate && CGRectGetWidth(ink)<CGRectGetWidth(recognition.bounds) &&
             fabs(offset)<=12 ? offset : 0,0,1);
     }

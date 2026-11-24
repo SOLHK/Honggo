@@ -525,7 +525,8 @@ void HGAppearanceProcessView(UIView *view) {
                 CGFloat side=HGAActionGlassDiameter(view);
                 if([role isEqual:@"avatar"])side=MIN(side,MAX(34,MIN(40,MAX(rect.size.width,rect.size.height)+8)));
                 else if([role isEqual:@"more"])side=MIN(side,38);
-                CGFloat x=CGRectGetMinX(view.bounds)+(width-side)/2;
+                CGFloat x=MIN(CGRectGetMinX(view.bounds)+width-side,
+                    MAX(CGRectGetMinX(view.bounds),CGRectGetMidX(rect)-side/2));
                 CGFloat y=MIN(CGRectGetMinY(view.bounds)+height-side,
                     MAX(CGRectGetMinY(view.bounds),CGRectGetMidY(rect)-side/2));
                 glassFrame=CGRectMake(x,y,side,side);

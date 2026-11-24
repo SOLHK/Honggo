@@ -234,6 +234,24 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     [window makeKeyAndVisible];
     [parent loadViewIfNeeded];
     [window layoutIfNeeded];
+    // The global search result opens from the settings controller. Exercise
+    // that route before a later category check presents a choice sheet.
+    NSDictionary *match=nil;
+    for(NSDictionary *entry in HGAppearanceSearch(@"双指清屏")) {
+        if([entry[@"key"] isEqual:@"gestures.pinchClean"]){match=entry;break;}
+    }
+    BOOL wasEnabled=HGAppearanceFlag(@"gestures.pinchClean"),searchMaster=HGAppearanceEnabled();
+    if(match)HGOpenAppearance(parent,[@"setting." stringByAppendingString:match[@"key"]]);
+    UITableViewController *result=(id)navigation.topViewController;
+    [result loadViewIfNeeded];
+    [window layoutIfNeeded];
+    NSIndexPath *gesturePath=result!=parent ? HGMenuPath(result,@"gestures.pinchClean") : nil;
+    if(gesturePath)[result tableView:result.tableView didSelectRowAtIndexPath:gesturePath];
+    Check(result!=parent && gesturePath && HGAppearanceFlag(@"gestures.pinchClean")!=wasEnabled && HGAppearanceEnabled()==searchMaster,
+        @"the global search destination edits the requested gesture without changing the appearance master");
+    HGAppearanceSet(@"gestures.pinchClean",@(wasEnabled),nil);
+    [navigation popToViewController:parent animated:NO];
+    [window layoutIfNeeded];
     HGOpenAppearance(parent, nil);
     UITableViewController *home = (id)navigation.topViewController;
     [home loadViewIfNeeded];
@@ -300,14 +318,6 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(rolesRouted && visitedRoles == HGAppearanceRoles().count,
         @"every playback control opens its own editor through the table delegate");
     Check(choiceOpened, @"a pushed playback menu presents its layout choice sheet");
-    HGOpenAppearance(home,@"setting.gestures.pinchClean");
-    UITableViewController *result=(id)navigation.topViewController;
-    NSIndexPath *gesturePath=HGMenuPath(result,@"gestures.pinchClean");
-    BOOL wasEnabled=HGAppearanceFlag(@"gestures.pinchClean");
-    if(gesturePath)[result tableView:result.tableView didSelectRowAtIndexPath:gesturePath];
-    Check(result!=home && gesturePath && HGAppearanceFlag(@"gestures.pinchClean")!=wasEnabled && HGAppearanceEnabled()==original,
-        @"the global search destination edits the requested gesture without changing the appearance master");
-    HGAppearanceSet(@"gestures.pinchClean",@(wasEnabled),nil);
     window.rootViewController = previousRoot;
     [window makeKeyAndVisible];
 }
@@ -415,7 +425,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
     // Exercise the custom-radius glass path independently of UIKit's capsule.
     HGAppearanceSet(@"dock.radius",@21,nil);
-    HGAppearanceSet(@"player.headerStyle",@"glass",nil);
+    HGAppearanceApply(@{@"player.headerStyle":@"glass",@"player.actionStyle":@"glass"},nil);
     HGAppearanceLayoutDock(self.host.customTabBar,self.host);
     UIView *capsule=Find(self.host.customTabBar,@"honggo.appearance.dock.capsule");
     BOOL matchingGlass=YES;
@@ -427,7 +437,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
             [material.contentView.backgroundColor isEqual:chromeColor];
     }
     Check(matchingGlass,@"actions header and episode entry share full-opacity dark glass with the same neutral base");
-    HGAppearanceSet(@"player.headerStyle",@"flat",nil);
+    HGAppearanceApply(@{@"player.headerStyle":@"flat",@"player.actionStyle":actionStyle},nil);
     UIVisualEffectView *dockMaterial=(id)Find(capsule,@"honggo.appearance.material");
     Layout(dockMaterial);
     Check(dockMaterial.alpha==1 && !dockMaterial.maskView &&
@@ -564,7 +574,10 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     }
     NSIndexPath *swipeSetting=HGMenuPath(playerPage,@"player.disableEpisodeSwipe");
     UITableViewCell *swipeCell=swipeSetting ? [playerPage tableView:playerPage.tableView cellForRowAtIndexPath:swipeSetting] : nil;
-    Check(playerPage.tableView.numberOfSections==4 && playerRows==8+(NSInteger)HGAppearanceRoles().count &&
+    NSIndexPath *rankSetting=HGMenuPath(playerPage,@"player.hide.followRank");
+    NSIndexPath *seriesSetting=HGMenuPath(playerPage,@"player.hide.seriesBadge");
+    Check(playerPage.tableView.numberOfSections==5 && playerRows==11+(NSInteger)HGAppearanceRoles().count &&
+        rankSetting && seriesSetting && rankSetting.section==1 && seriesSetting.section==1 &&
         noInlineRoleSliders && swipeSetting && swipeSetting.section==0 && [swipeCell.accessoryView isKindOfClass:UISwitch.class],
         @"playback settings include the episode swipe switch and per-control subpages");
     UITableViewController *rolePage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];

@@ -27,6 +27,7 @@ API_AVAILABLE(ios(26.0))
 @property(nonatomic,weak) UIView *platter;
 @property(nonatomic) CGSize fittedSize;
 @property(nonatomic) BOOL previewingPage;
+@property(nonatomic) BOOL fittingTabProvider;
 @property(nonatomic,strong) HGAAppearanceMaterial *rail;
 - (instancetype)initWithTitles:(NSArray<NSString *> *)titles material:(NSString *)material;
 @end
@@ -214,12 +215,14 @@ API_AVAILABLE(ios(26.0))
     if (!self.window || CGRectIsEmpty(self.bounds)) return;
     if(self.tabController && !self.tabController.parentViewController && ![self attachManagedTabs])return;
     if (CGSizeEqualToSize(self.bounds.size,self.fittedSize) && [self.platter isDescendantOfView:self.tabBar]) return;
+    self.fittingTabProvider=YES;
     UIView *platter=[self fitTabPlatter];
     if(!platter && self.standaloneWarmed && !self.tabController && [self attachManagedTabs]) {
         platter=[self fitTabPlatter];
         if(!platter)dispatch_async(dispatch_get_main_queue(),^{ if(self.window)[self setNeedsLayout]; });
     }
     if (platter && platter!=self.platter && [self.rail.style isEqual:@"clear"]) HGAApplyClearTabMaterial(platter);
+    self.fittingTabProvider=NO;
     self.platter=platter;
     self.fittedSize=self.bounds.size;
     [self setPreviewingPage:self.previewingPage];
@@ -238,9 +241,16 @@ API_AVAILABLE(ios(26.0))
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     // A new contact on the rail can interrupt a page swipe's settling spring.
     // Restore the native target before UIKit assigns this touch for its lifetime.
-    if (event && event.type==UIEventTypeTouches && self.platter && self.previewingPage &&
-        [self pointInside:point withEvent:event]) {
-        [self sendActionsForControlEvents:UIControlEventTouchDown];
+    if (!self.fittingTabProvider && self.platter && [self pointInside:point withEvent:event]) {
+        if (self.previewingPage) {
+            [self sendActionsForControlEvents:UIControlEventTouchDown];
+            UIView *carrier=self.tabController.viewIfLoaded ?: self.tabBar;
+            [carrier layoutIfNeeded];
+        }
+        if (!self.tabBar.hidden) {
+            UIView *hit=[self.tabBar hitTest:[self convertPoint:point toView:self.tabBar] withEvent:event];
+            if (hit && hit!=self.tabBar) return hit;
+        }
     }
     return [super hitTest:point withEvent:event];
 }

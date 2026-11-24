@@ -917,6 +917,9 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGAppearanceSet(@"dock.style",@"flat",nil);
     host.selectedIndex=0;
     HGAppearanceLayoutDock(host.customTabBar,host);
+    // The preceding cancelled glass drag is still settling. The live Dock
+    // applies the new style in its spring completion; then acquire its track.
+    HGWaitForDockSelectionLensToSettle(selection);
     UISegmentedControl *track=(id)Find(capsule,@"honggo.appearance.dock.flat");
     UISegmentedControl *extraTrack=(id)Find(extra.superview,@"honggo.appearance.dock.flat");
     Check([track isKindOfClass:UISegmentedControl.class] && track.numberOfSegments==2 &&

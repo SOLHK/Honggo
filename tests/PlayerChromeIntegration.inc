@@ -439,10 +439,17 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
 
     SSShortVideoIntroductionTabViewController *panel=[SSShortVideoIntroductionTabViewController new];
     [host addChildViewController:panel];
-    panel.view.frame=CGRectMake(12,256,240,300);
+    FQVTransitionView *transition=[[FQVTransitionView alloc] initWithFrame:CGRectMake(0,0,440,956)];
+    FQVTransitionPlayerTopContentView *preview=[[FQVTransitionPlayerTopContentView alloc] initWithFrame:CGRectMake(0,0,440,383)];
+    transition.topContentView=preview;
+    CGRect nativeFrame=CGRectMake(0,98.75,440,247.5);
+    preview.playerContainerView=[[UIView alloc] initWithFrame:nativeFrame];
+    [preview addSubview:preview.playerContainerView];[transition addSubview:preview];
+    [host.view addSubview:transition];
+    panel.view.frame=CGRectMake(0,383,440,573);
     panel.view.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
     panel.view.backgroundColor=UIColor.whiteColor;
-    [host.view addSubview:panel.view];
+    [transition addSubview:panel.view];
     [panel didMoveToParentViewController:host];
 
     SSShortVideoEpisodesViewItemCell *episode=[[SSShortVideoEpisodesViewItemCell alloc] initWithFrame:CGRectMake(12,36,46,44)];
@@ -506,7 +513,9 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
         [collect.iconImageView.tintColor isEqual:UIColor.labelColor] &&
         collect.iconImageView.image.renderingMode==UIImageRenderingModeAlwaysTemplate,
         @"light episode sheet hides the native gradient and uses readable label and icon foreground");
+    NSUInteger tapsBeforeCollect=action.taps;
     [collect.containerView sendActionsForControlEvents:UIControlEventTouchUpInside];
+    Check(action.taps==tapsBeforeCollect+1,@"the episode sheet's collect control dispatches one native action");
     UILabel *previousLabel=collect.textL;
     UIImageView *previousIcon=collect.iconImageView;
     [previousLabel removeFromSuperview];
@@ -525,15 +534,6 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
         ImageContentEqual(previousIcon.image,initialIcon) && collect.iconImageView.image.renderingMode==UIImageRenderingModeAlwaysTemplate,
         @"replacing the host collect label and image restores old views and styles the new ones");
 
-    FQVTransitionView *transition=[[FQVTransitionView alloc] initWithFrame:CGRectMake(0,0,440,956)];
-    FQVTransitionPlayerTopContentView *preview=[[FQVTransitionPlayerTopContentView alloc] initWithFrame:CGRectMake(0,0,440,383)];
-    transition.topContentView=preview;
-    CGRect nativeFrame=CGRectMake(0,98.75,440,247.5);
-    preview.playerContainerView=[[UIView alloc] initWithFrame:nativeFrame];
-    [preview addSubview:preview.playerContainerView];[transition addSubview:preview];
-    [host.view addSubview:transition];[transition addSubview:panel.view];
-    panel.view.frame=CGRectMake(0,383,440,573);
-    HGAppearanceProcessController(panel);
     HGAppearanceProcessView(preview);
     Check(fabs(preview.layer.sublayerTransform.m42-36.75)<0.01 &&
         CGRectEqualToRect(preview.playerContainerView.frame,nativeFrame),
@@ -554,14 +554,19 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
         @"a late-mounted episode range header retains its controls and removes both white edge fades");
     HGAppearanceSet(@"panels.episodes",@NO,nil);
     HGAppearanceProcessController(panel);
-    Check([sub.collectionView.backgroundColor isEqual:UIColor.whiteColor] &&
-        [sub.view.backgroundColor isEqual:UIColor.whiteColor] &&
-        [sub.collectionView.backgroundView.backgroundColor isEqual:UIColor.whiteColor],
-        @"disabling episode glass returns the hosted page's own colors");
+    Check([sub.view.backgroundColor isEqual:UIColor.whiteColor],
+        [NSString stringWithFormat:@"disabling episode glass restores the page background (%@)",sub.view.backgroundColor]);
+    Check([sub.collectionView.backgroundColor isEqual:UIColor.whiteColor],
+        [NSString stringWithFormat:@"disabling episode glass restores the list background (%@)",sub.collectionView.backgroundColor]);
+    Check([sub.collectionView.backgroundView.backgroundColor isEqual:UIColor.whiteColor],
+        [NSString stringWithFormat:@"disabling episode glass restores the list background view (%@)",sub.collectionView.backgroundView.backgroundColor]);
+    [sub onDarkModeChange:YES];
+    Check([sub.collectionView.backgroundColor isEqual:UIColor.blackColor],
+        @"after glass is disabled the host can repaint the episode list for night mode");
     Check(CATransform3DIsIdentity(preview.layer.sublayerTransform) &&
         [ranges.backgroundColor isEqual:UIColor.whiteColor] && !ranges.leftGradientView.hidden &&
         !ranges.rightGradientView.hidden,@"turning off episode glass restores the preview and range header");
-    Check(action.taps==3 && !Find(panel.view,@"honggo.appearance.material") && !collect.bgView.hidden &&
+    Check(action.taps==tapsBeforeCollect+1 && !Find(panel.view,@"honggo.appearance.material") && !collect.bgView.hidden &&
         collect.shareBgView.hidden && [episode.bgView.backgroundColor isEqual:UIColor.systemOrangeColor] &&
         [collect.textL.textColor isEqual:UIColor.labelColor] &&
         [collect.iconImageView.tintColor isEqual:UIColor.labelColor] &&
