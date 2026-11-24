@@ -261,8 +261,14 @@ static char HGAFixtureHeaderAnimationKey;
 @property(nonatomic,strong) UIView *aiSearchEntranceView;
 @property(nonatomic,strong) UIImageView *aiSearchEntranceImageView;
 @property(nonatomic,strong) UIView *tabContainer;
+- (void)relayoutHeader;
 @end
-@implementation FQTheaterViewController @end
+@implementation FQTheaterViewController
+- (void)relayoutHeader {
+    self.searchBgView.backgroundColor=UIColor.systemGrayColor;
+    self.normalImageSearchView.separatorView.hidden=NO;
+}
+@end
 @interface HGAObservedTheaterFixture : FQTheaterViewController @end
 @implementation HGAObservedTheaterFixture @end
 @interface SSBookStoreEntranceView : UIView
@@ -328,6 +334,12 @@ static char HGAFixtureHeaderAnimationKey;
 @implementation SSVideoDistributionGoldenPositionCell
 - (CGSize)collectionView:(UICollectionView *)collection layout:(UICollectionViewLayout *)layout
    sizeForItemAtIndexPath:(NSIndexPath *)path { return CGSizeMake(98,32); }
+- (void)collectionView:(UICollectionView *)collection willDisplayCell:(UICollectionViewCell *)cell
+    forItemAtIndexPath:(NSIndexPath *)indexPath {
+    SSVideoDistributionGoldenPositionSubCell *shortcut=(id)cell;
+    shortcut.contentView.backgroundColor=UIColor.systemGrayColor;
+    shortcut.borderView.hidden=NO;
+}
 @end
 @interface SSMyUser637TabsView : UIView
 @property(nonatomic,strong) UIButton *searchBtn;
@@ -654,7 +666,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     [channelPaging page:sample];
     BOOL delayed=channels.nativeSelections==0;
     if (segments && !UIAccessibilityIsReduceMotionEnabled()) {
-        UIVisualEffectView *lens=(id)Find(header,@"honggo.appearance.header.swipeLens");
+        UIView *lens=Find(header,@"honggo.appearance.header.swipeLens");
         CGFloat center=CGRectGetMidX(lens.frame)-CGRectGetMinX(segments.frame);
         Check(lens && !lens.hidden && [header.subviews indexOfObjectIdenticalTo:lens]<[header.subviews indexOfObjectIdenticalTo:segments] &&
             center>CGRectGetWidth(segments.bounds)*0.25 && center<CGRectGetWidth(segments.bounds)*0.75 &&
@@ -727,16 +739,15 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             sample.fixtureLocation=CGPointMake(segments.bounds.size.width*0.62,CGRectGetMidY(segments.bounds));
             sample.fixtureState=UIGestureRecognizerStateChanged;
             [scrubber scrubChannels:sample];
-            UIVisualEffectView *lens=(id)Find(header,@"honggo.appearance.header.swipeLens");
-            UIVisualEffect *effect=lens.effect;
-            Check(lens && !lens.hidden && !lens.userInteractionEnabled &&
+            UIView *lens=Find(header,@"honggo.appearance.header.swipeLens");
+            Check(lens && !lens.hidden && !lens.userInteractionEnabled && ![lens isKindOfClass:UIVisualEffectView.class] &&
                 [header.subviews indexOfObjectIdenticalTo:lens]<[header.subviews indexOfObjectIdenticalTo:segments] &&
-                channels.nativeSelections==selections+2,@"direct horizontal tracking refracts only the scene beneath the channel labels");
+                channels.nativeSelections==selections+2,@"flat tracking uses a cheap selection under the channel labels");
             sample.fixtureState=UIGestureRecognizerStateCancelled;
             [scrubber scrubChannels:sample];
-            if(UIView.areAnimationsEnabled)Check(!lens.hidden && lens.effect==effect &&
+            if(UIView.areAnimationsEnabled)Check(!lens.hidden &&
                 segments.selectedSegmentIndex==UISegmentedControlNoSegment,
-                @"cancelling a header scrub retains one optical surface and delays thumb restoration until it reaches rest");
+                @"cancelling a header scrub retains one preview and delays thumb restoration until it reaches rest");
             sample.fixtureState=UIGestureRecognizerStateChanged;
             [scrubber scrubChannels:sample];
             Check(Find(header,@"honggo.appearance.header.swipeLens")==lens && !lens.hidden,
@@ -756,6 +767,10 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             Layout(header);
             UIView *group=Find(header,material);
             Layout(group);
+            UIVisualEffectView *rail=(id)Find(group,@"honggo.appearance.header.channelRail");
+            UIView *lens=Find(group,@"honggo.appearance.header.swipeLens");
+            Layout(rail);
+            UIVisualEffect *effect=rail.effect;
             NSMutableArray<UIButton *> *buttons=[NSMutableArray array];
             for (NSUInteger i=0;i<2;i++) {
                 CGPoint center=CGPointMake(CGRectGetWidth(group.bounds)*(0.25+0.5*i),CGRectGetMidY(group.bounds));
@@ -764,18 +779,34 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 if ([hit isKindOfClass:UIButton.class] && [hit isDescendantOfView:group]) [buttons addObject:(UIButton *)hit];
             }
             BOOL native=buttons.count==2 && buttons[0]!=buttons[1] && buttons[0].selected &&
-                [buttons[0].configuration.attributedTitle.string isEqual:@"漫剧"] &&
-                [buttons[1].configuration.attributedTitle.string isEqual:@"推荐"];
-            Check(native && !segments.window && categoryList.hidden,
-                @"liquid glass replaces the flat strip with two directly hittable configured channel buttons");
+                [[buttons[0] titleForState:UIControlStateNormal] isEqual:@"漫剧"] &&
+                [[buttons[1] titleForState:UIControlStateNormal] isEqual:@"推荐"] &&
+                !buttons[0].configuration && !buttons[1].configuration;
+            Check(native && !segments.window && categoryList.hidden && rail.superview==group && lens.superview==group &&
+                CGRectEqualToRect(rail.frame,group.bounds) && [effect isKindOfClass:UIGlassEffect.class] &&
+                !lens.hidden && [group.subviews indexOfObjectIdenticalTo:rail]<[group.subviews indexOfObjectIdenticalTo:lens],
+                @"the glass channels use one continuous native rail beneath the shared selection and labels");
             if (native) {
                 NSUInteger before=channels.nativeSelections;
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                 Check(buttons[1].selected && !buttons[0].selected && channels.selectedIndex==3 &&
-                    channels.nativeSelections==before+1 && pageScroll.contentOffset.x==3*pageWidth,
+                    channels.nativeSelections==before+1 && pageScroll.contentOffset.x==3*pageWidth &&
+                    rail.effect==effect && Find(group,@"honggo.appearance.header.swipeLens")==lens,
                     @"glass channel activation selects the originally visible host page exactly once");
                 [buttons[0] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                if (!UIAccessibilityIsReduceMotionEnabled()) {
+                    id<HGATestChannelPaging> scrubber=nil;
+                    for (UIGestureRecognizer *gesture in group.gestureRecognizers)
+                        if ([gesture.delegate respondsToSelector:@selector(scrubChannels:)]) scrubber=(id)gesture.delegate;
+                    sample.fixtureState=UIGestureRecognizerStateChanged;
+                    sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.66,CGRectGetMidY(group.bounds));
+                    [scrubber scrubChannels:sample];
+                    Check(scrubber && rail.effect==effect && !lens.hidden && CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
+                        @"scrubbing the glass channel shifts only the selected pill over the fixed material");
+                    sample.fixtureState=UIGestureRecognizerStateCancelled;
+                    [scrubber scrubChannels:sample];
+                }
             }
             HGAppearanceSet(@"player.headerStyle",@"flat",nil);
             Layout(header);
@@ -946,6 +977,13 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     Check(camera.image.renderingMode==UIImageRenderingModeAlwaysTemplate && lightValue<0.01 && darkValue>0.99 &&
         finder.aiSearchEntranceImageView.hidden && !aiGlyph.userInteractionEnabled,
         @"finder camera and independent AI glyph take light and dark ink without intercepting the native press");
+    finder.view.alpha=0;
+    [finder relayoutHeader];
+    Check(Find(finder.searchBgView,material)==searchGlass && Find(finder.imageSearchContainer,material)==recognitionGlass &&
+        Find(finder.aiSearchEntranceView,material)==assistantGlass && Find(finder.aiSearchEntranceView,@"honggo.appearance.finder.ai")==aiGlyph &&
+        finder.normalImageSearchView.separatorView.hidden && [finder.searchBgView.backgroundColor isEqual:UIColor.clearColor],
+        @"finder relayout keeps all three fitted surfaces while the host page is fading in");
+    finder.view.alpha=1;
     HGAppearanceSet(@"player.finderAI",@NO,nil);
     HGAppearanceProcessController(finder);
     CGRect moved=finder.imageSearchContainer.frame;
@@ -1051,24 +1089,29 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     golden.model=[HGAFinderGoldenModelFixture new];golden.model.goldenLineItemArr=@[goldenFilter,goldenRank];
     SSVideoDistributionGoldenPositionSubCell *entry=[[SSVideoDistributionGoldenPositionSubCell alloc]
         initWithFrame:CGRectMake(110,0,98,32)];
-    entry.innerContentView=PageChromeControl(entry.contentView,entry.contentView.bounds);
+    entry.innerContentView=PageChromeControl(entry.contentView,CGRectMake(8,0,75,32));
     entry.backgroundImageView=[[UIImageView alloc] initWithFrame:entry.innerContentView.bounds];
     [entry.innerContentView addSubview:entry.backgroundImageView];
     entry.borderView=PageChromeControl(entry.innerContentView,entry.innerContentView.bounds);
     entry.iconImgView=[[UIImageView alloc] initWithImage:cameraOriginal];
     [entry.innerContentView addSubview:entry.iconImgView];
-    entry.titleLabel=[[UILabel alloc] initWithFrame:CGRectMake(28,0,64,32)];
+    entry.titleLabel=[[UILabel alloc] initWithFrame:CGRectMake(28,0,47,32)];
     [entry.innerContentView addSubview:entry.titleLabel];
     [golden.contentView addSubview:entry];
     [entry setData:goldenRank styleConfig:nil];
     [entry onDarkModeChange:YES];
-    UIVisualEffectView *entryGlass=(id)Find(entry.innerContentView,material);
+    NSIndexPath *rankIndex=[NSIndexPath indexPathForItem:1 inSection:0];
+    [golden collectionView:golden.collectionView willDisplayCell:entry forItemAtIndexPath:rankIndex];
+    UIVisualEffectView *entryGlass=(id)Find(entry.contentView,material);
     Layout(entryGlass);
-    Check(entryGlass && entryGlass.frame.size.height==32 && entryGlass.layer.cornerRadius==16 &&
+    BOOL usesRequiredMaterial=!HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled() ||
+        [entryGlass.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")];
+    Check(entryGlass.superview==entry.contentView && CGRectEqualToRect(entryGlass.frame,CGRectInset(entry.contentView.bounds,1,0)) &&
+        entryGlass.layer.cornerRadius==16 && usesRequiredMaterial &&
         !entryGlass.userInteractionEnabled && entry.backgroundImageView.hidden && entry.borderView.hidden &&
         [entry.backgroundColor isEqual:UIColor.clearColor] && [entry.contentView.backgroundColor isEqual:UIColor.clearColor] &&
         [entry.innerContentView.backgroundColor isEqual:UIColor.clearColor] && entry.iconImgView.image==cameraOriginal,
-        @"the real theatre shortcut cell exposes its glass after model and theme changes and preserves its raster icon");
+        @"the theatre shortcut glass surrounds the full cell after native display and theme updates and preserves its raster icon");
     HGAppearanceSet(@"player.finderGlass",@NO,nil);
     Check(!Find(entry,material) && !entry.backgroundImageView.hidden && !entry.borderView.hidden &&
         [entry.backgroundColor isEqual:UIColor.systemGrayColor] && [entry.contentView.backgroundColor isEqual:UIColor.systemGrayColor],
@@ -1076,7 +1119,6 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceSet(@"player.finderGlass",@YES,nil);
     Layout(golden);
     NSIndexPath *filterIndex=[NSIndexPath indexPathForItem:0 inSection:0];
-    NSIndexPath *rankIndex=[NSIndexPath indexPathForItem:1 inSection:0];
     Check([golden collectionView:golden.collectionView layout:goldenLayout sizeForItemAtIndexPath:filterIndex].width<0.1 &&
         [golden collectionView:golden.collectionView layout:goldenLayout sizeForItemAtIndexPath:rankIndex].width==98,
         @"the observed theatre shortcut row reclaims the hidden item without renumbering native actions");

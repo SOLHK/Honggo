@@ -20,8 +20,12 @@ static inline double HGADockRowWidth(double available,double ratio,double access
 static inline HGADockSelectionBounds HGADockSelectionBoundsForState(
         double center,double capsuleWidth,double capsuleHeight,double slotWidth,bool pressed) {
     const double inset=pressed ? 0 : 1;
-    const double width=fmin(slotWidth*(pressed ? 1.12 : 1)-2*inset,capsuleWidth-2*inset);
-    const double height=pressed ? capsuleHeight*1.12 : capsuleHeight-2*inset;
+    // The lifted lens stretches between neighboring tab centers, then rounds
+    // out over either glyph. The easing has zero slope at a center and halfway.
+    const double distance=pressed ? fabs(remainder(center-slotWidth*0.5,slotWidth))/(slotWidth*0.5) : 0;
+    const double stretch=distance*distance*(3-2*distance);
+    const double width=fmin(slotWidth*(pressed ? 1.12+0.17*stretch : 1)-2*inset,capsuleWidth-2*inset);
+    const double height=pressed ? capsuleHeight*(1.12-0.075*stretch) : capsuleHeight-2*inset;
     // Slide the lifted lens inward at the ends, retaining its full width.
     const double left=fmax(inset,fmin(center-width*0.5,capsuleWidth-inset-width));
     return (HGADockSelectionBounds){left,(capsuleHeight-height)*0.5,width,height};

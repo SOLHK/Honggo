@@ -34,6 +34,14 @@ int main(void) {
                     if (i + 1 == count) near(held.x + held.width, width);
                 }
                 if (count > 1) {
+                    HGADockSelectionBounds centered = HGADockSelectionBoundsForState(slot*0.5,width,height,slot,true);
+                    HGADockSelectionBounds crossing = HGADockSelectionBoundsForState(slot,width,height,slot,true);
+                    assert(crossing.width > centered.width && crossing.height < centered.height);
+                    near(crossing.x+crossing.width/2,slot);
+                    HGADockSelectionBounds forward = HGADockSelectionBoundsForState(slot*0.8,width,height,slot,true);
+                    HGADockSelectionBounds reverse = HGADockSelectionBoundsForState(slot*1.2,width,height,slot,true);
+                    near(forward.width,reverse.width);
+                    near(forward.height,reverse.height);
                     double x = width / 2 - 1;
                     HGADockSelectionBounds drag = HGADockSelectionBoundsForState(x,width,height,slot,true);
                     near(drag.x + drag.width / 2, x);

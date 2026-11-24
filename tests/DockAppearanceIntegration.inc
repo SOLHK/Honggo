@@ -235,9 +235,24 @@ static void HGRunDockRestoreReentryChecks(SSTabBarController *host) {
         [source addSubview:item];
     }
     bar.backgroundColor=UIColor.systemOrangeColor;bar.opaque=YES;
+    Check([bar.backgroundColor isEqual:UIColor.systemOrangeColor],
+        @"a host bar without a mounted custom Dock keeps its assigned fill");
     [host.view addSubview:bar];HGAppearanceLayoutDock(bar,host);Layout(bar);
     Check(source.hidden && Find(bar,@"honggo.appearance.dock"),
         @"restoration reentry fixture starts with a hidden observed native source");
+    BOOL transparent=YES;
+    for(UIColor *fill in @[UIColor.whiteColor,UIColor.blackColor,UIColor.whiteColor]) {
+        bar.backgroundColor=fill;
+        transparent &= CGColorGetAlpha(bar.backgroundColor.CGColor)==0;
+    }
+    Check(transparent,@"repeated light and dark page settlements keep the root clear before another layout");
+    HGAppearanceSuspendDockForSidebar(bar);
+    bar.backgroundColor=UIColor.blackColor;
+    Check(CGColorGetAlpha(bar.backgroundColor.CGColor)==0 &&
+        !Find(bar,@"honggo.appearance.dock").userInteractionEnabled,
+        @"a host recolor during the drawer leaves the Dock frozen and the native strip transparent");
+    HGAppearanceLayoutDock(bar,host);
+    bar.backgroundColor=UIColor.whiteColor;
     __block NSUInteger restoreCallbacks=0;
     __weak SSTabBar *weakBar=bar;
     source.onRestore=^{
@@ -250,13 +265,13 @@ static void HGRunDockRestoreReentryChecks(SSTabBarController *host) {
     HGAppearanceSet(@"enabled",@NO,nil);
     Check(restoreCallbacks==1 && !source.hidden && !Find(bar,@"honggo.appearance.dock"),
         @"reentrant host source restoration runs once and leaves native navigation visible");
-    Check([bar.backgroundColor isEqual:UIColor.systemOrangeColor] && bar.opaque,
-        @"nested layout cannot capture a half-restored dock background or opacity");
+    Check([bar.backgroundColor isEqual:UIColor.whiteColor] && bar.opaque,
+        @"nested restore returns the last host-requested color and opacity");
     // The coalesced tab-bar update must run after the restore has completed,
     // then legacy mode can acquire the complete original baseline safely.
     CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
     Layout(bar);bar.hidden=YES;
-    Check([bar.backgroundColor isEqual:UIColor.systemOrangeColor] && bar.opaque && !source.hidden,
+    Check([bar.backgroundColor isEqual:UIColor.whiteColor] && bar.opaque && !source.hidden,
         @"deferred legacy reconciliation retains the restored host baseline");
     source.onRestore=nil;
     [bar removeFromSuperview];

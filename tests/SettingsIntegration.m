@@ -276,26 +276,15 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [diagPage setValue:@"diagnostics" forKey:@"pageID"];
     [diagPage setValue:settings forKey:@"rootSettings"];
     [diagPage loadViewIfNeeded];
-    [self check:[diagPage.tableView numberOfRowsInSection:0] == 4
-        name:@"diagnostics subpage exposes enhanced diagnostics export clear and compatibility"];
-    [settings.navigationController pushViewController:diagPage animated:NO];
-    [diagPage.tableView layoutIfNeeded];
-    NSIndexPath *diagnosticPath = [NSIndexPath indexPathForRow:0 inSection:0];
-    UISwitch *enhanced = (UISwitch *)[diagPage.tableView cellForRowAtIndexPath:diagnosticPath].accessoryView;
-    [self check:[enhanced isKindOfClass:UISwitch.class] && !enhanced.on name:@"enhanced diagnostics is opt-in"];
-    __block NSUInteger changes = 0;
-    [enhanced addAction:[UIAction actionWithHandler:^(UIAction *action) { changes++; }]
-        forControlEvents:UIControlEventValueChanged];
-    [diagPage tableView:diagPage.tableView didSelectRowAtIndexPath:diagnosticPath];
-    [self check:changes == 1 && enhanced.on && HGEnhancedDiagnostics()
-        name:@"the diagnostics title delivers one value change to the real switch"];
-    enhanced.on = NO;
-    [enhanced sendActionsForControlEvents:UIControlEventValueChanged];
-    [self check:changes == 2 && !HGEnhancedDiagnostics()
-        name:@"the switch accessory delivers one change through the same settings handler"];
-    enhanced.on = YES;
-    [enhanced sendActionsForControlEvents:UIControlEventValueChanged];
-    [settings.navigationController popViewControllerAnimated:NO];
+    NSIndexPath *openPath = [NSIndexPath indexPathForRow:0 inSection:0];
+    NSIndexPath *clearPath = [NSIndexPath indexPathForRow:1 inSection:0];
+    UITableViewCell *openLog = [diagPage tableView:diagPage.tableView cellForRowAtIndexPath:openPath];
+    UITableViewCell *clearLog = [diagPage tableView:diagPage.tableView cellForRowAtIndexPath:clearPath];
+    [self check:[diagPage.tableView numberOfRowsInSection:0] == 2 && HGEnhancedDiagnostics() &&
+        [openLog.accessibilityIdentifier isEqual:@"honggo.diagnostics.export"] &&
+        [clearLog.accessibilityIdentifier isEqual:@"honggo.diagnostics.clear"] &&
+        !openLog.accessoryView && !clearLog.accessoryView
+        name:@"diagnostics defaults to enhanced and shows only log browsing and clearing"];
 
     UITableViewController *backupPage = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [backupPage setValue:@"backup" forKey:@"pageID"];
@@ -583,10 +572,11 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [[self settingsCell:settings section:1 row:0].accessibilityIdentifier isEqual:@"honggo.diagnostics.export"] &&
         [[self settingsCell:settings section:1 row:1].accessibilityIdentifier isEqual:@"honggo.diagnostics.clear"]
         name:@"filtered diagnostic rows retain export and clear identities"];
-    [self filterSettings:settings text:@"兼容"];
-    [self check:[settings.tableView numberOfRowsInSection:1] == 1 &&
-        [[self settingsCell:settings section:1 row:0].accessibilityIdentifier isEqual:@"honggo.compatibility.open"]
-        name:@"compatibility remains a distinct diagnostic action after filtering"];
+    for (NSString *removed in @[@"本次启动兼容状态", @"增强诊断"]) {
+        [self filterSettings:settings text:removed];
+        [self check:[settings.tableView numberOfRowsInSection:1] == 0
+            name:@"search omits the removed diagnostic entries"];
+    }
     [self filterSettings:settings text:@"restore import"];
     [self check:[settings.tableView numberOfRowsInSection:2] == 1 &&
         [[self settingsCell:settings section:2 row:0].accessibilityIdentifier isEqual:@"honggo.preferences.import"]
@@ -624,8 +614,8 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [self runSearchAction:0 settings:settings completion:completion];
 }
 - (void)runSearchAction:(NSUInteger)index settings:(HGSettingsController *)settings completion:(dispatch_block_t)completion {
-    NSArray<NSString *> *queries = @[@"兼容", @"restore import", @"backup export", @"TG Naloiafeed"];
-    NSArray<NSString *> *names = @[@"active search opens compatibility after search dismissal",
+    NSArray<NSString *> *queries = @[@"诊断日志", @"restore import", @"backup export", @"TG Naloiafeed"];
+    NSArray<NSString *> *names = @[@"active search opens diagnostics after search dismissal",
         @"active search opens the JSON picker after search dismissal",
         @"active search exports configuration to the native share sheet",
         @"active search opens the Telegram menu only after search dismissal"];
@@ -648,7 +638,6 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         return;
     }
     NSDictionary *before = HGPreferencesParse(HGPreferencesExport(nil), nil);
-    BOOL diagnosticsConsent = HGEnhancedDiagnostics();
     [self activateSearch:settings query:queries[index] completion:^(BOOL active) {
         if (!active) { completion(); return; }
         NSInteger section = index == 0 ? 1 : index == 3 ? 3 : 2;
@@ -686,15 +675,15 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
                 return;
             }
             [self check:[HGPreferencesParse(HGPreferencesExport(nil), nil) isEqual:before] &&
-                HGEnhancedDiagnostics() == diagnosticsConsent &&
+                HGEnhancedDiagnostics() &&
                 [[NSUserDefaults.standardUserDefaults stringForKey:@"host.setting"] isEqual:@"preserved"]
-                name:@"opening configuration tools does not change features host settings or diagnostic consent"];
+                name:@"opening configuration tools preserves feature and host settings with enhanced diagnostics enabled"];
             if (index == 0) {
-                UIViewController *compatibility = settings.navigationController.topViewController;
-                [compatibility loadViewIfNeeded];
-                [self check:[compatibility.view.accessibilityIdentifier isEqual:@"honggo.compatibility"] &&
-                    [compatibility isKindOfClass:UITableViewController.class]
-                    name:@"compatibility action displays the dedicated native status table"];
+                UIViewController *logs = settings.navigationController.topViewController;
+                [logs loadViewIfNeeded];
+                [self check:[logs.view.accessibilityIdentifier isEqual:@"honggo.diagnostics.sessions"] &&
+                    [logs isKindOfClass:UITableViewController.class]
+                    name:@"diagnostics search opens the session list"];
                 [settings.navigationController popToViewController:settings animated:NO];
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [self runSearchAction:index + 1 settings:settings completion:completion];

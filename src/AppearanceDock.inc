@@ -31,6 +31,7 @@
 @property(nonatomic,strong) NSMapTable<UIView *,NSNumber *> *hiddenSources;
 @property(nonatomic,strong) UIColor *hostBackground;
 @property(nonatomic) BOOL backgroundOwned;
+@property(nonatomic) BOOL clearingHostFill;
 @property(nonatomic) BOOL hostOpaque;
 @property(nonatomic,strong) UIView *capsule;
 @property(nonatomic,strong) UIView *selection;
@@ -107,6 +108,19 @@
 }
 @end
 static char HGADockKey;
+static void (*HGADockOriginalBarColor)(UIView *,SEL,UIColor *);
+static void HGADockSetBarColor(UIView *bar,SEL selector,UIColor *color) {
+    HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
+    if(dock.backgroundOwned && !dock.clearingHostFill && !dock.restoring &&
+        bar.window && dock.superview==bar) {
+        // 7.4.5.33 settles the selected page's light/dark fill directly on
+        // SSTabBar between layout passes. While the sidebar moves the bar,
+        // keep this same paint ownership without touching its layout.
+        dock.hostBackground=color;
+        color=UIColor.clearColor;
+    }
+    HGADockOriginalBarColor(bar,selector,color);
+}
 static BOOL HGADockInstallHostHitRoute(void);
 static const CGFloat HGADockAccessoryGap=12;
 static CGFloat HGADockControlHeight(UIView *bar) {
@@ -725,28 +739,15 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 }
 
 - (BOOL)systemDockCanReceiveTouches:(NSArray<NSString *> *)keys {
-    // UIKit controls its own indicator dimensions. Only delegate the whole
-    // interaction when its actual lens covers the tab with the header's thin seam.
-    CGFloat slotWidth=CGRectGetWidth(self.capsule.bounds)/keys.count;
-    BOOL measuredLens=NO,fillsSlot=NO;
-    for(UIView *view in HGADockSystemSubviews(self.systemTabBar)) {
-        if(!HGADockUIKitPart(view,@"_UITabSelectionView") || !HGAVisible(view))continue;
-        CGRect lens=[view convertRect:view.bounds toView:self.capsule];
-        if(CGRectIsEmpty(lens))continue;
-        measuredLens=YES;
-        if(fabs(CGRectGetWidth(lens)-slotWidth)<=4 &&
-            fabs(CGRectGetHeight(lens)-CGRectGetHeight(self.capsule.bounds))<=4) {
-            CGFloat center=CGRectGetMidX(lens);
-            CGFloat nearestSlot=floor(center/slotWidth);
-            fillsSlot=nearestSlot>=0 && nearestSlot<keys.count &&
-                fabs(center-(nearestSlot+0.5)*slotWidth)<=1;
-            if(fillsSlot)break;
-        }
-    }
-    if(measuredLens && !fillsSlot)return NO;
+    // UIKit's lens changes size and center during selection and attachment.
+    // Measure the stable item hit areas instead of a presentation-time thumb.
+    CGFloat width=CGRectGetWidth(self.capsule.bounds);
+    CGFloat edgeAllowance=MIN(6,width/keys.count*0.08);
     NSMutableArray<NSValue *> *centers=[NSMutableArray array];
     CGFloat left=CGFLOAT_MAX,right=-CGFLOAT_MAX;
-    for(UIView *item in HGADockSystemItems(self.systemTabBar)) {
+    NSArray<UIView *> *items=HGADockSystemItems(self.systemPlatter);
+    if(!items.count)items=HGADockSystemItems(self.systemTabBar);
+    for(UIView *item in items) {
         if(!HGAVisible(item))continue;
         CGPoint center=CGPointMake(CGRectGetMidX(item.bounds),CGRectGetMidY(item.bounds));
         CGPoint local=[item convertPoint:center toView:self];
@@ -758,9 +759,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(!duplicate)[centers addObject:[NSValue valueWithCGPoint:local]];
     }
     if(centers.count!=keys.count)return NO;
-    // A detached selected tab has no capsule thumb yet. In that case check
-    // the outermost real item frames without changing the selected tab.
-    if(!measuredLens && (left>2 || right<CGRectGetWidth(self.capsule.bounds)-2))return NO;
+    if(left>edgeAllowance || right<width-edgeAllowance)return NO;
     BOOL rtl=self.systemTabBar.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft;
     [centers sortUsingComparator:^NSComparisonResult(NSValue *first,NSValue *second) {
         return (first.CGPointValue.x<second.CGPointValue.x)!=rtl ? NSOrderedAscending : NSOrderedDescending;
@@ -810,8 +809,10 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(self.hidden && !self.systemDockActive)return NO;
     self.systemDockSyncing=YES;
     BOOL active=NO;
-    for(NSUInteger attempt=0;attempt<2;attempt++) {
-        if(!self.systemTabBar && ![self buildSystemDockUsingController:attempt!=0])break;
+    NSString *failure=@"UIKit could not attach a tab bar";
+    BOOL managed=self.systemTabController!=nil;
+    for(;;) {
+        if(!self.systemTabBar && ![self buildSystemDockUsingController:managed])break;
         UIView *carrier=[self systemDockCarrier];
         if(carrier.alpha!=1)carrier.alpha=1;
         if(!carrier.userInteractionEnabled)carrier.userInteractionEnabled=YES;
@@ -825,9 +826,12 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if([self fitSystemDockInCapsule:requested itemCount:keys.count]) {
             self.systemDockActive=YES;
             if(self.hidden || [self systemDockCanReceiveTouches:keys]){active=YES;break;}
-        }else if(attempt==0 && !self.systemDockActive && !self.systemWarmupComplete) {
+            failure=@"Floating tab item geometry or hit route unavailable";
+        }else failure=@"Floating platter missing or outside configured dimensions";
+        if(!self.systemWarmupComplete) {
             // Give UIKit one turn to populate its initial attachment before
             // concluding this bar is a legacy provider. Keep it nonvisual.
+            self.systemDockActive=NO;
             self.systemWarmupPending=YES;
             carrier.alpha=0.001;carrier.userInteractionEnabled=NO;
             __weak HGAAppearanceDock *weakSelf=self;
@@ -842,11 +846,13 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
             return NO;
         }
         [self removeSystemDock];
+        if(managed)break;
+        managed=YES;
     }
     self.systemDockSyncing=NO;
     if(!active)self.failedSystemProbe=probe;
     NSString *mode=active ? (self.systemTabController?@"uikit-controller":@"uikit-tabbar") : @"compatibility";
-    [self recordDockRenderer:mode reason:active?@"UIKit floating platter receives item touches":@"No touchable UIKit floating platter"
+    [self recordDockRenderer:mode reason:active?@"UIKit floating platter receives item touches":failure
         material:active?[self applySystemMaterial:style]:style];
     return active;
 }
@@ -897,7 +903,11 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(!self.backgroundOwned || ![bar.backgroundColor isEqual:UIColor.clearColor])self.hostBackground=bar.backgroundColor;
         if(!self.backgroundOwned || bar.opaque)self.hostOpaque=bar.opaque;
         self.backgroundOwned=YES;
-        if(![bar.backgroundColor isEqual:UIColor.clearColor])bar.backgroundColor=UIColor.clearColor;
+        if(![bar.backgroundColor isEqual:UIColor.clearColor]) {
+            self.clearingHostFill=YES;
+            bar.backgroundColor=UIColor.clearColor;
+            self.clearingHostFill=NO;
+        }
         if(bar.opaque)bar.opaque=NO;
         [self hideSource:HGAViewGetter(bar,"contentView",bar)];
         const char *backdrops[]={"backgroundImageView","lightView","darkView","lineView"};
@@ -1532,6 +1542,9 @@ void HGAppearanceLayoutDock(UIView *bar,UIViewController *controller) {
     if(!HGABars)HGABars=[NSHashTable weakObjectsHashTable];[HGABars addObject:bar];
     HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
     if(!HGAppearanceDockEnabled()){[dock restore];return;}
+    if(!HGADockOriginalBarColor)HGADockOriginalBarColor=(void (*)(UIView *,SEL,UIColor *))
+        HGInstallVerifiedHook(objc_lookUpClass("SSTabBar"),@selector(setBackgroundColor:),"v24@0:8@16",
+            (IMP)HGADockSetBarColor,@"appearance");
     if(!dock){dock=[[HGAAppearanceDock alloc] initWithFrame:bar.bounds];dock.hostBar=bar;
         objc_setAssociatedObject(bar,&HGADockKey,dock,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     if(controller)dock.hostController=controller;

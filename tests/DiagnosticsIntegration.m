@@ -101,14 +101,15 @@ static void CheckEvents(NSURL *root) {
           @"event": @"legacy.expired", @"fields": @{}},
         @{@"session": legacy, @"time": @(NSDate.date.timeIntervalSince1970), @"event": @"legacy.bad", @"fields": @[]}
     ], [root URLByAppendingPathComponent:@"events.json"]);
+    [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"Honggo.enhancedDiagnostics"];
     HGDiagnosticsStart(root, @{@"hostBuild": @"7.4.3.33"});
+    Check(HGEnhancedDiagnostics(), @"enhanced diagnostics starts enabled even after an earlier version stored off");
+    [NSUserDefaults.standardUserDefaults removeObjectForKey:@"Honggo.enhancedDiagnostics"];
     HGLoadStage(@"entry");
     HGLog(@"nil.fields", nil);
     HGLog(@"privacy.fixture", @{@"cookie": @"diagnostic-private-cookie", @"手机号": @13800138000,
         @"accountId": @495202, @"reason": @"https://example.test/private", @"selector": @"safeAction:"});
     HGLog(@"navigation.dock", @{@"tab": @"home", @"phase": @"enter", @"mode": @"glass"});
-    HGSetEnhancedDiagnostics(YES);
-    Check(HGEnhancedDiagnostics(), @"enhanced mode changes immediately");
     NSURL *immutable = nil;
     NSDictionary *report = Export(HGDiagnosticScopeAll, nil, &immutable);
     NSArray *sessions = report[@"sessions"];

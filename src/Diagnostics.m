@@ -27,7 +27,8 @@ static NSDictionary *HGSessionInfo;
 static NSDictionary *HGCurrentMetadata;
 static NSMutableArray<NSDictionary *> *HGIncoming, *HGRecent, *HGFallback;
 static NSUInteger HGDropped;
-static BOOL HGDrainScheduled, HGUrgentScheduled, HGEnhanced;
+static BOOL HGDrainScheduled, HGUrgentScheduled;
+static BOOL HGEnhanced = YES;
 static BOOL HGFlushScheduled, HGDirty, HGExporting;
 static NSUInteger HGGeneration, HGArchiveBytes, HGSegmentSize, HGSegmentNumber;
 static NSTimeInterval HGSegmentOpened, HGWriteRetry, HGOpenOldest;
@@ -615,7 +616,6 @@ BOOL HGEnhancedDiagnostics(void) {
 
 void HGSetEnhancedDiagnostics(BOOL enabled) {
     @synchronized (HGLogLock) { HGEnhanced = enabled; }
-    [NSUserDefaults.standardUserDefaults setBool:enabled forKey:@"Honggo.enhancedDiagnostics"];
     HGLog(@"diagnostics.mode", @{@"enabled": @(enabled)});
 }
 
@@ -715,7 +715,6 @@ void HGDiagnosticsStart(NSURL *directory, NSDictionary *environment) {
         HGFallback = [NSMutableArray array];
         HGMaskScenes = [NSMutableArray array];
         HGSegmentOldest = [NSMutableDictionary dictionary];
-        HGEnhanced = [NSUserDefaults.standardUserDefaults boolForKey:@"Honggo.enhancedDiagnostics"];
         HGSensitiveKey = [NSRegularExpression regularExpressionWithPattern:
             @"(?i)account|token|cookie|auth(?:orization)?header|password|passwd|secret|credential|bearer|mobile|phone|e-?mail|session[_-]?key|user[_-]?id|request(?:body|headers?)|手机号|账号|密码|令牌|邮箱"
             options:0 error:nil];

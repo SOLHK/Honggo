@@ -293,6 +293,12 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             ((void(*)(id,SEL,id,id))original)(object,selector,first,second);
             HGAppearanceProcessView(object);
         });
+    } else if (selector==@selector(collectionView:willDisplayCell:forItemAtIndexPath:) &&
+        !strcmp(encoding,"v40@0:8@16@24@32")) {
+        replacement=imp_implementationWithBlock(^(id object,UICollectionView *collection,UICollectionViewCell *cell,NSIndexPath *path) {
+            ((void(*)(id,SEL,id,id,id))original)(object,selector,collection,cell,path);
+            HGAppearanceProcessView(cell);
+        });
     } else if (!strcmp(encoding,"v36@0:8B16d20B28B32")) {
         replacement=imp_implementationWithBlock(^(id object,BOOL interactive,double ratio,BOOL visible,BOOL animated) {
             BOOL owned=HGABeginNativeHeaderToolTransition(object,animated);
@@ -331,7 +337,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 // Ending a seek reclips the control's feed ancestors. Reapply
                 // the active dock extension after the original clipping pass.
                 if(value)HGRefreshVideoBackdropForPlayer(object);
-            } else HGAppearanceProcessView(object);
+            } else if(controller)HGAppearanceProcessController(object);
+            else HGAppearanceProcessView(object);
         });
     }
     if (!replacement) return;
@@ -430,6 +437,8 @@ void HGInstallAppearance(void) {
             if([name isEqual:@"SSBookStoreEntranceView"] || [name isEqual:@"SSBookStoreKingKongBannerView"] ||
                 [name isEqual:@"SSVideoDistributionGoldenPositionCell"])
                 HGAHook(cls,sel_registerName("setModel:"),"v24@0:8@16",NO);
+            if([name isEqual:@"SSVideoDistributionGoldenPositionCell"])
+                HGAHook(cls,@selector(collectionView:willDisplayCell:forItemAtIndexPath:),"v40@0:8@16@24@32",NO);
             if([name isEqual:@"SSVideoDistributionGoldenPositionSubCell"]) {
                 HGAHook(cls,sel_registerName("setData:styleConfig:"),"v32@0:8@16@24",NO);
                 HGAHook(cls,sel_registerName("onDarkModeChange:"),"v20@0:8B16",NO);
@@ -525,6 +534,16 @@ void HGInstallAppearance(void) {
             Class cls=NSClassFromString(name);
             if (![cls isSubclassOfClass:UIViewController.class]) continue;
             HGAHook(cls,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
+            if([HGAFinderControllers() containsObject:name]) {
+                HGAHook(cls,@selector(viewDidAppear:),"v20@0:8B16",YES);
+                NSArray<NSString *> *updates=[name isEqual:@"FQTheaterViewController"] ?
+                    @[@"relayoutHeader",@"setupNewSearchBarNew",@"refreshAISearchEntrance"] :
+                    @[@"relayoutHeaderWithSearchBar",@"bookStoreSearchBarComponentNeedsRelayout"];
+                for(NSString *update in updates) {
+                    SEL selector=NSSelectorFromString(update);
+                    if(class_getInstanceMethod(cls,selector))HGAHook(cls,selector,"v16@0:8",YES);
+                }
+            }
         }
         // The original navigation is still owned by the host controller.
         Class dockController=NSClassFromString(@"SSTabBarController");

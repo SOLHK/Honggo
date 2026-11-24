@@ -19,7 +19,10 @@ static NSArray *HGSceneRect(CGRect r) {
 static void HGCaptureMask(UIViewController *page, NSString *reason, BOOL cancelled) {
     if (!HGEnhancedDiagnostics() || !page.viewIfLoaded.window) return;
     NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
-    if (![reason isEqual:@"user.screenshot"] && !cancelled) {
+    BOOL detailed = [reason isEqual:@"user.screenshot"] || cancelled;
+    NSUInteger nodeLimit = detailed ? 192 : 80;
+    NSTimeInterval timeBudget = detailed ? 0.012 : 0.003;
+    if (!detailed) {
         NSMutableDictionary<NSString *, NSNumber *> *last = objc_getAssociatedObject(page, &HGAutomaticSceneTimesKey);
         NSNumber *previous = last[reason];
         if (previous && started - previous.doubleValue < 3) return;
@@ -34,7 +37,7 @@ static void HGCaptureMask(UIViewController *page, NSString *reason, BOOL cancell
     NSMutableArray<UIView *> *queue = [NSMutableArray array];
     NSHashTable *seen = [NSHashTable weakObjectsHashTable];
     void (^add)(UIView *) = ^(UIView *v) {
-        if (v && ![seen containsObject:v] && queue.count < 192) { [seen addObject:v]; [queue addObject:v]; }
+        if (v && ![seen containsObject:v] && queue.count < nodeLimit) { [seen addObject:v]; [queue addObject:v]; }
     };
     NSMutableDictionary *roles = [NSMutableDictionary dictionary];
     // Seed ownership paths before cells can consume the node budget.
@@ -61,7 +64,7 @@ static void HGCaptureMask(UIViewController *page, NSString *reason, BOOL cancell
     NSMutableArray *nodes = [NSMutableArray array];
     BOOL timeLimited = NO;
     for (NSUInteger i = 0; i < queue.count; i++) {
-        if (NSProcessInfo.processInfo.systemUptime - started > 0.012) { timeLimited = YES; break; }
+        if (NSProcessInfo.processInfo.systemUptime - started > timeBudget) { timeLimited = YES; break; }
         UIView *v = queue[i];
         NSMutableDictionary *n = [@{@"id": HGSceneID(v), @"parent": HGSceneID(v.superview),
             @"class": NSStringFromClass(v.class), @"frame": HGSceneRect(v.frame), @"bounds": HGSceneRect(v.bounds),
@@ -115,7 +118,7 @@ static void HGCaptureMask(UIViewController *page, NSString *reason, BOOL cancell
         @"uptime": @(started), @"captureMs": @((NSProcessInfo.processInfo.systemUptime - started) * 1000),
         @"cancelled": @(cancelled), @"roles": roles, @"nodes": nodes,
         @"window": HGSceneID(window), @"windowBounds": HGSceneRect(window.bounds),
-        @"nodeLimit": @192, @"truncated": @(timeLimited || queue.count >= 192), @"timeLimited": @(timeLimited)});
+        @"nodeLimit": @(nodeLimit), @"truncated": @(timeLimited || queue.count >= nodeLimit), @"timeLimited": @(timeLimited)});
 }
 static void HGSceneSettled(UIViewController *page, NSString *reason) {
     __weak UIViewController *weak = page;

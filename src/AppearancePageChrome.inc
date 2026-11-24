@@ -143,12 +143,24 @@ static NSString *HGAFinderMaterial(void) {
     return [HGAppearanceString(@"player.material") isEqual:@"clear"] ? @"clear" : @"regular";
 }
 
-static void HGAApplyFinderMaterial(UIView *target,CGRect frame) {
-    HGAApplyPageChromeMaterial(target,frame,HGAFinderMaterial());
-    if(!UIAccessibilityIsReduceTransparencyEnabled()) {
-        BOOL dark=target.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-        HGASetGlassOverlay(target,[UIColor colorWithWhite:dark?0.11:0.95 alpha:dark?0.18:0.07]);
+static BOOL HGAFinderControlReady(UIView *view) {
+    // The native page transition can hide or fade a parent while its search
+    // row is already laid out. Keep its glass ready for the incoming page.
+    return view.window && !view.hidden && !CGRectIsEmpty(view.bounds);
+}
+
+static void HGAApplyFinderMaterial(UIView *target,CGRect frame,BOOL shortcut) {
+    if(!HGAFinderControlReady(target) || CGRectIsEmpty(frame)) {
+        HGARemoveGlass(target);
+        return;
     }
+    BOOL dark=target.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
+    HGAInstallGlassInRect(target,HGAFinderMaterial(),frame,MIN(CGRectGetHeight(frame)/2,24),0);
+    UIColor *tint=shortcut && !reduced ? [UIColor colorWithWhite:dark ? 0.95 : 0.18 alpha:dark ? 0.13 : 0.09] :
+        [UIColor colorWithWhite:reduced ? (dark ? 0.25 : 0.91) : (dark ? 0.11 : 0.95)
+            alpha:reduced ? 1 : (dark ? 0.18 : 0.07)];
+    HGASetGlassOverlay(target,tint);
 }
 
 @interface HGAPageChromeIcon : NSObject
@@ -220,7 +232,7 @@ static BOOL HGAReflowFinderRecognition(UIView *owner,UIView *recognition,UIView 
     if(previous && previous!=recognition)HGARestoreGeometry(previous);
     CGFloat offset=0;
     HGAViewState *state=HGAState(recognition,NO);
-    if((hideAI || glass) && HGAVisible(recognition) && recognition.superview && assistant.superview && assistant.alpha>=0.01) {
+    if((hideAI || glass) && HGAFinderControlReady(recognition) && recognition.superview && assistant.superview && assistant.alpha>=0.01) {
         // Measure the host slot before our translation. The native control and
         // its gesture move together inside the same hit-testing parent.
         CGRect button=recognition.frame;
@@ -259,7 +271,7 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition
     }
     HGAViewState *assistantState=HGAState(assistant,NO);
     BOOL hostShowsAI=assistantState.visibility && assistant.hidden==assistantState.appliedHidden ?
-        !assistantState.sourceHidden : HGAVisible(assistant);
+        !assistantState.sourceHidden : HGAFinderControlReady(assistant);
     BOOL hideAI=assistant && !HGAppearanceFlag(@"player.finderAI");
     BOOL reflow=HGAReflowFinderRecognition(owner,recognition,hostShowsAI?assistant:nil,hideAI,glass);
     HGAHidePageChromeTarget(owner,@"finderAI",hideAI ? assistant : nil);
@@ -270,11 +282,11 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition
     HGAUpdatePageChromeTargets(owner,targets);
 
     CGRect searchFrame=field ? field.bounds : CGRectZero;
-    BOOL separate=glass && HGAVisible(field) && HGAVisible(recognition) && recognition!=field;
+    BOOL separate=glass && HGAFinderControlReady(field) && HGAFinderControlReady(recognition) && recognition!=field;
     if(separate) {
         CGRect button=[recognition convertRect:recognition.bounds toView:field];
         CGFloat gap=7;
-        if(recognition.superview==field && !hideAI && HGAVisible(assistant)) {
+        if(recognition.superview==field && !hideAI && HGAFinderControlReady(assistant)) {
             CGRect ai=[assistant convertRect:assistant.bounds toView:field];
             CGFloat remaining=CGRectGetMinX(ai)-CGRectGetMaxX(button);
             // Match the measured right gap after the one-point inset below.
@@ -309,14 +321,14 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition
             CGFloat side=MIN(frame.size.width,frame.size.height);
             frame=CGRectInset(frame,(frame.size.width-side)/2,(frame.size.height-side)/2);
         }
-        HGAApplyFinderMaterial(target,frame);
+        HGAApplyFinderMaterial(target,frame,NO);
     }
 }
 
 static char HGAFinderAIInkKey;
 static void HGAApplyFinderAIInk(UIView *owner,UIView *assistant,id artOwner,NSArray<NSString *> *artGetters) {
     UIImageView *glyph=objc_getAssociatedObject(owner,&HGAFinderAIInkKey);
-    if(!HGAVisible(assistant))assistant=nil;
+    if(!HGAFinderControlReady(assistant))assistant=nil;
     BOOL replaced=NO;
     for(NSString *name in artGetters) {
         UIView *art=assistant ? HGAViewGetter(artOwner,name.UTF8String,assistant) : nil;
@@ -714,7 +726,7 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
         // The Compose glyphs are clipped to 24pt. Use their title bar for the
         // glass so the original touch views, clipping and unread dot stay intact.
         if(backing.superview!=titleBar)[titleBar insertSubview:backing atIndex:0];
-        HGAApplyFinderMaterial(backing,backing.bounds);
+        HGAApplyFinderMaterial(backing,HGAVisible(backing) ? backing.bounds : CGRectZero,NO);
     }
 }
 
@@ -888,29 +900,25 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
         BOOL scoped=enabled && HGAIsFinderView(view);
         NSString *key=filter ? @"filter" : nil;
         if(scoped && !filter) {
-            NSString *title=HGAPageChromeLabel(view,golden?"titleLabel":"nameLabel");
-            if(!title.length) {
-                id modelTitle=HGReadObjectGetter(HGReadObjectGetter(view,golden?"itemData":"model"),golden?"text":"name");
-                if([modelTitle isKindOfClass:NSString.class])title=modelTitle;
-            }
+            id modelTitle=HGReadObjectGetter(HGReadObjectGetter(view,golden?"itemData":"model"),golden?"text":"name");
+            NSString *title=[modelTitle isKindOfClass:NSString.class] ? modelTitle : HGAPageChromeLabel(view,golden?"titleLabel":"nameLabel");
             key=HGAFinderShortcutKey(title);
         }
         BOOL hide=scoped && key && HGAppearanceFlag([@"finder.hide.shortcut." stringByAppendingString:key]);
         HGASetHidden(view,hide);
-        BOOL finder=scoped && key && !hide && HGAppearanceFlag(@"player.finderGlass") && HGAVisible(view);
+        BOOL finder=scoped && key && !hide && HGAppearanceFlag(@"player.finderGlass") && HGAFinderControlReady(view);
         HGASetPageChromeCover(view,filter?"backgroundView":golden?"backgroundImageView":"bgImgView",finder);
-        UIView *target=golden?HGAViewGetter(view,"innerContentView",view) ?: view:view;
+        UIView *target=view;
         if(golden) {
-            UIView *content=[view isKindOfClass:UICollectionViewCell.class] ? ((UICollectionViewCell *)view).contentView : nil;
-            // The native cell paints both the backing and a separate outline.
-            // Only the card paints are replaced. Its colored icon stays intact.
+            // The inner content fits the icon and label. Use the cell's full
+            // content area so the glass surrounds both, with the native hit area intact.
+            target=((UICollectionViewCell *)view).contentView;
+            UIView *inner=HGAViewGetter(view,"innerContentView",view);
             HGAHidePageChromeTarget(view,@"finderShortcutBorder",finder ? HGAViewGetter(view,"borderView",view) : nil);
-            if(view!=target)HGASetGlassHostBackground(view,finder);
-            if(content && content!=target)HGASetGlassHostBackground(content,finder);
+            HGASetGlassHostBackground(view,finder);
+            if(inner && inner!=target && inner!=view)HGASetGlassHostBackground(inner,finder);
         }
-        HGAApplyFinderMaterial(target,finder ? CGRectInset(target.bounds,1,0) : CGRectZero);
-        // Shortcut artwork is supplied with its own colors and backgrounds.
-        // Treating the whole source image as a template fills the rounded icon tile.
+        HGAApplyFinderMaterial(target,finder ? CGRectInset(target.bounds,1,0) : CGRectZero,YES);
     }
 }
 
@@ -947,7 +955,7 @@ static void HGAApplyFinderChrome(UIViewController *controller) {
             // On the theatre host the cue row exposes the leading magnifier as
             // a plain image view, alongside a separate cue content view.
             for(UIView *child in search.subviews) {
-                if([child isKindOfClass:UIImageView.class] && HGAVisible(child) &&
+                if([child isKindOfClass:UIImageView.class] && HGAFinderControlReady(child) &&
                     CGRectGetMinX(child.frame)<20 && CGRectGetWidth(child.frame)<=24) {
                     searchIcon=child;break;
                 }

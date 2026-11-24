@@ -2,41 +2,42 @@
 @property(nonatomic) NSInteger selectedSegmentIndex;
 @end
 
-// Each glass surface is also its button's hit target. UIKit owns the optical
-// response and press animation; the host still commits the channel change.
+// One native glass rail backs the entire channel switch. The labels and their
+// hit targets do not get rebuilt when the selected channel changes.
 API_AVAILABLE(ios(26.0))
 @interface HGAHeaderGlassChannels : UIControl <HGAHeaderSelecting>
-@property(nonatomic,copy) NSArray<NSString *> *titles;
 @property(nonatomic,copy) NSArray<UIButton *> *buttons;
-@property(nonatomic) BOOL clearGlass;
-- (instancetype)initWithTitles:(NSArray<NSString *> *)titles clearGlass:(BOOL)clear;
+@property(nonatomic,strong) HGAAppearanceMaterial *rail;
+- (instancetype)initWithTitles:(NSArray<NSString *> *)titles material:(NSString *)material;
 @end
 @implementation HGAHeaderGlassChannels
 @synthesize selectedSegmentIndex=_selectedSegmentIndex;
-- (instancetype)initWithTitles:(NSArray<NSString *> *)titles clearGlass:(BOOL)clear {
+- (instancetype)initWithTitles:(NSArray<NSString *> *)titles material:(NSString *)material {
     if ((self=[super initWithFrame:CGRectZero])) {
-        _titles=[titles copy];
-        _clearGlass=clear;
         _selectedSegmentIndex=UISegmentedControlNoSegment;
         self.isAccessibilityElement=NO;
-        UIGlassContainerEffect *material=[UIGlassContainerEffect new];
-        material.spacing=8;
-        UIVisualEffectView *group=[[UIVisualEffectView alloc] initWithEffect:material];
-        group.frame=self.bounds;
-        group.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-        [self addSubview:group];
-        UIStackView *row=[[UIStackView alloc] initWithFrame:group.bounds];
+        _rail=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
+        _rail.style=material;
+        _rail.overlayColor=UIColor.clearColor;
+        _rail.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
+        _rail.accessibilityIdentifier=@"honggo.appearance.header.channelRail";
+        _rail.accessibilityElementsHidden=YES;
+        _rail.userInteractionEnabled=NO;
+        _rail.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        [self addSubview:_rail];
+        UIStackView *row=[[UIStackView alloc] initWithFrame:self.bounds];
         row.distribution=UIStackViewDistributionFillEqually;
-        row.spacing=2;
         row.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-        [group.contentView addSubview:row];
+        [self addSubview:row];
         NSMutableArray *buttons=[NSMutableArray arrayWithCapacity:titles.count];
         for (NSUInteger index=0;index<titles.count;index++) {
             UIButton *button=[UIButton buttonWithType:UIButtonTypeSystem];
             button.tag=(NSInteger)index;
-            [self configureButton:button selected:NO];
+            [button setTitle:titles[index] forState:UIControlStateNormal];
+            [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+            [button setTitleColor:[UIColor.whiteColor colorWithAlphaComponent:0.86] forState:UIControlStateHighlighted];
+            button.titleLabel.font=[UIFont systemFontOfSize:13];
             [button addTarget:self action:@selector(choose:) forControlEvents:UIControlEventPrimaryActionTriggered];
-            [button addTarget:self action:@selector(finishDrag:event:) forControlEvents:UIControlEventTouchUpOutside];
             [row addArrangedSubview:button];
             [buttons addObject:button];
         }
@@ -44,28 +45,17 @@ API_AVAILABLE(ios(26.0))
     }
     return self;
 }
-- (void)configureButton:(UIButton *)button selected:(BOOL)selected {
-    UIButtonConfiguration *configuration;
-    if (selected) configuration=self.clearGlass ? UIButtonConfiguration.prominentClearGlassButtonConfiguration :
-        UIButtonConfiguration.prominentGlassButtonConfiguration;
-    else configuration=self.clearGlass ? UIButtonConfiguration.clearGlassButtonConfiguration :
-        UIButtonConfiguration.glassButtonConfiguration;
-    configuration.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
-    configuration.automaticallyUpdateForSelection=NO;
-    configuration.contentInsets=NSDirectionalEdgeInsetsZero;
-    configuration.baseForegroundColor=UIColor.whiteColor;
-    if (selected) configuration.baseBackgroundColor=[UIColor colorWithWhite:0.76 alpha:0.45];
-    configuration.attributedTitle=[[NSAttributedString alloc] initWithString:self.titles[button.tag] attributes:@{
-        NSFontAttributeName:[UIFont systemFontOfSize:13 weight:selected ? UIFontWeightSemibold : UIFontWeightRegular]}];
-    button.configuration=configuration;
+- (void)applySelection:(BOOL)selected toButton:(UIButton *)button {
     button.selected=selected;
+    button.accessibilityTraits=UIAccessibilityTraitButton | (selected ? UIAccessibilityTraitSelected : 0);
+    button.titleLabel.font=[UIFont systemFontOfSize:13 weight:selected ? UIFontWeightSemibold : UIFontWeightRegular];
 }
 - (void)setSelectedSegmentIndex:(NSInteger)index {
     if (_selectedSegmentIndex==index) return;
     NSInteger previous=_selectedSegmentIndex;
     _selectedSegmentIndex=index;
-    if (previous>=0 && previous<(NSInteger)self.buttons.count) [self configureButton:self.buttons[previous] selected:NO];
-    if (index>=0 && index<(NSInteger)self.buttons.count) [self configureButton:self.buttons[index] selected:YES];
+    if (previous>=0 && previous<(NSInteger)self.buttons.count) [self applySelection:NO toButton:self.buttons[previous]];
+    if (index>=0 && index<(NSInteger)self.buttons.count) [self applySelection:YES toButton:self.buttons[index]];
 }
 - (BOOL)isTracking {
     for (UIButton *button in self.buttons) if (button.isTracking) return YES;
@@ -75,16 +65,6 @@ API_AVAILABLE(ios(26.0))
     if (button.tag==self.selectedSegmentIndex) return;
     self.selectedSegmentIndex=button.tag;
     [self sendActionsForControlEvents:UIControlEventValueChanged];
-}
-- (void)finishDrag:(UIButton *)origin event:(UIEvent *)event {
-    UITouch *touch=[event touchesForView:origin].anyObject;
-    if (!touch) return;
-    for (UIButton *button in self.buttons) {
-        if (button!=origin && CGRectContainsPoint(button.bounds,[touch locationInView:button])) {
-            [self choose:button];
-            break;
-        }
-    }
 }
 @end
 
@@ -100,8 +80,9 @@ API_AVAILABLE(ios(26.0))
 @property(nonatomic,copy) NSArray<NSNumber *> *channelIndices;
 @property(nonatomic,copy) NSArray<NSString *> *channelTitles;
 @property(nonatomic,weak) UIPanGestureRecognizer *observedPagePan;
-@property(nonatomic,strong) UIVisualEffectView *channelLens;
+@property(nonatomic,strong) UIView *channelLens;
 @property(nonatomic) BOOL channelLensTracking;
+@property(nonatomic) BOOL channelLensSettling;
 @property(nonatomic) NSUInteger channelMotionGeneration;
 @property(nonatomic,strong) CADisplayLink *pageCoasting;
 @property(nonatomic) NSInteger previewOrigin;
@@ -117,6 +98,7 @@ API_AVAILABLE(ios(26.0))
 - (void)followPagePan:(UIPanGestureRecognizer *)pan;
 - (void)finishChannelMotion;
 - (void)selectHeaderSegment:(NSInteger)next;
+- (void)syncRestingChannel;
 @end
 static char HGAHeaderInsetKey;
 
@@ -177,58 +159,74 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     if (control.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft) center=width-center;
     CGFloat left=MIN(width-size.width,MAX(0,center-size.width/2));
     return [control convertRect:CGRectMake(left,(CGRectGetHeight(control.bounds)-size.height)/2,size.width,size.height)
-                         toView:control.superview];
+                         toView:self.channelLens.superview];
+}
+- (BOOL)usesGlassChannels {
+    return self.channelStyle && ![self.channelStyle isEqual:@"flat"];
+}
+- (void)prepareChannelLens {
+    if (self.channelLens || !self.channelControl.superview) return;
+    UIView *lens=[UIView new];
+    lens.userInteractionEnabled=NO;
+    lens.accessibilityElementsHidden=YES;
+    lens.accessibilityIdentifier=@"honggo.appearance.header.swipeLens";
+    lens.layer.cornerCurve=kCACornerCurveContinuous;
+    lens.backgroundColor=[UIColor colorWithWhite:1 alpha:0.26];
+    lens.hidden=YES;
+    if (@available(iOS 26.0,*)) {
+        if ([self usesGlassChannels]) {
+            HGAHeaderGlassChannels *control=(id)self.channelControl;
+            [control insertSubview:lens aboveSubview:control.rail];
+        }
+    }
+    if (!lens.superview) [self.channelControl.superview insertSubview:lens belowSubview:self.channelControl];
+    self.channelLens=lens;
+}
+- (void)positionLensForSegment:(CGFloat)index lifted:(BOOL)lifted {
+    CGRect frame=[self lensFrameAtSegment:index lifted:lifted];
+    UIView *lens=self.channelLens;
+    if (!CGRectEqualToRect(lens.frame,frame)) lens.frame=frame;
+    CGFloat radius=CGRectGetHeight(frame)/2;
+    if (lens.layer.cornerRadius!=radius) lens.layer.cornerRadius=radius;
+}
+- (void)syncRestingChannel {
+    UIControl<HGAHeaderSelecting> *control=self.channelControl;
+    if (!control || control.isTracking || self.channelLensTracking || self.channelLensSettling) return;
+    NSInteger segment=[self hostSegment];
+    if (segment==NSNotFound) return;
+    if (control.selectedSegmentIndex!=segment) control.selectedSegmentIndex=segment;
+    if ([self usesGlassChannels]) {
+        [self positionLensForSegment:segment lifted:NO];
+        self.channelLens.hidden=NO;
+    }
 }
 - (void)previewSegment:(CGFloat)index {
     UIControl<HGAHeaderSelecting> *control=self.channelControl;
     if (!control.window || self.channelIndices.count<2 || UIAccessibilityIsReduceMotionEnabled()) return;
     index=MIN((CGFloat)self.channelIndices.count-1,MAX(0,index));
-    CGRect frame=[self lensFrameAtSegment:index lifted:YES];
     if (!self.channelLensTracking) {
         NSInteger origin=[self hostSegment];
         if (origin==NSNotFound) origin=control.selectedSegmentIndex;
         if (origin<0 || origin>=(NSInteger)self.channelIndices.count) return;
         self.previewOrigin=origin;
         self.channelMotionGeneration++;
-        UIVisualEffectView *lens=self.channelLens;
-        if(!lens) {
-            lens=[[UIVisualEffectView alloc] initWithEffect:nil];
-            lens.frame=frame;
-            lens.userInteractionEnabled=NO;
-            lens.accessibilityElementsHidden=YES;
-            lens.accessibilityIdentifier=@"honggo.appearance.header.swipeLens";
-            lens.layer.cornerCurve=kCACornerCurveContinuous;
-            lens.clipsToBounds=YES;
-            // Sample the moving video beneath the rail. The channel titles
-            // stay above the lens and remain readable as its edge passes.
-            [control.superview insertSubview:lens belowSubview:control];
-            self.channelLens=lens;
-        }
-        BOOL glass=HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled();
-        if(@available(iOS 26.0,*)) {
-            if(glass && !lens.effect)lens.effect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
-            else if(!glass && lens.effect)lens.effect=nil;
-        }
-        lens.contentView.backgroundColor=[UIColor colorWithWhite:1 alpha:lens.effect ? 0.12 : 0.27];
-        [lens.layer removeAllAnimations];
+        self.channelLensSettling=NO;
         self.channelLensTracking=YES;
+        [self.channelLens.layer removeAllAnimations];
         [UIView performWithoutAnimation:^{
-            lens.hidden=NO;
-            lens.frame=frame;
-            lens.layer.cornerRadius=CGRectGetHeight(frame)/2;
-            if(control.selectedSegmentIndex!=UISegmentedControlNoSegment)
+            [self positionLensForSegment:index lifted:YES];
+            self.channelLens.hidden=NO;
+            if (![self usesGlassChannels] && control.selectedSegmentIndex!=UISegmentedControlNoSegment)
                 control.selectedSegmentIndex=UISegmentedControlNoSegment;
         }];
+        return;
     }
-    if (!CGRectEqualToRect(self.channelLens.frame,frame)) {
-        self.channelLens.frame=frame;
-        self.channelLens.layer.cornerRadius=CGRectGetHeight(frame)/2;
-    }
+    [self positionLensForSegment:index lifted:YES];
 }
 - (void)finishChannelMotion {
     [self.pageCoasting invalidate];
     self.pageCoasting=nil;
-    UIVisualEffectView *lens=self.channelLens;
+    UIView *lens=self.channelLens;
     if (!self.channelLensTracking) return;
     self.channelLensTracking=NO;
     NSInteger selected=[self hostSegment];
@@ -236,19 +234,22 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     if (!control.window) {lens.hidden=YES;return;}
     if (selected==NSNotFound) selected=self.previewOrigin;
     NSUInteger generation=++self.channelMotionGeneration;
-    CGRect frame=[self lensFrameAtSegment:selected lifted:NO];
-    [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:0.84 initialSpringVelocity:0
+    self.channelLensSettling=YES;
+    [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.86 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
-        lens.frame=frame;
-        lens.layer.cornerRadius=CGRectGetHeight(frame)/2;
+        [self positionLensForSegment:selected lifted:NO];
     } completion:^(BOOL finished){
         if(self.channelMotionGeneration!=generation || self.channelLens!=lens)return;
+        self.channelLensSettling=NO;
         NSInteger resting=[self hostSegment];
         if(resting==NSNotFound)resting=selected;
         [UIView performWithoutAnimation:^{
             if(control.selectedSegmentIndex!=resting)control.selectedSegmentIndex=resting;
-            lens.hidden=YES;
+            lens.hidden=![self usesGlassChannels];
+            if (!lens.hidden) [self positionLensForSegment:resting lifted:NO];
         }];
+        // Apply any host geometry deferred while the channel was tracking.
+        [control.superview setNeedsLayout];
     }];
 }
 - (void)followPageDeceleration:(CADisplayLink *)link {
@@ -294,7 +295,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
 }
 - (BOOL)gestureRecognizerShouldBegin:(UIPanGestureRecognizer *)pan {
     CGPoint velocity=[pan velocityInView:pan.view];
-    return fabs(velocity.x)>fabs(velocity.y) && !UIAccessibilityIsReduceMotionEnabled();
+    return fabs(velocity.x)>fabs(velocity.y);
 }
 - (void)scrubChannels:(UIPanGestureRecognizer *)pan {
     UIControl<HGAHeaderSelecting> *control=self.channelControl;
@@ -322,10 +323,19 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     if (owner) ((void (*)(id,SEL))objc_msgSend)(owner,selector);
 }
 - (void)changeChannel:(UIControl<HGAHeaderSelecting> *)sender {
-    [self selectHeaderSegment:sender.selectedSegmentIndex];
-    if (self.channelLens && !self.channelLens.hidden && !self.channelLensTracking) {
-        [UIView performWithoutAnimation:^{sender.selectedSegmentIndex=UISegmentedControlNoSegment;}];
+    NSInteger next=sender.selectedSegmentIndex;
+    BOOL shouldSettle=([self usesGlassChannels] || self.channelLensSettling) &&
+        !self.channelLensTracking && !UIAccessibilityIsReduceMotionEnabled();
+    if (shouldSettle) {
+        self.previewOrigin=[self hostSegment];
+        if (self.previewOrigin==NSNotFound) self.previewOrigin=next;
+        self.channelLensSettling=NO;
         self.channelLensTracking=YES;
+    }
+    [self selectHeaderSegment:next];
+    if (shouldSettle) {
+        if (![self usesGlassChannels])
+            [UIView performWithoutAnimation:^{sender.selectedSegmentIndex=UISegmentedControlNoSegment;}];
         [self finishChannelMotion];
     }
 }
@@ -338,11 +348,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     NSInteger current=((NSInteger (*)(id,SEL))objc_msgSend)(categories,selected);
     NSInteger index=self.channelIndices[next].integerValue;
     if (current!=index) ((BOOL (*)(id,SEL,NSInteger,BOOL))objc_msgSend)(categories,select,index,NO);
-    if (sender!=self.channelControl || categories!=self.categories || (self.channelLens && !self.channelLens.hidden)) return;
-    current=((NSInteger (*)(id,SEL))objc_msgSend)(categories,selected);
-    NSUInteger settled=[self.channelIndices indexOfObject:@(current)];
-    if (settled!=NSNotFound && sender.selectedSegmentIndex!=(NSInteger)settled)
-        sender.selectedSegmentIndex=(NSInteger)settled;
+    if (sender==self.channelControl && categories==self.categories) [self syncRestingChannel];
 }
 @end
 
@@ -384,6 +390,7 @@ static BOOL HGAHeaderAdaptersReady;
 static IMP HGAHeaderOriginals[6];
 static IMP HGAHeaderOriginalSelectCell;
 static void HGARefreshHeaderChannelLine(UIView *categories,BOOL completed);
+static void HGAKeepCompactHeaderSideTools(UIView *header,HGAHeaderInsetState *state,UIView *sidebar,UIView *searchSlot);
 
 @interface HGAFixedChannelPan : UIPanGestureRecognizer
 @property(nonatomic,weak) UIPanGestureRecognizer *nativePan;
@@ -669,7 +676,12 @@ static BOOL HGAChannelSelectCell(UIView *categories, SEL cmd, NSInteger index, N
     if (state) state.channelSelectionDepth++;
     @try {
         selected=((BOOL (*)(id,SEL,NSInteger,NSUInteger,BOOL))HGAHeaderOriginalSelectCell)(categories,cmd,index,type,animated);
-        if (state) HGAppearanceProcessView(header);
+        if (state.channelControl) {
+            // The host can change the side tools inside a channel callback.
+            // Correct visibility here and leave the rest of the header mounted.
+            HGAKeepCompactHeaderSideTools(header,state,HGAViewGetter(header,"sideBar",header),HGAHeaderSearchSlotView(header));
+            [state syncRestingChannel];
+        } else if (state) [header setNeedsLayout];
     } @finally {
         if (state) state.channelSelectionDepth--;
     }
@@ -827,13 +839,7 @@ static void HGASyncHeaderChannelLine(UIView *categories) {
     for (UIView *header=categories.superview;header;header=header.superview) {
         if (!HGAIsHeaderView(header)) continue;
         HGAHeaderInsetState *state=objc_getAssociatedObject(header,&HGAHeaderInsetKey);
-        UIControl<HGAHeaderSelecting> *control=state.channelControl;
-        if (state.categories==categories && control && !control.isTracking && (!state.channelLens || state.channelLens.hidden)) {
-            NSInteger selected=((NSInteger (*)(id,SEL))objc_msgSend)(categories,sel_registerName("selectedIndex"));
-            NSUInteger segment=[state.channelIndices indexOfObject:@(selected)];
-            if (segment!=NSNotFound && control.selectedSegmentIndex!=(NSInteger)segment)
-                control.selectedSegmentIndex=(NSInteger)segment;
-        }
+        if (state.categories==categories) [state syncRestingChannel];
         break;
     }
 }
@@ -930,7 +936,8 @@ static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state)
     UIView *categories = nil;
     Class cls = NSClassFromString(@"SSHGBookStoreCategoryTitleView");
     if (HGAHeaderAdaptersReady && tabs && !tabs.hidden) {
-        for (UIView *node in HGADescendants(tabs,64)) if ([node isKindOfClass:cls]) { categories=node; break; }
+        if ([state.categories isDescendantOfView:tabs]) categories=state.categories;
+        else for (UIView *node in HGADescendants(tabs,64)) if ([node isKindOfClass:cls]) { categories=node; break; }
     }
     if (state.categories != categories) {
         HGASetChannelLayout(state.categories,nil);
@@ -1079,6 +1086,7 @@ static void HGARemoveHeaderChannelControl(HGAHeaderInsetState *state) {
     [state.channelLens removeFromSuperview];
     state.channelLens=nil;
     state.channelLensTracking=NO;
+    state.channelLensSettling=NO;
     state.channelMotionGeneration++;
     [state.channelControl removeFromSuperview];
     state.channelControl=nil;
@@ -1131,7 +1139,7 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
         HGARemoveHeaderChannelControl(state);
         control=nil;
         if (@available(iOS 26.0,*)) {
-            if (useGlass) control=[[HGAHeaderGlassChannels alloc] initWithTitles:items clearGlass:[style isEqual:@"clear"]];
+            if (useGlass) control=[[HGAHeaderGlassChannels alloc] initWithTitles:items material:style];
         }
         if (!control) control=(UIControl<HGAHeaderSelecting> *)[[UISegmentedControl alloc] initWithItems:items];
         control.accessibilityIdentifier=@"honggo.appearance.material";
@@ -1149,6 +1157,7 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
     }
     if (control.superview!=header) [header addSubview:control];
     if (!CGRectEqualToRect(control.frame,frame)) control.frame=frame;
+    [state prepareChannelLens];
     UIPanGestureRecognizer *pagePan=HGAHomeChannelScroll(categories).panGestureRecognizer;
     if (pagePan!=state.observedPagePan) {
         [state.observedPagePan removeTarget:state action:@selector(followPagePan:)];
@@ -1281,9 +1290,12 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
         state=[HGAHeaderInsetState new];
         objc_setAssociatedObject(header,&HGAHeaderInsetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+    style=HGFlatTopStyle() ? @"flat" : ([style isEqual:@"clear"] ? @"clear" : @"regular");
+    BOOL tracksChannels=state.channelControl && [state.channelStyle isEqual:style] &&
+        (state.channelLensTracking || state.channelLensSettling || state.channelSelectionDepth);
     // Compact remaining visible tabs when any channel is hidden so there is no
     // empty gap inside the center capsule.
-    HGACompactHeaderChannels(header,state);
+    if (!tracksChannels || !enabled) HGACompactHeaderChannels(header,state);
     if(!enabled) {
         [state.visibleSideTools removeAllObjects];
         HGARemoveHeaderChannelControl(state);
@@ -1296,7 +1308,6 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
         HGARemoveGlass(header);
         return;
     }
-    style=HGFlatTopStyle() ? @"flat" : ([style isEqual:@"clear"] ? @"clear" : @"regular");
     UIView *sidebar=HGAViewGetter(header,"sideBar",header);
     UIView *searchSlot=HGAHeaderSearchSlotView(header);
     HGAKeepCompactHeaderSideTools(header,state,sidebar,searchSlot);
@@ -1327,8 +1338,8 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
     }
     HGAApplyHeaderTool(header,state,searchSlot,rightCircle,style,NO);
 
-    if (state.channelControl && HGAHeaderToolTransitionAnimating(header)) {
-        HGASyncHeaderChannelLine(state.categories);
+    if (state.channelControl && (tracksChannels || HGAHeaderToolTransitionAnimating(header))) {
+        [state syncRestingChannel];
         return;
     }
     CGRect channels=HGAHeaderVisibleChannelsRect(header);

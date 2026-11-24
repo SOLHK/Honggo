@@ -30,68 +30,20 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     return YES;
 }
 
-@interface HGCompatibilityController : UITableViewController
-@property(nonatomic, copy) NSArray<NSDictionary *> *rows;
-@end
+typedef NS_ENUM(NSUInteger, HGDiagnosticAction) {
+    HGDiagnosticActionOpen,
+    HGDiagnosticActionClear,
+};
 
-@implementation HGCompatibilityController
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.title = @"本次启动兼容状态";
-    self.tableView.accessibilityIdentifier = @"honggo.compatibility";
-    self.tableView.rowHeight = UITableViewAutomaticDimension;
-    self.tableView.estimatedRowHeight = 68;
-    NSMutableArray *rows = [NSMutableArray arrayWithArray:@[
-        @{@"title": @"插件", @"detail": @"Honggo " HG_PLUGIN_VERSION},
-        @{@"title": @"宿主与系统", @"detail": [NSString stringWithFormat:@"红果构建 %@ · iOS %@",
-            [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"未知",
-            UIDevice.currentDevice.systemVersion]},
-        @{@"title": @"玻璃效果", @"detail": HGNativeGlassConfigured() ?
-            @"系统玻璃配置已就绪，实际显示请以当前设备为准。" :
-            @"当前未配置系统玻璃；底栏按系统能力使用模糊材质。"}
-    ]];
-    NSDictionary *snapshot = HGRuntimeSnapshot();
-    NSArray *modules = @[@"settings", @"tabbar", @"controls", @"ads", @"runtime", @"appearance"];
-    NSArray *titles = @[@"设置入口", @"底栏", @"按钮外观", @"广告过滤", @"基础适配检查", @"外观定制"];
-    for (NSUInteger index = 0; index < modules.count; index++) {
-        NSUInteger installed = 0, skipped = 0, disabled = 0;
-        BOOL moduleDisabled = NO;
-        for (NSDictionary *entry in snapshot[@"entries"]) {
-            if (![entry[@"module"] isEqual:modules[index]]) continue;
-            if ([entry[@"id"] isEqual:[@"module." stringByAppendingString:modules[index]]])
-                moduleDisabled = [entry[@"state"] isEqual:@"disabled"];
-            if ([entry[@"state"] isEqual:@"installed"]) installed++;
-            else if ([entry[@"state"] isEqual:@"disabled"]) disabled++;
-            else skipped++;
-        }
-        NSString *detail;
-        if (moduleDisabled) detail = @"本次启动未开启此功能。更改开关后请完全退出再打开。";
-        else if (installed || skipped) detail = [NSString stringWithFormat:@"%lu 项检查通过，%lu 项跳过。%@",
-            (unsigned long)installed, (unsigned long)skipped,
-            skipped ? @"未匹配的入口保留宿主行为。" : @"实际效果仍需在宿主中确认。"];
-        else detail = disabled ? @"本次启动未开启。更改开关后请完全退出再打开。" : @"暂无检查记录。";
-        [rows addObject:@{@"title": titles[index], @"detail": detail}];
-    }
-    self.rows = rows;
+static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
+    return @[
+        @{@"kind": @"action", @"section": @1, @"action": @(HGDiagnosticActionOpen),
+          @"title": @"诊断日志", @"id": @"honggo.diagnostics.export", @"aliases": @"导出 分享 日志 log"},
+        @{@"kind": @"action", @"section": @1, @"action": @(HGDiagnosticActionClear),
+          @"title": @"清除全部日志", @"id": @"honggo.diagnostics.clear", @"aliases": @"清除 删除 日志 log",
+          @"destructive": @YES}
+    ];
 }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.rows.count; }
-- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    return @"此页记录本次启动的适配检查，开关调整不会改写已经安装的入口。需要排查时，可返回设置导出日志，查看具体跳过原因。入口检查通过不代表已完成红果真机验收。";
-}
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-    cell.textLabel.text = self.rows[indexPath.row][@"title"];
-    cell.detailTextLabel.text = self.rows[indexPath.row][@"detail"];
-    cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-    cell.detailTextLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
-    cell.textLabel.adjustsFontForContentSizeCategory = YES;
-    cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
-    cell.textLabel.numberOfLines = 0;
-    cell.detailTextLabel.numberOfLines = 0;
-    cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    return cell;
-}
-@end
 
 
 @interface HGDiagnosticSessionsController : UITableViewController
@@ -304,7 +256,6 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
 @property(nonatomic, copy) dispatch_block_t afterSearchDismissal;
 - (void)performAction:(NSUInteger)action inSection:(NSInteger)section presenter:(UIViewController *)presenter;
 - (void)toggleChanged:(UISwitch *)toggle;
-- (void)enhancedChanged:(UISwitch *)toggle;
 @end
 
 // Level 2 & Level 3 subpage controller mirroring FanqieX's clean hierarchy.
@@ -362,10 +313,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         [rows addObject:@{@"kind": @"action", @"section": @2, @"action": @1, @"title": @"从文件恢复配置", @"id": @"honggo.preferences.import"}];
     } else if ([pid isEqual:@"diagnostics"]) {
         self.title = @"诊断与其他";
-        [rows addObject:@{@"kind": @"enhanced", @"title": @"增强诊断", @"id": @"honggo.diagnostics.enhanced"}];
-        [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @1, @"title": @"诊断日志", @"id": @"honggo.diagnostics.export"}];
-        [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @2, @"title": @"清除全部日志", @"id": @"honggo.diagnostics.clear", @"destructive": @YES}];
-        [rows addObject:@{@"kind": @"action", @"section": @1, @"action": @3, @"title": @"本次启动兼容状态", @"id": @"honggo.compatibility.open"}];
+        [rows addObjectsFromArray:HGDiagnosticActions()];
     } else if ([pid isEqual:@"community"]) {
         self.title = @"作者与频道";
         [rows addObject:@{@"kind": @"info", @"title": @"当前版本", @"detail": @"Honggo " HG_PLUGIN_VERSION, @"id": @"honggo.about.version"}];
@@ -378,7 +326,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     NSString *pid = self.pageID ?: @"";
     if ([pid isEqual:@"diagnostics"])
-        return @"增强诊断即时生效。复现广告或遮罩后可截屏记录控件结构，随后在诊断日志中查看或导出对应会话。";
+        return @"复现问题后可截屏记录控件结构，再到诊断日志导出对应会话。";
     if ([pid isEqual:@"backup"])
         return @"配置文件仅保存 Honggo 的功能开关。恢复前会核对格式并显示变更数量。恢复后，请完全退出再打开。";
     if ([pid isEqual:@"community"])
@@ -428,13 +376,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     cell.textLabel.numberOfLines = 0;
     cell.detailTextLabel.numberOfLines = 0;
     cell.accessibilityIdentifier = row[@"id"];
-    if ([kind isEqual:@"enhanced"]) {
-        UISwitch *toggle = [UISwitch new];
-        toggle.on = HGEnhancedDiagnostics();
-        toggle.accessibilityLabel = row[@"title"];
-        [toggle addTarget:self.rootSettings action:@selector(enhancedChanged:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView = toggle;
-    } else if ([kind isEqual:@"info"]) {
+    if ([kind isEqual:@"info"]) {
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
     } else {
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
@@ -514,9 +456,6 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
 - (BOOL)isFiltering {
     return self.activeQuery.length > 0;
 }
-- (NSArray<NSString *> *)diagnosticTitles {
-    return @[@"增强诊断", @"诊断日志", @"清除全部日志", @"本次启动兼容状态"];
-}
 - (NSArray<NSString *> *)configurationTitles { return @[@"导出功能配置", @"从文件恢复配置"]; }
 - (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
     NSString *trimmed = [searchController.searchBar.text ?: @""
@@ -537,11 +476,10 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         NSString *text = [HGFeatureSearchText(feature) stringByAppendingFormat:@" %@", HGSettingsFeatureTitle(feature)];
         if (HGSettingsMatches(text, trimmed)) [features addObject:@(feature)];
     }
-    NSArray *diagnosticAliases = @[@"诊断 截屏 现场 排错 debug", @"导出 分享 日志 log", @"清除 删除 日志 log", @"兼容 状态 适配 版本 capability"];
     NSArray *configurationAliases = @[@"备份 导出 配置 backup export", @"备份 导入 恢复 配置 restore import"];
-    for (NSUInteger index = 0; index < self.diagnosticTitles.count; index++) {
-        if (HGSettingsMatches([self.diagnosticTitles[index] stringByAppendingFormat:@" %@", diagnosticAliases[index]], trimmed))
-            [diagnostics addObject:@(index)];
+    for (NSDictionary *entry in HGDiagnosticActions()) {
+        if (HGSettingsMatches([entry[@"title"] stringByAppendingFormat:@" %@", entry[@"aliases"]], trimmed))
+            [diagnostics addObject:entry[@"action"]];
     }
     for (NSUInteger index = 0; index < self.configurationTitles.count; index++) {
         if (HGSettingsMatches([self.configurationTitles[index] stringByAppendingFormat:@" %@", configurationAliases[index]], trimmed))
@@ -612,13 +550,13 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
     if (!self.isFiltering) return @[@"界面与导航",@"短剧播放",@"过滤与兼容",@"管理与支持"][section];
-    return @[@"功能开关", @"诊断与兼容", @"配置管理", @"更新与频道", @"界面与播放设置"][section];
+    return @[@"功能开关", @"诊断日志", @"配置管理", @"更新与频道", @"界面与播放设置"][section];
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
     if (!self.isFiltering || section == 4) return nil;
     if (section == 3) return @"查看插件更新与测试版公告。只有点击打开或复制时才执行操作，不会自动加入频道。";
-    if (section == 1) return @"增强诊断即时生效。复现广告或遮罩后截屏，再回来导出日志；仅记录控件结构，不读取截图像素或页面文字。";
+    if (section == 1) return @"复现问题后可截屏记录控件结构，再到诊断日志导出对应会话。";
     if (section == 2) return @"配置文件仅保存 Honggo 的功能开关。恢复后，请完全退出再打开。";
     return @"功能开关更改后请完全退出红果短剧，再重新打开。";
 }
@@ -691,15 +629,11 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     cell.textLabel.adjustsFontForContentSizeCategory = YES;
     if (indexPath.section == 1) {
         NSUInteger action = self.visibleDiagnostics[indexPath.row].unsignedIntegerValue;
-        cell.textLabel.text = self.diagnosticTitles[action];
-        cell.accessibilityIdentifier = @[@"honggo.diagnostics.enhanced", @"honggo.diagnostics.export", @"honggo.diagnostics.clear", @"honggo.compatibility.open"][action];
-        if (action == 0) {
-            UISwitch *toggle = [UISwitch new];
-            toggle.on = HGEnhancedDiagnostics();
-            toggle.accessibilityLabel = cell.textLabel.text;
-            [toggle addTarget:self action:@selector(enhancedChanged:) forControlEvents:UIControlEventValueChanged];
-            cell.accessoryView = toggle;
-        } else cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        NSDictionary *entry = HGDiagnosticActions()[action];
+        cell.textLabel.text = entry[@"title"];
+        cell.accessibilityIdentifier = entry[@"id"];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        if ([entry[@"destructive"] boolValue]) cell.textLabel.textColor = UIColor.systemRedColor;
     } else {
         NSUInteger action = self.visibleConfiguration[indexPath.row].unsignedIntegerValue;
         cell.textLabel.text = self.configurationTitles[action];
@@ -713,7 +647,6 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     if (HGSetEnabled(feature, toggle.on))
         HGLog(@"settings.toggle", @{@"feature": HGFeatureIdentifier(feature), @"enabled": @(toggle.on)});
 }
-- (void)enhancedChanged:(UISwitch *)toggle { HGSetEnhancedDiagnostics(toggle.on); }
 - (UIViewController *)activePresenter:(UIViewController *)preferred {
     UIViewController *top = preferred ?: self.navigationController.topViewController ?: self;
     return top.viewIfLoaded.window ? top : self;
@@ -855,7 +788,6 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     NSInteger section = indexPath.section;
     NSArray<NSNumber *> *actions = section == 2 ? self.visibleConfiguration : self.visibleDiagnostics;
     NSUInteger action = actions[indexPath.row].unsignedIntegerValue;
-    if (section == 1 && action == 0) return;
     [self performAfterSearchDismissal:^{ [self performAction:action inSection:section presenter:self]; }];
 }
 - (void)performAction:(NSUInteger)action inSection:(NSInteger)section presenter:(UIViewController *)presenter {
@@ -870,15 +802,12 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
         }
         return;
     }
-    if (action == 3) {
-        [host.navigationController pushViewController:[[HGCompatibilityController alloc] initWithStyle:UITableViewStyleInsetGrouped] animated:YES];
-        return;
-    }
-    if (action == 1) {
+    if (action == HGDiagnosticActionOpen) {
         [host.navigationController pushViewController:[[HGDiagnosticSessionsController alloc]
             initWithStyle:UITableViewStyleInsetGrouped] animated:YES];
         return;
     }
+    if (action != HGDiagnosticActionClear) return;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"清除全部日志"
         message:@"将删除当前会话、历史会话及本机的临时导出文件。" preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
