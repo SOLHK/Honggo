@@ -257,11 +257,11 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(!firstModal && !lastModal, @"both valid appearance switch edits complete without a save error sheet");
     BOOL rolesRouted = YES, choiceOpened = NO;
     NSUInteger visitedRoles = 0;
-    for (NSString *group in @[@"dock", @"chrome", @"panels", @"icons", @"fonts", @"backup", @"player"]) {
+    for (NSString *group in @[@"dock", @"chrome", @"panels", @"icons", @"fonts", @"player"]) {
         NSIndexPath *path = HGMenuPath(home, [@"@group." stringByAppendingString:group]);
         if (path) [home tableView:home.tableView didSelectRowAtIndexPath:path];
         UITableViewController *detail = (id)navigation.topViewController;
-        if (!path || detail == home || ![[detail valueForKey:@"group"] isEqual:group]) {
+        if (!path || detail == home || ![[detail valueForKey:@"group"] isEqual:group] || detail.navigationItem.searchController) {
             routed = NO;
             continue;
         }
@@ -307,10 +307,14 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(HGInstallMaterialEffectSpy(),@"material effect setter spy installs");
     self.host=[SSTabBarController new];
     self.window=[[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];self.window.rootViewController=self.host;[self.window makeKeyAndVisible];
-    dispatch_async(dispatch_get_main_queue(),^{
+    // The interactive checks pump the run loop while waiting for host callbacks.
+    // Start outside a main-queue callback so those turns can drain main-queue work.
+    CFRunLoopRef runLoop=CFRunLoopGetMain();
+    CFRunLoopPerformBlock(runLoop,kCFRunLoopDefaultMode,^{
         @try {[self runChecks];} @catch(NSException *e){Check(NO,[@"exception: " stringByAppendingString:e.description]);}
         [self finish];
     });
+    CFRunLoopWakeUp(runLoop);
 }
 - (void)runChecks {
     UIView *root=self.host.view;
@@ -495,8 +499,11 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(unrelated.subviews.count==0 && [unrelated.backgroundColor isEqual:UIColor.purpleColor],@"unknown views remain untouched");
     Class settings=NSClassFromString(@"HGAAppearanceController");UITableViewController *page=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [page loadViewIfNeeded];
-    Check(page.tableView.numberOfSections==4 && HGMenuPath(page,@"enabled") && HGMenuPath(page,@"@group.player"),
-        @"appearance home separates the master switch, playback, assets and backup");
+    NSIndexPath *masterRow=HGMenuPath(page,@"enabled"),*playbackRow=HGMenuPath(page,@"@group.player");
+    NSIndexPath *iconsRow=HGMenuPath(page,@"@group.icons"),*fontsRow=HGMenuPath(page,@"@group.fonts");
+    Check(page.tableView.numberOfSections==3 && masterRow && masterRow.section==0 &&
+        playbackRow.section==1 && iconsRow.section==2 && fontsRow.section==2 && !HGMenuPath(page,@"@group.backup"),
+        @"appearance home groups the master switch, interface and playback, and icon and font settings");
     // Level 3 general page removes presets and pushed subpages never attach a nested UISearchController.
     UITableViewController *generalPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [generalPage setValue:@"general" forKey:@"group"];[generalPage loadViewIfNeeded];
@@ -516,8 +523,11 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
             if ([cell.accessoryView isKindOfClass:UISlider.class]) noInlineRoleSliders=NO;
         }
     }
-    Check(playerPage.tableView.numberOfSections==4 && playerRows==4+(NSInteger)HGAppearanceRoles().count && noInlineRoleSliders,
-        @"playback settings group all switches and per-control subpages");
+    NSIndexPath *swipeSetting=HGMenuPath(playerPage,@"player.disableEpisodeSwipe");
+    UITableViewCell *swipeCell=swipeSetting ? [playerPage tableView:playerPage.tableView cellForRowAtIndexPath:swipeSetting] : nil;
+    Check(playerPage.tableView.numberOfSections==4 && playerRows==5+(NSInteger)HGAppearanceRoles().count &&
+        noInlineRoleSliders && swipeSetting && swipeSetting.section==0 && [swipeCell.accessoryView isKindOfClass:UISwitch.class],
+        @"playback settings include the episode swipe switch and per-control subpages");
     UITableViewController *rolePage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [rolePage setValue:@"role.avatar" forKey:@"group"];[rolePage loadViewIfNeeded];
     NSUInteger pctSliders=0;

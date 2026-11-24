@@ -907,8 +907,17 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
     HGRunDockDragChecks(host,(id)dock,capsule,selection,home,theater);
     host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
+    if(@available(iOS 17.0,*)) {
+        [host updateTraitsIfNeeded];
+        [host.view updateTraitsIfNeeded];
+        [host.customTabBar updateTraitsIfNeeded];
+    }
     HGAppearanceApply(@{@"dock.material":@"solid",@"dock.selected":@""},nil);Layout(dock);
-    Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && !capsuleMaterial.maskView,
+    UIVisualEffectView *solidMaterial=(id)Find(capsule,@"honggo.appearance.material");
+    Layout(solidMaterial);
+    UIColor *solidFill=solidMaterial.contentView.backgroundColor;
+    Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && solidMaterial.superview==capsule &&
+        !solidMaterial.maskView && !solidMaterial.effect && solidFill && CGColorGetAlpha(solidFill.CGColor)==1,
         @"solid dock respects the host light appearance with continuous solid fill");
     objc_setAssociatedObject(host.customTabBar,&HGADockThemeFixtureKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     host.selectedIndex=savedIndex;host.overrideUserInterfaceStyle=savedStyle;host.view.tintColor=savedTint;

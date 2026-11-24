@@ -906,6 +906,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     FQRJXCategoryTitleCell *novels=PageChromeTitle(finder.tabContainer,@"小说",10);
     FQRJXCategoryTitleCell *films=PageChromeTitle(finder.tabContainer,@"电影",64);
     HGAppearanceProcessController(finder);
+    searchGlass=(id)Find(finder.searchBgView,material);
     recognitionGlass=Find(finder.imageSearchContainer,material);
     assistantGlass=Find(finder.aiSearchEntranceView,material);
     CGRect ink=CGRectUnion([recognitionText convertRect:recognitionText.bounds toView:finder.imageSearchContainer],
@@ -914,7 +915,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     searchSurface=[searchGlass convertRect:searchGlass.bounds toView:finder.view];
     recognitionSurface=[recognitionGlass convertRect:recognitionGlass.bounds toView:finder.view];
     CGRect aiSurface=[assistantGlass convertRect:assistantGlass.bounds toView:finder.view];
-    Check(recognitionGlass && assistantGlass &&
+    Check(searchGlass && recognitionGlass && assistantGlass &&
         fabs(finder.aiSearchEntranceView.frame.origin.x-CGRectGetMaxX(recognizerRect)-12)<0.01 &&
         fabs(CGRectGetMinX(aiSurface)-CGRectGetMaxX(recognitionSurface)-
             (CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)))<0.01 &&
