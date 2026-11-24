@@ -447,8 +447,12 @@ void HGAppearanceProcessView(UIView *view) {
         HGALandscapeApplyView(view);
         NSString *name=NSStringFromClass(view.class),*role=HGARole(view);
         if([name isEqual:@"SSTabBar"]){HGARefreshDock(view);return;}
-        if([name isEqual:@"FQVCollectionView"] && [view isKindOfClass:UIScrollView.class]) {
-            HGAObserveFeed((id)view);HGRefreshVideoBackdropForFeed((id)view);return;
+        if ([view isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [view isKindOfClass:UIScrollView.class]) {
+            UIScrollView *feed = (UIScrollView *)view;
+            HGAObserveFeed(feed);
+            if (feed.window) HGScheduleFeedLayoutRefresh(feed);
+            else HGRefreshVideoBackdropForFeed(feed);
+            return;
         }
         if([name isEqual:@"TTPlayerView"]){
             HGAApplyFullScreen(view);HGRefreshVideoBackdropForPlayer(view);return;

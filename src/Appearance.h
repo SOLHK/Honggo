@@ -10,6 +10,7 @@ void HGAppearanceLayoutDock(UIView *bar, UIViewController *controller);
 void HGAppearanceRestoreDock(UIView *bar);
 void HGAppearanceSuspendDockForSidebar(UIView *bar);
 void HGAppearanceUpdateSidebarLayout(UIWindow *window, BOOL suspended);
+void HGScheduleFeedLayoutRefresh(UIScrollView *feed);
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed);
 void HGRefreshVideoBackdropForPlayer(UIView *view);
 void HGVideoBackdropPrepareRendererTransfer(UIView *view);

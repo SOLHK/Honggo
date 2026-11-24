@@ -283,6 +283,15 @@ static void HGObservedLayout(UIView *view, SEL cmd) {
 static void HGObservedAdd(UIView *view, SEL cmd, UIView *child) {
     struct objc_super parent = {view, HGObservedBase(view)};
     ((void (*)(struct objc_super *, SEL, id))objc_msgSendSuper)(&parent, cmd, child);
+    HGObserverOwner *owner = objc_getAssociatedObject(view, &HGObservedOwnerKey);
+    UIView *bar = owner.state.bar;
+    if (bar && view != bar && [bar isDescendantOfView:view]) {
+        // A drawer or feed can mount a sibling during scrollViewDidScroll: or
+        // cell reuse. Do not inspect the live collection from inside that mutation.
+        if (!HGFeedSidebarOwnsLayout(bar.window) && ![child.accessibilityIdentifier isEqual:@"honggo.video.matte"])
+            [bar setNeedsLayout];
+        return;
+    }
     HGObservedRefresh(view);
 }
 static void HGObservedColor(UIView *view, SEL cmd, UIColor *color) {

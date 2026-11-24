@@ -30,8 +30,9 @@ static HGAPlayerFillState *HGAPlayerState(UIView *view,BOOL create) {
     return state;
 }
 static UIView *HGAPlayerCanvas(UIView *view) {
-    for(NSUInteger i=0;view && i<13;i++,view=view.superview)
-        if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"])return view;
+    Class canvasClass = objc_lookUpClass("FQVShortVideoPlayerCellView");
+    for (NSUInteger i = 0; view && i < 13; i++, view = view.superview)
+        if ([view isKindOfClass:canvasClass]) return view;
     return nil;
 }
 BOOL HGAppearancePlayerIsTransferring(UIView *view) {

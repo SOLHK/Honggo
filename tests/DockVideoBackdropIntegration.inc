@@ -10,6 +10,18 @@
 
 @interface FQVShortVideoListViewController : UIViewController @end
 @implementation FQVShortVideoListViewController @end
+// Surface a collection-layout query made by the plugin while cells are in
+// flight. UIKit itself can query visibleCells during its own layout.
+@interface HGBackdropFeedProbe : FQVCollectionView
+@property(nonatomic) BOOL countVisibleQueries;
+@property(nonatomic) NSUInteger visibleQueries;
+@end
+@implementation HGBackdropFeedProbe
+- (NSArray<UICollectionViewCell *> *)visibleCells {
+    if (self.countVisibleQueries) self.visibleQueries++;
+    return [super visibleCells];
+}
+@end
 @interface FQVPlayer : UIView @end
 @implementation FQVPlayer @end
 @interface FQVShortVideoGradientLayerView : UIView @end
@@ -210,7 +222,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
     CGFloat width=page.view.bounds.size.width,height=page.view.bounds.size.height,feedHeight=height-90;
     UICollectionViewFlowLayout *layout=[UICollectionViewFlowLayout new];
     layout.itemSize=CGSizeMake(width,feedHeight);layout.minimumLineSpacing=0;layout.minimumInteritemSpacing=0;
-    FQVCollectionView *feed=[[FQVCollectionView alloc] initWithFrame:CGRectMake(0,0,width,feedHeight) collectionViewLayout:layout];
+    HGBackdropFeedProbe *feed=[[HGBackdropFeedProbe alloc] initWithFrame:CGRectMake(0,0,width,feedHeight) collectionViewLayout:layout];
     feed.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
     feed.pagingEnabled=YES;feed.clipsToBounds=YES;feed.backgroundColor=UIColor.blackColor;
     feed.showsVerticalScrollIndicator=NO;feed.showsHorizontalScrollIndicator=NO;
@@ -254,7 +266,10 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         NSArray *portraitGeometry=HGBackdropNativeSnapshot(@[page.view,feed,cell,cell.contentView,cell.canvas,
             cell.videoWrapper,cell.player,cell.metal]);
         BOOL portraitPresented=[cell.metal presentRed:0.91 green:0.06 blue:0.05];
+        feed.countVisibleQueries = YES;
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        feed.countVisibleQueries = NO;
+        Check(feed.visibleQueries == 0, @"backdrop uses mounted cells without forcing collection layout");
         CATransform3D fill=cell.renderer.layer.sublayerTransform;
         Check(!feed.clipsToBounds && !cell.canvas.clipsToBounds && !cell.player.clipsToBounds && !cell.renderer.clipsToBounds &&
             fabs(fill.m11-height/feedHeight)<0.001 && fabs(fill.m22-fill.m11)<0.001 && fabs(fill.m42-45)<0.001 &&
@@ -263,6 +278,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         [hud handleOutterFeedClipBounds:NO];
         BOOL previewUnclipped=!feed.clipsToBounds && !cell.canvas.clipsToBounds;
         [hud handleOutterFeedClipBounds:YES];
+        HGBackdropFlushFrames(0.04);
         Check(hud.nativeClipPasses==3 && previewUnclipped && !feed.clipsToBounds && !cell.canvas.clipsToBounds &&
             CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fill) && HGBackdropNativeUnchanged(portraitGeometry),
             @"native seek preview and completion preserve the live portrait backdrop and pager geometry");
@@ -328,17 +344,21 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             CGRectEqualToRect(underlay.frame,CGRectMake(0,feedHeight,width,90)) &&
             [page.view.subviews indexOfObjectIdenticalTo:underlay]<[page.view.subviews indexOfObjectIdenticalTo:feed],
             @"the matte occupies only the reserved strip behind native video and never receives touches");
+        UIColor *previousMatte = underlay.backgroundColor;
         [cell.canvas refreshBgColor];
+        Check([underlay.backgroundColor isEqual:previousMatte],
+            @"native model callback returns before the backdrop is changed");
+        HGBackdropFlushFrames(0.04);
         Check(!underlay.hidden && [underlay.backgroundColor isEqual:cell.canvas.backgroundColor] &&
             HGBackdropNativeUnchanged(geometry),
-            @"a native palette change updates the strip immediately on the same settled cell");
+            @"a native palette change updates the same settled cell on the next run-loop pass");
         cell.canvas.backgroundColor=[UIColor colorWithWhite:0.5 alpha:0.4];
-        Layout(feed);
+        Layout(feed); HGBackdropFlushFrames(0.04);
         BOOL translucentHidden=underlay.hidden;
-        [cell.canvas refreshBgColor];
+        [cell.canvas refreshBgColor]; HGBackdropFlushFrames(0.04);
         BOOL restoredMatte=!underlay.hidden;
         cell.canvas.backgroundColor=nil;
-        Layout(feed);
+        Layout(feed); HGBackdropFlushFrames(0.04);
         Check(translucentHidden && restoredMatte && underlay.hidden && leftCorner.alpha==1 && rightCorner.alpha==1,
             @"a translucent or absent native color cannot leave the previous matte in the dock strip");
 
@@ -352,7 +372,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         UIView *marker=[[UIView alloc] initWithFrame:CGRectMake(0,66,width,14)];
         marker.backgroundColor=UIColor.yellowColor;
         [incoming.canvas addSubview:marker];
-        [incoming.canvas refreshBgColor];
+        [incoming.canvas refreshBgColor]; HGBackdropFlushFrames(0.04);
         BOOL bluePresented=[incoming.metal presentRed:0.05 green:0.08 blue:0.92];
         NSArray *swipeGeometry=HGBackdropNativeSnapshot(@[page.view,feed,incoming,incoming.contentView,
             incoming.canvas,incoming.renderer,incoming.metal,marker]);
@@ -387,9 +407,11 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         incoming.videoHeight=width*9/16;
         Layout(incoming);
         [feed setContentOffset:CGPointMake(0,feedHeight*2) animated:NO];Layout(feed);
+        HGBackdropFlushFrames(0.04);
         Check(feed.clipsToBounds && fabs(feed.contentOffset.y-feedHeight*2)<0.01,
             @"settling on a native page restores clipping before preloaded neighbors can show through");
         [feed setContentOffset:CGPointMake(0,feedHeight+52) animated:NO];Layout(feed);
+        HGBackdropFlushFrames(0.04);
         Check(!feed.clipsToBounds,@"native feed layout opens clipping again for a second partial swipe");
         [feed removeFromSuperview];
         Check(feed.clipsToBounds && !feed.superview && CGRectEqualToRect(feed.frame,CGRectMake(0,0,width,feedHeight)),

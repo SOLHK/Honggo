@@ -28,9 +28,34 @@ static void HGARestoreBottomLayoutForView(UIView *view);
 static void HGARelinquishBottomLayout(UIView *view);
 static BOOL HGAIsBottomControl(UIView *view);
 
+static void HGAResumeSettledHUDs(UIScrollView *feed);
+
+// The native collection can be assembling cells or transferring a renderer
+// inside these callbacks. Read its settled hierarchy once after they unwind.
+void HGScheduleFeedLayoutRefresh(UIScrollView *feed) {
+    static char scheduledKey;
+    if (!NSThread.isMainThread || !feed.window || !HGAppearanceEnabled() || HGFeedSidebarOwnsLayout(feed.window) ||
+        objc_getAssociatedObject(feed, &scheduledKey)) return;
+    objc_setAssociatedObject(feed, &scheduledKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak UIScrollView *weakFeed = feed;
+    CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopCommonModes, ^{
+        UIScrollView *current = weakFeed;
+        if (!current) return;
+        @try {
+            if (current.window && !HGFeedSidebarOwnsLayout(current.window)) {
+                HGAResumeSettledHUDs(current);
+                HGRefreshVideoBackdropForFeed(current);
+            }
+        } @finally {
+            objc_setAssociatedObject(current, &scheduledKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    });
+    CFRunLoopWakeUp(CFRunLoopGetMain());
+}
+
 static void HGARefreshBackdropAfterScroll(id scroll) {
-    if ([scroll isKindOfClass:NSClassFromString(@"FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class])
-        HGRefreshVideoBackdropForFeed(scroll);
+    if ([scroll isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class])
+        HGScheduleFeedLayoutRefresh(scroll);
 }
 static CGRect HGADockRectInView(UIView *coordinateView);
 
@@ -123,6 +148,12 @@ static void HGATracePlayerTransfer(id object,SEL selector,id destination,NSUInte
         @"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),@"phase":phase,
         @"invocation":@(invocation),@"mode":@"render-sublayers"});
 }
+// Only native channel completion callbacks reach this trace; no per-frame
+// scroll logging. Pair the markers to distinguish native and deferred work.
+static void HGATraceCategoryCallback(SEL selector, NSString *phase) {
+    if (HGEnhancedDiagnostics())
+        HGLog(@"appearance.channel", @{@"selector": NSStringFromSelector(selector), @"phase": phase});
+}
 static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controller) {
     NSString *key=[NSString stringWithFormat:@"%@/%@",NSStringFromClass(cls),NSStringFromSelector(selector)];
     if (HGAHooks[key]) return;
@@ -136,6 +167,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL paletteChange=playerCanvas && selector==sel_registerName("refreshBgColor");
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL scrollComponent=[className isEqual:@"FQVShortVideoListVCScrollComponent"];
+    BOOL categoryPager=[className isEqual:@"FQRJXCategoryListContainerView"];
     BOOL playerNavigation=[className isEqual:@"FQVShortVideoListVCNavBarComponent"];
     BOOL scrubClipping=[className isEqual:@"FQVShortVideoVPlayerControlView"] &&
         selector==sel_registerName("handleOutterFeedClipBounds:");
@@ -184,6 +216,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             NSUInteger invocation=guarded && transfer && HGEnhancedDiagnostics()?++HGAPlayerTransferInvocation:0;
             HGATracePlayerTransfer(object,selector,argument,invocation,@"enter");
             if(guarded)HGAApplying=YES;
+            if(categoryPager) HGATraceCategoryCallback(selector, @"enter");
             @try {
                 if(guarded && transfer) {
                     HGAPreparePlayerTransfer(object,selector);
@@ -202,15 +235,30 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             }
             if(episodeWrapper && selector==@selector(didAddSubview:))HGAEpisodeWrapperChanged(object);
             if(playerNavigation)HGAApplyPlayerNavigation(object);
+            else if(categoryPager) {
+                HGATraceCategoryCallback(selector, @"return");
+                HGAResumeCategoryFeeds(object);
+            }
             else if(scrollComponent)HGARefreshBackdropAfterScroll(argument);
             else if(!transfer && !episodeMove && !bottomMove)HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v28@0:8@16B24")) {
         replacement=imp_implementationWithBlock(^(id object,id argument,BOOL animated) {
+            if(categoryPager) HGATraceCategoryCallback(selector, @"enter");
             ((void(*)(id,SEL,id,BOOL))original)(object,selector,argument,animated);
-            if(scrollComponent) {
+            if(categoryPager) {
+                HGATraceCategoryCallback(selector, @"return");
+                if(!animated) HGAResumeCategoryFeeds(object);
+            } else if(scrollComponent) {
                 if(!animated)HGARefreshBackdropAfterScroll(argument);
             } else HGAppearanceProcessView(object);
+        });
+    } else if (categoryPager && !strcmp(encoding,"v24@0:8q16")) {
+        replacement=imp_implementationWithBlock(^(id object, NSInteger index) {
+            HGATraceCategoryCallback(selector, @"enter");
+            ((void(*)(id,SEL,NSInteger))original)(object,selector,index);
+            HGATraceCategoryCallback(selector, @"return");
+            HGAResumeCategoryFeeds(object);
         });
     } else if (!strcmp(encoding,"v32@0:8@16@24")) {
         replacement=imp_implementationWithBlock(^(id object,id first,id second) {
@@ -257,6 +305,7 @@ void HGAppearanceRefresh(void) {
 void HGInstallAppearance(void) {
     @synchronized(NSClassFromString(@"HGSettingsController")) {
         if (!HGAHooks) HGAHooks=[NSMutableDictionary dictionary];
+        HGAInstallHeaderLayoutAdapters();
         NSUInteger found=0;
         NSMutableOrderedSet *classes=[NSMutableOrderedSet orderedSetWithArray:HGAViewRoles().allKeys];
         [classes addObjectsFromArray:HGACommentSurfaces()];
@@ -357,6 +406,12 @@ void HGInstallAppearance(void) {
                 HGAHook(playerNavigation,NSSelectorFromString(name),"v24@0:8@16",NO);
             for(NSString *name in @[@"updateNavgationBarLeftView",@"updateNavgationBarRightView",@"uiAdaptModeDidChanged"])
                 HGAHook(playerNavigation,NSSelectorFromString(name),"v16@0:8",NO);
+        }
+        Class categoryPager = objc_lookUpClass("FQRJXCategoryListContainerView");
+        if ([categoryPager isSubclassOfClass:UIView.class]) {
+            HGAHook(categoryPager,@selector(scrollViewDidEndDecelerating:),"v24@0:8@16",NO);
+            HGAHook(categoryPager,@selector(scrollViewDidEndDragging:willDecelerate:),"v28@0:8@16B24",NO);
+            HGAHook(categoryPager,sel_registerName("listDidAppear:"),"v24@0:8q16",NO);
         }
         if(scrollComponent) {
             HGAHook(scrollComponent,@selector(scrollViewDidEndDecelerating:),"v24@0:8@16",NO);

@@ -39,6 +39,15 @@
 @interface SSShortVideoOutterSeriesLeftContainerView : UIView @end
 @implementation SSShortVideoOutterSeriesLeftContainerView @end
 
+@interface FQRJXCategoryListContainerView : UIView <UIScrollViewDelegate>
+@property(nonatomic) NSUInteger nativeEnds;
+@end
+@implementation FQRJXCategoryListContainerView
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scroll { self.nativeEnds++; }
+- (void)scrollViewDidEndDragging:(UIScrollView *)scroll willDecelerate:(BOOL)decelerate { self.nativeEnds++; }
+- (void)listDidAppear:(NSInteger)index { self.nativeEnds++; }
+@end
+
 static void RunInnerEpisodeSpacingChecks(UIView *root) {
     FQVShortVideoVPlayerMultiSeriesControlView *control=
         [[FQVShortVideoVPlayerMultiSeriesControlView alloc] initWithFrame:CGRectMake(0,0,440,956)];
@@ -193,6 +202,39 @@ static void RunOutterEpisodeSpacingChecks(UIView *root) {
             fabs(right.frame.origin.y-(nativeRight.origin.y-11))<0.01,
             @"hiding the dock releases its clearance while preserving the small episode-to-rail gap");
         bar.hidden=NO;HGAppearanceLayoutDock(bar,nil);Layout(control);
+        // Recreate the host's horizontal channel movement and a neighbouring
+        // cell one page away while its HUD is still attached to the window.
+        FQRJXCategoryListContainerView *pages = [[FQRJXCategoryListContainerView alloc]
+            initWithFrame:[screen convertRect:screen.window.bounds fromView:screen.window]];
+        [screen insertSubview:pages atIndex:0];
+        UIScrollView *horizontal = [[UIScrollView alloc] initWithFrame:pages.bounds];
+        horizontal.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+        horizontal.contentSize = CGSizeMake(2 * pages.bounds.size.width, pages.bounds.size.height);
+        horizontal.delegate = pages;
+        [pages addSubview:horizontal];
+        FQVCollectionView *feed = [[FQVCollectionView alloc] initWithFrame:pages.bounds
+            collectionViewLayout:[UICollectionViewFlowLayout new]];
+        feed.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+        [horizontal addSubview:feed];
+        [feed addSubview:canvas];
+        Layout(control);
+        BOOL adjustedHere = wrapper.frame.origin.y < 822;
+        horizontal.contentOffset = CGPointMake(70, 0);
+        Layout(control);
+        Check(adjustedHere && fabs(wrapper.frame.origin.y-822)<0.01 && CGRectEqualToRect(progress.frame,nativeProgress) &&
+            CGRectEqualToRect(right.frame,nativeRight), @"a horizontal channel swipe yields the whole HUD to the host");
+        horizontal.contentOffset = CGPointZero;
+        canvas.frame = CGRectOffset(nativeCanvas,0,-nativeCanvas.size.height);
+        Layout(control);
+        Check(fabs(wrapper.frame.origin.y-822)<0.01 && CGRectEqualToRect(right.frame,nativeRight),
+            @"the neighbouring native feed page retains its own entry and action positions");
+        canvas.frame = nativeCanvas;
+        [horizontal.delegate scrollViewDidEndDecelerating:horizontal];
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.04, false);
+        [control layoutIfNeeded];
+        Check(pages.nativeEnds == 1 && wrapper.frame.origin.y < 822,
+            @"outer pager settlement resumes the current HUD without another inner feed scroll");
+        [screen insertSubview:canvas atIndex:0]; [pages removeFromSuperview]; Layout(control);
         HGAppearanceSet(@"player.separateProgress",@"hide",nil);
         Check(CGRectEqualToRect(progress.frame,nativeProgress) && fabs(wrapper.frame.origin.y-822)<0.01 &&
             CGRectEqualToRect(right.frame,nativeRight) && CGRectEqualToRect(above.frame,nativeAbove) &&

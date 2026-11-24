@@ -200,11 +200,14 @@ static BOOL HGAIsHomeChannel(UIView *view) {
     return NO;
 }
 
+static void HGAHeaderCategoryGeometryChanged(UIView *categories);
+
 static void HGAApplyChannelIndicators(UIView *categories,BOOL enabled) {
     id indicators=HGReadObjectGetter(categories,"indicators");
     if(![indicators isKindOfClass:NSArray.class] || ![indicators count])return;
     BOOL hide=NO;
-    if(enabled && HGAIsHomeChannel(categories)) {
+    BOOL home=enabled && HGAIsHomeChannel(categories);
+    if(home) {
         id titles=HGReadObjectGetter(categories,"titles");
         SEL selector=sel_registerName("selectedIndex");
         Method method=class_getInstanceMethod(categories.class,selector);
@@ -218,11 +221,7 @@ static void HGAApplyChannelIndicators(UIView *categories,BOOL enabled) {
     }
     for(id indicator in indicators)
         if([indicator isKindOfClass:UIView.class] && [indicator isDescendantOfView:categories])HGASetHidden(indicator,hide);
-    if(enabled && HGAIsHomeChannel(categories)) {
-        for(UIView *p=categories.superview;p;p=p.superview) {
-            if(HGAIsHeaderView(p)){[p setNeedsLayout];break;}
-        }
-    }
+    if (home) HGAHeaderCategoryGeometryChanged(categories);
 }
 
 static void HGAApplyChannelOrHistoryTitle(UIView *cell,BOOL enabled) {

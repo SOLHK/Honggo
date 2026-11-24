@@ -249,8 +249,13 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(gesture!=self.selectionPan || !gesture.enabled || other.view.window!=self.window ||
         ![other.view isDescendantOfView:gesture.view] || ![other isKindOfClass:UIPanGestureRecognizer.class])return NO;
     id player=other.delegate;
-    return [player isKindOfClass:NSClassFromString(@"FQVShortVideoVPlayerControlView")] &&
-        other==HGReadObjectGetter(player,"progressPanGesture");
+    Class controls=objc_lookUpClass("FQVShortVideoVPlayerControlView");
+    if(![player isKindOfClass:controls])return NO;
+    // The 7.4.5.33 getter constructs a pan and assigns its delegate on first
+    // access. Gesture arbitration must only inspect already installed objects.
+    Ivar progress=class_getInstanceVariable(controls,"_progressPanGesture");
+    const char *type=progress ? ivar_getTypeEncoding(progress) : NULL;
+    return type && !strcmp(type,"@\"UIPanGestureRecognizer\"") && object_getIvar(player,progress)==other;
 }
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
     if(gesture!=self.selectionPan)return YES;
@@ -650,14 +655,22 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 }
 - (void)setCollapsed:(BOOL)value animated:(BOOL)animated {
     if(!HGAppearanceFlag(@"dock.collapse") || UIAccessibilityIsVoiceOverRunning())value=NO;
-    if(self.collapsed==value)return;
-    self.collapsed=value;
-    if(value)[self clearSelectionDrag];
-    // Public UIKit animation; no private platter/visual-provider dependency.
-    if(animated && !UIAccessibilityIsReduceMotionEnabled()) {
-        [UIView transitionWithView:self duration:0.22 options:UIViewAnimationOptionTransitionCrossDissolve|UIViewAnimationOptionAllowUserInteraction
-            animations:^{[self renderGeometry];} completion:nil];
-    }else [self renderGeometry];
+    if(self.collapsed==value || self.rendering || self.restoring || !self.superview)return;
+    self.rendering=YES;
+    @try {
+        self.collapsed=value;
+        if(value)[self clearSelectionDrag];
+        [self renderGeometry];
+    } @finally { self.rendering=NO; }
+    if(!animated || UIAccessibilityIsReduceMotionEnabled())return;
+    // A layer animation leaves the playing video and live glass out of UIKit's
+    // transition snapshot while the native pager hands off the current cell.
+    UIView *surface=value ? self.expand : self.capsule;
+    CABasicAnimation *animation=[CABasicAnimation animationWithKeyPath:@"transform.scale"];
+    animation.fromValue=@0.94;
+    animation.toValue=@1;
+    animation.duration=0.22;
+    [surface.layer addAnimation:animation forKey:@"honggo.dock.collapse"];
 }
 @end
 BOOL HGAppearanceDockIsMutating(UIView *bar) {
@@ -693,17 +706,20 @@ static void HGARefreshDock(UIView *bar){HGAppearanceLayoutDock(bar,nil);}
 - (void)pan:(UIPanGestureRecognizer *)gesture {
     if(!HGAppearanceDockEnabled() || !HGAppearanceFlag(@"dock.autoCollapse") || !HGAppearanceFlag(@"dock.collapse") ||
         UIAccessibilityIsVoiceOverRunning() || gesture.state!=UIGestureRecognizerStateEnded)return;
-    CGFloat y=[gesture translationInView:gesture.view].y;if(fabs(y)<40)return;
-    BOOL collapse=(y<0);
+    CGPoint translation=[gesture translationInView:gesture.view];
+    if(fabs(translation.y)<40 || fabs(translation.y)<=fabs(translation.x))return;
+    BOOL collapse=translation.y<0;
     UIWindow *win=gesture.view.window;
-    if(!win)return;
+    if(!win || HGFeedSidebarOwnsLayout(win))return;
     __weak UIWindow *weakWin=win;
     dispatch_async(dispatch_get_main_queue(),^{
         UIWindow *targetWin=weakWin;
         if(!targetWin || HGFeedSidebarOwnsLayout(targetWin))return;
-        for(UIView *bar in HGABars.allObjects)
-            if(bar.window==targetWin && fabs(bar.frame.origin.x)<=2.0)
-                [(HGAAppearanceDock *)objc_getAssociatedObject(bar,&HGADockKey) setCollapsed:collapse animated:YES];
+        for(UIView *bar in HGABars.allObjects) {
+            HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
+            if(bar.window==targetWin && fabs(bar.frame.origin.x)<=2.0 && dock.superview==bar)
+                [dock setCollapsed:collapse animated:YES];
+        }
     });
 }
 @end

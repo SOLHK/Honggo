@@ -95,8 +95,11 @@ static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController
 static UICollectionViewCell *HGVideoBackdropCellAtBottom(UICollectionView *feed, CGRect *edgeFrame) {
     CGRect viewport = feed.bounds;
     CGFloat bottom = CGRectGetMaxY(viewport);
-    for (UICollectionViewCell *cell in feed.visibleCells) {
-        if (cell.superview != feed || !HGVideoBackdropVisible(cell, feed)) continue;
+    // Only inspect realized, attached cells. Asking UICollectionView for its
+    // visible cells can synchronously trigger a layout during host recycling.
+    for (UIView *child in feed.subviews) {
+        if (![child isKindOfClass:UICollectionViewCell.class] || !HGVideoBackdropVisible(child, feed)) continue;
+        UICollectionViewCell *cell = (UICollectionViewCell *)child;
         CGRect frame = [cell convertRect:cell.bounds toView:feed];
         if (CGRectGetMinY(frame) < bottom - 0.75 && CGRectGetMaxY(frame) >= bottom - 0.75 &&
             fabs(CGRectGetMinX(frame) - CGRectGetMinX(viewport)) <= 0.75 &&
@@ -179,14 +182,12 @@ static UIView *HGVideoBackdropPortraitRenderer(UIView *canvas, UICollectionView 
                 fabs(CGRectGetMaxY(video)-CGRectGetMaxY(bounds)) > pixel ||
                 fabs(CGRectGetMidX(video)-CGRectGetMidX(bounds)) > pixel ||
                 CGRectGetWidth(video) < CGRectGetWidth(bounds)-pixel) continue;
-            BOOL clippedByHostMask = NO;
-            for (UIView *node = renderer; node != feed; node = node.superview) {
-                if (node.layer.mask || (node != renderer && !CATransform3DIsIdentity(node.layer.sublayerTransform))) {
-                    clippedByHostMask = YES;
-                    break;
-                }
+            UIView *node = renderer;
+            while (node && node != feed && !node.layer.mask &&
+                    (node == renderer || CATransform3DIsIdentity(node.layer.sublayerTransform))) {
+                node = node.superview;
             }
-            if (!clippedByHostMask) return renderer;
+            if (node == feed) return renderer;
         }
     }
     return nil;
@@ -532,7 +533,7 @@ static UIScrollView *HGVideoBackdropPlayerFeed(UIView *view) {
 void HGRefreshVideoBackdropForPlayer(UIView *view) {
     if (!NSThread.isMainThread) return;
     UIScrollView *feed = HGVideoBackdropPlayerFeed(view);
-    if (feed) HGVideoBackdropRefreshForFeed(feed);
+    if (objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey)) HGScheduleFeedLayoutRefresh(feed);
 }
 
 void HGVideoBackdropPrepareRendererTransfer(UIView *view) {

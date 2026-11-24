@@ -12,17 +12,59 @@
 - (void)reloadData:(NSString *)title;
 @end
 @implementation SSHGBookStoreCategoryTitleCell
-- (void)layoutSubviews {[super layoutSubviews];}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    self.titleLabel.bounds = CGRectMake(0,0,36,25);
+    self.titleLabel.center = CGPointMake(CGRectGetMidX(self.contentView.bounds),CGRectGetMidY(self.contentView.bounds));
+}
 - (void)reloadData:(NSString *)title {
     self.hidden=NO;
     self.titleLabel.text=title;
 }
 @end
-@interface SSHGBookStoreCategoryTitleView : FQRJXCategoryTitleView
+@interface FQRJXCategoryIndicatorLineView : UIView @end
+@implementation FQRJXCategoryIndicatorLineView @end
+
+@interface SSHGBookStoreCategoryTitleView : FQRJXCategoryTitleView <UICollectionViewDataSource,UICollectionViewDelegateFlowLayout>
+@property(nonatomic,strong) UICollectionView *collectionView;
+@property(nonatomic,strong) UIScrollView *contentScrollView;
+@property(nonatomic) NSInteger lastNativeTap;
+- (CGRect)getTargetCellFrame:(NSInteger)index;
+- (CGRect)getTargetSelectedCellFrame:(NSInteger)index selectedType:(NSUInteger)type;
 - (void)refreshState;
 - (void)refreshSelectedCellModel:(NSNumber *)selected unselectedCellModel:(NSNumber *)unselected;
 @end
 @implementation SSHGBookStoreCategoryTitleView
+- (NSInteger)collectionView:(UICollectionView *)collection numberOfItemsInSection:(NSInteger)section { return self.titles.count; }
+- (UICollectionViewCell *)collectionView:(UICollectionView *)collection cellForItemAtIndexPath:(NSIndexPath *)path {
+    SSHGBookStoreCategoryTitleCell *cell = [collection dequeueReusableCellWithReuseIdentifier:@"channel" forIndexPath:path];
+    if (!cell.titleLabel) {
+        cell.titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        [cell.contentView addSubview:cell.titleLabel];
+    }
+    [cell reloadData:self.titles[path.item]];
+    return cell;
+}
+- (CGSize)collectionView:(UICollectionView *)collection layout:(UICollectionViewLayout *)layout sizeForItemAtIndexPath:(NSIndexPath *)path {
+    return CGSizeMake(path.item==2 ? 54 : 36,44);
+}
+- (CGFloat)collectionView:(UICollectionView *)collection layout:(UICollectionViewLayout *)layout minimumLineSpacingForSectionAtIndex:(NSInteger)section { return 24; }
+- (UIEdgeInsets)collectionView:(UICollectionView *)collection layout:(UICollectionViewLayout *)layout insetForSectionAtIndex:(NSInteger)section {
+    return UIEdgeInsetsMake(0,16,0,16);
+}
+- (CGRect)getTargetCellFrame:(NSInteger)index {
+    return CGRectMake(16+60*index+(index>2?18:0),0,index==2?54:36,44);
+}
+- (CGRect)getTargetSelectedCellFrame:(NSInteger)index selectedType:(NSUInteger)type {
+    return [self getTargetCellFrame:index];
+}
+- (void)collectionView:(UICollectionView *)collection didSelectItemAtIndexPath:(NSIndexPath *)path {
+    self.lastNativeTap = path.item;
+    self.selectedIndex = path.item;
+    CGPoint center = self.indicators.firstObject.center;
+    center.x = CGRectGetMidX([self getTargetSelectedCellFrame:path.item selectedType:1]);
+    self.indicators.firstObject.center = center;
+}
 - (void)refreshState {self.indicators.firstObject.hidden=NO;}
 - (void)refreshSelectedCellModel:(NSNumber *)selected unselectedCellModel:(NSNumber *)unselected {
     self.selectedIndex=selected.integerValue;
@@ -119,7 +161,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         initWithFrame:CGRectMake(0,64,CGRectGetWidth(bar.bounds),44)];
     [root addSubview:header];
     header.sideBar=PageChromeControl(header,CGRectMake(16,10,24,24));
-    UIView *tabContainer=PageChromeControl(header,CGRectMake(56,0,220,44));
+    UIView *tabContainer=PageChromeControl(header,CGRectMake((CGRectGetWidth(header.bounds)-266)/2,0,266,44));
     SSHGBookStoreCategoryTitleView *channels=[[SSHGBookStoreCategoryTitleView alloc] initWithFrame:tabContainer.bounds];
     header.tabContainer=tabContainer;[tabContainer addSubview:channels];
     SSVideoSeriesFeedHeaderSearchView *search=[[SSVideoSeriesFeedHeaderSearchView alloc] initWithFrame:header.bounds];
@@ -128,15 +170,20 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     CGRect nativeSearch=search.frame,nativeTabs=tabContainer.frame;
     NSArray *titles=@[@"关注",@"漫剧",@"真人剧",@"推荐"];
     channels.titles=titles;channels.selectedIndex=3;
-    UIView *categoryList=[[UIView alloc] initWithFrame:channels.bounds];
+    UICollectionViewFlowLayout *flow = [UICollectionViewFlowLayout new];
+    flow.scrollDirection = UICollectionViewScrollDirectionHorizontal;
+    UICollectionView *categoryList = [[UICollectionView alloc] initWithFrame:channels.bounds collectionViewLayout:flow];
+    [categoryList registerClass:SSHGBookStoreCategoryTitleCell.class forCellWithReuseIdentifier:@"channel"];
+    categoryList.dataSource=channels; categoryList.delegate=channels; channels.collectionView=categoryList;
     [channels addSubview:categoryList];
-    UIView *underline=PageChromeControl(categoryList,CGRectMake(167,30,28,2));
+    [categoryList reloadData]; Layout(categoryList);
+    FQRJXCategoryIndicatorLineView *underline = [[FQRJXCategoryIndicatorLineView alloc] initWithFrame:CGRectMake(224,39,16,2)];
+    [categoryList addSubview:underline];
     channels.indicators=@[underline];
     NSMutableArray *controls=[NSMutableArray arrayWithObject:header.sideBar];
     for(NSUInteger i=0;i<titles.count;i++) {
-        SSHGBookStoreCategoryTitleCell *cell=(id)PageChromeTitle(channels,titles[i],52*i);
-        [categoryList addSubview:cell];
-        Layout(cell);
+        UICollectionViewCell *cell = [categoryList cellForItemAtIndexPath:[NSIndexPath indexPathForItem:i inSection:0]];
+        if (!cell) { Check(NO,@"home header fixture realizes all four native channel cells"); return; }
         [controls addObject:cell];
     }
     [controls addObject:search.searchButtonSlotView];
@@ -182,22 +229,45 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     }
     Check(independent,@"each of the six header controls hides and restores independently");
 
-    // Verify hiding non-adjacent channels (关注 & 真人剧) compacts remaining tabs
-    // (漫剧 & 推荐) with an even ~20pt gap and tightens the center pill.
+    // Reproduce the device capture: 266pt list, native line x=224..240,
+    // two non-adjacent items visible. UIKit hit testing uses its layout map.
     HGAppearanceApply(@{@"layout.channels.hide.follow":@YES,@"layout.channels.hide.live":@YES},nil);
-    Layout(header);
-    UIView *comicCell=controls[2],*recCell=controls[4];
-    CGRect comicInHeader=[comicCell convertRect:comicCell.bounds toView:header];
-    CGRect recInHeader=[recCell convertRect:recCell.bounds toView:header];
-    CGFloat compactedGap=CGRectGetMinX(recInHeader)-CGRectGetMaxX(comicInHeader);
+    Layout(header); Layout(categoryList);
     UIView *compactedPill=Find(header,material);
-    Check(compactedPill && fabs(compactedGap-20.0)<1.5 &&
-        CGRectGetWidth(compactedPill.frame)<CGRectGetWidth(tabContainer.bounds)-20.0,
-        @"hiding intermediate top channels compacts visible tabs to a 20pt gap and tightens the center capsule");
+    NSIndexPath *comicPath=[NSIndexPath indexPathForItem:1 inSection:0];
+    NSIndexPath *recPath=[NSIndexPath indexPathForItem:3 inSection:0];
+    CGRect comic=[categoryList layoutAttributesForItemAtIndexPath:comicPath].frame;
+    CGRect rec=[categoryList layoutAttributesForItemAtIndexPath:recPath].frame;
+    CGFloat lineX=CGRectGetMidX([underline convertRect:underline.bounds toView:header]);
+    FQRJXCategoryTitleCell *visibleRec = (id)[categoryList cellForItemAtIndexPath:recPath];
+    FQRJXCategoryTitleCell *visibleComic = (id)[categoryList cellForItemAtIndexPath:comicPath];
+    CGRect recLabel=[visibleRec.titleLabel convertRect:visibleRec.titleLabel.bounds toView:header];
+    CGRect comicLabel=[visibleComic.titleLabel convertRect:visibleComic.titleLabel.bounds toView:header];
+    CGFloat recX=CGRectGetMidX(recLabel);
+    Check(compactedPill && CGRectContainsPoint(compactedPill.frame,CGPointMake(lineX,CGRectGetMidY(compactedPill.frame))) &&
+        fabs(lineX-recX)<0.5 && fabs(CGRectGetMinX(recLabel)-CGRectGetMaxX(comicLabel)-20)<0.5,
+        @"the compact capsule contains the native underline below the selected channel with a 20pt label gap");
+    NSIndexPath *tap=[categoryList indexPathForItemAtPoint:CGPointMake(CGRectGetMidX(comic),CGRectGetMidY(comic))];
+    if (tap) [categoryList.delegate collectionView:categoryList didSelectItemAtIndexPath:tap];
+    Check([tap isEqual:comicPath] && channels.lastNativeTap==1 && channels.selectedIndex==1 &&
+        fabs(underline.center.x-CGRectGetMidX(comic))<0.5 &&
+        fabs(CGRectGetMidX([channels getTargetCellFrame:3])-CGRectGetMidX(rec))<0.5,
+        @"native taps and the host click and swipe indicator coordinates use the original channel indices");
+    CGRect originalBounds=categoryList.bounds;
+    categoryList.bounds=CGRectMake(0,0,300,44); Layout(header); Layout(categoryList);
+    CGRect rotated=[categoryList layoutAttributesForItemAtIndexPath:comicPath].frame;
+    Check(fabs(underline.center.x-CGRectGetMidX(rotated))<0.5 && CGRectGetMidX(rotated)>CGRectGetMidX(comic)+10,
+        @"resizing the category collection recenters the selected title and underline together");
+    categoryList.bounds=originalBounds;
     HGAppearanceApply(@{@"layout.channels.hide.follow":@NO,@"layout.channels.hide.live":@NO},nil);
-    Layout(header);
-    Check(CGAffineTransformIsIdentity(comicCell.transform) && CGAffineTransformIsIdentity(recCell.transform),
-        @"restoring all top channels restores identity cell transforms");
+    Layout(header); Layout(categoryList);
+    CGRect stock=[categoryList layoutAttributesForItemAtIndexPath:comicPath].frame;
+    Check(fabs(CGRectGetMidX(stock)-CGRectGetMidX([channels getTargetCellFrame:1]))<0.5 &&
+        fabs(underline.center.x-CGRectGetMidX(stock))<0.5 &&
+        CGAffineTransformIsIdentity(((UIView *)controls[2]).transform) &&
+        CGAffineTransformIsIdentity(((UIView *)controls[4]).transform),
+        @"restoring the four channels restores native layout, selection geometry and unmodified cell transforms");
+    [channels refreshSelectedCellModel:@3 unselectedCellModel:@1];
 
     NSMutableDictionary *allHidden=[NSMutableDictionary dictionary];
     for(NSString *key in keys)allHidden[[@"layout.channels.hide." stringByAppendingString:key]]=@YES;

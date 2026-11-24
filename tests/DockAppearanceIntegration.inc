@@ -456,7 +456,6 @@ static void HGRunDockTouchRoutingChecks(HGAAppearanceDock *dock,UIView *bar,UIVi
 
     // The host progress control covers a larger rectangle than its visible rail.
     UIView *player=[[NSClassFromString(@"FQVShortVideoVPlayerControlView") alloc] initWithFrame:container.bounds];
-    UIPanGestureRecognizer *progress=HGReadObjectGetter(player,"progressPanGesture");
     CGRect surface=[capsule convertRect:capsule.bounds toView:container];
     UISlider *rail=[[UISlider alloc] initWithFrame:CGRectMake(CGRectGetMinX(surface),CGRectGetMinY(surface)-22,
         CGRectGetWidth(surface),40)];
@@ -473,6 +472,11 @@ static void HGRunDockTouchRoutingChecks(HGAAppearanceDock *dock,UIView *bar,UIVi
         @"the progress rail above the rounded capsule retains its native touch route");
     UIPanGestureRecognizer *unrelated=[UIPanGestureRecognizer new];
     unrelated.delegate=(id)player;[player addGestureRecognizer:unrelated];
+    NSUInteger gestureCount=player.gestureRecognizers.count;
+    Check(![dock gestureRecognizer:installed shouldBeRequiredToFailByGestureRecognizer:unrelated] &&
+        player.gestureRecognizers.count==gestureCount,
+        @"asking about a native swipe leaves an uninitialized player progress gesture uncreated");
+    UIPanGestureRecognizer *progress=HGReadObjectGetter(player,"progressPanGesture");
     Check(progress && [dock gestureRecognizer:installed shouldBeRequiredToFailByGestureRecognizer:progress] &&
         ![dock gestureRecognizer:installed shouldBeRequiredToFailByGestureRecognizer:unrelated],
         @"the identified progress pan alone waits for the dock pan");
@@ -490,6 +494,15 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     host.selectedIndex=0;
     HGAppearanceLayoutDock(host.customTabBar,host);
     HGRunDockTouchRoutingChecks(dock,host.customTabBar,capsule,home);
+    BOOL originalCollapse=HGAppearanceFlag(@"dock.collapse");
+    HGAppearanceSet(@"dock.collapse",@YES,nil);
+    [dock setCollapsed:YES animated:YES];
+    [dock setCollapsed:NO animated:YES];
+    Check(!capsule.hidden && (UIAccessibilityIsReduceMotionEnabled() ||
+        [capsule.layer animationForKey:@"honggo.dock.collapse"]!=nil),
+        @"expanding the dock animates its visible surface directly after a swipe");
+    [capsule.layer removeAnimationForKey:@"honggo.dock.collapse"];
+    HGAppearanceSet(@"dock.collapse",@(originalCollapse),nil);
 
     CGFloat homeX=CGRectGetMidX(home.frame),theaterX=CGRectGetMidX(theater.frame);
     CGFloat middle=(homeX+theaterX)/2;

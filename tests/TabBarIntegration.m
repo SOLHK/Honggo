@@ -378,6 +378,7 @@ static UIImage *HGWhiteImage(void) {
 // Names and signatures model the supported host ABI. Layer topology is deliberately
 // nested so a replacement that only hides direct bar children cannot pass.
 @interface SSTabBar : UIView
+@property(nonatomic) NSUInteger contentReads;
 @property(nonatomic, strong) UIView *contentView;
 @property(nonatomic, strong) UIImageView *backgroundImageView;
 @property(nonatomic, strong) UIView *lightView;
@@ -400,6 +401,8 @@ static UIImage *HGWhiteImage(void) {
 @end
 
 @implementation SSTabBar
+@synthesize contentView = _contentView;
+- (UIView *)contentView { self.contentReads++; return _contentView; }
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
@@ -534,6 +537,24 @@ static UIImage *HGWhiteImage(void) {
 - (void)resetBlurVisualViewWithRatio:(double)ratio {
     self.originalRatios++;
     [self writeHostAppearance];
+}
+@end
+
+@interface HGFeedScrollMountFixture : NSObject <UIScrollViewDelegate>
+@property(nonatomic, weak) UIView *root;
+@property(nonatomic, weak) SSTabBar *bar;
+@property(nonatomic) BOOL mounted;
+@property(nonatomic) NSUInteger synchronousBarReads;
+@end
+@implementation HGFeedScrollMountFixture
+- (void)scrollViewDidScroll:(UIScrollView *)scroll {
+    if (self.mounted) return;
+    self.mounted = YES;
+    UIView *mounted = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 20, 20)];
+    NSUInteger before = self.bar.contentReads;
+    [self.root addSubview:mounted];
+    self.synchronousBarReads = self.bar.contentReads - before;
+    [mounted removeFromSuperview];
 }
 @end
 
@@ -865,6 +886,22 @@ static UIImage *HGWhiteImage(void) {
             [self layoutHost];
             [self check:!HGFeedSidebarOwnsLayout(host.view.window) && [self mainFeedReachesBottom] &&
                 HGEffects(bar).count == 1 name:@"closing the sidebar restores normal viewport and glass"];
+            // The recorded stalls start after toggle.return. Exercise a real
+            // scroll callback in the restored host rather than calling the
+            // plugin or the gesture delegate directly during dismissal.
+            UIScrollView *feed=host.primaryFeed;
+            CGPoint saved=feed.contentOffset;
+            id<UIScrollViewDelegate> original=feed.delegate;
+            [feed setContentOffset:CGPointMake(saved.x,120) animated:NO];
+            HGFeedScrollMountFixture *probe=[HGFeedScrollMountFixture new];
+            probe.root=host.view; probe.bar=bar;
+            feed.delegate=probe;
+            CGPoint next=CGPointMake(saved.x,90);
+            [feed setContentOffset:next animated:NO];
+            [self check:probe.mounted && probe.synchronousBarReads==0 && CGPointEqualToPoint(feed.contentOffset,next)
+                name:@"downward scroll after native sidebar dismissal mounts content without reentering dock layout"];
+            feed.delegate=original;
+            [feed setContentOffset:saved animated:NO];
             [page willMoveToParentViewController:nil];
             [page.view removeFromSuperview]; [page removeFromParentViewController];
             [self runSystemCaptureAtIndex:0];

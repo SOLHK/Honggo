@@ -110,23 +110,58 @@ static BOOL HGABottomNativeCoordinates(UIView *view,UIView *control) {
     }
     return NO;
 }
-static BOOL HGABottomCanvasIsCurrent(UIView *control) {
-    UIView *canvas=HGAPlayerCanvas(control);
-    UIWindow *window=control.window;
-    if(!canvas || !window || !HGABottomNativeCoordinates(control,canvas))return NO;
-    CGRect viewport=window.bounds;
-    // Paging cells all remain attached during a drag. A positive/negative cell
-    // origin is not the current settled page, even though HGAVisible is true.
-    // Compare with the native feed viewport instead of using the dock's
-    // converted coordinates to drag an entering cell's rail toward the dock.
-    for(UIView *parent=canvas.superview;parent && parent!=window;parent=parent.superview) {
-        if(!HGABottomViewIsA(parent,@"FQVCollectionView"))continue;
-        viewport=[parent convertRect:parent.bounds toView:window];
-        break;
+static char HGDeferredHUDsKey, HGCategoryFeedsKey;
+
+static NSHashTable *HGADeferredViews(id owner, const void *key) {
+    NSHashTable *views = objc_getAssociatedObject(owner, key);
+    if (!views) {
+        views = [NSHashTable weakObjectsHashTable];
+        objc_setAssociatedObject(owner, key, views, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    CGRect rect=[canvas convertRect:canvas.bounds toView:window];
-    return !CGRectIsEmpty(rect) && fabs(CGRectGetMinY(rect)-CGRectGetMinY(viewport))<=1 &&
-        fabs(CGRectGetMinX(rect)-CGRectGetMinX(viewport))<=1;
+    return views;
+}
+
+static void HGAResumeCategoryFeeds(UIView *pager) {
+    if (!NSThread.isMainThread) return;
+    NSHashTable *feeds = objc_getAssociatedObject(pager, &HGCategoryFeedsKey);
+    for (UIScrollView *feed in feeds.allObjects) {
+        NSHashTable *pending = objc_getAssociatedObject(feed, &HGDeferredHUDsKey);
+        if (!pending.count || ![feed isDescendantOfView:pager]) [feeds removeObject:feed];
+        else HGScheduleFeedLayoutRefresh(feed);
+    }
+}
+
+// A horizontal channel pager can carry the entire video feed, so its canvas
+// and its vertical collection move together. Compare both coordinate spaces.
+static BOOL HGABottomCanvasIsCurrent(UIView *control, UIScrollView **nativeFeed) {
+    UIView *canvas = HGAPlayerCanvas(control);
+    UIWindow *window = control.window;
+    if (!canvas || !window) return NO;
+    UIScrollView *feed = nil;
+    BOOL scrolling = NO;
+    for (UIView *node = canvas.superview; node && node != window; node = node.superview) {
+        if (![node isKindOfClass:UIScrollView.class]) continue;
+        UIScrollView *scroll = (UIScrollView *)node;
+        if (!feed && HGABottomViewIsA(scroll, @"FQVCollectionView")) feed = scroll;
+        if (scroll.tracking || scroll.dragging || scroll.decelerating) scrolling = YES;
+    }
+    *nativeFeed = feed;
+    if (scrolling || !HGABottomNativeCoordinates(control, canvas)) return NO;
+    CGRect viewport = feed ? [feed convertRect:feed.bounds toView:window] : window.bounds;
+    CGRect rect = [canvas convertRect:canvas.bounds toView:window];
+    return !CGRectIsEmpty(rect) && fabs(CGRectGetMinY(rect) - CGRectGetMinY(viewport)) <= 1 &&
+        fabs(CGRectGetMinX(rect) - CGRectGetMinX(viewport)) <= 1 &&
+        (!feed || fabs(CGRectGetMidX(viewport) - CGRectGetMidX(window.bounds)) <= 1);
+}
+
+static void HGAResumeSettledHUDs(UIScrollView *feed) {
+    NSHashTable *pending = objc_getAssociatedObject(feed, &HGDeferredHUDsKey);
+    for (UIView *control in pending.allObjects) {
+        UIScrollView *currentFeed = nil;
+        BOOL current = HGABottomCanvasIsCurrent(control, &currentFeed);
+        if (currentFeed != feed || current) [pending removeObject:control];
+        if (currentFeed == feed && current) [control setNeedsLayout];
+    }
 }
 static void HGAUpdateBottomInfoGroups(HGABottomLayoutState *state,UIView *info,
     UIView *control,CGRect entryRect,CGFloat lift) {
@@ -208,6 +243,19 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     if(!HGAppearanceEnabled() || ![HGAppearanceString(@"player.separateProgress") isEqual:@"show"] ||
         !HGAVisible(control) || control.bounds.size.height<=control.bounds.size.width ||
         HGABottomHasCustomGeometry()) {HGARestoreBottomState(state);return;}
+    UIScrollView *feed = nil;
+    BOOL currentCanvas = HGABottomCanvasIsCurrent(control, &feed);
+    if (feed && !currentCanvas) {
+        HGARestoreBottomState(state);
+        [HGADeferredViews(feed, &HGDeferredHUDsKey) addObject:control];
+        for (UIView *node = feed.superview; node; node = node.superview) {
+            if (HGABottomViewIsA(node, @"FQRJXCategoryListContainerView")) {
+                [HGADeferredViews(node, &HGCategoryFeedsKey) addObject:feed];
+                break;
+            }
+        }
+        return;
+    }
     UIView *progress=nil,*wrapper=nil,*info=nil;
     BOOL ambiguous=NO,ambiguousInfo=NO;
     // A native layout may add a neutral intermediate container. Find only the
@@ -267,7 +315,7 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     if(!isfinite(needed) || needed>20) {HGARestoreBottomState(state);return;}
     CGFloat progressLift=0;
     CGRect dock=HGADockRectInView(control);
-    if(measured && HGABottomCanvasIsCurrent(control) && !CGRectIsNull(dock) && !CGRectIsEmpty(dock) &&
+    if(measured && currentCanvas && !CGRectIsNull(dock) && !CGRectIsEmpty(dock) &&
         CGRectGetMinY(dock)>height*0.65 && CGRectGetMinY(dock)<height+100 &&
         CGRectGetMaxX(dock)>width*0.25 && CGRectGetMinX(dock)<width*0.75) {
         CGFloat overlap=CGRectGetMaxY(railRect)+10-CGRectGetMinY(dock);

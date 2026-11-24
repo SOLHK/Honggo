@@ -1,9 +1,10 @@
 @interface HGAHeaderInsetState : NSObject
-@property(nonatomic,weak) UIView *sidebar;
-@property(nonatomic,weak) UIView *searchSlot;
 @property(nonatomic,strong) HGAAppearanceMaterial *sidebarGlass;
 @property(nonatomic,strong) HGAAppearanceMaterial *searchGlass;
-@property(nonatomic,strong) NSHashTable<UIView *> *compactedViews;
+@property(nonatomic,weak) UIView *categories;
+@property(nonatomic,copy) NSArray *observedTitles;
+@property(nonatomic) CGSize observedSize;
+@property(nonatomic,weak) UICollectionView *observedCollection;
 @end
 @implementation HGAHeaderInsetState @end
 static char HGAHeaderInsetKey;
@@ -27,104 +28,232 @@ static UIView *HGAHeaderSearchSlotView(UIView *header) {
     return best;
 }
 
-static CGFloat HGAOwnedTx(UIView *view) {
-    HGAViewState *s=HGAState(view,NO);
-    if(s.geometry && s.geometrySuperview==view.superview &&
-        CGAffineTransformEqualToTransform(view.transform,s.appliedTransform)) {
-        return s.appliedTransform.tx;
-    }
-    return 0.0;
+// The host uses UICollectionViewFlowLayout to hit-test channel indices and its
+// own two target-frame getters to drive the native underline during selection
+// and horizontal paging. Keep all three in collection-content coordinates.
+@interface HGAHeaderChannelLayout : NSObject
+@property(nonatomic,weak) UICollectionView *collection;
+@property(nonatomic,copy) NSArray<NSString *> *titles;
+@property(nonatomic,copy) NSArray<NSValue *> *frames;
+@property(nonatomic) NSUInteger hiddenMask;
+@property(nonatomic) CGFloat width;
+@property(nonatomic) CGFloat inset;
+@property(nonatomic) CGRect capsule;
+@end
+@implementation HGAHeaderChannelLayout @end
+
+static char HGAHeaderLayoutKey;
+static BOOL HGAHeaderAdaptersReady;
+static IMP HGAHeaderOriginals[5];
+
+static CGSize HGAChannelSize(id owner, SEL cmd, UICollectionView *collection, UICollectionViewLayout *layout, NSIndexPath *path) {
+    CGSize size = ((CGSize (*)(id,SEL,id,id,id))HGAHeaderOriginals[0])(owner,cmd,collection,layout,path);
+    HGAHeaderChannelLayout *plan = objc_getAssociatedObject(owner,&HGAHeaderLayoutKey);
+    if (collection == plan.collection && path.section == 0 && path.item >= 0 && path.item < (NSInteger)plan.frames.count)
+        size.width = plan.frames[path.item].CGRectValue.size.width;
+    return size;
 }
 
-static void HGARestoreCompactedHeaderChannels(HGAHeaderInsetState *state) {
-    if(!state.compactedViews)return;
-    for(UIView *v in state.compactedViews.allObjects)HGARestoreGeometry(v);
-    [state.compactedViews removeAllObjects];
+static CGFloat HGAChannelSpacing(id owner, SEL cmd, UICollectionView *collection, UICollectionViewLayout *layout, NSInteger section) {
+    HGAHeaderChannelLayout *plan = objc_getAssociatedObject(owner,&HGAHeaderLayoutKey);
+    if (plan && collection == plan.collection && section == 0) return 0;
+    return ((CGFloat (*)(id,SEL,id,id,NSInteger))HGAHeaderOriginals[1])(owner,cmd,collection,layout,section);
 }
 
-// When one or more top channels are hidden (e.g. hiding 关注 and 真人剧 leaves a
-// 102pt void between 漫剧 and 推荐), compact the visible cells with an even 20pt
-// gap centered in their host container and align the active indicator underline.
-static void HGACompactHeaderChannels(UIView *header,HGAHeaderInsetState *state,BOOL enabled) {
-    if(!header || !state)return;
-    UIView *tabs=HGAViewGetter(header,"tabContainer",header);
-    Class cellCls=NSClassFromString(@"FQRJXCategoryTitleCell");
-    Class catCls=NSClassFromString(@"FQRJXCategoryTitleView");
-    if(!enabled || !tabs || tabs.hidden || !cellCls) {
-        HGARestoreCompactedHeaderChannels(state);
+static UIEdgeInsets HGAChannelInsets(id owner, SEL cmd, UICollectionView *collection, UICollectionViewLayout *layout, NSInteger section) {
+    UIEdgeInsets insets = ((UIEdgeInsets (*)(id,SEL,id,id,NSInteger))HGAHeaderOriginals[2])(owner,cmd,collection,layout,section);
+    HGAHeaderChannelLayout *plan = objc_getAssociatedObject(owner,&HGAHeaderLayoutKey);
+    if (plan && collection == plan.collection && section == 0)
+        insets.left = insets.right = plan.inset;
+    return insets;
+}
+
+static CGRect HGACompactTargetFrame(id owner, NSInteger index, CGRect frame) {
+    HGAHeaderChannelLayout *plan = objc_getAssociatedObject(owner,&HGAHeaderLayoutKey);
+    if (index >= 0 && index < (NSInteger)plan.frames.count && !CGRectIsEmpty(frame)) {
+        CGRect item = plan.frames[index].CGRectValue;
+        if (plan.hiddenMask & (1UL << index)) frame.size.width = item.size.width;
+        frame.origin.x = CGRectGetMidX(item) - frame.size.width / 2;
+    }
+    return frame;
+}
+static CGRect HGAChannelFrame(id owner, SEL cmd, NSInteger index) {
+    CGRect native = ((CGRect (*)(id,SEL,NSInteger))HGAHeaderOriginals[3])(owner,cmd,index);
+    return HGACompactTargetFrame(owner,index,native);
+}
+static CGRect HGAChannelSelectedFrame(id owner, SEL cmd, NSInteger index, NSUInteger type) {
+    CGRect native = ((CGRect (*)(id,SEL,NSInteger,NSUInteger))HGAHeaderOriginals[4])(owner,cmd,index,type);
+    return HGACompactTargetFrame(owner,index,native);
+}
+
+static void HGAInstallHeaderLayoutAdapters(void) {
+    if (HGAHeaderAdaptersReady) return;
+    Class cls = NSClassFromString(@"SSHGBookStoreCategoryTitleView");
+    if (!cls) return;
+    static const struct { const char *name, *encoding; IMP replacement; } adapters[] = {
+        {"collectionView:layout:sizeForItemAtIndexPath:", "{CGSize=dd}40@0:8@16@24@32", (IMP)HGAChannelSize},
+        {"collectionView:layout:minimumLineSpacingForSectionAtIndex:", "d40@0:8@16@24q32", (IMP)HGAChannelSpacing},
+        {"collectionView:layout:insetForSectionAtIndex:", "{UIEdgeInsets=dddd}40@0:8@16@24q32", (IMP)HGAChannelInsets},
+        {"getTargetCellFrame:", "{CGRect={CGPoint=dd}{CGSize=dd}}24@0:8q16", (IMP)HGAChannelFrame},
+        {"getTargetSelectedCellFrame:selectedType:", "{CGRect={CGPoint=dd}{CGSize=dd}}32@0:8q16Q24", (IMP)HGAChannelSelectedFrame}
+    };
+    static const struct { const char *name, *encoding; } properties[] = {
+        {"titles", "@16@0:8"}, {"indicators", "@16@0:8"}, {"collectionView", "@16@0:8"},
+        {"contentScrollView", "@16@0:8"}, {"selectedIndex", "q16@0:8"}
+    };
+    for (NSUInteger i = 0; i < sizeof(properties)/sizeof(properties[0]); i++) {
+        Method m = class_getInstanceMethod(cls,sel_registerName(properties[i].name));
+        if (!m || strcmp(method_getTypeEncoding(m),properties[i].encoding)) return;
+    }
+    for (NSUInteger i = 0; i < 5; i++) {
+        Method m = class_getInstanceMethod(cls,sel_registerName(adapters[i].name));
+        if (!m || strcmp(method_getTypeEncoding(m),adapters[i].encoding)) return;
+    }
+    for (NSUInteger i = 0; i < 5; i++) {
+        SEL selector = sel_registerName(adapters[i].name);
+        if (!HGAHeaderOriginals[i])
+            HGAHeaderOriginals[i] = class_getMethodImplementation(cls,selector);
+        IMP original = HGInstallVerifiedHook(cls,selector,adapters[i].encoding,adapters[i].replacement,@"appearance");
+        if (!original || class_getMethodImplementation(cls,selector) != adapters[i].replacement) return;
+        HGAHeaderOriginals[i] = original;
+    }
+    HGAHeaderAdaptersReady = YES;
+}
+
+static BOOL HGAHeaderScrollInFlight(id categories, UIScrollView *collection) {
+    UIScrollView *pager = HGReadObjectGetter(categories,"contentScrollView");
+    return collection.isTracking || collection.isDragging || collection.isDecelerating ||
+        ([pager isKindOfClass:UIScrollView.class] && (pager.isTracking || pager.isDragging || pager.isDecelerating));
+}
+
+// A host can populate its titles after header layout. Notify the parent once
+// for an actual change, not on each cell refresh or each scroll offset.
+static void HGAHeaderCategoryGeometryChanged(UIView *categories) {
+    UIView *header = categories.superview;
+    while (header && !HGAIsHeaderView(header)) header = header.superview;
+    HGAHeaderInsetState *state = objc_getAssociatedObject(header,&HGAHeaderInsetKey);
+    if (!state || !HGAHeaderAdaptersReady) return;
+    UICollectionView *collection = HGReadObjectGetter(categories,"collectionView");
+    if (![collection isKindOfClass:UICollectionView.class] || HGAHeaderScrollInFlight(categories,collection)) return;
+    NSArray *titles = HGReadObjectGetter(categories,"titles");
+    if (![titles isKindOfClass:NSArray.class] || titles.count > 32) return;
+    CGSize size = collection.bounds.size;
+    if (state.observedCollection == collection && CGSizeEqualToSize(state.observedSize,size) &&
+        [state.observedTitles isEqualToArray:titles]) return;
+    state.observedCollection = collection;
+    state.observedTitles = titles;
+    state.observedSize = size;
+    [header setNeedsLayout];
+}
+
+// Capture original sizes through the verified flow delegate, never by moving or
+// measuring reused cells. A nearly zero extent retains hidden entries' indices.
+static HGAHeaderChannelLayout *HGAMakeChannelLayout(UIView *categories, UICollectionView *collection,
+    NSArray *titles, NSUInteger mask) {
+    CGFloat width = collection.bounds.size.width;
+    NSUInteger visibleCount = titles.count - (NSUInteger)__builtin_popcountll(mask);
+    CGFloat halfGap = visibleCount > 1 ? 10 : 0;
+    NSMutableArray *frames = [NSMutableArray arrayWithCapacity:titles.count];
+    CGFloat total = 0;
+    for (NSUInteger i = 0; i < titles.count; i++) {
+        CGFloat extent = 0.01;
+        if (!(mask & (1UL << i))) {
+            NSIndexPath *path = [NSIndexPath indexPathForItem:i inSection:0];
+            CGSize size = ((CGSize (*)(id,SEL,id,id,id))HGAHeaderOriginals[0])(categories,
+                @selector(collectionView:layout:sizeForItemAtIndexPath:), collection, collection.collectionViewLayout, path);
+            if (!isfinite(size.width) || size.width <= 0 || size.height <= 0) return nil;
+            extent = size.width + 2 * halfGap;
+        }
+        [frames addObject:[NSValue valueWithCGRect:CGRectMake(total,0,extent,collection.bounds.size.height)]];
+        total += extent;
+    }
+    if (!visibleCount || !isfinite(width) || total > width) return nil;
+    CGFloat inset = (width - total) / 2;
+    for (NSUInteger i = 0; i < frames.count; i++)
+        frames[i] = [NSValue valueWithCGRect:CGRectOffset([frames[i] CGRectValue],inset,0)];
+    HGAHeaderChannelLayout *plan = [HGAHeaderChannelLayout new];
+    plan.collection = collection;
+    plan.frames = frames;
+    plan.titles = titles;
+    plan.hiddenMask = mask;
+    plan.width = width;
+    plan.inset = inset;
+    plan.capsule = CGRectInset(CGRectMake(inset,0,total,collection.bounds.size.height),halfGap-16,0);
+    return plan;
+}
+
+static void HGAAlignSettledChannelLine(UIView *categories, UICollectionView *collection, HGAHeaderChannelLayout *plan) {
+    SEL selector = sel_registerName("selectedIndex");
+    Method method = class_getInstanceMethod(categories.class,selector);
+    if (!method || strcmp(method_getTypeEncoding(method),"q16@0:8")) return;
+    NSInteger index = ((NSInteger (*)(id,SEL))objc_msgSend)(categories,selector);
+    if (index < 0 || index >= [collection numberOfItemsInSection:0]) return;
+    CGRect target = HGAChannelFrame(categories,sel_registerName("getTargetCellFrame:"),index);
+    if (CGRectIsEmpty(target) || (plan && (index >= (NSInteger)plan.frames.count || (plan.hiddenMask & (1UL << index))))) return;
+    NSArray *lines = HGReadObjectGetter(categories,"indicators");
+    if (![lines isKindOfClass:NSArray.class]) return;
+    for (UIView *line in lines) {
+        if (![line isKindOfClass:NSClassFromString(@"FQRJXCategoryIndicatorLineView")] ||
+            ![line isDescendantOfView:collection] || line.layer.animationKeys.count) continue;
+        CGPoint center = line.center;
+        CGFloat x = [collection convertPoint:CGPointMake(CGRectGetMidX(target),CGRectGetMidY(target))
+                                      toView:line.superview].x;
+        if (isfinite(x) && fabs(x-center.x) > 0.25) line.center = CGPointMake(x,center.y);
+    }
+}
+
+static void HGASetChannelLayout(UIView *categories, HGAHeaderChannelLayout *next) {
+    HGAHeaderChannelLayout *old = objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
+    if (old == next) return;
+    objc_setAssociatedObject(categories,&HGAHeaderLayoutKey,next,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [old.collection.collectionViewLayout invalidateLayout];
+    if (old.collection != next.collection) [next.collection.collectionViewLayout invalidateLayout];
+    UICollectionView *collection = next.collection ?: old.collection;
+    if (collection.numberOfSections && !HGAHeaderScrollInFlight(categories,collection))
+        HGAAlignSettledChannelLine(categories,collection,next);
+}
+
+static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state) {
+    UIView *tabs = HGAViewGetter(header,"tabContainer",header);
+    UIView *categories = nil;
+    Class cls = NSClassFromString(@"SSHGBookStoreCategoryTitleView");
+    if (HGAHeaderAdaptersReady && tabs && !tabs.hidden) {
+        for (UIView *node in HGADescendants(tabs,64)) if ([node isKindOfClass:cls]) { categories=node; break; }
+    }
+    if (state.categories != categories) {
+        HGASetChannelLayout(state.categories,nil);
+        state.categories = categories;
+    }
+    if (!categories) return;
+    HGAHeaderChannelLayout *old = objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
+    NSArray *titles = HGReadObjectGetter(categories,"titles");
+    UICollectionView *collection = (id)HGAViewGetter(categories,"collectionView",categories);
+    UICollectionViewFlowLayout *flow = [collection isKindOfClass:UICollectionView.class] ? (id)collection.collectionViewLayout : nil;
+    if (![flow isKindOfClass:UICollectionViewFlowLayout.class] ||
+        flow.scrollDirection != UICollectionViewScrollDirectionHorizontal || !CGSizeEqualToSize(flow.estimatedItemSize,CGSizeZero) ||
+        collection.delegate != (id)categories ||
+        collection.numberOfSections != 1 || ![titles isKindOfClass:NSArray.class] || !titles.count || titles.count > 32 ||
+        [collection numberOfItemsInSection:0] != (NSInteger)titles.count) {
+        HGASetChannelLayout(categories,nil);
         return;
     }
-    NSMutableArray<UIView *> *visibleCells=[NSMutableArray array];
-    NSUInteger hiddenCount=0;
-    UIView *categoryView=nil;
-    for(UIView *node in HGADescendants(tabs,96)) {
-        if(!categoryView && catCls && [node isKindOfClass:catCls])categoryView=node;
-        if(![node isKindOfClass:cellCls])continue;
-        if(node.hidden || node.alpha<0.01 || CGRectIsEmpty(node.bounds)) {
-            hiddenCount++;
-        } else {
-            [visibleCells addObject:node];
-        }
+    if (HGAHeaderScrollInFlight(categories,collection)) return;
+    state.observedCollection = collection;
+    state.observedTitles = titles;
+    state.observedSize = collection.bounds.size;
+    BOOL animating = NO;
+    if (HGABoolGetter(header,@"isHeaderViewLayoutAnimating",&animating) && animating) return;
+    NSUInteger mask = 0;
+    for (NSUInteger i = 0; i < titles.count; i++) {
+        if ([titles[i] isKindOfClass:NSString.class] && HGATopChannelHidden(titles[i])) mask |= 1UL << i;
     }
-    if(!hiddenCount || !visibleCells.count) {
-        HGARestoreCompactedHeaderChannels(state);
+    if (!mask || (NSUInteger)__builtin_popcountll(mask) == titles.count) {
+        HGASetChannelLayout(categories,nil);
         return;
     }
-    UIView *container=visibleCells.firstObject.superview;
-    if(!container || CGRectIsEmpty(container.bounds)) {
-        HGARestoreCompactedHeaderChannels(state);
-        return;
-    }
-    for(UIView *c in visibleCells) {
-        if(c.superview!=container) {
-            HGARestoreCompactedHeaderChannels(state);
-            return;
-        }
-    }
-    [visibleCells sortUsingComparator:^NSComparisonResult(UIView *a,UIView *b) {
-        CGFloat ax=CGRectGetMinX(a.frame)-HGAOwnedTx(a);
-        CGFloat bx=CGRectGetMinX(b.frame)-HGAOwnedTx(b);
-        return ax<bx ? NSOrderedAscending : (ax>bx ? NSOrderedDescending : NSOrderedSame);
-    }];
-    static const CGFloat kGap=20.0;
-    CGFloat totalW=0.0;
-    for(UIView *c in visibleCells)totalW+=CGRectGetWidth(c.bounds);
-    totalW+=kGap*(visibleCells.count>1 ? (visibleCells.count-1) : 0);
-    CGFloat cursorX=round(CGRectGetMidX(container.bounds)-totalW*0.5);
-    if(!state.compactedViews)state.compactedViews=[NSHashTable weakObjectsHashTable];
-    NSMutableArray<NSNumber *> *naturalMidXs=[NSMutableArray arrayWithCapacity:visibleCells.count];
-    NSMutableArray<NSNumber *> *deltas=[NSMutableArray arrayWithCapacity:visibleCells.count];
-    for(UIView *c in visibleCells) {
-        CGFloat baseMinX=CGRectGetMinX(c.frame)-HGAOwnedTx(c);
-        CGFloat w=CGRectGetWidth(c.bounds);
-        CGFloat delta=cursorX-baseMinX;
-        [naturalMidXs addObject:@(baseMinX+w*0.5)];
-        [deltas addObject:@(delta)];
-        HGASetGeometry(c,delta,0,1);
-        [state.compactedViews addObject:c];
-        cursorX+=w+kGap;
-    }
-    id indicators=categoryView ? HGReadObjectGetter(categoryView,"indicators") : nil;
-    if([indicators isKindOfClass:NSArray.class]) {
-        for(id item in (NSArray *)indicators) {
-            if(![item isKindOfClass:UIView.class])continue;
-            UIView *ind=(UIView *)item;
-            if(ind.hidden || !ind.superview)continue;
-            CGFloat indMidX=CGRectGetMidX(ind.frame)-HGAOwnedTx(ind);
-            if(ind.superview!=container) {
-                CGRect converted=[ind.superview convertRect:CGRectOffset(ind.frame,-HGAOwnedTx(ind),0) toView:container];
-                indMidX=CGRectGetMidX(converted);
-            }
-            NSUInteger bestIdx=0;
-            CGFloat bestDist=CGFLOAT_MAX;
-            for(NSUInteger i=0;i<naturalMidXs.count;i++) {
-                CGFloat d=fabs(naturalMidXs[i].doubleValue-indMidX);
-                if(d<bestDist){bestDist=d;bestIdx=i;}
-            }
-            HGASetGeometry(ind,deltas[bestIdx].doubleValue,0,1);
-            [state.compactedViews addObject:ind];
-        }
-    }
+    if (old.collection == collection && old.hiddenMask == mask && old.width == collection.bounds.size.width &&
+        [old.titles isEqualToArray:titles]) return;
+    HGASetChannelLayout(categories,HGAMakeChannelLayout(categories,collection,titles,mask));
 }
 
 static void HGAConfigureHeaderCircleGlass(HGAAppearanceMaterial *glass,UIView *header,
@@ -171,9 +300,7 @@ static HGAAppearanceMaterial *HGAMakeHeaderCircleGlass(NSString *identifier) {
 static void HGARemoveHeaderDetachedGlass(UIView *header) {
     HGAHeaderInsetState *state=objc_getAssociatedObject(header,&HGAHeaderInsetKey);
     if(!state)return;
-    HGARestoreCompactedHeaderChannels(state);
-    HGARestoreGeometry(state.sidebar);
-    HGARestoreGeometry(state.searchSlot);
+    HGASetChannelLayout(state.categories,nil);
     [state.sidebarGlass removeFromSuperview];
     [state.searchGlass removeFromSuperview];
     objc_setAssociatedObject(header,&HGAHeaderInsetKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -183,6 +310,9 @@ static CGRect HGAHeaderVisibleChannelsRect(UIView *header) {
     BOOL allChannelsHidden=HGATopChannelHidden(@"关注") && HGATopChannelHidden(@"漫剧") &&
         HGATopChannelHidden(@"真人剧") && HGATopChannelHidden(@"推荐");
     if(allChannelsHidden)return CGRectNull;
+    HGAHeaderInsetState *state = objc_getAssociatedObject(header,&HGAHeaderInsetKey);
+    HGAHeaderChannelLayout *plan = objc_getAssociatedObject(state.categories,&HGAHeaderLayoutKey);
+    if (plan.collection) return [plan.collection convertRect:plan.capsule toView:header];
     UIView *tabs=HGAViewGetter(header,"tabContainer",header);
     if(!tabs)return CGRectInset(header.bounds,8.0,0);
     if(tabs.hidden || tabs.alpha<0.01 || CGRectIsEmpty(tabs.bounds))return CGRectNull;
@@ -223,18 +353,12 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL finder
         state=[HGAHeaderInsetState new];
         objc_setAssociatedObject(header,&HGAHeaderInsetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    // Keep host targets strictly at their native positions.
-    HGARestoreGeometry(state.sidebar);
-    HGARestoreGeometry(state.searchSlot);
-
     UIView *sidebar=HGAViewGetter(header,"sideBar",header);
     UIView *searchSlot=HGAHeaderSearchSlotView(header);
-    state.sidebar=sidebar;
-    state.searchSlot=searchSlot;
 
     // Compact remaining visible tabs when any channel is hidden so there is no
     // empty gap inside the center capsule.
-    HGACompactHeaderChannels(header,state,YES);
+    HGACompactHeaderChannels(header,state);
 
     CGFloat headerW=CGRectGetWidth(header.bounds);
     CGFloat headerH=CGRectGetHeight(header.bounds);
@@ -250,7 +374,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL finder
     if(showSidebar) {
         CGRect r=[sidebar convertRect:sidebar.bounds toView:header];
         CGFloat x=MAX(4.0,MIN(headerW-side-4.0,CGRectGetMidX(r)-side*0.5));
-        leftCircle=CGRectMake(x,midY-side*0.5,side,side);
+        leftCircle=CGRectMake(x,CGRectGetMidY(r)-side*0.5,side,side);
         if(!state.sidebarGlass)state.sidebarGlass=HGAMakeHeaderCircleGlass(@"honggo.appearance.header.sidebar");
         HGAConfigureHeaderCircleGlass(state.sidebarGlass,header,leftCircle,style);
     } else {
@@ -262,7 +386,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL finder
     if(showSearch) {
         CGRect r=[searchSlot convertRect:searchSlot.bounds toView:header];
         CGFloat x=MAX(4.0,MIN(headerW-side-4.0,CGRectGetMidX(r)-side*0.5));
-        rightCircle=CGRectMake(x,midY-side*0.5,side,side);
+        rightCircle=CGRectMake(x,CGRectGetMidY(r)-side*0.5,side,side);
         if(!state.searchGlass)state.searchGlass=HGAMakeHeaderCircleGlass(@"honggo.appearance.header.search");
         HGAConfigureHeaderCircleGlass(state.searchGlass,header,rightCircle,style);
     } else {
