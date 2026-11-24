@@ -99,6 +99,24 @@
 - (CGPoint)velocityInView:(UIView *)view { return self.fixtureVelocity; }
 @end
 
+@interface HGATestEpisodeSwipeContext : NSObject
+@property(nonatomic,weak) UIViewController *viewController;
+@end
+@implementation HGATestEpisodeSwipeContext @end
+
+@interface SSVideoSeriesFeedViewController : UIViewController
+@property(nonatomic,weak) UIView *containerView;
+@end
+@implementation SSVideoSeriesFeedViewController @end
+
+@interface SSShortVideoPanGestureLeftTowardDelegate : NSObject
+@property(nonatomic) NSUInteger calls;
+- (BOOL)shouldLeftSlideEnterOtherPage:(id)navigation context:(id)context;
+@end
+@implementation SSShortVideoPanGestureLeftTowardDelegate
+- (BOOL)shouldLeftSlideEnterOtherPage:(id)navigation context:(id)context { self.calls++;return YES; }
+@end
+
 @interface SSVideoSeriesFeedHeaderSearchView : UIView
 @property(nonatomic,strong) UIView *searchView;
 @property(nonatomic,strong) UIView *searchBgView;
@@ -109,6 +127,7 @@
 @interface HGAFinderRecognitionFixture : UIView
 @property(nonatomic,strong) UIView *separatorView;
 @property(nonatomic,strong) UIImageView *cameraIconView;
+@property(nonatomic,strong) UILabel *textLabel;
 @end
 @implementation HGAFinderRecognitionFixture @end
 @interface SSVideoSeriesFeedHeaderView (PageChromeFixture)
@@ -131,6 +150,7 @@
 @property(nonatomic,strong) HGAFinderRecognitionFixture *normalImageSearchView;
 @property(nonatomic,strong) UIView *aiSearchEntranceView;
 @property(nonatomic,strong) UIImageView *aiSearchEntranceImageView;
+@property(nonatomic,strong) UIView *tabContainer;
 @end
 @implementation FQTheaterViewController @end
 @interface HGAObservedTheaterFixture : FQTheaterViewController @end
@@ -158,6 +178,22 @@
 @property(nonatomic,strong) UIImageView *backgroundView;
 @end
 @implementation FQFeedTabFilterPanelEntranceView @end
+@interface HGAFinderGoldenItemFixture : NSObject
+@property(nonatomic,copy) NSString *text;
+@end
+@implementation HGAFinderGoldenItemFixture @end
+@interface HGAFinderGoldenModelFixture : NSObject
+@property(nonatomic,copy) NSArray *goldenLineItemArr;
+@end
+@implementation HGAFinderGoldenModelFixture @end
+@interface SSVideoDistributionGoldenPositionCell : UICollectionViewCell <UICollectionViewDelegateFlowLayout>
+@property(nonatomic,strong) UICollectionView *collectionView;
+@property(nonatomic,strong) HGAFinderGoldenModelFixture *model;
+@end
+@implementation SSVideoDistributionGoldenPositionCell
+- (CGSize)collectionView:(UICollectionView *)collection layout:(UICollectionViewLayout *)layout
+   sizeForItemAtIndexPath:(NSIndexPath *)path { return CGSizeMake(98,32); }
+@end
 @interface SSMyUser637TabsView : UIView
 @property(nonatomic,strong) UIButton *searchBtn;
 @end
@@ -168,6 +204,39 @@
 @implementation SSVideoFilterPanelEntranceView @end
 @interface FQReaderSaaSBaseButton : UIButton @end
 @implementation FQReaderSaaSBaseButton @end
+
+@interface SSMinePageKMPFunctionDepend : NSObject
+@property(nonatomic,copy) NSArray *items;
+- (NSArray *)functionItems;
+- (NSArray *)getFunctionSnapshot;
+@end
+@implementation SSMinePageKMPFunctionDepend
+- (NSArray *)functionItems { return self.items; }
+- (NSArray *)getFunctionSnapshot { return self.functionItems; }
+@end
+
+@interface HGAMineShortcutFixture : NSObject
+@property(nonatomic,copy) NSString *title;
+@end
+@implementation HGAMineShortcutFixture @end
+
+@interface HGAMineTitleHandleFixture : NSObject
+@property(nonatomic,strong) UIView *titleBarView;
+@end
+@implementation HGAMineTitleHandleFixture @end
+
+@interface SSMine737KMPViewController : UIViewController
+@property(nonatomic,strong) HGAMineTitleHandleFixture *minePageKMPHandle;
+@end
+@implementation SSMine737KMPViewController @end
+
+static Class HGAPageFixtureViewClass(const char *name) {
+    Class type=objc_getClass(name);
+    if(type)return type;
+    type=objc_allocateClassPair(UIView.class,name,0);
+    objc_registerClassPair(type);
+    return type;
+}
 
 static FQRJXCategoryTitleCell *PageChromeTitle(UIView *container,NSString *title,CGFloat x) {
     Class cellClass=[container isKindOfClass:SSHGBookStoreCategoryTitleView.class] ?
@@ -344,6 +413,27 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         [channelPaging gestureRecognizer:filterPan shouldBeRequiredToFailByGestureRecognizer:pageScroll.panGestureRecognizer] &&
         ![channelPaging gestureRecognizer:filterPan shouldBeRequiredToFailByGestureRecognizer:sample],
         @"filtering prioritizes the horizontal channel gesture over the native pager only");
+    UIViewController *swipeOwner=[UIViewController new];
+    swipeOwner.view.frame=pageScroll.bounds;
+    [pageScroll addSubview:swipeOwner.view];
+    HGATestEpisodeSwipeContext *swipeContext=[HGATestEpisodeSwipeContext new];
+    swipeContext.viewController=swipeOwner;
+    SSShortVideoPanGestureLeftTowardDelegate *episodePush=[SSShortVideoPanGestureLeftTowardDelegate new];
+    Check(![episodePush shouldLeftSlideEnterOtherPage:nil context:swipeContext] && episodePush.calls==0,
+        @"the native interactive series push yields inside the filtered pager");
+    SSVideoSeriesFeedViewController *feedOwner=[SSVideoSeriesFeedViewController new];
+    feedOwner.view.frame=root.bounds;
+    [root insertSubview:feedOwner.view belowSubview:header];
+    [feedOwner.view addSubview:listContainer];
+    feedOwner.containerView=listContainer;swipeContext.viewController=feedOwner;
+    Check(![episodePush shouldLeftSlideEnterOtherPage:nil context:swipeContext] && episodePush.calls==0,
+        @"the home feed controller resolves its verified native channel scroll view for the push decision");
+    [root insertSubview:listContainer belowSubview:header];
+    [feedOwner.view removeFromSuperview];swipeContext.viewController=swipeOwner;
+    [root addSubview:swipeOwner.view];
+    Check([episodePush shouldLeftSlideEnterOtherPage:nil context:swipeContext] && episodePush.calls==1,
+        @"the same delegate retains its native decision outside the home pager");
+    [pageScroll addSubview:swipeOwner.view];
     sample.fixtureState=UIGestureRecognizerStateChanged;
     sample.fixtureTravel=CGPointMake(-64,2);
     [channelPaging page:sample];
@@ -393,6 +483,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         CGAffineTransformIsIdentity(((UIView *)controls[2]).transform) &&
         CGAffineTransformIsIdentity(((UIView *)controls[4]).transform),
         @"restoring the four channels restores native layout, selection geometry and unmodified cell transforms");
+    Check([episodePush shouldLeftSlideEnterOtherPage:nil context:swipeContext] && episodePush.calls==2,
+        @"turning off channel filtering restores the interactive series push");
     [listContainer removeFromSuperview];
     [channels refreshSelectedCellModel:@3 unselectedCellModel:@1];
 
@@ -471,12 +563,12 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     CGRect searchSurface=[searchGlass convertRect:searchGlass.bounds toView:finder.view];
     CGRect recognitionSurface=[recognitionGlass convertRect:recognitionGlass.bounds toView:finder.view];
     Check(searchGlass && recognitionGlass && assistantGlass && !Find(finder.searchView,material) &&
-        fabs(CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)-6)<0.01 &&
+        fabs(CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)-7)<0.01 &&
         assistantGlass.bounds.size.width==assistantGlass.bounds.size.height &&
         CGRectEqualToRect(finder.searchBgView.frame,nativeSearchField) &&
         CGRectEqualToRect(finder.imageSearchContainer.frame,nativeRecognition) &&
         finder.normalImageSearchView.separatorView.hidden,
-        @"finder search and recognition have separate glass with a six-point gap and an independent round AI control");
+        @"finder search and recognition have separate glass with a seven-point gap and an independent round AI control");
     UIImageView *aiGlyph=(id)Find(finder.aiSearchEntranceView,@"honggo.appearance.finder.ai");
     UIColor *light=[camera.tintColor resolvedColorWithTraitCollection:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
     UIColor *dark=[aiGlyph.tintColor resolvedColorWithTraitCollection:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark]];
@@ -495,7 +587,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         fabs(CGRectGetMaxX(moved)-CGRectGetMaxX(finder.aiSearchEntranceView.frame))<0.01 &&
         CGRectEqualToRect(moved,finder.imageSearchContainer.frame) &&
         (recognitionHit==finder.imageSearchContainer || [recognitionHit isDescendantOfView:finder.imageSearchContainer]) &&
-        fabs(CGRectGetMaxX(searchGlass.frame)-CGRectGetMinX(moved)+6)<0.01,
+        fabs(CGRectGetMaxX(searchGlass.frame)-CGRectGetMinX(moved)+7)<0.01,
         @"hiding AI shifts native recognition to the vacated slot and fills the search gap without cumulative movement");
     HGAppearanceSet(@"player.finderAI",@YES,nil);
     HGAppearanceProcessController(finder);
@@ -543,8 +635,93 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         CGRectEqualToRect(moved,finder.imageSearchContainer.frame),
         @"finder AI visibility and recognition reflow also work without finder glass");
     HGAppearanceSet(@"player.finderAI",@YES,nil);
-    [finder willMoveToParentViewController:nil];[finder.view removeFromSuperview];[finder removeFromParentViewController];
     HGAppearanceSet(@"player.finderGlass",@YES,nil);
+    finder.view.frame=CGRectMake(0,140,440,180);
+    finder.searchBgView.frame=CGRectMake(12,0,368,38);
+    finder.aiSearchEntranceView.frame=CGRectMake(392,1,36,36);
+    [finder.searchBgView addSubview:finder.imageSearchContainer];
+    finder.imageSearchContainer.frame=CGRectMake(297.6666667,0,58.3333333,38);
+    finder.normalImageSearchView.frame=CGRectMake(0,7.3333333,58.3333333,23.6666667);
+    camera.frame=CGRectMake(12.3333333,3.6666667,16,16);
+    UILabel *recognitionText=[[UILabel alloc] initWithFrame:CGRectMake(30.3333333,2,28,19.6666667)];
+    finder.normalImageSearchView.textLabel=recognitionText;
+    [finder.normalImageSearchView addSubview:recognitionText];
+    finder.tabContainer=PageChromeControl(finder.view,CGRectMake(0,42,440,30));
+    FQRJXCategoryTitleCell *novels=PageChromeTitle(finder.tabContainer,@"小说",10);
+    FQRJXCategoryTitleCell *films=PageChromeTitle(finder.tabContainer,@"电影",64);
+    HGAppearanceProcessController(finder);
+    recognitionGlass=Find(finder.imageSearchContainer,material);
+    CGRect ink=CGRectUnion([recognitionText convertRect:recognitionText.bounds toView:finder.imageSearchContainer],
+        [camera convertRect:camera.bounds toView:finder.imageSearchContainer]);
+    CGRect recognizerRect=[finder.imageSearchContainer convertRect:finder.imageSearchContainer.bounds toView:finder.view];
+    Check(recognitionGlass && fabs(finder.aiSearchEntranceView.frame.origin.x-CGRectGetMaxX(recognizerRect)-12)<0.01 &&
+        CGRectGetMaxX(ink)<CGRectGetMaxX(recognitionGlass.frame)-5 &&
+        fabs(CGRectGetMidX(ink)-CGRectGetMidX(recognitionGlass.frame))<0.1 &&
+        recognitionGlass.bounds.size.height==assistantGlass.bounds.size.height,
+        @"the nested theatre slot closes the AI gap and centers camera and recognition text inside the capsule");
+    HGAppearanceSet(@"finder.hide.category.novels",@YES,nil);
+    HGAppearanceSet(@"finder.hide.shortcut.filter",@YES,nil);
+    Check(novels.hidden && !films.hidden && filterShortcut.hidden && !((UIView *)shortcuts[1]).hidden,
+        @"finder category and shortcut hide switches affect only their selected items");
+    SSVideoDistributionGoldenPositionCell *golden=[[SSVideoDistributionGoldenPositionCell alloc] initWithFrame:CGRectMake(12,100,416,32)];
+    UICollectionViewLayout *goldenLayout=[UICollectionViewFlowLayout new];
+    golden.collectionView=[[UICollectionView alloc] initWithFrame:golden.bounds collectionViewLayout:goldenLayout];
+    [golden.contentView addSubview:golden.collectionView];[finder.view addSubview:golden];
+    HGAFinderGoldenItemFixture *goldenFilter=[HGAFinderGoldenItemFixture new];goldenFilter.text=@"筛选";
+    HGAFinderGoldenItemFixture *goldenRank=[HGAFinderGoldenItemFixture new];goldenRank.text=@"排行榜";
+    golden.model=[HGAFinderGoldenModelFixture new];golden.model.goldenLineItemArr=@[goldenFilter,goldenRank];
+    Layout(golden);
+    NSIndexPath *filterIndex=[NSIndexPath indexPathForItem:0 inSection:0];
+    NSIndexPath *rankIndex=[NSIndexPath indexPathForItem:1 inSection:0];
+    Check([golden collectionView:golden.collectionView layout:goldenLayout sizeForItemAtIndexPath:filterIndex].width<0.1 &&
+        [golden collectionView:golden.collectionView layout:goldenLayout sizeForItemAtIndexPath:rankIndex].width==98,
+        @"the observed theatre shortcut row reclaims the hidden item without renumbering native actions");
+    HGAppearanceSet(@"finder.hide.category.row",@YES,nil);
+    Check(finder.tabContainer.hidden && !finder.searchBgView.hidden,@"finder hides its whole stock category row without affecting search");
+    HGAppearanceSet(@"finder.hide.category.row",@NO,nil);
+    HGAppearanceSet(@"finder.hide.category.novels",@NO,nil);
+    HGAppearanceSet(@"finder.hide.shortcut.filter",@NO,nil);
+    Check(!finder.tabContainer.hidden && !novels.hidden && !filterShortcut.hidden &&
+        [golden collectionView:golden.collectionView layout:goldenLayout sizeForItemAtIndexPath:filterIndex].width==98,
+        @"restoring finder switches reuses the original category and shortcut controls");
+    [finder willMoveToParentViewController:nil];[finder.view removeFromSuperview];[finder removeFromParentViewController];
+
+    SSMinePageKMPFunctionDepend *functions=[SSMinePageKMPFunctionDepend new];
+    NSArray *mineNames=@[@"商城",@"消息",@"游戏",@"追更",@"更多\n功能",@"其他"];
+    NSMutableArray *items=[NSMutableArray array];
+    for(NSString *title in mineNames) {
+        HGAMineShortcutFixture *item=[HGAMineShortcutFixture new];item.title=title;[items addObject:item];
+    }
+    functions.items=items;
+    HGAppearanceSet(@"mine.hide.shortcut.games",@YES,nil);
+    HGAppearanceSet(@"mine.hide.shortcut.more",@YES,nil);
+    Check([functions.getFunctionSnapshot isEqual:@[items[0],items[1],items[3],items[5]]] && [functions.functionItems isEqual:items],
+        @"Mine filters only the published navigation card snapshot and keeps its native route records");
+    HGAppearanceSet(@"mine.hide.shortcut.games",@NO,nil);
+    HGAppearanceSet(@"mine.hide.shortcut.more",@NO,nil);
+    Check([functions.getFunctionSnapshot isEqual:items],@"Mine restores the original function card ordering");
+
+    SSMine737KMPViewController *nativeMine=[SSMine737KMPViewController new];
+    [host addChildViewController:nativeMine];
+    nativeMine.view.frame=CGRectMake(0,0,440,150);[root addSubview:nativeMine.view];
+    [nativeMine didMoveToParentViewController:host];
+    nativeMine.minePageKMPHandle=[HGAMineTitleHandleFixture new];
+    UIView *titleBar=PageChromeControl(nativeMine.view,CGRectMake(0,0,440,106));
+    nativeMine.minePageKMPHandle.titleBarView=titleBar;
+    Class rendererClass=HGAPageFixtureViewClass("DanceUICompose.ComposeRenderingUIViewImpl");
+    Class glyphClass=HGAPageFixtureViewClass("DanceUI._InheritedView");
+    UIView *renderer=[[rendererClass alloc] initWithFrame:titleBar.bounds];[titleBar addSubview:renderer];
+    UIView *moon=[[glyphClass alloc] initWithFrame:CGRectMake(360,72,24,24)];[renderer addSubview:moon];
+    UIView *menu=[[glyphClass alloc] initWithFrame:CGRectMake(400,72,24,24)];[renderer addSubview:menu];
+    HGAppearanceProcessController(nativeMine);
+    UIView *moonGlass=Find(moon,material),*menuGlass=Find(menu,material);
+    Check(moonGlass && menuGlass && !moonGlass.userInteractionEnabled && !menuGlass.userInteractionEnabled &&
+        moonGlass.bounds.size.width==36 && menuGlass.bounds.size.width==36 && CGRectEqualToRect(moon.frame,CGRectMake(360,72,24,24)),
+        @"Mine attaches bounded liquid glass behind the two verified title-bar glyphs");
+    HGAppearanceSet(@"player.mineGlass",@NO,nil);
+    Check(!Find(nativeMine.view,material),@"Mine's title-bar materials restore together with the appearance switch");
+    HGAppearanceSet(@"player.mineGlass",@YES,nil);
+    [nativeMine willMoveToParentViewController:nil];[nativeMine.view removeFromSuperview];[nativeMine removeFromParentViewController];
 
     SSMyUser637TabsView *mine=[[SSMyUser637TabsView alloc] initWithFrame:CGRectMake(0,230,290,80)];
     [root addSubview:mine];mine.searchBtn=[[UIButton alloc] initWithFrame:CGRectMake(255,7,25,25)];

@@ -9,6 +9,29 @@
 @property(nonatomic,strong) UIView *iconBackgroundView;
 @end
 @implementation SSShortVideoMorePanelShareHeaderCell @end
+@interface FQVShortVideoSettingsCell : UITableViewCell @end
+@implementation FQVShortVideoSettingsCell @end
+@interface FQVShortVideoSettingsArrowCell : FQVShortVideoSettingsCell @end
+@implementation FQVShortVideoSettingsArrowCell @end
+@interface FQVShortVideoSettingsOptionView : UIView
+@property(nonatomic,getter=isSelected,setter=setIsSelected:) BOOL selected;
+@end
+@implementation FQVShortVideoSettingsOptionView
+- (void)setIsSelected:(BOOL)value {
+    _selected=value;
+    self.layer.backgroundColor=(value ? UIColor.whiteColor : UIColor.clearColor).CGColor;
+}
+@end
+@interface FQVShortVideoSettingsSwitchOptionView : UIView
+@property(nonatomic) BOOL optionSelected;
+@property(nonatomic,strong) UIView *selectionBackgroundView;
+@end
+@implementation FQVShortVideoSettingsSwitchOptionView
+- (void)setOptionSelected:(BOOL)value {
+    _optionSelected=value;
+    self.selectionBackgroundView.backgroundColor=value ? UIColor.whiteColor : UIColor.clearColor;
+}
+@end
 @interface FQCShortVideoCommentListViewController : UIViewController @end
 @implementation FQCShortVideoCommentListViewController @end
 @interface FQCShortVideoCommentListViewController_hmd_subfix_ : FQCShortVideoCommentListViewController @end
@@ -293,7 +316,7 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
 
     FQVShortVideoSettingsViewController_hmd_subfix_ *panel=[FQVShortVideoSettingsViewController_hmd_subfix_ new];
     [host addChildViewController:panel];[panel loadViewIfNeeded];
-    panel.view.frame=CGRectMake(0,200,root.bounds.size.width,500);panel.view.backgroundColor=UIColor.grayColor;
+    panel.view.frame=CGRectMake(0,root.bounds.size.height-500,root.bounds.size.width,500);panel.view.backgroundColor=UIColor.grayColor;
     panel.view.layer.cornerRadius=6;panel.view.layer.maskedCorners=kCALayerMinXMaxYCorner;panel.view.clipsToBounds=NO;
     UITableView *table=[[UITableView alloc] initWithFrame:CGRectMake(0,28,panel.view.bounds.size.width,472) style:UITableViewStyleInsetGrouped];
     table.backgroundColor=UIColor.grayColor;[panel.view addSubview:table];
@@ -315,20 +338,54 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
     drawing.backgroundColor=UIColor.whiteColor;[panel.view addSubview:drawing];
     UIView *handle=[[UIView alloc] initWithFrame:CGRectMake((panel.view.bounds.size.width-36)/2,8,36,4)];
     handle.backgroundColor=UIColor.darkGrayColor;[panel.view addSubview:handle];
+    HGAppearanceSet(@"dock.enabled",@YES,nil);
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    UIView *dock=Find(host.customTabBar,@"honggo.appearance.dock");
+    Check(dock && !dock.hidden,@"custom dock is visible before a bottom action sheet appears");
     [root addSubview:panel.view];[panel didMoveToParentViewController:host];Layout(panel.view);[panel viewDidLayoutSubviews];
     CGRect originalTable=table.frame,originalDestination=destination.frame;
     @try {
         UIVisualEffectView *base=(id)Find(panel.view,@"honggo.appearance.material");Layout(base);
-        CGFloat alpha=CGColorGetAlpha([base.contentView.backgroundColor resolvedColorWithTraitCollection:base.traitCollection].CGColor);
+        UITraitCollection *light=[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight];
+        UITraitCollection *dark=[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark];
+        CGFloat lightWhite=0,lightAlpha=0,darkWhite=0,darkAlpha=0;
+        [[base.contentView.backgroundColor resolvedColorWithTraitCollection:light] getWhite:&lightWhite alpha:&lightAlpha];
+        [[base.contentView.backgroundColor resolvedColorWithTraitCollection:dark] getWhite:&darkWhite alpha:&darkAlpha];
         Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
         Check(base && [base.effect isKindOfClass:expectedEffect] && !base.userInteractionEnabled &&
-            fabs(alpha-HGAppearanceNumber(@"panels.opacity"))<0.01 && panel.view.subviews.firstObject==base,
-            @"longpress sheet uses the configured translucent glass behind content");
+            lightWhite>0.95 && lightAlpha>0.68 && lightAlpha<1 && darkWhite<0.2 && darkAlpha>0.60 && darkAlpha<1 &&
+            panel.view.subviews.firstObject==base,
+            @"longpress glass keeps a readable adaptive backing over a dark video surround");
+        HGAppearanceLayoutDock(host.customTabBar,host);
+        Check(dock.hidden,@"mounted longpress sheet keeps the Dock out of its backdrop even after a Dock refresh");
+
+        // Match a row that is only dequeued after the user scrolls to the end.
+        FQVShortVideoSettingsArrowCell *lateRow=[[FQVShortVideoSettingsArrowCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+        lateRow.frame=CGRectMake(20,425,panel.view.bounds.size.width-40,54);
+        UIColor *nativeRowColor=UIColor.systemBackgroundColor;
+        lateRow.backgroundColor=nativeRowColor;lateRow.contentView.backgroundColor=nativeRowColor;
+        [panel.view addSubview:lateRow];Layout(lateRow);
+        Check([lateRow.backgroundColor isEqual:UIColor.clearColor] &&
+            [lateRow.contentView.backgroundColor isEqual:UIColor.clearColor],
+            @"late-mounted bottom function rows blend into the main glass instead of making an opaque card");
+        FQVShortVideoSettingsOptionView *resolution=[[FQVShortVideoSettingsOptionView alloc] initWithFrame:CGRectMake(120,310,45,30)];
+        FQVShortVideoSettingsSwitchOptionView *speed=[[FQVShortVideoSettingsSwitchOptionView alloc] initWithFrame:CGRectMake(190,310,62,30)];
+        speed.selectionBackgroundView=[[UIView alloc] initWithFrame:speed.bounds];[speed addSubview:speed.selectionBackgroundView];
+        [panel.view addSubview:resolution];[panel.view addSubview:speed];
+        [resolution setIsSelected:YES];speed.optionSelected=YES;
+        Check(CGColorGetAlpha(resolution.layer.backgroundColor)<0.4 &&
+            CGColorGetAlpha(resolution.layer.backgroundColor)>0.05 &&
+            CGColorGetAlpha(speed.selectionBackgroundView.layer.backgroundColor)<0.4 &&
+            CGColorGetAlpha(speed.selectionBackgroundView.layer.backgroundColor)>0.05,
+            @"native speed and quality selection use a translucent highlight without hard white tiles");
+        [resolution setIsSelected:NO];speed.optionSelected=NO;
+        Check(CGColorGetAlpha(resolution.layer.backgroundColor)<0.01 &&
+            CGColorGetAlpha(speed.selectionBackgroundView.layer.backgroundColor)<0.01,
+            @"moving the selection leaves its previous positions clear");
+        [resolution setIsSelected:YES];speed.optionSelected=YES;
         Check([table.backgroundColor isEqual:UIColor.clearColor] && [header.backgroundColor isEqual:UIColor.clearColor] &&
             [destination.backgroundColor isEqual:UIColor.systemGreenColor] && [drawing.backgroundColor isEqual:UIColor.whiteColor],
             @"share sheet clears neutral backings and preserves unknown drawing surfaces");
-        UITraitCollection *light=[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight];
-        UITraitCollection *dark=[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark];
         Check(cell.iconView.image.renderingMode==UIImageRenderingModeAlwaysTemplate &&
             [[cell.iconView.tintColor resolvedColorWithTraitCollection:light] isEqual:UIColor.blackColor] &&
             [[cell.iconView.tintColor resolvedColorWithTraitCollection:dark] isEqual:UIColor.whiteColor] &&
@@ -362,6 +419,12 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
         [previewBackdrop removeFromSuperview];drawing.hidden=NO;
         table.dataSource=nil;[table reloadData];
         HGAppearanceSet(@"panels.longpress",@NO,nil);
+        Check(!dock.hidden,@"disabling longpress glass restores Dock visibility");
+        Check([lateRow.backgroundColor isEqual:nativeRowColor] && [lateRow.contentView.backgroundColor isEqual:nativeRowColor],
+            @"disabling longpress glass restores native function row colors");
+        Check(CGColorGetAlpha(resolution.layer.backgroundColor)>0.99 &&
+            CGColorGetAlpha(speed.selectionBackgroundView.layer.backgroundColor)>0.99,
+            @"disabling longpress glass restores both native selected plates");
         Check(!Find(panel.view,@"honggo.appearance.material") &&
             [table.backgroundColor isEqual:UIColor.grayColor] && [header.backgroundColor isEqual:UIColor.whiteColor] &&
             [panel.view.backgroundColor isEqual:UIColor.grayColor] && !panel.view.clipsToBounds &&
@@ -392,12 +455,15 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
         fullScreen.panelView=shareSheet;[fullScreen.view addSubview:shareSheet];[fullScreen viewDidLayoutSubviews];
         UIVisualEffectView *nativeSharePanel=(id)Find(shareSheet,@"honggo.appearance.material");
         Check(nativeSharePanel.superview==shareSheet && Count(fullScreen.view,@"honggo.appearance.material")==1 &&
-            [fullScreen.view.backgroundColor isEqual:dismissalColour] && !nativeSharePanel.userInteractionEnabled,
+            [fullScreen.view.backgroundColor isEqual:dismissalColour] && !nativeSharePanel.userInteractionEnabled && dock.hidden,
             @"verified native share panel receives the same material within its dismissible full-screen wrapper");
         HGAppearanceSet(@"panels.share",@NO,nil);
         Check(!Find(shareSheet,@"honggo.appearance.material") && [shareSheet.backgroundColor isEqual:UIColor.whiteColor],
             @"standalone share control restores its native backing independently of longpress");
+        HGAppearanceSet(@"panels.share",@YES,nil);[fullScreen viewDidLayoutSubviews];
+        Check(dock.hidden,@"reattaching native share glass hides the underlying Dock again");
         [fullScreen.view removeFromSuperview];[fullScreen removeFromParentViewController];
+        Check(!dock.hidden,@"native share dismissal restores the Dock when the sheet detaches");
     }@finally {
         [panel.view removeFromSuperview];[panel removeFromParentViewController];
         HGAppearanceReset();HGAppearanceApply(before,nil);

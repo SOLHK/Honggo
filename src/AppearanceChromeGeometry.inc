@@ -58,6 +58,7 @@ static IMP HGAHeaderOriginals[6];
 @interface HGAFixedChannelPager : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic,weak) UIView *categories;
 @property(nonatomic,strong) HGAFixedChannelPan *pan;
+- (BOOL)isFiltering;
 @end
 @implementation HGAFixedChannelPager
 - (void)dealloc { [self.pan.view removeGestureRecognizer:self.pan]; }
@@ -68,21 +69,27 @@ static IMP HGAHeaderOriginals[6];
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
     Class progress = objc_lookUpClass("FQVShortVideoProgressView");
-    for (UIView *view=touch.view; view && view!=gesture.view; view=view.superview)
-        if ([view isKindOfClass:UIControl.class] || [view isKindOfClass:progress]) return NO;
-    return YES;
+    BOOL control=NO, episode=NO;
+    for (UIView *view=touch.view; view && view!=gesture.view; view=view.superview) {
+        if ([view isKindOfClass:progress]) return NO;
+        control |= [view isKindOfClass:UIControl.class];
+        episode |= [HGARole(view) isEqual:@"episodes"];
+    }
+    // A stationary touch still triggers the native episode button. A sideways
+    // drag over that button belongs to the filtered home pager.
+    return !control || episode;
 }
 
-- (BOOL)canPage {
+- (BOOL)isFiltering {
     UIView *categories = self.categories;
     UIScrollView *scroll = (UIScrollView *)self.pan.view;
-    return categories.window && categories.window==scroll.window && scroll.scrollEnabled &&
-        self.pan.nativePan.enabled && !scroll.isDecelerating && !HGFeedSidebarOwnsLayout(scroll.window) &&
+    return HGAppearanceEnabled() && categories.window && categories.window==scroll.window && scroll.scrollEnabled &&
+        self.pan.nativePan.enabled && !HGFeedSidebarOwnsLayout(scroll.window) &&
         HGAIsHomeChannel(categories);
 }
 
 - (BOOL)gestureRecognizerShouldBegin:(UIPanGestureRecognizer *)gesture {
-    if (![self canPage]) return NO;
+    if (![self isFiltering] || ((UIScrollView *)self.pan.view).isDecelerating) return NO;
     CGPoint velocity = [gesture velocityInView:self.pan.view];
     return fabs(velocity.x)>fabs(velocity.y);
 }
@@ -91,7 +98,7 @@ static IMP HGAHeaderOriginals[6];
     if (gesture.state!=UIGestureRecognizerStateEnded) return;
     UIView *categories = self.categories;
     HGAHeaderChannelLayout *layout = objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
-    if (!layout || ![self canPage]) return;
+    if (!layout || ![self isFiltering] || ((UIScrollView *)self.pan.view).isDecelerating) return;
     CGPoint travel = [gesture translationInView:self.pan.view];
     CGPoint velocity = [gesture velocityInView:self.pan.view];
     if (fabs(travel.x)<=fabs(travel.y) || (fabs(travel.x)<28 && fabs(velocity.x)<300)) return;
@@ -108,6 +115,53 @@ static IMP HGAHeaderOriginals[6];
     }
 }
 @end
+
+static BOOL HGAFilteredHomePagerContainsView(UIView *view) {
+    for (; view && view!=view.window; view=view.superview) {
+        if (![view isKindOfClass:UIScrollView.class]) continue;
+        for (UIGestureRecognizer *recognizer in view.gestureRecognizers)
+            if ([recognizer isKindOfClass:HGAFixedChannelPan.class] &&
+                [(HGAFixedChannelPager *)recognizer.delegate isFiltering]) return YES;
+    }
+    return NO;
+}
+
+static void HGAInstallHomeEpisodeSwipeGate(void) {
+    static IMP original;
+    if (original) return;
+    Class delegateClass=objc_lookUpClass("SSShortVideoPanGestureLeftTowardDelegate");
+    SEL selector=sel_registerName("shouldLeftSlideEnterOtherPage:context:");
+    Method method=class_getInstanceMethod(delegateClass,selector);
+    if (!method || strcmp(method_getTypeEncoding(method),"B32@0:8@16@24")) return;
+
+    original=method_getImplementation(method);
+    IMP replacement=imp_implementationWithBlock(^BOOL(id delegate,id navigation,id context) {
+        // The host's interactive push consults this gate before it opens
+        // episode detail. Explicit taps use their original action instead.
+        if (NSThread.isMainThread && HGAppearanceEnabled()) {
+            UIViewController *owner=HGReadObjectGetter(context,"viewController");
+            if ([owner isKindOfClass:UIViewController.class]) {
+                UIView *view=owner.viewIfLoaded;
+                if (view.window && [owner isKindOfClass:objc_lookUpClass("SSVideoSeriesFeedViewController")]) {
+                    UIView *container=HGAViewGetter(owner,"containerView",view);
+                    view=HGAViewGetter(container,"contentScrollView",container);
+                }
+                if (view.window && HGAFilteredHomePagerContainsView(view)) {
+                    if (HGEnhancedDiagnostics()) HGLog(@"appearance.channel",
+                        @{@"selector":NSStringFromSelector(selector),@"phase":@"deferred-to-channel"});
+                    return NO;
+                }
+            }
+        }
+        return ((BOOL(*)(id,SEL,id,id))original)(delegate,selector,navigation,context);
+    });
+    IMP previous=HGInstallVerifiedHook(delegateClass,selector,"B32@0:8@16@24",replacement,@"appearance");
+    if (previous) original=previous;
+    else {
+        imp_removeBlock(replacement);
+        original=NULL;
+    }
+}
 
 static UIScrollView *HGAHomeChannelScroll(id categories) {
     Class cls = objc_lookUpClass("FQRJXCategoryListContainerView");
@@ -141,6 +195,9 @@ static CGSize HGAChannelSize(id owner, SEL cmd, UICollectionView *collection, UI
     HGAHeaderChannelLayout *plan = objc_getAssociatedObject(owner,&HGAHeaderLayoutKey);
     if (collection == plan.collection && path.section == 0 && path.item >= 0 && path.item < (NSInteger)plan.frames.count)
         size.width = plan.frames[path.item].CGRectValue.size.width;
+    else if(path.section==0 && path.item>=0 && path.item<32 &&
+        ([objc_getAssociatedObject(owner,&HGAFinderCategoryMaskKey) unsignedIntegerValue] & (1UL<<path.item)))
+        size.width=0.01;
     return size;
 }
 

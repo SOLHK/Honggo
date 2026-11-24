@@ -152,7 +152,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     if (section != 1) return nil;
     if (self.statusMessage) return self.statusMessage;
     return self.session ? @"页面显示最近最多 120 条事件。导出文件包含该会话保留的完整记录。" :
-        @"日志保留最近 7 天，达到 50 MB 时优先清理最旧的会话。结束原因未知也可能是手动退出或系统终止。";
+        @"仅保留最近 1 小时的日志。达到 50 MB 时优先清理最旧的会话。结束原因未知也可能是手动退出或系统终止。";
 }
 - (NSString *)timeLabel:(NSNumber *)timestamp {
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:timestamp.doubleValue];
@@ -168,7 +168,7 @@ static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
     if (path.section == 0) {
         BOOL available = self.session || path.row == 0 || self.hasUnexpected;
-        cell.textLabel.text = self.session ? @"导出此会话" : path.row == 0 ? @"导出全部日志" : @"导出上一次异常结束的会话";
+        cell.textLabel.text = self.session ? @"导出此会话" : path.row == 0 ? @"导出最近 1 小时日志" : @"导出上一次异常结束的会话";
         if (!available) cell.detailTextLabel.text = @"暂无结束原因未知的历史会话";
         cell.textLabel.enabled = available;
         cell.selectionStyle = available ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;

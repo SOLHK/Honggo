@@ -15,7 +15,7 @@ cleanup() {
     rm -rf -- "$fixture"
 }
 trap cleanup EXIT
-mkdir -p "$fixture/events" "$fixture/history" "$fixture/recovery" "$fixture/capacity" "$fixture/failure/Exports"
+mkdir -p "$fixture/events" "$fixture/history" "$fixture/recovery" "$fixture/capacity" "$fixture/retention" "$fixture/failure/Exports"
 "$binary" --events "$fixture/events" 2>&1 | tee "$build/events.log"
 "$binary" --normal "$fixture/history" 2>&1 | tee "$build/normal.log"
 "$binary" --stall "$fixture/history" >"$build/stall.log" 2>&1 &
@@ -38,6 +38,7 @@ printf '%s' '{"event":' >> "$severe_file"
 "$binary" --restart "$fixture/history" 2>&1 | tee "$build/restart.log"
 "$binary" --recover "$fixture/recovery" 2>&1 | tee "$build/recovery.log"
 "$binary" --capacity "$fixture/capacity" 2>&1 | tee "$build/capacity.log"
+"$binary" --retention "$fixture/retention" 2>&1 | tee "$build/retention.log"
 if [[ $(id -u) != 0 ]]; then
     chmod 500 "$fixture/failure"
     "$binary" --write-failure "$fixture/failure" 2>&1 | tee "$build/failure.log"

@@ -102,6 +102,8 @@ static NSString *HGAGroupDisplayTitle(NSString *group) {
         @"dock.hide":@"底栏导航项隐藏",
         @"chrome":@"顶部与页面玻璃",
         @"chrome.hide":@"顶部按钮与频道隐藏",
+        @"chrome.finder.hide":@"找剧频道与快捷入口",
+        @"chrome.mine.hide":@"我的快捷入口",
         @"player":@"播放布局与玻璃",
         @"panels":@"弹出面板",
         @"icons":@"动作图标",
@@ -246,8 +248,22 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         [rows addObject:HGASubpage(@"@group.chrome.hide",@"顶部按钮与频道隐藏",@"菜单、频道与搜索")];
         section(@"找剧");
         HGAAddDefs(rows,@[@"player.finderGlass",@"player.finderAI"]);
+        [rows addObject:HGASubpage(@"@group.chrome.finder.hide",@"找剧频道与快捷入口",@"逐项隐藏频道、筛选等入口")];
         section(@"我的与播放");
         HGAAddDefs(rows,@[@"player.mineGlass",@"player.episodeGlass",@"player.controlsGlass"]);
+        [rows addObject:HGASubpage(@"@group.chrome.mine.hide",@"我的快捷入口",@"逐项隐藏商城、消息等卡片")];
+    } else if([self.group isEqual:@"chrome.finder.hide"] || [self.group isEqual:@"chrome.mine.hide"]) {
+        BOOL finder=[self.group isEqual:@"chrome.finder.hide"];
+        NSArray *prefixes=finder ? @[@"finder.hide.category.",@"finder.hide.shortcut."] : @[@"mine.hide.shortcut."];
+        for(NSString *prefix in prefixes) {
+            section([prefix hasSuffix:@"category."] ? @"频道" : @"快捷入口");
+            NSMutableArray *keys=[NSMutableArray array];
+            for(NSDictionary *definition in HGAppearanceCatalog()) {
+                NSString *key=definition[@"key"];
+                if([key hasPrefix:prefix])[keys addObject:key];
+            }
+            HGAAddDefs(rows,keys);
+        }
     } else if([self.group isEqual:@"chrome.hide"]) {
         HGAAddDefs(rows,@[@"layout.channels.hide.sidebar",@"layout.channels.hide.follow",@"layout.channels.hide.comic",
             @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search"]);

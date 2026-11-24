@@ -8,9 +8,11 @@ static NSString *const HGAStore = @"Honggo.Appearance.v1";
 static NSString *const HGAR15GeometryMigration = @"Honggo.Appearance.r15GeometryMigrated";
 static NSString *const HGADockWidthMigration = @"Honggo.Appearance.dockWidthMigrated";
 static NSString *const HGAR20GeometryMigration = @"Honggo.Appearance.r20GeometryMigrated";
-static const double HGADockDefaultWidth = 0.94;
-static const double HGADockDefaultHeight = 70;
-static const double HGADockDefaultIconSize = 30;
+static NSString *const HGABalancedDockMigration = @"Honggo.Appearance.balancedDockMigrated";
+static const double HGADockDefaultWidth = 0.90;
+static const double HGADockDefaultHeight = 58;
+static const double HGADockDefaultIconSize = 24;
+static const double HGADockDefaultExtraSize = 54;
 static NSDictionary *HGACachedValues;
 static NSObject *HGALock(void) { static NSObject *lock; static dispatch_once_t once;
     dispatch_once(&once, ^{ lock = [NSObject new];
@@ -55,7 +57,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"dock.autoCollapse",@"dock",@"跟随播放器滑动收缩");
         choice(@"dock.anchor",@"dock",@"收缩位置",@[@"right",@"left",@"center"],@[@"右侧",@"左侧",@"中间"]);
         flag(@"dock.extra",@"dock",@"显示独立圆形按钮");
-        number(@"dock.extraSize",@"dock",@"独立按钮直径",HGADockDefaultHeight,44,80);
+        number(@"dock.extraSize",@"dock",@"独立按钮直径",HGADockDefaultExtraSize,44,80);
         choice(@"dock.action",@"dock",@"独立按钮操作",@[@"settings",@"search",@"home",@"theater",@"store",@"mine"],@[@"Honggo 设置",@"搜索",@"首页",@"剧场",@"商城",@"我的"]);
         NSArray *tabIDs = @[@"home",@"theater",@"store",@"mine"];
         NSArray *tabNames = @[@"首页",@"剧场",@"商城",@"我的"];
@@ -70,6 +72,22 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         [a addObject:HGADef(@"player.finderGlass",@"player",@"找剧搜索与快捷入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.finderAI",@"player",@"显示找剧 AI 入口",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.mineGlass",@"player",@"我的页面控件玻璃",@"bool",@YES,nil)];
+        flag(@"finder.hide.category.row",@"player",@"隐藏整个找剧频道栏");
+        NSArray *finderTabs=@[@"dramas",@"live",@"community",@"comics",@"films",@"audio",@"novels",@"manga",@"long"];
+        NSArray *finderNames=@[@"找剧",@"真人剧",@"社区",@"漫剧",@"电影",@"听书",@"小说",@"漫画",@"长视频"];
+        for(NSUInteger i=0;i<finderTabs.count;i++)
+            flag([@"finder.hide.category." stringByAppendingString:finderTabs[i]],@"player",
+                [@"隐藏" stringByAppendingString:finderNames[i]]);
+        NSArray *finderShortcuts=@[@"filter",@"ranking",@"new",@"reserve"];
+        NSArray *finderShortcutNames=@[@"筛选",@"排行榜",@"新剧",@"预约"];
+        for(NSUInteger i=0;i<finderShortcuts.count;i++)
+            flag([@"finder.hide.shortcut." stringByAppendingString:finderShortcuts[i]],@"player",
+                [@"隐藏" stringByAppendingString:finderShortcutNames[i]]);
+        NSArray *mineShortcuts=@[@"store",@"messages",@"games",@"updates",@"more"];
+        NSArray *mineShortcutNames=@[@"商城／订单",@"消息",@"游戏",@"追更",@"更多功能"];
+        for(NSUInteger i=0;i<mineShortcuts.count;i++)
+            flag([@"mine.hide.shortcut." stringByAppendingString:mineShortcuts[i]],@"player",
+                [@"隐藏" stringByAppendingString:mineShortcutNames[i]]);
         [a addObject:HGADef(@"player.episodeGlass",@"player",@"全集入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
@@ -164,11 +182,26 @@ NSDictionary *HGAppearanceValues(void) {
                 NSMutableDictionary *updated=[stored mutableCopy];
                 [updated addEntriesFromDictionary:@{@"dock.width":@(HGADockDefaultWidth),
                     @"dock.height":@(HGADockDefaultHeight), @"dock.radius":@(HGADockDefaultHeight/2),
-                    @"dock.iconSize":@(HGADockDefaultIconSize), @"dock.extraSize":@(HGADockDefaultHeight)}];
+                    @"dock.iconSize":@(HGADockDefaultIconSize), @"dock.extraSize":@(HGADockDefaultExtraSize)}];
                 [NSUserDefaults.standardUserDefaults setObject:updated forKey:HGAStore];
                 stored=updated;
             }
             [NSUserDefaults.standardUserDefaults setBool:YES forKey:HGAR20GeometryMigration];
+        }
+        if(![NSUserDefaults.standardUserDefaults boolForKey:HGABalancedDockMigration]) {
+            NSDictionary *oldDefaults=@{@"dock.width":@0.94,@"dock.height":@70,@"dock.radius":@35,
+                @"dock.iconSize":@30,@"dock.extraSize":@70,@"dock.lift":@0};
+            BOOL stock=stored!=nil;
+            for(NSString *key in oldDefaults)
+                if(stored[key] && ![stored[key] isEqual:oldDefaults[key]]){stock=NO;break;}
+            if(stock) {
+                NSMutableDictionary *updated=[stored mutableCopy];
+                // Missing values now follow the new catalog defaults.
+                [updated removeObjectsForKeys:oldDefaults.allKeys];
+                [NSUserDefaults.standardUserDefaults setObject:updated forKey:HGAStore];
+                stored=updated;
+            }
+            [NSUserDefaults.standardUserDefaults setBool:YES forKey:HGABalancedDockMigration];
         }
         NSMutableDictionary *values=[NSMutableDictionary dictionary];
         for(NSDictionary *def in HGAppearanceCatalog()) { id value=stored[def[@"key"]];

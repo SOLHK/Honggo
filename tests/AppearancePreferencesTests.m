@@ -41,8 +41,8 @@ static void CheckR15GeometryMigration(void) {
         @"nondefault user geometry and a radius paired with custom height remain unchanged");
 
     SeedR14Appearance(nil);
-    Check(HGAppearanceNumber(@"dock.height")==70 && HGAppearanceNumber(@"dock.radius")==35 &&
-        HGAppearanceNumber(@"dock.extraSize")==70 && HGAppearanceNumber(@"icons.size")==28 &&
+    Check(HGAppearanceNumber(@"dock.height")==58 && HGAppearanceNumber(@"dock.radius")==29 &&
+        HGAppearanceNumber(@"dock.extraSize")==54 && HGAppearanceNumber(@"icons.size")==28 &&
         !HGAppearanceEnabled(),@"a fresh install gets the current dimensions with appearance still opt-in");
 }
 static void CheckR20GeometryMigration(void) {
@@ -53,10 +53,10 @@ static void CheckR20GeometryMigration(void) {
         @"dock.iconSize":@26,@"dock.extraSize":@62};
     SeedR14Appearance(oldStock);
     NSDictionary *migrated=HGAppearanceValues();
-    Check([migrated[@"dock.width"] isEqual:@0.94] && [migrated[@"dock.height"] isEqual:@70] &&
-        [migrated[@"dock.radius"] isEqual:@35] && [migrated[@"dock.iconSize"] isEqual:@30] &&
-        [migrated[@"dock.extraSize"] isEqual:@70] && [defaults boolForKey:key],
-        @"a complete R19 stock dock moves to the wider proportions once");
+    Check([migrated[@"dock.width"] isEqual:@0.90] && [migrated[@"dock.height"] isEqual:@58] &&
+        [migrated[@"dock.radius"] isEqual:@29] && [migrated[@"dock.iconSize"] isEqual:@24] &&
+        [migrated[@"dock.extraSize"] isEqual:@54] && [defaults boolForKey:key],
+        @"a complete R19 stock dock moves to current proportions once");
     HGAppearanceApply(oldStock,nil);
     [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:defaults];
     Check(HGAppearanceNumber(@"dock.width")==0.905 && HGAppearanceNumber(@"dock.height")==62,
@@ -67,14 +67,32 @@ static void CheckR20GeometryMigration(void) {
     Check(HGAppearanceNumber(@"dock.width")==0.905 && HGAppearanceNumber(@"dock.height")==65 &&
         HGAppearanceNumber(@"dock.iconSize")==26 && HGAppearanceNumber(@"dock.extraSize")==62,
         @"a customised geometry keeps the previous width, icon and accessory dimensions");
-    NSDictionary *preset=HGAppearancePreset(@"glass");
-    Check([preset[@"dock.width"] isEqual:@0.94] && [preset[@"dock.height"] isEqual:@70] &&
-        [preset[@"dock.extraSize"] isEqual:@70] && [preset[@"dock.iconSize"] isEqual:@30],
-        @"glass preset uses the larger aligned dock and symbol proportions");
+}
+static void CheckBalancedDockMigration(void) {
+    NSString *migration=@"Honggo.Appearance.balancedDockMigrated";
+    NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
+    NSDictionary *previous=@{@"dock.width":@0.94,@"dock.height":@70,@"dock.radius":@35,
+        @"dock.extraSize":@70,@"dock.iconSize":@30,@"dock.lift":@0,@"dock.action":@"search"};
+    [defaults removeObjectForKey:migration];
+    SeedR14Appearance(previous);
+    NSDictionary *values=HGAppearanceValues(), *preset=HGAppearancePreset(@"glass");
+    Check([values[@"dock.height"] isEqual:@58] && [values[@"dock.extraSize"] isEqual:@54] &&
+        [values[@"dock.action"] isEqual:@"search"] && [values[@"dock.width"] isEqual:preset[@"dock.width"]] &&
+        [defaults boolForKey:migration],@"beta9 stock dock migrates while retaining the user's accessory action");
+    [defaults removeObjectForKey:migration];
+    NSMutableDictionary *custom=[previous mutableCopy];custom[@"dock.height"]=@66;
+    SeedR14Appearance(custom);
+    Check(HGAppearanceNumber(@"dock.height")==66 && HGAppearanceNumber(@"dock.extraSize")==70,
+        @"custom dock dimensions remain as saved");
+    HGAppearanceApply(previous,nil);
+    [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:defaults];
+    Check(HGAppearanceNumber(@"dock.height")==70 && HGAppearanceNumber(@"dock.width")==0.94,
+        @"choosing beta9 dimensions after migration remains possible");
 }
 int main(void) {@autoreleasepool {
     CheckR15GeometryMigration();
     CheckR20GeometryMigration();
+    CheckBalancedDockMigration();
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];

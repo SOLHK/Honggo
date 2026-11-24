@@ -340,6 +340,9 @@ void HGInstallAppearance(void) {
     @synchronized(NSClassFromString(@"HGSettingsController")) {
         if (!HGAHooks) HGAHooks=[NSMutableDictionary dictionary];
         HGAInstallHeaderLayoutAdapters();
+        HGAInstallMineShortcutHooks();
+        HGAInstallFinderShortcutHook();
+        HGAInstallHomeEpisodeSwipeGate();
         HGAInstallNativeShareRoute();
         NSUInteger found=0;
         NSMutableOrderedSet *classes=[NSMutableOrderedSet orderedSetWithArray:HGAViewRoles().allKeys];
@@ -379,7 +382,8 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName("refreshLayout"),"v16@0:8",NO);
             if([name isEqual:@"SSShortVideoBottomDistributionView"])
                 HGAHook(cls,sel_registerName("renderWithModel:"),"v24@0:8@16",NO);
-            if([name isEqual:@"SSBookStoreEntranceView"] || [name isEqual:@"SSBookStoreKingKongBannerView"])
+            if([name isEqual:@"SSBookStoreEntranceView"] || [name isEqual:@"SSBookStoreKingKongBannerView"] ||
+                [name isEqual:@"SSVideoDistributionGoldenPositionCell"])
                 HGAHook(cls,sel_registerName("setModel:"),"v24@0:8@16",NO);
             if([name isEqual:@"SSShortVideoLandscapeBizInteractionView"])
                 HGAHook(cls,sel_registerName("refreshUI"),"v16@0:8",NO);
@@ -393,8 +397,12 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName("setupSideBarViewIfNeeded"),"v16@0:8",NO);
                 HGAHook(cls,sel_registerName("relayoutHeaderWithSearchBar"),"v16@0:8",NO);
             }
-            if([name isEqual:@"SSShortVideoEpisodesViewItemCell"])
+            if([name isEqual:@"SSShortVideoEpisodesViewItemCell"] || [name isEqual:@"FQVShortVideoSettingsOptionView"])
                 HGAHook(cls,sel_registerName("setIsSelected:"),"v20@0:8B16",NO);
+            if([name isEqual:@"FQVShortVideoSettingsSwitchOptionView"])
+                HGAHook(cls,sel_registerName("setOptionSelected:"),"v20@0:8B16",NO);
+            if([name isEqual:@"FQVShortVideoSettingsCell"])
+                HGAHook(cls,sel_registerName("refreshUIWhenApplayNewStyle"),"v16@0:8",NO);
             if([name isEqual:@"SSShortVideoEpisodePanelCollectView"])
                 HGAHook(cls,sel_registerName("updateCollectStatus:collectText:"),"v28@0:8B16@20",NO);
             if([name isEqual:@"TTPlayerView"] || [name isEqual:@"FQVShortVideoPlayerCellView"]) {
@@ -454,6 +462,7 @@ void HGInstallAppearance(void) {
             HGAHook(scrollComponent,@selector(scrollViewDidEndDragging:willDecelerate:),"v28@0:8@16B24",NO);
         }
         NSArray *controllers=[HGAPanelControllers().allKeys arrayByAddingObjectsFromArray:HGAFinderControllers()];
+        controllers=[controllers arrayByAddingObject:@"SSMine737KMPViewController"];
         for (NSString *name in controllers) {
             Class cls=NSClassFromString(name);
             if (![cls isSubclassOfClass:UIViewController.class]) continue;

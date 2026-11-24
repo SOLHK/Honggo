@@ -3,6 +3,7 @@
 #import <dispatch/dispatch.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <float.h>
 #include <stdio.h>
 #include <string.h>
 #include <TargetConditionals.h>
@@ -13,11 +14,12 @@
 static const NSUInteger HGMaxBytes = 50 * 1024 * 1024;
 static const NSUInteger HGSegmentBytes = 1024 * 1024;
 static const NSUInteger HGMaxRecord = 224 * 1024;
-static const NSTimeInterval HGRetention = 7 * 86400;
+static const NSTimeInterval HGRetention = 3600;
+static const NSTimeInterval HGSegmentDuration = 300;
 static NSString *const HGUnexpected = @"Previous session ended unexpectedly (reason unknown)";
 
 static dispatch_queue_t HGLogQueue, HGReadQueue, HGWatchQueue;
-static dispatch_source_t HGWatchTimer;
+static dispatch_source_t HGWatchTimer, HGMaintenanceTimer;
 static NSObject *HGLogLock;
 static NSURL *HGLogDirectory, *HGExportDirectory, *HGLegacyDirectory, *HGCurrentDirectory;
 static NSDictionary *HGSessionInfo;
@@ -27,7 +29,9 @@ static NSUInteger HGDropped;
 static BOOL HGDrainScheduled, HGUrgentScheduled, HGEnhanced;
 static BOOL HGFlushScheduled, HGDirty, HGExporting;
 static NSUInteger HGGeneration, HGArchiveBytes, HGSegmentSize, HGSegmentNumber;
-static NSTimeInterval HGNextMaintenance, HGSegmentOpened, HGWriteRetry;
+static NSTimeInterval HGSegmentOpened, HGWriteRetry, HGOpenOldest;
+static NSMutableDictionary<NSString *, NSNumber *> *HGSegmentOldest;
+static NSString *HGOpenPath;
 static int HGLogFD = -1;
 static NSError *HGStorageError;
 static NSMutableArray<NSDictionary *> *HGMaskScenes;
@@ -184,34 +188,24 @@ static void HGRemove(NSURL *url, NSUInteger bytes) {
     else HGRememberError(error);
 }
 
-static void HGPrune(NSUInteger incoming, BOOL checkAge) {
-    if (!checkAge && HGArchiveBytes + incoming <= HGMaxBytes) return;
-    NSTimeInterval cutoff = NSDate.date.timeIntervalSince1970 - HGRetention;
+static void HGRemoveSession(NSURL *directory) {
+    for (NSURL *segment in HGSegments(directory)) [HGSegmentOldest removeObjectForKey:segment.path];
+    HGRemove(directory, HGSessionBytes(directory));
+}
+
+static void HGPruneCapacity(NSUInteger incoming) {
+    if (HGArchiveBytes + incoming <= HGMaxBytes) return;
     for (NSDictionary *session in HGSessions()) {
+        if (HGArchiveBytes + incoming <= HGMaxBytes) break;
         if ([session[@"state"] isEqual:@"current"]) continue;
         NSURL *directory = [HGLogDirectory URLByAppendingPathComponent:session[@"session"] isDirectory:YES];
-        if (HGArchiveBytes + incoming > HGMaxBytes) {
-            HGRemove(directory, HGSessionBytes(directory));
-        } else if (checkAge) {
-            NSArray<NSURL *> *segments = HGSegments(directory);
-            NSUInteger remaining = segments.count;
-            for (NSURL *url in segments) {
-                NSDate *modified = nil;
-                [url getResourceValue:&modified forKey:NSURLContentModificationDateKey error:nil];
-                if (modified && modified.timeIntervalSince1970 < cutoff) {
-                    HGRemove(url, HGFileSize(url));
-                    remaining--;
-                }
-            }
-            if (!remaining && [session[@"startedAt"] doubleValue] < cutoff) HGRemove(directory, HGSessionBytes(directory));
-        }
+        HGRemoveSession(directory);
     }
     for (NSURL *url in HGSegments(HGCurrentDirectory)) {
-        if (HGLogFD >= 0 && url.lastPathComponent.integerValue == (NSInteger)HGSegmentNumber) continue;
-        NSDate *modified = nil;
-        [url getResourceValue:&modified forKey:NSURLContentModificationDateKey error:nil];
-        if ((checkAge && modified && modified.timeIntervalSince1970 < cutoff) ||
-                HGArchiveBytes + incoming > HGMaxBytes) HGRemove(url, HGFileSize(url));
+        if (HGArchiveBytes + incoming <= HGMaxBytes) break;
+        if ([url.path isEqual:HGOpenPath]) continue;
+        [HGSegmentOldest removeObjectForKey:url.path];
+        HGRemove(url, HGFileSize(url));
     }
 }
 
@@ -247,17 +241,146 @@ static void HGCloseSegment(void) {
     if (HGLogFD >= 0) close(HGLogFD);
     HGLogFD = -1;
     HGDirty = NO;
+    if (HGOpenPath) HGSegmentOldest[HGOpenPath] = @(HGOpenOldest);
+    HGOpenPath = nil;
 }
 
-static BOOL HGAppend(NSData *batch, BOOL critical) {
+static HGLogSlice *HGOpenSlice(NSURL *url, NSError **error) {
+    HGLogSlice *slice = [HGLogSlice new];
+    slice.fd = open(url.fileSystemRepresentation, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    struct stat info;
+    if (slice.fd < 0 || fstat(slice.fd, &info) != 0) {
+        *error = HGIOError();
+        return nil;
+    }
+    if (!S_ISREG(info.st_mode) || info.st_size < 0 || info.st_size > 2 * HGSegmentBytes) {
+        *error = HGError(2, @"诊断日志分段大小或格式异常");
+        return nil;
+    }
+    slice.size = (NSUInteger)info.st_size;
+    return slice;
+}
+
+static BOOL HGReadRows(HGLogSlice *slice, BOOL (^visit)(NSDictionary *row, NSData *line)) {
+    NSMutableData *data = [NSMutableData dataWithLength:slice.size];
+    unsigned char *bytes = data.mutableBytes;
+    NSUInteger count = 0;
+    while (count < slice.size) {
+        ssize_t length = pread(slice.fd, bytes + count, slice.size - count, (off_t)count);
+        if (length < 0 && errno == EINTR) continue;
+        if (length <= 0) return NO;
+        count += (NSUInteger)length;
+    }
+    // A killed process can leave a partial last line. Every earlier complete
+    // JSON line is independently recoverable.
+    for (NSUInteger start = 0; start < count;) @autoreleasepool {
+        unsigned char *end = memchr(bytes + start, '\n', count - start);
+        if (!end) break;
+        NSUInteger length = (NSUInteger)(end - (bytes + start));
+        if (length && length <= HGMaxRecord) {
+            NSData *line = [NSData dataWithBytesNoCopy:bytes + start length:length freeWhenDone:NO];
+            id row = [NSJSONSerialization JSONObjectWithData:line options:0 error:nil];
+            if ([row isKindOfClass:NSDictionary.class] && [row[@"event"] isKindOfClass:NSString.class] &&
+                    [row[@"time"] isKindOfClass:NSNumber.class] && [row[@"session"] isKindOfClass:NSString.class] &&
+                    [row[@"fields"] isKindOfClass:NSDictionary.class] && !visit(row, line)) return NO;
+        }
+        start += length + 1;
+    }
+    return YES;
+}
+
+static NSArray *HGRowsSince(NSArray *rows, NSTimeInterval cutoff) {
+    return [rows filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id row, NSDictionary *bindings) {
+        return [row isKindOfClass:NSDictionary.class] && [row[@"time"] isKindOfClass:NSNumber.class] &&
+            [row[@"time"] doubleValue] >= cutoff;
+    }]];
+}
+
+static BOOL HGPruneSegment(NSURL *url, NSTimeInterval cutoff) {
+    NSString *path = url.path;
+    if ([path isEqual:HGOpenPath]) return YES;
+    NSNumber *cached = HGSegmentOldest[path];
+    if (cached && cached.doubleValue >= cutoff) return YES;
+    NSDate *modified = nil;
+    [url getResourceValue:&modified forKey:NSURLContentModificationDateKey error:nil];
+    if (modified && modified.timeIntervalSince1970 < cutoff) {
+        [HGSegmentOldest removeObjectForKey:path];
+        HGRemove(url, HGFileSize(url));
+        return [NSFileManager.defaultManager fileExistsAtPath:path];
+    }
+
+    NSError *error = nil;
+    HGLogSlice *slice = HGOpenSlice(url, &error);
+    if (!slice) { HGRememberError(error); return YES; }
+    NSMutableData *kept = [NSMutableData data];
+    __block BOOL trimmed = NO;
+    __block NSTimeInterval oldest = DBL_MAX;
+    if (!HGReadRows(slice, ^BOOL(NSDictionary *row, NSData *line) {
+        NSTimeInterval time = [row[@"time"] doubleValue];
+        if (time < cutoff) { trimmed = YES; return YES; }
+        oldest = MIN(oldest, time);
+        NSArray *context = row[@"recentEvents"];
+        if ([context isKindOfClass:NSArray.class]) {
+            NSArray *recent = HGRowsSince(context, cutoff);
+            for (NSDictionary *entry in recent) oldest = MIN(oldest, [entry[@"time"] doubleValue]);
+            if (recent.count != context.count) {
+                NSMutableDictionary *filtered = row.mutableCopy;
+                filtered[@"recentEvents"] = recent;
+                line = HGJSON(filtered);
+                if (!line.length) return NO;
+                trimmed = YES;
+            }
+        }
+        [kept appendData:line];
+        [kept appendBytes:"\n" length:1];
+        return YES;
+    })) { HGRememberError(HGIOError()); return YES; }
+    if (trimmed) {
+        if (!kept.length) {
+            [HGSegmentOldest removeObjectForKey:path];
+            HGRemove(url, slice.size);
+            return [NSFileManager.defaultManager fileExistsAtPath:path];
+        }
+        // Replace the closed file atomically. Pinned export descriptors keep
+        // their old inode, so retention cannot alter a snapshot in flight.
+        if (![kept writeToURL:url options:HGAtomicWriteOptions() error:&error]) {
+            HGRememberError(error);
+            return YES;
+        }
+        HGArchiveBytes -= MIN(slice.size, HGArchiveBytes);
+        HGArchiveBytes += kept.length;
+    }
+    HGSegmentOldest[path] = @(oldest < DBL_MAX ? oldest : modified.timeIntervalSince1970);
+    return YES;
+}
+
+static void HGPruneAge(NSTimeInterval cutoff) {
+    if (HGOpenPath && HGOpenOldest < cutoff) HGCloseSegment();
+    for (NSDictionary *session in HGSessions()) {
+        NSURL *directory = [HGLogDirectory URLByAppendingPathComponent:session[@"session"] isDirectory:YES];
+        BOOL hasSegments = NO;
+        for (NSURL *url in HGSegments(directory)) hasSegments |= HGPruneSegment(url, cutoff);
+        if (!hasSegments && ![session[@"state"] isEqual:@"current"] && [session[@"startedAt"] doubleValue] < cutoff)
+            HGRemoveSession(directory);
+    }
+
+    [HGRecent setArray:HGRowsSince(HGRecent, cutoff)];
+    [HGFallback setArray:HGRowsSince(HGFallback, cutoff)];
+    NSIndexSet *expired = [HGMaskScenes indexesOfObjectsPassingTest:^BOOL(NSDictionary *entry, NSUInteger idx, BOOL *stop) {
+        if ([entry[@"time"] doubleValue] >= cutoff) return NO;
+        HGMaskBytes -= [entry[@"bytes"] unsignedIntegerValue];
+        HGMaskPruned++;
+        return YES;
+    }];
+    [HGMaskScenes removeObjectsAtIndexes:expired];
+}
+
+static BOOL HGAppend(NSData *batch, BOOL critical, NSTimeInterval oldest) {
     NSTimeInterval uptime = NSProcessInfo.processInfo.systemUptime;
     if (uptime < HGWriteRetry) return NO;
-    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
-    if (HGLogFD >= 0 && (HGSegmentSize + batch.length > HGSegmentBytes || now - HGSegmentOpened >= 86400))
+    if (HGLogFD >= 0 && (HGSegmentSize + batch.length > HGSegmentBytes || uptime - HGSegmentOpened >= HGSegmentDuration))
         HGCloseSegment();
-    BOOL checkAge = now >= HGNextMaintenance;
-    HGPrune(batch.length + 4096, checkAge);
-    if (checkAge) HGNextMaintenance = now + 3600;
+    HGPruneCapacity(batch.length + 4096);
     if (HGArchiveBytes + batch.length + 4096 > HGMaxBytes) return NO;
     if (HGLogFD < 0) {
         NSURL *meta = [HGCurrentDirectory URLByAppendingPathComponent:@"session.json"];
@@ -266,11 +389,15 @@ static BOOL HGAppend(NSData *batch, BOOL critical) {
             return NO;
         }
         NSString *name = [NSString stringWithFormat:@"%08lu.ndjson", (unsigned long)++HGSegmentNumber];
-        HGLogFD = open([HGCurrentDirectory URLByAppendingPathComponent:name].fileSystemRepresentation,
+        NSURL *url = [HGCurrentDirectory URLByAppendingPathComponent:name];
+        HGLogFD = open(url.fileSystemRepresentation,
             O_WRONLY | O_CREAT | O_EXCL | O_APPEND | O_CLOEXEC, 0600);
+        if (HGLogFD >= 0) HGOpenPath = url.path;
         HGSegmentSize = 0;
-        HGSegmentOpened = now;
+        HGSegmentOpened = uptime;
+        HGOpenOldest = oldest;
     }
+    HGOpenOldest = MIN(HGOpenOldest, oldest);
     if (HGLogFD < 0 || !HGWrite(HGLogFD, batch)) {
         HGRememberError(HGIOError());
         // Keep any complete lines from a partial write. The next batch uses a
@@ -340,7 +467,7 @@ static void HGMigrateLegacy(void) {
         BOOL journalMatches = [journal isKindOfClass:NSDictionary.class] && [journal[@"session"] isEqual:identifier];
         NSDictionary *meta = HGSanitized(@{@"session": identifier, @"startedAt": [events.firstObject objectForKey:@"time"],
             @"legacy": @YES, @"pluginVersion": journalMatches ? journal[@"version"] ?: @"unknown" : @"unknown"}, nil, 0);
-        HGPrune(lines.length + 4096, NO);
+        HGPruneCapacity(lines.length + 4096);
         NSError *error = nil;
         // Write the metadata last. A partial migration is retried on next launch.
         NSURL *target = [directory URLByAppendingPathComponent:@"00000001.ndjson"];
@@ -374,26 +501,35 @@ static void HGRememberRecent(NSDictionary *row) {
 static void HGWriteRows(NSArray<NSDictionary *> *rows, BOOL critical) {
     NSMutableData *batch = [NSMutableData data];
     NSMutableArray *included = [NSMutableArray array];
+    NSTimeInterval cutoff = NSDate.date.timeIntervalSince1970 - HGRetention;
+    NSTimeInterval oldest = DBL_MAX;
     for (NSDictionary *event in rows) @autoreleasepool {
         NSMutableDictionary *row = [HGSanitized(event, nil, 0) mutableCopy];
-        if ([row[@"event"] hasPrefix:@"watchdog."] && ![row[@"event"] isEqual:@"watchdog.recovered"])
-            row[@"recentEvents"] = HGRecent.copy;
+        NSTimeInterval time = [row[@"time"] doubleValue];
+        if (time < cutoff) continue;
+        if ([row[@"event"] hasPrefix:@"watchdog."] && ![row[@"event"] isEqual:@"watchdog.recovered"]) {
+            NSArray *context = HGRowsSince(HGRecent, cutoff);
+            row[@"recentEvents"] = context;
+            for (NSDictionary *entry in context) time = MIN(time, [entry[@"time"] doubleValue]);
+        }
         NSData *data = HGJSON(row);
         if (!row[@"event"] || !data.length || data.length > ([row[@"event"] isEqual:@"scene.capture"] ? HGMaxRecord : 16 * 1024)) {
             @synchronized (HGLogLock) { HGDropped++; }
             continue;
         }
         if (batch.length + data.length + 1 > HGSegmentBytes) {
-            if (!HGAppend(batch, critical)) [HGFallback addObjectsFromArray:included];
+            if (!HGAppend(batch, critical, oldest)) [HGFallback addObjectsFromArray:included];
             [included removeAllObjects];
             [batch setLength:0];
+            oldest = DBL_MAX;
         }
         HGRememberRecent(row);
+        oldest = MIN(oldest, time);
         [included addObject:row];
         [batch appendData:data];
         [batch appendBytes:"\n" length:1];
     }
-    if (batch.length && !HGAppend(batch, critical)) [HGFallback addObjectsFromArray:included];
+    if (batch.length && !HGAppend(batch, critical, oldest)) [HGFallback addObjectsFromArray:included];
     // Preserve a small recent diagnostic tail if the directory is unavailable.
     // Large structural captures are excluded from this fallback.
     NSIndexSet *scenes = [HGFallback indexesOfObjectsPassingTest:^BOOL(NSDictionary *row, NSUInteger idx, BOOL *stop) {
@@ -550,11 +686,11 @@ static void HGPruneExports(void) {
     NSUInteger count = 0, size = 0;
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     for (NSURL *url in files) {
-        if (![url.lastPathComponent hasPrefix:@"Honggo-log-"]) continue;
+        if (![url.lastPathComponent hasPrefix:@"Honggo-log-"] || (HGExporting && [url.pathExtension isEqual:@"partial"])) continue;
         NSDate *modified = nil;
         [url getResourceValue:&modified forKey:NSURLContentModificationDateKey error:nil];
         size += HGFileSize(url);
-        if (++count > 4 || (count > 1 && size > HGMaxBytes) || now - modified.timeIntervalSince1970 > 3600)
+        if (++count > 4 || (count > 1 && size > HGMaxBytes) || now - modified.timeIntervalSince1970 > HGRetention)
             [NSFileManager.defaultManager removeItemAtURL:url error:nil];
     }
 }
@@ -567,6 +703,7 @@ void HGDiagnosticsStart(NSURL *directory, NSDictionary *environment) {
         HGRecent = [NSMutableArray array];
         HGFallback = [NSMutableArray array];
         HGMaskScenes = [NSMutableArray array];
+        HGSegmentOldest = [NSMutableDictionary dictionary];
         HGEnhanced = [NSUserDefaults.standardUserDefaults boolForKey:@"Honggo.enhancedDiagnostics"];
         HGSensitiveKey = [NSRegularExpression regularExpressionWithPattern:
             @"(?i)account|token|cookie|auth(?:orization)?header|password|passwd|secret|credential|bearer|mobile|phone|e-?mail|session[_-]?key|user[_-]?id|request(?:body|headers?)|手机号|账号|密码|令牌|邮箱"
@@ -620,8 +757,9 @@ void HGDiagnosticsStart(NSURL *directory, NSDictionary *environment) {
                             HGArchiveBytes += HGSessionBytes(url);
                         else HGRemove(url, 0);
                     }
+                HGPruneAge(NSDate.date.timeIntervalSince1970 - HGRetention);
                 HGMigrateLegacy();
-                HGPrune(0, YES);
+                HGPruneCapacity(0);
             } else HGRememberError(error);
             NSDictionary *previous = HGSessions().lastObject;
             NSMutableDictionary *fields = [info mutableCopy];
@@ -635,6 +773,14 @@ void HGDiagnosticsStart(NSURL *directory, NSDictionary *environment) {
             HGCurrentMetadata = metadata.copy;
             HGWriteRows(@[HGRow(@"session.started", fields)], YES);
             HGPruneExports();
+            HGMaintenanceTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, HGLogQueue);
+            dispatch_source_set_event_handler(HGMaintenanceTimer, ^{
+                HGPruneAge(NSDate.date.timeIntervalSince1970 - HGRetention);
+                HGPruneExports();
+            });
+            dispatch_source_set_timer(HGMaintenanceTimer, dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC),
+                60 * NSEC_PER_SEC, 5 * NSEC_PER_SEC);
+            dispatch_resume(HGMaintenanceTimer);
         });
         HGDiagnosticsSetForeground(YES);
     });
@@ -664,7 +810,7 @@ void HGStoreMaskScene(NSDictionary *scene) {
             stored = trimmed;
         }
         if (encoded.length && encoded.length <= 192 * 1024) {
-            [HGMaskScenes addObject:@{@"scene": stored, @"bytes": @(encoded.length)}];
+            [HGMaskScenes addObject:@{@"scene": stored, @"bytes": @(encoded.length), @"time": entry[@"time"]}];
             HGMaskBytes += encoded.length;
             while (HGMaskScenes.count > 10 || HGMaskBytes > 768 * 1024) {
                 HGMaskBytes -= [HGMaskScenes.firstObject[@"bytes"] unsignedIntegerValue];
@@ -690,53 +836,25 @@ static NSArray<HGLogSlice *> *HGSlices(NSArray<NSDictionary *> *sessions, BOOL t
         NSArray *segments = HGSegments(directory);
         NSUInteger first = tail && segments.count > 2 ? segments.count - 2 : 0;
         for (NSUInteger i = first; i < segments.count; i++) {
-            NSURL *url = segments[i];
-            HGLogSlice *slice = [HGLogSlice new];
-            slice.fd = open(url.fileSystemRepresentation, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-            struct stat info;
-            if (slice.fd < 0 || fstat(slice.fd, &info) != 0) {
-                *error = HGIOError();
-                return nil;
-            }
-            if (!S_ISREG(info.st_mode) || info.st_size > 2 * HGSegmentBytes) {
-                *error = HGError(2, @"诊断日志分段大小或格式异常");
-                return nil;
-            }
-            slice.size = (NSUInteger)info.st_size;
+            HGLogSlice *slice = HGOpenSlice(segments[i], error);
+            if (!slice) return nil;
             [slices addObject:slice];
         }
     }
     return slices;
 }
 
-static BOOL HGReadRows(HGLogSlice *slice, BOOL (^visit)(NSDictionary *row)) {
-    NSMutableData *data = [NSMutableData dataWithLength:slice.size];
-    unsigned char *bytes = data.mutableBytes;
-    NSUInteger count = 0;
-    while (count < slice.size) {
-        ssize_t length = pread(slice.fd, bytes + count, slice.size - count, (off_t)count);
-        if (length < 0 && errno == EINTR) continue;
-        if (length <= 0) return NO;
-        count += (NSUInteger)length;
-    }
-    // A killed process can leave a partial last line. Every earlier complete
-    // JSON line is independently recoverable.
-    NSTimeInterval cutoff = NSDate.date.timeIntervalSince1970 - HGRetention;
-    for (NSUInteger start = 0; start < count;) @autoreleasepool {
-        unsigned char *end = memchr(bytes + start, '\n', count - start);
-        if (!end) break;
-        NSUInteger length = (NSUInteger)(end - (bytes + start));
-        if (length && length <= HGMaxRecord) {
-            NSData *line = [NSData dataWithBytesNoCopy:bytes + start length:length freeWhenDone:NO];
-            id row = [NSJSONSerialization JSONObjectWithData:line options:0 error:nil];
-            if ([row isKindOfClass:NSDictionary.class] && [row[@"event"] isKindOfClass:NSString.class] &&
-                    [row[@"time"] isKindOfClass:NSNumber.class] && [row[@"time"] doubleValue] >= cutoff &&
-                    [row[@"session"] isKindOfClass:NSString.class] && [row[@"fields"] isKindOfClass:NSDictionary.class] &&
-                    !visit(row)) return NO;
-        }
-        start += length + 1;
-    }
-    return YES;
+static NSDictionary *HGCleanRowForRead(NSDictionary *row, NSTimeInterval cutoff) {
+    if ([row[@"time"] doubleValue] < cutoff) return nil;
+    NSDictionary *clean = HGSanitized(row, nil, 0);
+    if (!clean[@"event"] || !clean[@"session"]) return nil;
+    NSArray *context = clean[@"recentEvents"];
+    if (![context isKindOfClass:NSArray.class]) return clean;
+    NSArray *recent = HGRowsSince(context, cutoff);
+    if (recent.count == context.count) return clean;
+    NSMutableDictionary *filtered = clean.mutableCopy;
+    filtered[@"recentEvents"] = recent;
+    return filtered;
 }
 
 static NSArray<NSDictionary *> *HGVisibleSessions(void) {
@@ -751,6 +869,7 @@ static NSArray<NSDictionary *> *HGVisibleSessions(void) {
 void HGListDiagnosticSessions(void (^completion)(NSArray<NSDictionary *> *, NSError *)) {
     HGDiagnosticsStart(nil, @{});
     dispatch_async(HGLogQueue, ^{
+        HGPruneAge(NSDate.date.timeIntervalSince1970 - HGRetention);
         NSArray *sessions = HGVisibleSessions();
         NSError *error = HGStorageError;
         dispatch_async(dispatch_get_main_queue(), ^{ completion(sessions, error); });
@@ -761,6 +880,8 @@ void HGReadDiagnosticSession(NSString *identifier, void (^completion)(NSArray<NS
     HGDiagnosticsStart(nil, @{});
     dispatch_async(HGLogQueue, ^{
         HGDrain();
+        NSTimeInterval cutoff = NSDate.date.timeIntervalSince1970 - HGRetention;
+        HGPruneAge(cutoff);
         NSDictionary *selected = nil;
         for (NSDictionary *session in HGVisibleSessions())
             if ([session[@"session"] isEqual:identifier]) { selected = session; break; }
@@ -772,10 +893,10 @@ void HGReadDiagnosticSession(NSString *identifier, void (^completion)(NSArray<NS
             NSMutableArray *rows = [NSMutableArray array];
             BOOL success = !error;
             for (HGLogSlice *slice in slices) {
-                success = HGReadRows(slice, ^BOOL(NSDictionary *row) {
+                success = HGReadRows(slice, ^BOOL(NSDictionary *row, NSData *line) {
                     // Keep the event visible without copying large captures into UIKit.
-                    NSDictionary *clean = HGSanitized(row, nil, 0);
-                    if (!clean[@"event"] || !clean[@"session"]) return YES;
+                    NSDictionary *clean = HGCleanRowForRead(row, cutoff);
+                    if (!clean) return YES;
                     [rows addObject:[clean[@"event"] isEqual:@"scene.capture"] ?
                         @{@"event": clean[@"event"], @"time": clean[@"time"], @"session": clean[@"session"]} : clean];
                     if (rows.count > 120) [rows removeObjectAtIndex:0];
@@ -783,7 +904,10 @@ void HGReadDiagnosticSession(NSString *identifier, void (^completion)(NSArray<NS
                 });
                 if (!success) break;
             }
-            [rows addObjectsFromArray:fallback];
+            for (NSDictionary *row in fallback) {
+                NSDictionary *clean = HGCleanRowForRead(row, cutoff);
+                if (clean) [rows addObject:clean];
+            }
             [rows sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
                 return [b[@"time"] compare:a[@"time"]];
             }];
@@ -797,7 +921,8 @@ void HGReadDiagnosticSession(NSString *identifier, void (^completion)(NSArray<NS
     });
 }
 
-static BOOL HGWriteExport(int fd, NSDictionary *report, NSArray<HGLogSlice *> *slices, NSArray<NSDictionary *> *fallback) {
+static BOOL HGWriteExport(int fd, NSDictionary *report, NSArray<HGLogSlice *> *slices, NSArray<NSDictionary *> *fallback,
+        NSTimeInterval cutoff) {
     NSData *header = HGJSON(report);
     if (!header.length ||
             !HGWrite(fd, [header subdataWithRange:NSMakeRange(0, header.length - 1)]) ||
@@ -807,8 +932,8 @@ static BOOL HGWriteExport(int fd, NSDictionary *report, NSArray<HGLogSlice *> *s
     NSMutableData *output = [NSMutableData data];
     __block BOOL first = YES;
     BOOL (^appendRow)(NSDictionary *) = ^BOOL(NSDictionary *row) {
-        NSDictionary *clean = HGSanitized(row, nil, 0);
-        if (!clean[@"event"] || !clean[@"session"]) return YES;
+        NSDictionary *clean = HGCleanRowForRead(row, cutoff);
+        if (!clean) return YES;
         NSData *line = HGJSON(clean);
         if (!line.length) return YES;
         if (!first) [output appendBytes:",\n" length:2];
@@ -820,7 +945,7 @@ static BOOL HGWriteExport(int fd, NSDictionary *report, NSArray<HGLogSlice *> *s
         return written;
     };
     for (HGLogSlice *slice in slices)
-        if (!HGReadRows(slice, appendRow)) return NO;
+        if (!HGReadRows(slice, ^BOOL(NSDictionary *row, NSData *line) { return appendRow(row); })) return NO;
     for (NSDictionary *row in fallback) @autoreleasepool {
         if (!appendRow(row)) return NO;
     }
@@ -837,6 +962,8 @@ void HGExportDiagnosticSessions(HGDiagnosticScope scope, NSString *identifier, N
             return;
         }
         HGDrain();
+        NSTimeInterval cutoff = NSDate.date.timeIntervalSince1970 - HGRetention;
+        HGPruneAge(cutoff);
         NSMutableArray *selected = [NSMutableArray array];
         for (NSDictionary *session in HGVisibleSessions()) {
             if (scope == HGDiagnosticScopeAll ||
@@ -884,7 +1011,7 @@ void HGExportDiagnosticSessions(HGDiagnosticScope scope, NSString *identifier, N
             return;
         }
         dispatch_async(HGReadQueue, ^{
-            BOOL success = HGWriteExport(fd, report, slices, fallback);
+            BOOL success = HGWriteExport(fd, report, slices, fallback, cutoff);
             close(fd);
             dispatch_async(HGLogQueue, ^{
                 HGExporting = NO;
@@ -914,6 +1041,7 @@ void HGClearDiagnostics(void (^completion)(NSError *)) {
             HGMaskRejected = 0;
         }
         HGCloseSegment();
+        [HGSegmentOldest removeAllObjects];
         [HGRecent removeAllObjects];
         HGCurrentMetadata = HGSessionInfo;
         [HGFallback removeAllObjects];

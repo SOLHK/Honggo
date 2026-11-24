@@ -343,7 +343,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         const char *backdrops[]={"backgroundImageView","lightView","darkView","lineView"};
         for(NSUInteger i=0;i<4;i++)[self hideSource:HGAViewGetter(bar,backdrops[i],bar)];
         for(UIView *v in bar.subviews)if([v.accessibilityIdentifier isEqual:@"honggo.tabbar.glass"])[self hideSource:v];
-        self.hidden=NO;
+        self.hidden=HGAWindowHasActionSheet(bar.window);
         BOOL gestures=HGAppearanceFlag(@"dock.collapse") && !UIAccessibilityIsVoiceOverRunning();
         for(UISwipeGestureRecognizer *g in self.swipes)g.enabled=gestures;
         if(!gestures)self.collapsed=NO;
@@ -415,7 +415,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.extraButton.hidden=self.extra.hidden;
     self.expandButton.hidden=self.expand.hidden;
     self.capsule.hidden=self.collapsed;
-    self.selectionPan.enabled=!self.collapsed && !UIAccessibilityIsVoiceOverRunning();
+    self.selectionPan.enabled=!self.hidden && !self.collapsed && !UIAccessibilityIsVoiceOverRunning();
     self.capsule.layer.cornerRadius=radius;
     self.capsule.layer.borderWidth=translucent && !classicBlur ? 0.5 : 0;
     self.capsule.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
@@ -676,6 +676,17 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 BOOL HGAppearanceDockIsMutating(UIView *bar) {
     HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
     return dock.rendering || dock.restoring;
+}
+static void HGARefreshSheetDockVisibility(UIWindow *window) {
+    if(!window)return;
+    BOOL covered=HGAWindowHasActionSheet(window);
+    for(UIView *bar in HGABars.allObjects) {
+        if(bar.window!=window)continue;
+        HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
+        if(dock.superview!=bar || dock.hidden==covered)continue;
+        dock.hidden=covered;
+        dock.selectionPan.enabled=!covered && !dock.collapsed && !UIAccessibilityIsVoiceOverRunning();
+    }
 }
 void HGAppearanceLayoutDock(UIView *bar,UIViewController *controller) {
     if(!NSThread.isMainThread || !bar || HGFeedSidebarOwnsLayout(bar.window))return;

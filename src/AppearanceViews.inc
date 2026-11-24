@@ -538,6 +538,7 @@ void HGAppearanceProcessController(UIViewController *controller) {
             return;
         }
         if(HGAIsFinderController(controller)){HGAApplyFinderChrome(controller);return;}
+        if(HGAIsMineKMPController(controller)){HGAApplyMineKMPChrome(controller);return;}
         NSString *kind=HGAPanelKind(controller);
         if([kind isEqual:@"episodes"])HGAApplyEpisodeController(controller);
         else if(kind){HGAApplyPanel(controller.view,kind);HGAApplyTypography(controller.view);}

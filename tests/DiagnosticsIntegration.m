@@ -70,10 +70,10 @@ static NSString *Seed(NSURL *root, NSTimeInterval age, NSUInteger segments) {
 }
 
 static void CheckCapacity(NSURL *root) {
-    NSString *expired = Seed(root, 8 * 86400, 1);
-    NSString *old = Seed(root, 3 * 86400, 25);
-    NSString *new = Seed(root, 2 * 86400, 25);
-    NSString *latest = Seed(root, 86400, 1);
+    NSString *expired = Seed(root, 3700, 1);
+    NSString *old = Seed(root, 3000, 25);
+    NSString *new = Seed(root, 2400, 25);
+    NSString *latest = Seed(root, 1200, 1);
     HGDiagnosticsStart(root, @{});
     HGLog(@"capacity.after-start", nil);
     NSDictionary *report = Export(HGDiagnosticScopeSession, [Sessions() lastObject][@"session"], NULL);
@@ -95,9 +95,9 @@ static void CheckCapacity(NSURL *root) {
 static void CheckEvents(NSURL *root) {
     NSString *legacy = NSUUID.UUID.UUIDString;
     SaveJSON(@[
-        @{@"session": legacy, @"time": @([NSDate dateWithTimeIntervalSinceNow:-7200].timeIntervalSince1970),
+        @{@"session": legacy, @"time": @([NSDate dateWithTimeIntervalSinceNow:-1800].timeIntervalSince1970),
           @"event": @"legacy.retained", @"fields": @{@"accessToken": @"diagnostic-private-token", @"class": @"Fixture"}},
-        @{@"session": legacy, @"time": @([NSDate dateWithTimeIntervalSinceNow:-8*86400].timeIntervalSince1970),
+        @{@"session": legacy, @"time": @([NSDate dateWithTimeIntervalSinceNow:-3610].timeIntervalSince1970),
           @"event": @"legacy.expired", @"fields": @{}},
         @{@"session": legacy, @"time": @(NSDate.date.timeIntervalSince1970), @"event": @"legacy.bad", @"fields": @[]}
     ], [root URLByAppendingPathComponent:@"events.json"]);
@@ -142,6 +142,49 @@ static void CheckEvents(NSURL *root) {
         ![NSFileManager.defaultManager fileExistsAtPath:immutable.path], @"clear removes history, scenes and exported copies");
 }
 
+static void SaveRows(NSArray *rows, NSURL *url) {
+    NSMutableData *data = [NSMutableData data];
+    for (NSDictionary *row in rows) {
+        [data appendData:[NSJSONSerialization dataWithJSONObject:row options:0 error:nil]];
+        [data appendBytes:"\n" length:1];
+    }
+    Check([data writeToURL:url atomically:YES], @"write session journal fixture");
+}
+
+static void CheckRetention(NSURL *root) {
+    NSString *expired = Seed(root, 3700, 1);
+    NSString *longSession = Seed(root, 7200, 0);
+    NSURL *directory = [root URLByAppendingPathComponent:longSession];
+    NSURL *mixed = [directory URLByAppendingPathComponent:@"00000001.ndjson"];
+    NSURL *touched = [directory URLByAppendingPathComponent:@"00000002.ndjson"];
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    NSDictionary *old = @{@"session": longSession, @"time": @(now - 3610), @"event": @"fixture.expired", @"fields": @{}};
+    NSDictionary *fresh = @{@"session": longSession, @"time": @(now - 3590), @"event": @"fixture.retained", @"fields": @{}};
+    NSDictionary *watchdog = @{@"session": longSession, @"time": @(now - 20), @"event": @"watchdog.severe",
+        @"fields": @{}, @"recentEvents": @[old, fresh]};
+    SaveRows(@[old, fresh, watchdog], mixed);
+    // Even a recently modified old journal must be checked by event time.
+    SaveRows(@[old], touched);
+    HGDiagnosticsStart(root, @{});
+    HGLog(@"fixture.current", nil);
+
+    NSDictionary *all = Export(HGDiagnosticScopeAll, nil, NULL);
+    NSDictionary *one = Export(HGDiagnosticScopePreviousUnexpected, nil, NULL);
+    Check([all[@"retentionSeconds"] unsignedIntegerValue] == 3600 &&
+        Event(all, @"fixture.current") && Event(all, @"fixture.retained") && !Event(all, @"fixture.expired"),
+        @"all-session export uses the rolling one-hour event window");
+    Check([one[@"sessions"] count] == 1 && [one[@"sessions"][0][@"session"] isEqual:longSession] &&
+        Event(one, @"fixture.retained") && !Event(one, @"fixture.expired") &&
+        [[Event(one, @"watchdog.severe")[@"recentEvents"] valueForKey:@"event"] isEqual:@[@"fixture.retained"]],
+        @"an old-start session retains its recent watchdog and in-window context");
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSString *file = [NSString stringWithContentsOfURL:mixed encoding:NSUTF8StringEncoding error:nil];
+    Check([file containsString:@"fixture.retained"] && ![file containsString:@"fixture.expired"] &&
+        ![manager fileExistsAtPath:touched.path] &&
+        ![manager fileExistsAtPath:[root URLByAppendingPathComponent:expired].path],
+        @"retention compacts a mixed segment and deletes wholly expired files from disk");
+}
+
 static void CheckRestart(void) {
     NSArray *sessions = Sessions();
     NSDictionary *lastAbnormal = sessions.count >= 3 ? sessions[sessions.count - 2] : @{};
@@ -174,6 +217,7 @@ int main(int argc, const char **argv) {
         NSString *mode = @(argv[1]);
         NSURL *root = [NSURL fileURLWithPath:@(argv[2]) isDirectory:YES];
         if ([mode isEqual:@"--capacity"]) CheckCapacity(root);
+        else if ([mode isEqual:@"--retention"]) CheckRetention(root);
         else if ([mode isEqual:@"--events"]) CheckEvents(root);
         else {
             HGDiagnosticsStart(root, @{});

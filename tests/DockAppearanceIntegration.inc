@@ -403,23 +403,24 @@ static void HGRunExpandedDockGeometryChecks(SSTabBarController *host) {
     Layout(dock);Layout(home);Layout(extra);
     CGRect circle=[extra convertRect:extra.bounds toView:dock];
     CGRect occupied=CGRectUnion(capsule.frame,circle);
-    CGFloat largeIcon=MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height);
-    Check(dock && fabs(CGRectGetWidth(occupied)-320*0.94)<0.01 &&
-        fabs(CGRectGetMidX(occupied)-160)<0.01 && fabs(capsule.bounds.size.height-70)<0.01 &&
-        fabs(circle.size.width-70)<0.01 && fabs(circle.size.height-70)<0.01 &&
+    CGFloat stockIcon=MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height);
+    Check(dock && fabs(CGRectGetWidth(occupied)-320*0.90)<0.01 &&
+        fabs(CGRectGetMidX(occupied)-160)<0.01 && fabs(capsule.bounds.size.height-58)<0.01 &&
+        fabs(circle.size.width-54)<0.01 && fabs(circle.size.height-54)<0.01 &&
+        fabs(CGRectGetMidY(circle)-CGRectGetMidY(capsule.frame))<0.01 &&
         fabs(CGRectGetMinX(circle)-CGRectGetMaxX(capsule.frame)-12)<0.01 &&
         CGRectGetMinY(occupied)>=0 && CGRectGetMaxY(occupied)<=70 && home.bounds.size.width>=44,
-        @"the 94-percent dock fits an 84-point bar with 70-point surfaces and clearance above the home indicator");
+        @"the stock dock fits the native bar with a balanced capsule, smaller accessory and accessible targets");
     CGPoint extraPoint=[extra convertPoint:CGPointMake(CGRectGetMidX(extra.bounds),CGRectGetMidY(extra.bounds)) toView:bar];
     UIView *hit=[bar hitTest:extraPoint withEvent:nil];
-    Check(hit==extra || [hit isDescendantOfView:extra],@"the enlarged independent action remains inside the native tap area");
+    Check(hit==extra || [hit isDescendantOfView:extra],@"the compact independent action remains inside the native tap area");
 
     HGAppearanceApply(@{@"dock.width":@0.905,@"dock.height":@62,@"dock.radius":@31,
         @"dock.iconSize":@26,@"dock.extraSize":@62},nil);
     HGAppearanceLayoutDock(bar,host);Layout(home);
-    CGFloat oldIcon=MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height);
-    Check(oldIcon>0 && largeIcon>oldIcon+1 && largeIcon<=36,
-        @"the new navigation glyph grows proportionally within the new touch target");
+    CGFloat customIcon=MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height);
+    Check(stockIcon>0 && customIcon>stockIcon && customIcon<=36,
+        @"the stock glyph is smaller and custom sizes still scale proportionally");
 
     bar.frame=CGRectMake(0,rootHeight-60,320,60);
     HGAppearanceApply(HGAppearancePreset(@"glass"),nil);
