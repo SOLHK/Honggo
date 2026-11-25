@@ -162,10 +162,10 @@ static UIBezierPath *HGAActionShare(void) {
     return path;
 }
 
-static UIImage *HGAFlatActionImage(NSString *role,BOOL selected) {
+static UIImage *HGAFlatActionImage(NSString *role,BOOL selected,CGFloat side) {
     static NSMutableDictionary<NSString *,UIImage *> *images;
     if(!images)images=[NSMutableDictionary dictionary];
-    NSString *key=[NSString stringWithFormat:@"%@/%d",role,selected];
+    NSString *key=[NSString stringWithFormat:@"%@/%d/%.2f",role,selected,side];
     UIImage *image=images[key];
     if(image)return image;
 
@@ -179,8 +179,9 @@ static UIImage *HGAFlatActionImage(NSString *role,BOOL selected) {
     UIGraphicsImageRendererFormat *format=[UIGraphicsImageRendererFormat defaultFormat];
     format.opaque=NO;
     format.scale=4;
-    UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(32,32) format:format];
+    UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side,side) format:format];
     image=[[renderer imageWithActions:^(UIGraphicsImageRendererContext *context){
+        CGContextScaleCTM(context.CGContext,side/32,side/32);
         [HGAActionIconColor(role,selected) setFill];
         [path fill];
     }] imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];

@@ -100,7 +100,7 @@ static void HGARestorePlayerControlGlass(UIView *target) {
     if(!current || CGColorGetAlpha(current)==0)target.layer.backgroundColor=paint.CGColor;
     objc_setAssociatedObject(target,&HGAEpisodeLayerPaintKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
-static void HGAPlayerControlGlass(UIView *target,BOOL sheet,BOOL episodeEntry) {
+static void HGAPlayerControlGlass(UIView *target,BOOL sheet,BOOL episodeEntry,BOOL danmaku) {
     if(!target.window || CGRectIsEmpty(target.bounds)){HGARestorePlayerControlGlass(target);return;}
     CGRect frame=episodeEntry ? HGAPlayerDetailEntryFrame(target,NO) : target.bounds;
     CGFloat radius=MIN(22,MIN(frame.size.width,frame.size.height)/2);
@@ -113,8 +113,8 @@ static void HGAPlayerControlGlass(UIView *target,BOOL sheet,BOOL episodeEntry) {
             objc_setAssociatedObject(target,&HGAEpisodeLayerPaintKey,[UIColor colorWithCGColor:paint],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     if(sheet) HGAInstallGlass(target,HGAppearanceString(@"panels.material"),radius,0.04);
-    else HGAInstallPlaybackGlass(target,episodeEntry ? HGALiquidPlayerMaterial() : HGAppearanceString(@"player.material"),
-        frame,radius,nil);
+    else HGAInstallPlaybackGlass(target,HGAppearanceString(@"player.material"),
+        frame,radius,episodeEntry || danmaku);
     if(episodeEntry && target.layer.backgroundColor && CGColorGetAlpha(target.layer.backgroundColor)>0)
         target.layer.backgroundColor=nil;
 }
@@ -216,7 +216,7 @@ static void HGAApplyPlaybackButton(UIView *root) {
         MIN(64,MAX(44,MAX(CGRectGetWidth(glyph),CGRectGetHeight(glyph))+8)));
     CGRect frame=CGRectMake(CGRectGetMidX(glyph)-side/2,CGRectGetMidY(glyph)-side/2,side,side);
     if(HGFlatPlayerStyle())HGAInstallFlatPlaybackButton(button,frame);
-    else HGAInstallPlaybackGlass(button,HGALiquidPlayerMaterial(),frame,side/2,nil);
+    else HGAInstallPlaybackGlass(button,HGALiquidPlayerMaterial(),frame,side/2,NO);
 }
 #include "AppearancePlayerBadges.inc"
 static void HGAApplyPlayerControls(UIView *root) {
@@ -271,7 +271,7 @@ static void HGAApplyPlayerControls(UIView *root) {
     }
     if([root isKindOfClass:NSClassFromString(@"FQVShortVideoVPlayerEpisodeInfoView")]) {
         HGARegisterView(root);
-        if(enabled)HGAPlayerControlGlass(root,NO,YES);
+        if(enabled)HGAPlayerControlGlass(root,NO,YES,NO);
         else HGARestorePlayerControlGlass(root);
         return;
     }
@@ -279,7 +279,7 @@ static void HGAApplyPlayerControls(UIView *root) {
         HGARegisterView(root);
         if(!enabled || CGRectIsEmpty(root.bounds)){HGARemoveGlass(root);return;}
         CGRect frame=HGAPlayerDetailEntryFrame(root,YES);
-        HGAInstallPlaybackGlass(root,HGALiquidPlayerMaterial(),frame,frame.size.width/2,nil);
+        HGAInstallPlaybackGlass(root,HGALiquidPlayerMaterial(),frame,frame.size.width/2,NO);
         return;
     }
     if([root isKindOfClass:NSClassFromString(@"FQVShortVideoPlayerBottomView")]) {
@@ -342,7 +342,8 @@ static void HGAApplyPlayerControls(UIView *root) {
         }
     }
     HGAPlayerChromeTargets(root,targets,paints);
-    for(UIView *target in targets)HGAPlayerControlGlass(target,sheet,target==episodeEntry);
+    for(UIView *target in targets)HGAPlayerControlGlass(target,sheet,target==episodeEntry,
+        danmaku || [name isEqual:@"SSShortVideoDanmakuLeftAboveView"]);
     if([name isEqual:@"SSShortVideoEpisodesViewItemCell"]) {
         // The host's custom setIsSelected: paints bgView independently of
         // UICollectionViewCell.selected. Preserve that authored state as tint.
@@ -422,7 +423,7 @@ static void HGAApplyPlayerNavigation(id component) {
             if(CGRectIsNull(content[i]))continue;
             CGFloat width=MAX(height,CGRectGetWidth(content[i])+14);
             CGRect pill=CGRectMake(CGRectGetMidX(content[i])-width/2,centerY-height/2,width,height);
-            HGAInstallPlaybackGlass(target,style,[bar convertRect:pill toView:target],height/2,nil);
+            HGAInstallPlaybackGlass(target,style,[bar convertRect:pill toView:target],height/2,NO);
             [targets addObject:target];
         }
         HGAPlayerChromeTargets(component,targets,nil);

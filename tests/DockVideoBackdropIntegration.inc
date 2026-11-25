@@ -40,6 +40,13 @@
 @property(nonatomic,strong) FQVShortVideoPlayerBottomView *singleSeriesBottomView;
 @end
 @implementation FQVShortVideoVPlayerSingleSeriesControlView @end
+@interface HGAAspectSourceFixture : NSObject
+@property(nonatomic) double videoWidth;
+@property(nonatomic) double videoHeight;
+@end
+@implementation HGAAspectSourceFixture
+- (id)shortVideoModel {return self;}
+@end
 
 @interface FQVShortVideoPlayerCellView (HGBackdropPaletteFixture)
 - (void)refreshBgColor;
@@ -245,18 +252,36 @@ static void RunDetailVideoBackdropChecks(UIView *root) {
     hud.singleSeriesBottomView.backgroundColor=UIColor.blackColor;
     [hud addSubview:hud.singleSeriesBottomView];[canvas addSubview:hud];[root addSubview:canvas];
     Layout(hud);
-    CATransform3D extend=renderer.layer.sublayerTransform;
-    Check(fabs(extend.m22-canvas.bounds.size.height/crop.size.height)<0.001 && fabs(extend.m42-44.5)<0.001 &&
+    CATransform3D extend=wrapper.layer.sublayerTransform;
+    CGFloat zoom=canvas.bounds.size.height/crop.size.height;
+    Check(fabs(extend.m22-zoom)<0.001 && fabs(extend.m42-canvas.bounds.size.height*(zoom-1)/2)<0.001 &&
         CGRectEqualToRect(renderer.frame,crop) && CGRectEqualToRect(hud.singleSeriesBottomView.frame,bottom) &&
-        canvas.clipsToBounds && !renderer.clipsToBounds,
-        @"portrait detail extends only the live compositor to the bottom of its native HUD");
+        canvas.clipsToBounds && renderer.clipsToBounds,
+        @"portrait detail extends the media wrapper to the bottom without resizing the canvas or its HUD");
     Check(leftBottom.alpha==0 && rightBottom.alpha==0 && leftTop.alpha==1 &&
         [hud.singleSeriesBottomView.backgroundColor isEqual:UIColor.clearColor],
         @"detail continuation clears the matched bottom cutouts and old black tray paint");
+    canvas.center=CGPointMake(canvas.center.x,canvas.center.y+240);
+    HGRefreshVideoBackdropForPlayer(canvas);
+    Check(CATransform3DEqualToTransform(wrapper.layer.sublayerTransform,extend),
+        @"a partially visible incoming detail cell already uses its settled crop");
     [renderer removeFromSuperview];
-    Check(CATransform3DIsIdentity(renderer.layer.sublayerTransform) && renderer.clipsToBounds &&
+    Check(CATransform3DIsIdentity(wrapper.layer.sublayerTransform) && renderer.clipsToBounds &&
         leftBottom.alpha==1 && rightBottom.alpha==1 && [hud.singleSeriesBottomView.backgroundColor isEqual:UIColor.blackColor],
         @"renderer transfer restores the native detail crop, corner images and tray fill");
+    hud.singleSeriesBottomView.frame=CGRectZero;
+    hud.playerViewFrame=crop;
+    HGAAspectSourceFixture *source=[HGAAspectSourceFixture new];source.videoWidth=720;source.videoHeight=1280;
+    canvas.model=source;
+    CATransform3D beforePicture=wrapper.layer.sublayerTransform;
+    Check(CATransform3DEqualToTransform(beforePicture,extend) && !player.coverImageView && !renderer.superview,
+        @"a known portrait episode primes the final crop before either poster, renderer or tray layout");
+    [player addSubview:renderer];hud.singleSeriesBottomView.frame=bottom;Layout(hud);
+    Check(CATransform3DEqualToTransform(wrapper.layer.sublayerTransform,beforePicture),
+        @"the first actual Metal frame and settled tray inherit the exact prepared crop");
+    [renderer removeFromSuperview];
+    HGAAspectSourceFixture *wide=[HGAAspectSourceFixture new];wide.videoWidth=1920;wide.videoHeight=1080;canvas.model=wide;
+    Check(CATransform3DIsIdentity(wrapper.layer.sublayerTransform),@"a wide source does not acquire a speculative portrait crop");
     [canvas removeFromSuperview];
 }
 
@@ -524,8 +549,24 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
 
         incoming.videoHeight=width*9/16;
         Layout(incoming);
+        cell.canvas.backgroundColor=[UIColor colorWithRed:0.1 green:0.12 blue:0.13 alpha:1];
+        incoming.canvas.backgroundColor=[UIColor colorWithRed:0.3 green:0.21 blue:0.17 alpha:1];
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        underlay=Find(page.view,@"honggo.video.matte");
+        CGFloat mixedRed=0;
+        [underlay.backgroundColor getRed:&mixedRed green:NULL blue:NULL alpha:NULL];
+        CALayer *upperMatte=cell.canvas.layer.sublayers.firstObject;
+        CALayer *lowerMatte=incoming.canvas.layer.sublayers.firstObject;
+        Check(fabs(mixedRed-(0.1+0.2*52/feedHeight))<0.002 &&
+            upperMatte.backgroundColor && lowerMatte.backgroundColor &&
+            CGColorEqualToColor(upperMatte.backgroundColor,underlay.backgroundColor.CGColor) &&
+            CGColorEqualToColor(lowerMatte.backgroundColor,underlay.backgroundColor.CGColor),
+            @"two letterboxed episodes share a continuous palette across the incoming edge and Dock");
         [feed setContentOffset:CGPointMake(0,feedHeight*2) animated:NO];Layout(feed);
         HGBackdropFlushFrames(0.04);
+        Check(!upperMatte.superlayer && !lowerMatte.superlayer &&
+            [underlay.backgroundColor isEqual:incoming.canvas.backgroundColor],
+            @"settling removes the paging mattes and shows the new episode palette");
         Check(feed.clipsToBounds && fabs(feed.contentOffset.y-feedHeight*2)<0.01,
             @"settling on a native page restores clipping before preloaded neighbors can show through");
         [feed setContentOffset:CGPointMake(0,feedHeight+52) animated:NO];Layout(feed);

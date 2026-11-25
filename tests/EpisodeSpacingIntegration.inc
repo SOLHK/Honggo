@@ -229,6 +229,23 @@ static void RunOutterEpisodeSpacingChecks(UIView *root) {
             @"a partially visible vertical page keeps local spacing without borrowing dock clearance");
         canvas.frame=nativeCanvas;Layout(control);
         CGPoint settledEntry=wrapper.center,settledProgress=progress.center,settledRight=right.center;
+        UIView *liveDock=Find(bar,@"honggo.appearance.dock");
+        [NSNotificationCenter.defaultCenter postNotificationName:UIApplicationWillResignActiveNotification object:nil];
+        liveDock.alpha=0;
+        Layout(control);
+        Check(CGPointEqualToPoint(wrapper.center,settledEntry) && CGPointEqualToPoint(right.center,settledRight) &&
+            CGPointEqualToPoint(progress.center,settledProgress),
+            @"an app-switch layout without its Dock holds the same episode, right-rail and progress positions");
+        [NSNotificationCenter.defaultCenter postNotificationName:UIApplicationDidBecomeActiveNotification object:nil];
+        CFTimeInterval until=CACurrentMediaTime()+0.45;
+        while(CGPointEqualToPoint(wrapper.center,settledEntry) && CACurrentMediaTime()<until)
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+        Check(wrapper.center.y>settledEntry.y && CGPointEqualToPoint(progress.center,CGPointMake(CGRectGetMidX(nativeProgress),CGRectGetMidY(nativeProgress))),
+            @"a genuinely absent Dock relinquishes its temporary clearance after the active layout commit");
+        liveDock.alpha=1;Layout(control);
+        Check(CGPointEqualToPoint(wrapper.center,settledEntry) && CGPointEqualToPoint(right.center,settledRight) &&
+            CGPointEqualToPoint(progress.center,settledProgress),
+            @"returning to a measured Dock recovers the original coordinates without adding the lift twice");
         horizontal.contentOffset = CGPointMake(70, 0);
         Layout(control);
         CGRect swipeRail=[track convertRect:track.bounds toView:control];

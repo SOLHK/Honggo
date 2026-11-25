@@ -34,6 +34,7 @@ API_AVAILABLE(ios(26.0))
         _rail=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
         BOOL flat=[material isEqual:@"flat"];
         _rail.style=flat ? @"solid" : material;
+        _rail.clearCenter=!flat;
         _rail.overlayColor=flat ? UIColor.tertiarySystemFillColor : UIColor.clearColor;
         _rail.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
         _rail.accessibilityIdentifier=@"honggo.appearance.header.channelRail";
@@ -221,6 +222,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         if (self.glassSelection) {
             HGAAppearanceMaterial *refraction=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
             refraction.style=@"clear";
+            refraction.clearCenter=YES;
             refraction.interactiveGlass=YES;
             refraction.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
             refraction.overlayColor=UIColor.clearColor;
@@ -1084,6 +1086,7 @@ static void HGAConfigureHeaderCircleGlass(HGAAppearanceMaterial *glass,UIView *h
     BOOL flat=[style isEqual:@"flat"];
     NSString *material=flat ? @"solid" : style;
     BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
+    glass.clearCenter=!flat;
     if(![glass.style isEqual:material]) {
         glass.style=material;
         glass.materialSignature=nil;
@@ -1143,8 +1146,11 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
             button.layer.zPosition=-1;
             [button addTarget:state action:@selector(activateTool:) forControlEvents:UIControlEventPrimaryActionTriggered];
         }
-        if (![button.glassStyle isEqual:style]) {
-            button.glassStyle=style;
+        BOOL open=HGAClearGlassCenter(style,header);
+        BOOL backdrop=open || [style isEqual:@"blur"];
+        NSString *configurationStyle=open ? @"untinted" : style;
+        if (![button.glassStyle isEqual:configurationStyle]) {
+            button.glassStyle=configurationStyle;
             UIButtonConfiguration *configuration=UIButtonConfiguration.filledButtonConfiguration;
             configuration.baseBackgroundColor=UIColor.tertiarySystemFillColor;
             if (@available(iOS 26.0,*)) {
@@ -1152,7 +1158,7 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
                     UIButtonConfiguration.clearGlassButtonConfiguration : UIButtonConfiguration.glassButtonConfiguration;
             }
             configuration.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
-            button.configuration=configuration;
+            button.configuration=backdrop ? nil : configuration;
         }
         button.source=source;
         button.accessibilityLabel=source.accessibilityLabel ?: (sidebar ? @"菜单" : @"搜索");
@@ -1166,6 +1172,8 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
                 break;
             }
         }
+        if(backdrop)HGAInstallPlaybackGlass(button,style,button.bounds,CGRectGetHeight(frame)/2,YES);
+        else HGARemoveGlass(button);
     } else {
         HGARemoveHeaderToolButton(button);
         button=nil;
@@ -1429,7 +1437,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
         state=[HGAHeaderInsetState new];
         objc_setAssociatedObject(header,&HGAHeaderInsetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    style=HGFlatTopStyle() ? @"flat" : ([style isEqual:@"clear"] ? @"clear" : @"regular");
+    if(HGFlatTopStyle())style=@"flat";
     BOOL glassSelection=HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
         [HGAppearanceString(@"player.headerSelectionStyle") isEqual:@"glass"];
     BOOL tracksChannels=state.channelControl && [state.channelStyle isEqual:style] &&
@@ -1509,7 +1517,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
                 HGAState(header,NO).glass.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
                 HGASetGlassOverlay(header,UIAccessibilityIsReduceTransparencyEnabled() ?
                     UIColor.darkGrayColor : UIColor.tertiarySystemFillColor);
-            } else HGAInstallPlaybackGlass(header,style,centerFrame,side*0.5,nil);
+            } else HGAInstallPlaybackGlass(header,style,centerFrame,side*0.5,YES);
             return;
         }
     }

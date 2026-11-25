@@ -358,7 +358,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search"]);
     } else if([self.group isEqual:@"player"]) {
         section(@"播放与手势");
-        HGAAddDefs(rows,@[@"player.fullscreen",@"player.disableEpisodeSwipe",@"gestures.pinchClean"]);
+        HGAAddDefs(rows,@[@"player.fullscreen",@"player.highestQuality",@"player.hideNowPlayingIsland",
+            @"player.disableEpisodeSwipe",@"gestures.pinchClean"]);
         section(@"播放控件");
         [rows addObject:HGASubpage(@"@group.rightButtons",@"右侧按钮",@"头像、收藏、评论、点赞、分享、更多")];
         HGAAddDefs(rows,@[@"player.rightGlass",@"player.actionStyle",@"player.collectGlyph",@"player.material",@"player.controlsGlass"]);
@@ -366,13 +367,21 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         for (NSString *role in @[@"channels",@"info",@"tags",@"progress",@"danmaku",@"notice"])
             [rows addObject:HGARoleEntry(role)];
     } else if([self.group isEqual:@"rightButtons"]) {
-        for (NSString *role in HGARightButtonRoles()) [rows addObject:HGARoleEntry(role)];
+        for (NSString *role in HGARightButtonRoles()) {
+            section(HGAppearanceRoleTitles()[[HGAppearanceRoles() indexOfObject:role]]);
+            for (NSString *setting in @[@"hidden",@"x",@"y",@"scale"]) {
+                NSString *key=[NSString stringWithFormat:@"layout.%@.%@",role,setting];
+                [rows addObject:HGACatalogDef(key)];
+            }
+            [rows addObject:HGATool([@"@role.copyRightSize." stringByAppendingString:role],@"将此大小应用到全部右侧按钮")];
+            [rows addObject:HGATool([@"@role.reset." stringByAppendingString:role],@"恢复此项默认")];
+        }
     } else if([self.group isEqual:@"drama"]) {
         section(@"全集入口");
         HGAAddDefs(rows,@[@"player.episodeGlass",@"player.episodeDockWidth",@"player.separateProgress"]);
         [rows addObject:HGARoleEntry(@"episodes")];
         section(@"剧集信息");
-        HGAAddDefs(rows,@[@"player.hide.followRank",@"player.hide.seriesBadge"]);
+        HGAAddDefs(rows,@[@"player.hide.followRank",@"player.hide.seriesBadge",@"player.hideAIFictionNotice"]);
         section(@"播放面板");
         HGAAddDefs(rows,@[@"panels.episodes",@"panels.share",@"panels.longpress",@"panels.speed"]);
     } else if([self.group isEqual:@"comments"]) {
@@ -391,7 +400,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         ]);
         section(@"");
         if ([HGARightButtonRoles() containsObject:role])
-            [rows addObject:HGATool(@"@role.copyRightSize",@"将此大小应用到全部右侧按钮")];
+            [rows addObject:HGATool([@"@role.copyRightSize." stringByAppendingString:role],@"将此大小应用到全部右侧按钮")];
         [rows addObject:HGATool([@"@role.reset." stringByAppendingString:role],@"恢复此项默认")];
     } else if([self.group isEqual:@"panels"]) {
         section(@"评论区");
@@ -437,7 +446,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *row=self.sections[path.section][path.row];NSString *kind=row[@"kind"],*key=row[@"key"];
     NSString *title = row[@"title"];
-    if ([self.group hasPrefix:@"role."]) {
+    if ([self.group hasPrefix:@"role."] || [self.group isEqual:@"rightButtons"]) {
         NSString *label = @{@"hidden": @"隐藏此控件", @"x": @"水平偏移", @"y": @"垂直偏移",
             @"scale": @"大小"}[key.pathExtension];
         if (label) title = label;
@@ -462,6 +471,12 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         cell.accessoryView=toggle;
         if([key isEqual:@"player.fullscreen"])
             cell.detailTextLabel.text=@"仅横屏播放横向视频时铺满，竖屏保持原比例";
+        if([key isEqual:@"player.hideAIFictionNotice"])
+            cell.detailTextLabel.text=@"隐藏播放器左侧的独立文字提示，保留原始画幅";
+        if([key isEqual:@"player.hideNowPlayingIsland"])
+            cell.detailTextLabel.text=@"进入后台后恢复红果的系统播放信息";
+        if([key isEqual:@"player.highestQuality"])
+            cell.detailTextLabel.text=@"每集自动选择播放器提供的最高画质";
         if([key isEqual:@"player.commentMovesVideo"])
             cell.detailTextLabel.text=@"关闭后，打开评论区时视频留在原位。";
         if([key isEqual:@"mine.show.theme"])
@@ -524,14 +539,15 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     NSString *key=row[@"key"],*kind=row[@"kind"];
     if([key isEqual:@"@community"]){HGShowCommunity(self);return;}
     if([key hasPrefix:@"@group."]){HGOpenAppearance(self,[key substringFromIndex:7]);return;}
-    if([key isEqual:@"@role.copyRightSize"]) {
-        NSString *source=[NSString stringWithFormat:@"layout.%@.scale",self.group.pathExtension];
+    if([key hasPrefix:@"@role.copyRightSize."]) {
+        NSString *source=[NSString stringWithFormat:@"layout.%@.scale",key.pathExtension];
         NSNumber *value=@(HGAppearanceNumber(source));
         NSMutableDictionary *sizes=[NSMutableDictionary dictionary];
         for (NSString *role in HGARightButtonRoles())
             sizes[[NSString stringWithFormat:@"layout.%@.scale",role]]=value;
         NSError *error=nil;
         if (HGAppearanceApply(sizes,&error)) {
+            if ([self.group isEqual:@"rightButtons"]) [self.tableView reloadData];
             NSDictionary *definition=HGACatalogDef(source);
             NSInteger pct=HGAPercentFromValue(definition,value.doubleValue);
             [self message:@"已统一右侧按钮大小" detail:HGAPercentDetailText(definition,pct)];

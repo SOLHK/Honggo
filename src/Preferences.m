@@ -10,33 +10,40 @@ typedef struct {
     NSString *identifier;
     NSString *title;
     NSString *searchAliases;
+    BOOL enabledByDefault;
 } HGFeatureDefinition;
 
 static const HGFeatureDefinition HGFeatureDefinitions[HGFeatureCount] = {
-    [HGGlass] = {@"glass", @"液态玻璃底栏", @"底部 导航 标签 浮动 模糊 tab bar"},
-    [HGSplash] = {@"splash", @"隐藏开屏广告", @"启动 splash"},
-    [HGTopView] = {@"topview", @"隐藏首页 TopView 广告", @"顶部 首页 top view"},
-    [HGFeed] = {@"feed", @"隐藏短剧广告、直播和小游戏插播", @"信息流 推荐 试玩 游戏 feed live"},
-    [HGComment] = {@"comment", @"隐藏短剧评论区广告", @"评论 comment"},
-    [HGPause] = {@"pause", @"隐藏暂停广告", @"暂停 pause"},
-    [HGPatch] = {@"patch", @"隐藏播放插播广告", @"贴片 中插 退出播放 patch"},
-    [HGEcommerce] = {@"commerce", @"隐藏启动电商推广", @"购物 电商 开机 commerce"},
-    [HGMarketing] = {@"marketing", @"隐藏商业与直播领券弹窗", @"推广 营销 直播 优惠券 弹窗 popup"},
-    [HGRedPacket] = {@"redPacket", @"隐藏福利红包弹窗", @"福利 奖励 红包 popup"},
-    [HGBookstoreAd] = {@"bookstoreAd", @"隐藏书城底部广告", @"书城 横幅 banner"},
-    [HGCouponPendant] = {@"couponPendant", @"隐藏领券悬浮挂件", @"优惠券 浮窗 pendant coupon"},
-    [HGMiniGamePendant] = {@"miniGamePendant", @"隐藏小游戏悬浮挂件", @"游戏 浮窗 pendant game"},
-    [HGWelfareGuide] = {@"welfareGuide", @"隐藏福利标签引导气泡", @"提示 福利 气泡 guide"},
-    [HGSurvey] = {@"survey", @"隐藏短剧满意度问卷", @"调查 评分 问卷 survey"},
-    [HGGlassControls] = {@"glassControls", @"原生液态玻璃按钮", @"按钮 控件 模糊 glass controls"},
-    [HGSidebarGameCenter] = {@"sidebarGameCenter", @"隐藏侧栏游戏中心", @"首页 左侧栏 小游戏 卡片 sidebar game center"},
-    [HGScreenshotShopping] = {@"screenshotShopping", @"隐藏截图识图找同款", @"截屏 推荐 卡片 悬浮 截图购物 screenshot shopping"},
+    [HGGlass] = {@"glass", @"液态玻璃底栏", @"底部 导航 标签 浮动 模糊 tab bar", NO},
+    [HGSplash] = {@"splash", @"隐藏开屏广告", @"启动 splash", YES},
+    [HGTopView] = {@"topview", @"隐藏首页 TopView 广告", @"顶部 首页 top view", YES},
+    [HGFeed] = {@"feed", @"隐藏短剧广告、直播和小游戏插播", @"信息流 推荐 试玩 游戏 feed live", YES},
+    [HGComment] = {@"comment", @"隐藏短剧评论区广告", @"评论 comment", YES},
+    [HGPause] = {@"pause", @"隐藏暂停广告", @"暂停 pause", YES},
+    [HGPatch] = {@"patch", @"隐藏播放插播广告", @"贴片 中插 退出播放 patch", YES},
+    [HGEcommerce] = {@"commerce", @"隐藏启动电商推广", @"购物 电商 开机 commerce", YES},
+    [HGMarketing] = {@"marketing", @"隐藏商业与直播领券弹窗", @"推广 营销 直播 优惠券 弹窗 popup", YES},
+    [HGRedPacket] = {@"redPacket", @"隐藏福利红包弹窗", @"福利 奖励 红包 popup", YES},
+    [HGBookstoreAd] = {@"bookstoreAd", @"隐藏书城底部广告", @"书城 横幅 banner", YES},
+    [HGCouponPendant] = {@"couponPendant", @"隐藏领券悬浮挂件", @"优惠券 浮窗 pendant coupon", YES},
+    [HGMiniGamePendant] = {@"miniGamePendant", @"隐藏小游戏悬浮挂件", @"游戏 浮窗 pendant game", YES},
+    [HGWelfareGuide] = {@"welfareGuide", @"隐藏福利标签引导气泡", @"提示 福利 气泡 guide", YES},
+    [HGSurvey] = {@"survey", @"隐藏短剧满意度问卷", @"调查 评分 问卷 survey", YES},
+    [HGGlassControls] = {@"glassControls", @"原生液态玻璃按钮", @"按钮 控件 模糊 glass controls", NO},
+    [HGSidebarGameCenter] = {@"sidebarGameCenter", @"隐藏侧栏游戏中心", @"首页 左侧栏 小游戏 卡片 sidebar game center", YES},
+    [HGScreenshotShopping] = {@"screenshotShopping", @"隐藏截图识图找同款", @"截屏 推荐 卡片 悬浮 截图购物 screenshot shopping", YES},
 };
 
 static NSObject *HGPreferenceLock(void) {
     static NSObject *lock;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ lock = [NSObject new]; });
+    dispatch_once(&once, ^{
+        lock = [NSObject new];
+        NSMutableDictionary *registration = [NSMutableDictionary dictionary];
+        for (HGFeature feature=0; feature<HGFeatureCount; feature++)
+            if (HGFeatureDefinitions[feature].enabledByDefault) registration[HGPreferenceKey(feature)]=@YES;
+        [NSUserDefaults.standardUserDefaults registerDefaults:registration];
+    });
     return lock;
 }
 
@@ -206,10 +213,10 @@ NSUInteger HGPreferencesChangeCount(NSDictionary<NSString *, NSNumber *> *featur
 void HGPreferencesReset(void) {
     BOOL refresh;
     @synchronized (HGPreferenceLock()) {
-        refresh=HGIsEnabled(HGSidebarGameCenter);
-        for (HGFeature feature = 0; feature < HGFeatureCount; feature++) {
-            [NSUserDefaults.standardUserDefaults setBool:NO forKey:HGPreferenceKey(feature)];
-        }
+        BOOL sidebarBefore=HGIsEnabled(HGSidebarGameCenter);
+        for (HGFeature feature = 0; feature < HGFeatureCount; feature++)
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:HGPreferenceKey(feature)];
+        refresh=sidebarBefore!=HGIsEnabled(HGSidebarGameCenter);
     }
     if (refresh) [NSNotificationCenter.defaultCenter postNotificationName:HGSidebarGameChanged object:nil];
 }

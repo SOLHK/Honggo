@@ -30,9 +30,15 @@ static BOOL HGAPlayerIsSeries(UIView *player) {
 
 // The host recycles the gesture HUD on vertical paging. Own this mode on
 // its list page, and suppress only playback chrome mounted on that page.
+@interface HGACleanTarget : NSObject
+@property(nonatomic) BOOL interaction;
+@property(nonatomic,strong) CALayer *nativeMask;
+@property(nonatomic,strong) CALayer *cleanMask;
+@end
+@implementation HGACleanTarget @end
 @interface HGACleanPlayback : NSObject
 @property(nonatomic,weak) UIView *page;
-@property(nonatomic,strong) NSMapTable<UIView *,NSNumber *> *targets;
+@property(nonatomic,strong) NSMapTable<UIView *,HGACleanTarget *> *targets;
 @end
 @implementation HGACleanPlayback @end
 static NSMapTable<UIWindow *,HGACleanPlayback *> *HGACleanPages;
@@ -42,8 +48,11 @@ static NSString * const HGACleanOpacity = @"honggo.clean.opacity";
 
 static void HGACleanCover(HGACleanPlayback *state,UIView *target) {
     if(!state || !target)return;
-    if(![state.targets objectForKey:target])
-        [state.targets setObject:@(target.userInteractionEnabled) forKey:target];
+    if(![state.targets objectForKey:target]) {
+        HGACleanTarget *record=[HGACleanTarget new];
+        record.interaction=target.userInteractionEnabled;
+        [state.targets setObject:record forKey:target];
+    }
     if(![target.layer animationForKey:HGACleanOpacity]) {
         // Hold the presentation at zero. Native alpha/hidden changes (including
         // updates made during cell reuse) remain intact when the cover is lifted.
@@ -54,11 +63,38 @@ static void HGACleanCover(HGACleanPlayback *state,UIView *target) {
     }
     if(target.userInteractionEnabled)target.userInteractionEnabled=NO;
 }
+// The host repaints the title column and progress rail during paging, including
+// opacity animations. A transparent mask on these two ink surfaces stays in
+// effect while the host changes its own visibility or clears layer animations.
+static void HGACleanCoverInk(HGACleanPlayback *state,UIView *ink) {
+    if(!ink)return;
+    HGACleanCover(state,ink);
+    HGACleanTarget *record=[state.targets objectForKey:ink];
+    if(!record.cleanMask) {
+        record.cleanMask=[CALayer layer];
+        record.cleanMask.backgroundColor=UIColor.blackColor.CGColor;
+        record.cleanMask.opacity=0;
+    }
+    if(ink.layer.mask!=record.cleanMask || !CGRectEqualToRect(record.cleanMask.frame,ink.bounds)) {
+        [CATransaction begin];[CATransaction setDisableActions:YES];
+        record.cleanMask.frame=ink.bounds;
+        if(ink.layer.mask!=record.cleanMask) {
+            record.nativeMask=ink.layer.mask;
+            ink.layer.mask=record.cleanMask;
+        }
+        [CATransaction commit];
+    }
+}
 static void HGACleanRestore(HGACleanPlayback *state,UIView *target) {
-    NSNumber *interaction=[state.targets objectForKey:target];
-    if(!interaction)return;
+    HGACleanTarget *record=[state.targets objectForKey:target];
+    if(!record)return;
+    if(record.cleanMask && target.layer.mask==record.cleanMask) {
+        [CATransaction begin];[CATransaction setDisableActions:YES];
+        target.layer.mask=record.nativeMask;
+        [CATransaction commit];
+    }
     [target.layer removeAnimationForKey:HGACleanOpacity];
-    target.userInteractionEnabled=interaction.boolValue;
+    target.userInteractionEnabled=record.interaction;
     [state.targets removeObjectForKey:target];
 }
 static void HGAEndCleanPlayback(UIWindow *window) {
@@ -94,13 +130,25 @@ static void HGAApplyCleanView(UIView *view) {
             id child=ivar && ivar_getTypeEncoding(ivar)[0]=='@' ? object_getIvar(view,ivar) : nil;
             if([child isKindOfClass:UIView.class] && [child isDescendantOfView:view])HGACleanCover(state,child);
         }
+        for(UIView *child in view.subviews) {
+            if([child isKindOfClass:objc_lookUpClass("FQVShortVideoProgressView")])
+                HGACleanCoverInk(state,child);
+        }
+        UIView *info=HGAViewGetter(view,"baseInfoView",view);
+        HGACleanCoverInk(state,HGAViewGetter(info,"leftContainer",info));
         return;
     }
+    if([view isKindOfClass:objc_lookUpClass("FQVShortVideoBaseInfoView")])
+        HGACleanCoverInk(state,HGAViewGetter(view,"leftContainer",view));
     NSString *role=HGARole(view);
     // The full-screen "info" owner also contains loading / payment surfaces.
     // Its metadata column and action rail are independently addressable.
     BOOL metadata=role && (![role isEqual:@"info"] || [NSStringFromClass(view.class) hasSuffix:@"LeftContainerView"]);
-    if(bar || metadata || [HGACleanControlClasses() containsObject:NSStringFromClass(view.class)] ||
+    BOOL titleColumn=([role isEqual:@"info"] && [NSStringFromClass(view.class) hasSuffix:@"LeftContainerView"]) ||
+        [view isKindOfClass:objc_lookUpClass("SSShortVideoSingleSeriesInfoLeftContainerView")];
+    if([role isEqual:@"progress"] || titleColumn)
+        HGACleanCoverInk(state,view);
+    else if(bar || metadata || [HGACleanControlClasses() containsObject:NSStringFromClass(view.class)] ||
        [view isKindOfClass:objc_lookUpClass("FQVShortVideoPlayerBottomView")] ||
        [view isKindOfClass:objc_lookUpClass("FQVShortVideoControlCleanSwitchView")] ||
        [view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerEpisodeInfoView")])

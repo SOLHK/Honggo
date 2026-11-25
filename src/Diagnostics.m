@@ -723,7 +723,7 @@ void HGDiagnosticsStart(NSURL *directory, NSDictionary *environment) {
             options:0 error:nil];
         HGTextFields = [NSSet setWithArray:@[@"session", @"event", @"appVersion", @"hostBuild", @"os", @"device",
             @"pluginVersion", @"previousSession", @"previousSessionStatus", @"class", @"owner", @"targetClass",
-            @"selector", @"method", @"module", @"kind", @"reason", @"expected", @"actual", @"encoding", @"state",
+            @"selector", @"method", @"module", @"kind", @"reason", @"expected", @"actual", @"encoding", @"state", @"errorDomain",
             @"phase", @"stage", @"feature", @"action", @"endStatus", @"material", @"mode", @"status", @"name", @"superclass",
             @"childrenSkipped", @"truncationReasons", @"effect", @"frame", @"bounds", @"windowRect", @"maskFrame",
             @"maskBounds", @"maskPathBounds", @"presentationWindowRect", @"windowBounds", @"offset", @"contentSize",

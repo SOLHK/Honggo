@@ -29,8 +29,19 @@
 @implementation SSShortVideoRightInteractionLikeModel @end
 @interface SSShortVideoRightInteractionLikeView : HGAActionFixture
 @property(nonatomic,strong) SSShortVideoRightInteractionLikeModel *model;
+@property(nonatomic,readonly) UIImageView *likeIcon;
 @end
-@implementation SSShortVideoRightInteractionLikeView @end
+@implementation SSShortVideoRightInteractionLikeView
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self=[super initWithFrame:frame])) {
+        self.iconImageView.userInteractionEnabled=YES;
+        [self.iconImageView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(likeBtnClicked)]];
+    }
+    return self;
+}
+- (UIImageView *)likeIcon {return self.iconImageView;}
+- (void)likeBtnClicked {self.taps++;}
+@end
 @interface SSShortVideoRightInteractionCollectView : HGAActionFixture
 @property(nonatomic) BOOL isCollected;
 @property(nonatomic) BOOL playedStockStar;
@@ -102,8 +113,26 @@
 @end
 @interface FQVCollectionView : UICollectionView @end
 @implementation FQVCollectionView @end
-@interface FQCShortVideoCommentPanelViewController : UIViewController @end
-@implementation FQCShortVideoCommentPanelViewController @end
+@interface HGTestCommentOpenParam : NSObject
+@property(nonatomic) NSInteger commentCount;
+@end
+@implementation HGTestCommentOpenParam @end
+@interface HGTestCommentTab : NSObject
+@property(nonatomic) NSUInteger type;
+@property(nonatomic,copy) NSString *countText;
+- (void)updateCount:(NSInteger)count;
+@end
+@implementation HGTestCommentTab
+- (void)updateCount:(NSInteger)count {self.countText=[@(count) stringValue];}
+@end
+@interface FQCShortVideoCommentPanelViewController : UIViewController
+@property(nonatomic,strong) HGTestCommentOpenParam *param;
+@property(nonatomic,copy) NSArray<HGTestCommentTab *> *tabItems;
+- (void)setupTabItems;
+@end
+@implementation FQCShortVideoCommentPanelViewController
+- (void)setupTabItems {}
+@end
 @interface SSVideoSharePanelViewController : UIViewController
 @property(nonatomic,strong) UIView *panelView;
 @end
@@ -170,6 +199,20 @@ static BOOL ImageContentEqual(UIImage *actual,UIImage *expected) {
     return equal;
 }
 static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
+static BOOL HGTestOpenGlass(UIView *view) {
+    return HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
+        view.traitCollection.accessibilityContrast!=UIAccessibilityContrastHigh;
+}
+static BOOL HGTestGlassRim(UIVisualEffectView *effect) {
+    UIView *mask=effect.maskView;
+    if(![mask.layer isKindOfClass:CAShapeLayer.class] || ![effect.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")])return NO;
+    CAShapeLayer *shape=(id)mask.layer;
+    CGPoint middle=CGPointMake(CGRectGetMidX(mask.bounds),CGRectGetMidY(mask.bounds));
+    return shape.path && [shape.fillRule isEqual:kCAFillRuleEvenOdd] &&
+        !CGPathContainsPoint(shape.path,NULL,middle,true) &&
+        CGPathContainsPoint(shape.path,NULL,CGPointMake(CGRectGetMinX(mask.bounds)+0.75,middle.y),true) &&
+        (!effect.contentView.backgroundColor || CGColorGetAlpha(effect.contentView.backgroundColor.CGColor)==0);
+}
 static void (*HGOriginalMaterialSetEffect)(id,SEL,UIVisualEffect *);
 static char HGMaterialEffectCountKey;
 static NSUInteger HGMaterialEffectSetterCount(UIView *view) {
@@ -194,11 +237,13 @@ static BOOL HGInstallMaterialEffectSpy(void) {
 #include "PlaybackAppearanceIntegration.inc"
 #include "AppearanceTransitionCoordinatorTests.inc"
 #include "DockAppearanceIntegration.inc"
+#include "NowPlayingIntegration.inc"
 #include "EpisodeGlassIntegration.inc"
 #include "EpisodeSpacingIntegration.inc"
 #include "ActionShareAppearanceIntegration.inc"
 #include "PlayerChromeIntegration.inc"
 #include "PlayerGestureIntegration.inc"
+#include "PlaybackQualityIntegration.inc"
 #include "CommentMovementIntegration.inc"
 #include "AppearanceLandscapeChromeIntegration.inc"
 #include "DockVideoBackdropIntegration.inc"
@@ -229,7 +274,7 @@ static NSIndexPath *HGMenuPath(UITableViewController *menu, NSString *key) {
 static void HGRunRightButtonSizeChecks(UIWindow *window, Class settings) {
     UIViewController *previousRoot=window.rootViewController;
     UITableViewController *editor=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
-    [editor setValue:@"role.collect" forKey:@"group"];
+    [editor setValue:@"rightButtons" forKey:@"group"];
     UINavigationController *navigation=[[UINavigationController alloc] initWithRootViewController:editor];
     window.rootViewController=navigation;
     [window makeKeyAndVisible];
@@ -250,7 +295,7 @@ static void HGRunRightButtonSizeChecks(UIWindow *window, Class settings) {
     [stepper sendActionsForControlEvents:UIControlEventValueChanged];
     Check(slider.value==42 && [slider.accessibilityValue isEqual:@"42%"],@"one step advances from 41% to 42%");
     double chosen=HGAppearanceNumber(@"layout.collect.scale");
-    NSIndexPath *copy=HGMenuPath(editor,@"@role.copyRightSize");
+    NSIndexPath *copy=HGMenuPath(editor,@"@role.copyRightSize.collect");
     if (copy) [editor tableView:editor.tableView didSelectRowAtIndexPath:copy];
     NSDate *applied=[NSDate dateWithTimeIntervalSinceNow:1.5];
     while ((!editor.presentedViewController || editor.presentedViewController.isBeingPresented) && applied.timeIntervalSinceNow>0)
@@ -362,7 +407,21 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
                     roleList=(id)navigation.topViewController;
                     [window layoutIfNeeded];
                     rolesRouted &= right && [[roleList valueForKey:@"group"] isEqual:@"rightButtons"] &&
-                        [roleList.tableView numberOfRowsInSection:0]==6;
+                        roleList.tableView.numberOfSections==6;
+                }
+                if (roleList!=detail) {
+                    NSString *prefix=[NSString stringWithFormat:@"layout.%@.",role];
+                    NSIndexPath *hidden=HGMenuPath(roleList,[prefix stringByAppendingString:@"hidden"]);
+                    BOOL inlineRole=hidden && [roleList.tableView numberOfRowsInSection:hidden.section]==6;
+                    for (NSString *suffix in @[@"x",@"y",@"scale"]) {
+                        NSIndexPath *p=HGMenuPath(roleList,[prefix stringByAppendingString:suffix]);
+                        inlineRole &= p && p.section==hidden.section;
+                    }
+                    inlineRole &= HGMenuPath(roleList,[@"@role.copyRightSize." stringByAppendingString:role]) &&
+                        HGMenuPath(roleList,[@"@role.reset." stringByAppendingString:role]);
+                    rolesRouted &= inlineRole;
+                    if (inlineRole) visitedRoles++;
+                    continue;
                 }
                 NSString *destination = [@"role." stringByAppendingString:role];
                 NSIndexPath *entry = HGMenuPath(roleList, [@"@group." stringByAppendingString:destination]);
@@ -417,12 +476,64 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
 }
 - (void)runChecks {
     UIView *root=self.host.view;
+    FQCShortVideoCommentPanelViewController *countPanel=[FQCShortVideoCommentPanelViewController new];
+    countPanel.param=[HGTestCommentOpenParam new];
+    HGTestCommentTab *episodeComments=[HGTestCommentTab new],*seriesReviews=[HGTestCommentTab new];
+    seriesReviews.type=1;
+    countPanel.tabItems=@[seriesReviews,episodeComments];
+    [countPanel setupTabItems];
+    Check(!episodeComments.countText && !seriesReviews.countText,@"a missing initial count leaves the loading tabs empty");
+    countPanel.param.commentCount=74;
+    [countPanel setupTabItems];
+    Check([episodeComments.countText isEqual:@"74"] && !seriesReviews.countText,
+        @"the current episode opening count seeds only its own first-render tab");
+    [episodeComments updateCount:76];[countPanel setupTabItems];
+    Check([episodeComments.countText isEqual:@"76"],@"a newer native count retains priority over the opening parameter");
+    SSShortVideoRightInteractionCommentView *commentAction=[[SSShortVideoRightInteractionCommentView alloc] initWithFrame:CGRectMake(45,210,46,62)];
+    [root addSubview:commentAction];
+    commentAction.countLabel.text=@"74";
+    BOOL countVisible=YES;
+    for (NSString *style in @[@"stock",@"flat",@"glass"]) {
+        BOOL stock=[style isEqual:@"stock"];
+        countVisible &= HGAppearanceApply(@{@"enabled":@YES,@"player.rightGlass":stock ? @NO : @YES,
+            @"player.actionStyle":stock ? @"glass" : style},nil);
+        Layout(commentAction);
+        UIView *decoration=Find(commentAction,@"honggo.appearance.material");
+        countVisible &= (stock ? decoration==nil : decoration!=nil) && [commentAction.countLabel.text isEqual:@"74"] && !commentAction.countLabel.hidden &&
+            commentAction.countLabel.alpha>0.99 && (!decoration || (!decoration.userInteractionEnabled &&
+            [commentAction.subviews indexOfObject:decoration]<[commentAction.subviews indexOfObject:commentAction.countLabel]));
+    }
+    Check(countVisible,@"stock, flat and glass preserve the host comment count above the decorative surface");
+    [commentAction removeFromSuperview];HGAppearanceReset();
     SSShortVideoRightInteractionLikeView *like=[[SSShortVideoRightInteractionLikeView alloc] initWithFrame:CGRectMake(20,140,54,65)];
     like.model=[SSShortVideoRightInteractionLikeModel new];like.backgroundColor=UIColor.darkGrayColor;[root addSubview:like];Layout(like);
     UIImage *nativeImage=like.iconImageView.image;UIFont *nativeFont=like.countLabel.font;
     CGRect original=like.frame;
     Check(Count(like,@"honggo.appearance.material")==0,@"disabled appearance adds no playback glass");
     Check(CGAffineTransformIsIdentity(like.transform),@"disabled appearance preserves native geometry");
+    SSShortVideoRightInteractionView *rail=[[SSShortVideoRightInteractionView alloc] initWithFrame:CGRectMake(180,210,46,62)];
+    [root addSubview:rail];
+    SSShortVideoRightInteractionLikeView *touchLike=[[SSShortVideoRightInteractionLikeView alloc] initWithFrame:rail.bounds];
+    touchLike.model=[SSShortVideoRightInteractionLikeModel new];
+    touchLike.likeIcon.frame=CGRectMake(0,0,46,46);
+    touchLike.countLabel.frame=CGRectMake(2,46,42,16);
+    [rail addSubview:touchLike];
+    UIGestureRecognizer *hostTap=touchLike.likeIcon.gestureRecognizers.firstObject;
+    BOOL nativeTargets=YES;
+    for (NSString *style in @[@"glass",@"flat"]) {
+        HGAppearanceApply(@{@"enabled":@YES,@"player.rightGlass":@YES,@"player.actionStyle":style,@"layout.like.x":@0},nil);
+        Layout(touchLike);
+        nativeTargets &= [rail hitTest:CGPointMake(4,23) withEvent:nil]==touchLike.likeIcon &&
+            [rail hitTest:CGPointMake(23,23) withEvent:nil]==touchLike.likeIcon &&
+            touchLike.likeIcon.gestureRecognizers.count==1 && touchLike.likeIcon.gestureRecognizers.firstObject==hostTap;
+    }
+    HGAppearanceSet(@"layout.like.x",@(-30),nil);Layout(touchLike);
+    Check(nativeTargets && [rail hitTest:CGPointMake(-7,23) withEvent:nil]==touchLike.likeIcon &&
+        ![rail hitTest:CGPointMake(-55,23) withEvent:nil],
+        @"glass, flat and offset hearts route taps to the same host recognizer across the visible disc");
+    HGAppearanceSet(@"layout.like.hidden",@YES,nil);
+    Check(![rail hitTest:CGPointMake(-7,23) withEvent:nil],@"hiding the offset heart also removes its extended hit area");
+    [rail removeFromSuperview];HGAppearanceReset();
     Check(HGAppearanceApply(HGAppearancePreset(@"glass"),nil),@"visible preset can be applied");Layout(like);
     UIView *glass=Find(like,@"honggo.appearance.material");
     Check(glass!=nil && !glass.userInteractionEnabled,@"playback glass is attached and does not intercept touches");
@@ -506,15 +617,15 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         Layout(material);
         BOOL correctEffect=reducedTransparency ? material.effect==nil : [material.effect isKindOfClass:expectedEffect];
         matchingGlass &= material.alpha==1 && correctEffect && material.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
-            [material.contentView.backgroundColor isEqual:chromeColor];
+            ((chrome!=like && HGTestOpenGlass(chrome)) ? HGTestGlassRim(material) : [material.contentView.backgroundColor isEqual:chromeColor]);
     }
-    Check(matchingGlass,@"actions header and episode entry share full-opacity dark glass with the same neutral base");
+    Check(matchingGlass,@"header and episode entry leave the video visible beneath their glass, with the action and accessibility fills preserved");
     HGAppearanceApply(@{@"player.headerStyle":@"flat",@"player.actionStyle":actionStyle},nil);
     UIVisualEffectView *dockMaterial=(id)Find(capsule,@"honggo.appearance.material");
     Layout(dockMaterial);
-    Check(dockMaterial.alpha==1 && !dockMaterial.maskView &&
+    Check(dockMaterial.alpha==1 && (HGTestOpenGlass(capsule) ? HGTestGlassRim(dockMaterial) : !dockMaterial.maskView) &&
         (reducedTransparency ? !dockMaterial.effect : [dockMaterial.effect isKindOfClass:expectedEffect]),
-        @"playback dock keeps native glass unmasked at full effect-view opacity");
+        @"playback Dock preserves the native rim at full opacity with a clear center");
     Check(!Find(capsule,@"honggo.appearance.dock.diffuser") && Count(capsule,@"honggo.appearance.material")==1,
         @"dock uses one native glass layer instead of stacking tinted system materials");
     UIVisualEffect *existingEffect=dockMaterial.effect;
@@ -527,6 +638,8 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     RunEpisodeSpacingChecks(root);
     RunPlayerChromeChecks(self.host);
     RunPlayerGestureChecks(self.host.view);
+    RunPlaybackQualityChecks();
+    RunEpisodeMediaChecks();
     RunCommentMovementChecks();
     RunLandscapeChromeChecks(self.host);
 
@@ -543,6 +656,19 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(fabs([(UIFont *)[rich.attributedText attribute:NSFontAttributeName atIndex:0 effectiveRange:nil] pointSize]-20)<0.01,@"rich text restores its original font runs");
 
     FQVShortVideoPlayerCellView *canvas=[[FQVShortVideoPlayerCellView alloc] initWithFrame:CGRectMake(10,350,300,320)];[root addSubview:canvas];
+    UILabel *fiction=[[UILabel alloc] initWithFrame:CGRectMake(-9,20,16,180)];
+    fiction.text=@"剧情内容纯属\nAI\n虚构生成";[canvas addSubview:fiction];
+    UILabel *filing=[[UILabel alloc] initWithFrame:CGRectMake(10,0,200,20)];
+    filing.text=@"Ai（番茄）微短剧备字";[canvas addSubview:filing];
+    HGAppearanceSet(@"player.hideAIFictionNotice",@YES,nil);Layout(canvas);
+    Check(fiction.hidden && !filing.hidden,@"only the separate left edge fiction notice is hidden");
+    fiction.text=@"其他文字";Layout(canvas);
+    Check(!fiction.hidden,@"a reused label with ordinary text regains native visibility");
+    fiction.text=@"剧情内容纯属AI虚构生成";Layout(canvas);
+    HGAppearanceSet(@"player.hideAIFictionNotice",@NO,nil);Layout(canvas);
+    Check(!fiction.hidden && CGRectEqualToRect(fiction.frame,CGRectMake(-9,20,16,180)),
+        @"disabling the fiction notice preference restores the label without changing video framing");
+    [fiction removeFromSuperview];[filing removeFromSuperview];
     TTPlayerView *render=[[TTPlayerView alloc] initWithFrame:CGRectMake(50,0,200,300)];[canvas addSubview:render];
     UIView *hud=[[UIView alloc] initWithFrame:CGRectMake(250,100,44,44)];[canvas addSubview:hud];CGRect hudFrame=hud.frame;
     HGAppearanceSet(@"player.fullscreen",@YES,nil);Layout(render);
@@ -647,6 +773,8 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     UITableViewController *dramaPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [dramaPage setValue:@"drama" forKey:@"group"];[dramaPage loadViewIfNeeded];
     Check(HGMenuPath(dramaPage,@"player.hide.followRank") && HGMenuPath(dramaPage,@"player.hide.seriesBadge") &&
+        HGMenuPath(dramaPage,@"player.hideAIFictionNotice") && HGMenuPath(playerPage,@"player.highestQuality") &&
+        HGMenuPath(playerPage,@"player.hideNowPlayingIsland") &&
         HGMenuPath(dramaPage,@"player.episodeDockWidth") && HGMenuPath(dramaPage,@"player.episodeGlass") &&
         HGMenuPath(playerPage,@"@group.rightButtons") && !HGMenuPath(playerPage,@"@group.role.collect") &&
         noInlineRoleSliders && swipeSetting && swipeSetting.section==0 && [swipeCell.accessoryView isKindOfClass:UISwitch.class],

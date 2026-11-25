@@ -34,6 +34,10 @@
 @implementation HGAGestureDoubleTapFixture
 - (UIGestureRecognizerState)state {return UIGestureRecognizerStateEnded;}
 @end
+@interface FQVShortVideoBaseInfoView : UIView
+@property(nonatomic,strong) UIView *leftContainer;
+@end
+@implementation FQVShortVideoBaseInfoView @end
 @protocol HGAGestureFixtureActions <UIGestureRecognizerDelegate>
 - (void)pinched:(UIPinchGestureRecognizer *)pinch;
 - (void)tapped:(UITapGestureRecognizer *)tap;
@@ -60,6 +64,10 @@ static void RunPlayerGestureChecks(UIView *root) {
     [player addSubview:comment];[canvas addSubview:player];
     player.fullscreenBtn=[UIButton buttonWithType:UIButtonTypeSystem];[player addSubview:player.fullscreenBtn];
     SSShortVideoBottomDistributionView *entry=[SSShortVideoBottomDistributionView new];[player addSubview:entry];
+    FQVShortVideoBaseInfoView *info=[[FQVShortVideoBaseInfoView alloc] initWithFrame:player.bounds];[player addSubview:info];
+    UIView *titleColumn=[UIView new];[info addSubview:titleColumn];info.leftContainer=titleColumn;
+    FQVShortVideoProgressView *progress=[FQVShortVideoProgressView new];[player addSubview:progress];
+    CALayer *nativeMask=[CALayer layer];progress.layer.mask=nativeMask;
     SSShortVideoBottomDistributionView *otherEntry=[SSShortVideoBottomDistributionView new];[root addSubview:otherEntry];
     SSVideoSeriesFeedHeaderView *header=[SSVideoSeriesFeedHeaderView new];[root addSubview:header];
     HGAppearanceProcessView(header);HGAppearanceProcessView(otherEntry);
@@ -101,6 +109,9 @@ static void RunPlayerGestureChecks(UIView *root) {
         HGAGestureChromeCovered(entry) && HGAGestureChromeCovered(header) && HGAGestureChromeCovered(dock) &&
         !HGAGestureChromeCovered(otherEntry) && player.userInteractionEnabled && ![driver gestureRecognizerShouldBegin:tap],
         @"spread covers only this list's HUD and its enclosing header and dock; the paging surface stays interactive");
+    [progress.layer removeAllAnimations];[titleColumn.layer removeAllAnimations];
+    Check(titleColumn.layer.mask && progress.layer.mask && progress.layer.mask!=nativeMask && !info.layer.mask,
+        @"a host fade reset cannot reveal the real progress rail or title column, and their full-screen owner stays interactive");
     [player removeFromSuperview];
     HGAGesturePlayerFixture *nextPlayer=[[HGAGesturePlayerFixture alloc] initWithFrame:player.frame];
     nextPlayer.isSeriesType=YES;[list.view addSubview:nextPlayer];HGAppearanceProcessView(nextPlayer);
@@ -115,6 +126,7 @@ static void RunPlayerGestureChecks(UIView *root) {
     bottom.hidden=YES;bottom.alpha=0.6;
     sample.phase=UIGestureRecognizerStateBegan;[nextDriver pinched:sample];
     Check(!HGAGestureChromeCovered(dock) && !HGAGestureChromeCovered(bottom) && bottom.hidden &&
+        !titleColumn.layer.mask && progress.layer.mask==nativeMask &&
         fabs(bottom.alpha-0.6)<0.01 && bottom.userInteractionEnabled && nextPlayer.cleanChanges==0 && player.cleanChanges==0,
         @"contracting on the next episode restores current native visibility without changing either model's clean state");
     nextPlayer.isCleanMode=YES;[nextDriver pinched:sample];

@@ -885,13 +885,12 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     UIButton *theater=(id)Find(dock,@"honggo.appearance.tab.theater");
     UIButton *extra=(id)Find(dock,@"honggo.appearance.dock.extra");
     Layout(dock);Layout(home);Layout(extra);
-    UIView *extraAncestor=extra.superview;
-    while(extraAncestor && extraAncestor!=dock && ![extraAncestor isKindOfClass:UIVisualEffectView.class])
-        extraAncestor=extraAncestor.superview;
-    UIVisualEffectView *extraMaterial=extraAncestor!=dock ? (id)extraAncestor : nil;
+    UIView *extraSurface=[dock valueForKey:@"extra"];
+    UIVisualEffectView *extraMaterial=(id)Find(extraSurface,@"honggo.appearance.material");
+    BOOL open=HGTestOpenGlass(capsule);
     UIVisualEffectView *capsuleMaterial=(id)Find(capsule,@"honggo.appearance.material");
     CGRect extraInDock=[extra convertRect:extra.bounds toView:dock];
-    Check([extraMaterial isKindOfClass:UIVisualEffectView.class] && extra.superview==extraMaterial.contentView &&
+    Check([extraMaterial isKindOfClass:UIVisualEffectView.class] && extra.superview==(open ? extraSurface : extraMaterial.contentView) &&
         home.superview==capsule && theater.superview==capsule && selection.superview==capsule &&
         [capsule.subviews indexOfObjectIdenticalTo:capsuleMaterial]<[capsule.subviews indexOfObjectIdenticalTo:selection] &&
         [capsule.subviews indexOfObjectIdenticalTo:selection]<[capsule.subviews indexOfObjectIdenticalTo:home],
@@ -911,16 +910,17 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         HGAppearanceSet(@"dock.material",@"clear",nil);
         Layout(capsuleMaterial);
         UIColor *clear=capsuleMaterial.contentView.backgroundColor;
-        Check([regular isEqual:[UIColor colorWithWhite:0 alpha:0.16]] && [clear isEqual:[UIColor colorWithWhite:0 alpha:0.06]],
-            @"dark video uses a lighter shade for clear glass and keeps both foregrounds outside the shade");
+        Check(open ? [regular isEqual:UIColor.clearColor] && [clear isEqual:UIColor.clearColor] && HGTestGlassRim(capsuleMaterial) :
+            [regular isEqual:[UIColor colorWithWhite:0 alpha:0.16]] && [clear isEqual:[UIColor colorWithWhite:0 alpha:0.06]],
+            @"untinted clear and regular glass expose the video while the contrast fallback retains its fill");
         HGAppearanceSet(@"dock.material",@"regular",nil);
         Layout(capsuleMaterial);
     }
     CGFloat selectionAlpha=reduceTransparency || increasedContrast ? 0.18 : 0.09;
     Check(selection && !selection.hidden && !selection.userInteractionEnabled &&
-        HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection) &&
-        !capsuleMaterial.maskView && [selection.backgroundColor isEqual:[UIColor colorWithWhite:1 alpha:selectionAlpha]],
-        @"resting selection uses a subtle light tint over unmasked glass");
+        (open ? [selection.backgroundColor isEqual:UIColor.clearColor] && HGTestGlassRim(capsuleMaterial) :
+         !capsuleMaterial.maskView && [selection.backgroundColor isEqual:[UIColor colorWithWhite:1 alpha:selectionAlpha]]),
+        @"resting glass selection leaves its center transparent and preserves the accessible fallback");
     Check(fabs(selection.bounds.size.height-(capsule.bounds.size.height-2))<0.01 &&
         fabs(CGRectGetMinX(selection.frame)-1)<0.01 && fabs(selection.bounds.size.width-(home.bounds.size.width-2))<0.01 && home.bounds.size.width>=44,
         @"the resting selection fills the first tab up to a one-point seam around the edge");
@@ -943,14 +943,14 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"R15 default icons fit the thicker dock and equally sized independent action");
     home.highlighted=YES;[home setNeedsUpdateConfiguration];Layout(home);
     HGADockPixelCounts pressed=HGADockPixels(home);
-    Check(pressed.blue==0 && HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection),
+    Check(pressed.blue==0 && (open ? [selection.backgroundColor isEqual:UIColor.clearColor] : HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection)),
         @"pressed selection stays neutral after a UIKit configuration update");
     home.highlighted=NO;
     Check(HGASaveDockPreview(host,dock),@"controlled UIKit dock preview renders to PNG for visual review");
     host.selectedIndex=1;HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
     Check(!home.selected && theater.selected &&
         fabs(CGRectGetMidX(selection.frame)-CGRectGetMidX(theater.frame))<0.01 &&
-        !capsuleMaterial.maskView,
+        (open ? HGTestGlassRim(capsuleMaterial) : !capsuleMaterial.maskView),
         @"selection follows the host's selected tab over one continuous material");
     HGADockPixelCounts switched=HGADockPixels(theater);
     Check(switched.blue==0 && switched.brightNeutral>8,
@@ -962,10 +962,10 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGAppearanceLayoutDock(host.customTabBar,host);Layout(capsuleMaterial);Layout(extraMaterial);
     UIColor *lightFill=[UIColor colorWithWhite:1 alpha:reduceTransparency?1:0];
     Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
-    Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && !capsuleMaterial.maskView &&
+    Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && (open ? HGTestGlassRim(capsuleMaterial) : !capsuleMaterial.maskView) &&
         extra.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight &&
-        [capsuleMaterial.contentView.backgroundColor isEqual:lightFill] &&
-        [extraMaterial.contentView.backgroundColor isEqual:lightFill] &&
+        [capsuleMaterial.contentView.backgroundColor isEqual:open ? UIColor.clearColor : lightFill] &&
+        [extraMaterial.contentView.backgroundColor isEqual:open ? UIColor.clearColor : lightFill] &&
         (reduceTransparency ? !capsuleMaterial.effect && !extraMaterial.effect :
             [capsuleMaterial.effect isKindOfClass:expectedEffect] && [extraMaterial.effect isKindOfClass:expectedEffect]),
         @"light catalogue keeps regular system glass across both dock shapes");

@@ -1,5 +1,21 @@
 // Included only by RuntimeIntegration.m. These controlled host notifications
 // verify observer transparency; they do not reproduce the Hongguo player.
+@interface BDRpcError : NSError @end
+@implementation BDRpcError @end
+@interface FQCRpcDoArticleActionResponse : NSObject
+@property(nonatomic) int code;
+@end
+@implementation FQCRpcDoArticleActionResponse @end
+@interface SSShortVideoDiggManager : NSObject
+@property(nonatomic,strong) BDRpcError *error;
+@property(nonatomic,strong) FQCRpcDoArticleActionResponse *response;
+@end
+@implementation SSShortVideoDiggManager
+- (void)performDiggWithData:(void (^)(void))data request:(void (^)(void))request
+                completion:(void (^)(BDRpcError *,FQCRpcDoArticleActionResponse *,BOOL))completion {
+    data();request();completion(self.error,self.response,YES);
+}
+@end
 @interface SSBizVideoPatchAdService : NSObject
 @property(nonatomic) NSUInteger cleanCalls;
 @property(nonatomic) NSUInteger modelCalls;
@@ -115,6 +131,16 @@ static void HGRunPlaybackDiagnosticsChecks(void (^check)(BOOL, NSString *)) {
         @"disabled playback tracing preserves the host finish decision and both object identities");
 
     HGSetEnhancedDiagnostics(YES);
+    SSShortVideoDiggManager *digg=[SSShortVideoDiggManager new];
+    digg.error=[BDRpcError errorWithDomain:NSURLErrorDomain code:-1009 userInfo:nil];
+    digg.response=[FQCRpcDoArticleActionResponse new];
+    digg.response.code=403;
+    __block NSUInteger steps=0;
+    [digg performDiggWithData:^{steps++;} request:^{steps++;}
+        completion:^(BDRpcError *error,FQCRpcDoArticleActionResponse *response,BOOL flag) {
+            if (error==digg.error && response==digg.response && flag) steps++;
+        }];
+    check(steps==3,@"like failure observation forwards the original data, request, error, response and flag exactly once");
     [patch videoListVCContextDidChangeCleanMode:context isCleanMode:YES];
     check(patch.cleanCalls == 2 && patch.lastCleanMode && patch.lastContext == context,
         @"enabled playback tracing preserves entering clean mode and original call count");

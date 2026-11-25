@@ -109,10 +109,13 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];
         flag(@"player.hide.followRank",@"player",@"隐藏追更榜按钮");
         flag(@"player.hide.seriesBadge",@"player",@"隐藏系列剧按钮");
+        flag(@"player.hideAIFictionNotice",@"player",@"隐藏 AI 剧情虚构提示");
         [a addObject:HGADef(@"player.commentMovesVideo",@"panels",@"打开评论区时上移视频",@"bool",@YES,
             @{@"keywords":@"评论 画面 上移 评论区上移 视频上移"})];
         [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
         flag(@"player.fullscreen",@"player",@"横屏铺满");
+        flag(@"player.highestQuality",@"player",@"默认使用最高可用清晰度");
+        flag(@"player.hideNowPlayingIsland",@"player",@"前台播放时隐藏红果灵动岛播放信息");
         flag(@"player.disableEpisodeSwipe",@"player",@"关闭左滑进入全集");
         choice(@"player.separateProgress",@"player",@"合集与进度条分开布局",@[@"show",@"hide"],@[@"自动留出间距",@"原始布局"]);
         choice(@"player.material",@"player",@"播放控件材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）"]);

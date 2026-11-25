@@ -10,6 +10,43 @@ static NSUInteger gameModelCreations;
 static NSUInteger manualGameEntries;
 static NSUInteger nativeGameInitializations;
 
+@interface BDADShortVideoCommonAdManager : NSObject
+@property(nonatomic) NSUInteger cacheLookups;
+@property(nonatomic) NSUInteger requests;
+- (BOOL)checkHomePageAdBasicReqRulesWithEpisodeIndex:(NSInteger)index;
+- (NSString *)homepageCard:(NSString *)card cached:(BOOL)cached;
+@end
+@implementation BDADShortVideoCommonAdManager
+- (BOOL)checkHomePageAdBasicReqRulesWithEpisodeIndex:(NSInteger)index {return index>0;}
+- (NSString *)homepageCard:(NSString *)card cached:(BOOL)cached {
+    if (![self checkHomePageAdBasicReqRulesWithEpisodeIndex:3]) return nil;
+    self.cacheLookups++;
+    if (!cached) self.requests++;
+    return card;
+}
+@end
+
+@interface SSBizVideoAdInsertMaterielData : NSObject
+@property(nonatomic) BOOL isInShortVideoHomePage;
+@end
+@implementation SSBizVideoAdInsertMaterielData @end
+@interface HGHomepageInsertFixture : NSObject
+@property(nonatomic) NSUInteger accepted;
+- (NSInteger)insertModel:(id)model videoIndex:(NSInteger)index isAfter:(BOOL)after;
+- (NSInteger)insertModel:(id)model videoDataModelUUID:(NSInteger)uuid;
+@end
+@implementation HGHomepageInsertFixture
+- (NSInteger)insertModel:(id)model videoIndex:(NSInteger)index isAfter:(BOOL)after {
+    self.accepted++;return index;
+}
+- (NSInteger)insertModel:(id)model videoDataModelUUID:(NSInteger)uuid {
+    self.accepted++;return uuid;
+}
+@end
+@interface FQVShortVideoListVCInsertComponent : HGHomepageInsertFixture @end
+@implementation FQVShortVideoListVCInsertComponent @end
+@interface FQVShortVideoListVCLandSpaceInsertComponent : HGHomepageInsertFixture @end
+@implementation FQVShortVideoListVCLandSpaceInsertComponent @end
 @interface SSVideoSeriesFeedSideBarViewController : UIViewController
 @property(nonatomic, strong) id gameEntranceData;
 @property(nonatomic, copy) NSArray *cellList;
@@ -489,7 +526,7 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     profile.componentsLayout = layout;
     [self check:legacy.gameEntranceData == game && [modern showsGameSection] &&
         [profile.componentsLayout isEqualToArray:layout]
-        name:@"the default sidebar preference preserves all host Game Center sections"];
+        name:@"a disabled sidebar preference preserves all host Game Center sections"];
 
     HGSetEnabled(HGSidebarGameCenter, YES);
     [self check:[legacy.cellList isEqual:@[@"history",@"functions"]] &&
@@ -539,7 +576,7 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     takeScreenshot();
     [self check:!HGIsEnabled(HGScreenshotShopping) && shopping.systemScreenshotCallbacks == 1 &&
         shopping.searchCards == 1 && [clean canSearchWithService:shopping]
-        name:@"default screenshot preference preserves automatic shopping in the two host flows"];
+        name:@"a disabled screenshot preference preserves automatic shopping in the two host flows"];
 
     Method gate = class_getInstanceMethod(SSBizVideoScanShoppingService.class, @selector(enableVideoSearch));
     IMP native = method_getImplementation(gate);
@@ -934,6 +971,8 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     self.checks = [NSMutableArray array];
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     [defaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
+    // Start this opt-out/opt-in series with explicit off choices before installing any hooks.
+    for (HGFeature f=0;f<HGFeatureCount;f++) HGSetEnabled(f,NO);
     SSShortVideoAdService *feed = [SSShortVideoAdService new];
     SSBizVideoAdCommonAdClient *mismatch = [SSBizVideoAdCommonAdClient new];
     SSBizVideoPatchAdService *patch = [SSBizVideoPatchAdService new];
@@ -956,6 +995,11 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     Method naturalInsert = class_getInstanceMethod(SSNaturalAdManager.class, @selector(tryInsertDataToSaaS:));
     IMP originalNaturalInsert = method_getImplementation(naturalInsert);
     HGInstallAds();
+    BDADShortVideoCommonAdManager *homepageAds=[BDADShortVideoCommonAdManager new];
+    [self check:[[homepageAds homepageCard:@"quote" cached:YES] isEqual:@"quote"] &&
+        [[homepageAds homepageCard:@"external-game" cached:NO] isEqual:@"external-game"] &&
+        homepageAds.cacheLookups==2 && homepageAds.requests==1
+        name:@"an explicit feed opt-out keeps the original homepage cache and request paths"];
     [self checkSidebarGameCenterWithGames:games];
     [self checkProfileShortcutColumns];
     [self checkScreenshotShopping];
@@ -999,6 +1043,21 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     [defaults setBool:YES forKey:@"HongguoGlass.feed"];
     [defaults setBool:YES forKey:@"HongguoGlass.patch"];
     HGInstallAds();
+    [self check:![homepageAds homepageCard:@"quote" cached:YES] &&
+        ![homepageAds homepageCard:@"external-game" cached:NO] &&
+        homepageAds.cacheLookups==2 && homepageAds.requests==1
+        name:@"the recommendation gate omits the entire sponsored card before cache lookup or a fresh request"];
+    SSBizVideoAdInsertMaterielData *prepared=[SSBizVideoAdInsertMaterielData new];
+    BOOL preserved=YES;
+    for (HGHomepageInsertFixture *queue in @[[FQVShortVideoListVCInsertComponent new],[FQVShortVideoListVCLandSpaceInsertComponent new]]) {
+        prepared.isInShortVideoHomePage=YES;
+        preserved &= [queue insertModel:prepared videoIndex:7 isAfter:YES]==2 &&
+            [queue insertModel:prepared videoDataModelUUID:8]==2 && !queue.accepted;
+        prepared.isInShortVideoHomePage=NO;
+        preserved &= [queue insertModel:prepared videoIndex:7 isAfter:YES]==7 &&
+            [queue insertModel:@"ordinary drama" videoDataModelUUID:8]==8 && queue.accepted==2;
+    }
+    [self check:preserved name:@"both queues reject a prepared homepage ad with the native decline result and preserve unrelated insertions"];
     [self checkNaturalAdInsertionEnabled:YES original:originalNaturalInsert];
     [self checkGameBindingHidden:YES];
     [self checkForwardingInterposers];

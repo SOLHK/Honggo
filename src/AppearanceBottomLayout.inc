@@ -17,8 +17,22 @@
 @property(nonatomic,strong) NSArray<HGABottomPosition *> *groups;
 @property(nonatomic) CGFloat lastLift;
 @property(nonatomic) CGFloat lastProgressLift;
+@property(nonatomic) CGFloat measuredDockLift;
+@property(nonatomic,weak) UIWindow *resumeWindow;
+@property(nonatomic) CGSize resumeSize;
+- (CGFloat)dockLiftForOverlap:(CGFloat)overlap resuming:(BOOL)resuming movingSideways:(BOOL)moving;
 @end
-@implementation HGABottomLayoutState @end
+@implementation HGABottomLayoutState
+- (CGFloat)dockLiftForOverlap:(CGFloat)overlap resuming:(BOOL)resuming movingSideways:(BOOL)moving {
+    if(!isnan(overlap)) {
+        CGFloat lift=isfinite(overlap) && overlap>0 && overlap<=64 ? overlap : 0;
+        self.measuredDockLift=lift;
+        return lift;
+    }
+    if(resuming)return self.measuredDockLift;
+    return moving ? self.lastProgressLift : 0;
+}
+@end
 static char HGABottomLayoutKey;
 
 static NSArray<NSString *> *HGABottomControlClasses(void) {
@@ -51,6 +65,7 @@ static void HGARestoreBottomState(HGABottomLayoutState *state) {
     HGARestoreBottomPosition(state.progress);
     for(HGABottomPosition *position in state.groups)HGARestoreBottomPosition(position);
     state.groups=nil;state.lastLift=0;state.lastProgressLift=0;
+    state.measuredDockLift=0;state.resumeWindow=nil;
 }
 // Before the drawer starts moving the feed, give back only centers still
 // owned by this adapter. The host may already have laid out a reused cell.
@@ -160,7 +175,7 @@ static BOOL HGABottomCanvasIsCurrent(UIView *control, UIScrollView **nativeFeed,
             horizontalScroll |= scroll.contentSize.width > scroll.bounds.size.width + 1;
         }
     }
-    *nativeFeed = feed;
+    if(nativeFeed)*nativeFeed=feed;
     if (!CGAffineTransformEqualToTransform(canvas.transform, CGAffineTransformMakeTranslation(canvas.transform.tx, 0)) ||
         !HGABottomNativeCoordinates(control, canvas)) return NO;
     CGRect viewport = feed ? [feed convertRect:feed.bounds toView:window] : window.bounds;
@@ -262,9 +277,13 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     UIView *control=HGABottomControlForView(view);
     if(!control)return;
     HGABottomLayoutState *state=objc_getAssociatedObject(control,&HGABottomLayoutKey);
+    BOOL resuming=state.resumeWindow && state.resumeWindow==control.window &&
+        CGSizeEqualToSize(state.resumeSize,control.bounds.size) && HGAppearanceDockEnabled();
+    if(state.resumeWindow && !resuming){state.resumeWindow=nil;state.measuredDockLift=0;}
     if(!HGAppearanceEnabled() || ![HGAppearanceString(@"player.separateProgress") isEqual:@"show"] ||
-        !HGAVisible(control) || control.bounds.size.height<=control.bounds.size.width ||
+        control.bounds.size.height<=control.bounds.size.width ||
         HGABottomHasCustomGeometry()) {HGARestoreBottomState(state);return;}
+    if(!HGAVisible(control)) {if(!resuming)HGARestoreBottomState(state);return;}
     UIScrollView *feed = nil;
     BOOL visibleInFeed = NO;
     BOOL movingSideways = NO;
@@ -272,7 +291,10 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     if (feed && !currentCanvas) {
         [HGADeferredViews(feed, &HGDeferredHUDsKey) addObject:control];
         HGARegisterCategoryFeed(feed);
-        if (!visibleInFeed && !(movingSideways && state.lastLift > 0)) {HGARestoreBottomState(state);return;}
+        if (!visibleInFeed && !(movingSideways && state.lastLift > 0)) {
+            if(!resuming)HGARestoreBottomState(state);
+            return;
+        }
     }
     UIView *progress=nil,*wrapper=nil,*info=nil;
     BOOL ambiguous=NO,ambiguousInfo=NO;
@@ -295,12 +317,17 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     if(ambiguousInfo)info=nil;
     if(ambiguous || !progress || !wrapper || !HGABottomNativeCoordinates(wrapper,control) ||
         !HGABottomNativeCoordinates(progress,control)) {
+        if(resuming && !ambiguous && (!wrapper || wrapper==state.entry.view) && (!progress || progress==state.progress.view) &&
+            state.entry.view.superview==state.entry.parent && state.progress.view.superview==state.progress.parent)return;
         HGARestoreBottomState(state);return;
     }
     if(!state) {
         state=[HGABottomLayoutState new];
         objc_setAssociatedObject(control,&HGABottomLayoutKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         HGARegisterView(control);
+    }
+    if((state.entry.view && state.entry.view!=wrapper) || (state.progress.view && state.progress.view!=progress)) {
+        state.measuredDockLift=0;state.resumeWindow=nil;resuming=NO;
     }
     state.entry=HGABottomPositionForView(state.entry,wrapper);
     state.info=HGABottomPositionForView(state.info,info);
@@ -329,21 +356,21 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
         // its observed compact geometry, use a bounded ten-point nudge; do not
         // infer a thin rail from the entire touch strip or reserve extra space.
         needed=10;
-    } else {HGARestoreBottomState(state);return;}
+    } else {if(!resuming)HGARestoreBottomState(state);return;}
     if(!isfinite(needed) || needed>20) {HGARestoreBottomState(state);return;}
     // The outgoing video and Dock may move in different coordinate spaces.
     // Carry forward the settled clearance until the horizontal transition ends.
-    CGFloat progressLift=movingSideways && HGAppearanceDockEnabled() ? state.lastProgressLift : 0;
+    CGFloat overlap=NAN;
     CGRect dock=currentCanvas ? HGADockRectInView(control) : CGRectNull;
     if(measured && currentCanvas && !CGRectIsNull(dock) && !CGRectIsEmpty(dock) &&
         CGRectGetMinY(dock)>height*0.65 && CGRectGetMinY(dock)<height+100 &&
         CGRectGetMaxX(dock)>width*0.25 && CGRectGetMinX(dock)<width*0.75) {
-        CGFloat overlap=CGRectGetMaxY(railRect)+10-CGRectGetMinY(dock);
         // Small dock-height/lift changes share one offset across the HUD. A
         // radically different host geometry remains native instead of moving
         // controls far into the video or modifying its paging viewport.
-        if(isfinite(overlap) && overlap>0 && overlap<=64)progressLift=overlap;
+        overlap=CGRectGetMaxY(railRect)+10-CGRectGetMinY(dock);
     }
+    CGFloat progressLift=[state dockLiftForOverlap:overlap resuming:resuming movingSideways:movingSideways && HGAppearanceDockEnabled()];
     CGFloat lift=MIN(16,needed)+progressLift;
     BOOL adjacentInfo=NO;
     if(info && HGABottomNativeCoordinates(info,control) && ![wrapper isDescendantOfView:info] &&
@@ -372,4 +399,48 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
             @"railMeasured":@(measured),@"capped":@(needed>16),
             @"sliderSizePreserved":@YES,@"mode":@"native-hud-centers"});
     state.lastLift=lift;state.lastProgressLift=progressLift;
+}
+
+// The multitasking card is drawn from the last settled player. When the app
+// becomes live the Dock can be absent for one layout. Its 3pt clearance must
+// not disappear from the episode row, action rail and progress rail together.
+static NSUInteger HGABottomAppSwitch;
+static void HGAPrepareAppSwitchHUDs(void) {
+    HGABottomAppSwitch++;
+    for(UIView *control in HGAManaged.allObjects) {
+        HGABottomLayoutState *state=objc_getAssociatedObject(control,&HGABottomLayoutKey);
+        if(state.measuredDockLift<=0 || !HGAVisible(control) || !HGABottomCanvasIsCurrent(control,NULL,NULL,NULL))continue;
+        state.resumeWindow=control.window;state.resumeSize=control.bounds.size;
+    }
+}
+static void HGASettleAppSwitchHUDs(BOOL release) {
+    [UIView performWithoutAnimation:^{
+        for(UIView *control in HGAManaged.allObjects) {
+            HGABottomLayoutState *state=objc_getAssociatedObject(control,&HGABottomLayoutKey);
+            UIWindow *window=state.resumeWindow;
+            if(!window)continue;
+            if(release)state.resumeWindow=nil;
+            if(control.window!=window){HGARestoreBottomState(state);continue;}
+            for(UIView *bar in HGABars.allObjects)
+                if(bar.window==window && HGAVisible(bar)){[bar setNeedsLayout];[bar layoutIfNeeded];}
+            [control setNeedsLayout];[control layoutIfNeeded];
+        }
+    }];
+}
+static void HGAInstallAppSwitchHUDs(void) {
+    NSNotificationCenter *notes=NSNotificationCenter.defaultCenter;
+    [notes addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:NSOperationQueue.mainQueue
+        usingBlock:^(NSNotification *note) { HGAPrepareAppSwitchHUDs(); }];
+    [notes addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue
+        usingBlock:^(NSNotification *note) {
+            NSUInteger generation=HGABottomAppSwitch;
+            [CATransaction begin];
+            [CATransaction setCompletionBlock:^{
+                dispatch_async(dispatch_get_main_queue(),^{
+                    if(generation==HGABottomAppSwitch)HGASettleAppSwitchHUDs(YES);
+                });
+            }];
+            HGASettleAppSwitchHUDs(NO);
+            [CATransaction commit];
+        }];
 }

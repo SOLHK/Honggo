@@ -164,7 +164,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     UIView *menu = HGFindMenus(header).firstObject;
     [self check:menu.window != nil && !menu.hidden && menu.alpha > 0 && !HGIsEnabled(HGGlass) &&
         CGRectIntersectsRect([menu convertRect:menu.bounds toView:self.window], self.window.bounds)
-        name:@"menu is visible with all feature switches off"];
+        name:@"menu is visible with the glass switch off"];
     UILabel *menuTitle=[menu valueForKey:@"titleLabel"];
     NSUInteger labels=0;
     for (UIView *child in menu.subviews) if ([child isKindOfClass:UILabel.class]) labels++;
@@ -316,7 +316,8 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
             NSUInteger index = (NSUInteger)toggle.tag;
             [seenFeatures addObject:@(index)];
             BOOL desired = index % 2 == 0;
-            saved = saved && [toggle isKindOfClass:UISwitch.class] && !toggle.on && index < HGFeatureCount;
+            BOOL initialOn=index!=HGGlass && index!=HGGlassControls;
+            saved = saved && [toggle isKindOfClass:UISwitch.class] && toggle.on==initialOn && index < HGFeatureCount;
             toggle.on = desired;
             [toggle sendActionsForControlEvents:UIControlEventValueChanged];
             NSString *key = [@"HongguoGlass." stringByAppendingString:keys[index]];

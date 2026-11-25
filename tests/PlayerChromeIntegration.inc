@@ -1,5 +1,6 @@
 @interface FQVShortVideoVPlayerControlView : UIView <UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIButton *fullscreenBtn;
+@property(nonatomic) CGRect playerViewFrame;
 @property(nonatomic,strong) UIButton *playBtn;
 @property(nonatomic,strong,readonly) UIPanGestureRecognizer *progressPanGesture;
 @property(nonatomic) NSUInteger nativeClipPasses;
@@ -127,7 +128,7 @@
 
 static void RunDanmakuChromeChecks(UIView *root) {
     NSDictionary *saved=HGAppearanceValues();
-    HGAppearanceApply(@{@"enabled":@YES,@"player.controlsGlass":@YES},nil);
+    HGAppearanceApply(@{@"enabled":@YES,@"player.controlsGlass":@YES,@"player.material":@"clear"},nil);
 
     FQCShortVideoDanmakuEntranceView *entrance=[[FQCShortVideoDanmakuEntranceView alloc] initWithFrame:CGRectMake(20,180,90,32)];
     entrance.capsuleView=[[UIView alloc] initWithFrame:entrance.bounds];
@@ -149,8 +150,10 @@ static void RunDanmakuChromeChecks(UIView *root) {
     [root addSubview:entrance];
     HGAppearanceProcessView(entrance);
     UIImage *foreground=entrance.iconView.image;
+    UIVisualEffectView *compactGlass=(id)Find(entrance.clickView,@"honggo.appearance.material");
+    Layout(compactGlass);
     Check(!Find(entrance.capsuleView,@"honggo.appearance.material") &&
-        Find(entrance.clickView,@"honggo.appearance.material").superview==entrance.clickView &&
+        compactGlass.superview==entrance.clickView && (!HGTestOpenGlass(entrance) || HGTestGlassRim(compactGlass)) &&
         HGAActionPixelAlpha(entrance.legacyImage,5,10)>240 &&
         HGAActionPixelAlpha(foreground,5,10)==0 && HGAActionPixelAlpha(foreground,16,16)>240,
         @"compact danmaku targets the visible button and replaces only its known baked dark plate");
@@ -162,7 +165,9 @@ static void RunDanmakuChromeChecks(UIView *root) {
     UIImage *combined=[UIImage systemImageNamed:@"checkmark.circle.fill"];
     entrance.iconView.image=combined;
     HGAppearanceProcessView(entrance);
-    Check(Find(entrance.capsuleView,@"honggo.appearance.material") &&
+    UIVisualEffectView *combinedGlass=(id)Find(entrance.capsuleView,@"honggo.appearance.material");
+    Layout(combinedGlass);
+    Check(combinedGlass && (!HGTestOpenGlass(entrance) || HGTestGlassRim(combinedGlass)) &&
         !Find(entrance.clickView,@"honggo.appearance.material") && entrance.iconView.image==combined,
         @"combined danmaku moves glass to the capsule and keeps its native state image");
 
@@ -292,6 +297,14 @@ static void RunPlayerBadgeChecks(UIView *host) {
     badge.dataModel.reasonText=@"系列剧·已上线5季";
     badge.night=YES;
     [badge modelDidUpdate];
+    Layout(glass);
+    NSString *savedMaterial=HGAppearanceString(@"player.material");
+    if(HGTestOpenGlass(badge) && ![savedMaterial isEqual:@"blur"])Check(HGTestGlassRim(glass) && badge.gradientBackgroundView.hidden,
+        @"series badge removes the original gradient and lets the video show through the native glass rim");
+    HGAppearanceSet(@"player.material",@"blur",nil);[badge modelDidUpdate];Layout(glass);
+    Check(!glass.maskView && (UIAccessibilityIsReduceTransparencyEnabled() ? !glass.effect : [glass.effect isKindOfClass:UIBlurEffect.class]),
+        @"the series badge respects an explicit classic-blur preference");
+    HGAppearanceSet(@"player.material",savedMaterial,nil);[badge modelDidUpdate];
     Check(!badge.hidden && [Find(badge,@"honggo.appearance.playerBadgeGlyph").tintColor isEqual:UIColor.whiteColor],
           @"the same reused control shows a series link independently with night-theme ink");
     HGAppearanceSet(@"player.hide.seriesBadge",@YES,nil);
@@ -307,7 +320,30 @@ static void RunPlayerBadgeChecks(UIView *host) {
     HGAppearanceSet(@"player.hide.seriesBadge",@NO,nil);
 }
 
+@interface SSShortVideoRightInteractionAvatarView : UIControl @end
+@implementation SSShortVideoRightInteractionAvatarView @end
+static void RunOffscreenAvatarChecks(UIView *root) {
+    NSDictionary *saved=HGAppearanceValues();
+    HGAppearanceApply(@{@"enabled":@YES,@"layout.avatar.hidden":@NO,@"layout.avatar.x":@0,
+        @"layout.avatar.y":@0,@"layout.avatar.scale":@1},nil);
+    CGRect slot=CGRectMake(CGRectGetMaxX(root.window.bounds)-58,372,46,338);
+    SSShortVideoRightInteractionView *rail=[[SSShortVideoRightInteractionView alloc]
+        initWithFrame:[root.window convertRect:slot toView:root]];
+    SSShortVideoRightInteractionAvatarView *avatar=[[SSShortVideoRightInteractionAvatarView alloc]
+        initWithFrame:CGRectMake(53,0,46,46)];
+    UIView *star=[[UIView alloc] initWithFrame:CGRectMake(0,54,46,62)];
+    [rail addSubview:star];[rail addSubview:avatar];[root addSubview:rail];
+    Layout(rail);
+    Check(avatar.hidden && !star.hidden && !rail.clipsToBounds,
+        @"the captured off-rail avatar cannot leak its 5pt sliver over the video or clip its neighboring star");
+    avatar.frame=CGRectMake(0,0,46,46);Layout(rail);
+    Check(!avatar.hidden,@"reusing the same rail for an on-screen author restores the native avatar");
+    HGAppearanceSet(@"layout.avatar.hidden",@YES,nil);Layout(rail);
+    Check(avatar.hidden,@"the explicit avatar switch remains authoritative on a visible slot");
+    [rail removeFromSuperview];HGAppearanceApply(saved,nil);
+}
 static void RunPlayerChromeChecks(SSTabBarController *host) {
+    RunOffscreenAvatarChecks(host.view);
     RunDanmakuChromeChecks(host.view);
     NSDictionary *saved=HGAppearanceValues();
     HGAppearanceApply(@{@"enabled":@YES,@"player.controlsGlass":@YES,@"panels.episodes":@YES,@"panels.material":@"blur"},nil);

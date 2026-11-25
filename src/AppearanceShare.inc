@@ -482,6 +482,31 @@ static BOOL HGAIsShareCell(UIView *view) {
 static BOOL HGAIsActionPanelSurface(UIView *view) {
     return HGAPanelPart(view,HGAActionPanelSurfaces());
 }
+// setupTabItems runs before the header takes its first countText snapshot.
+// Seed only the current video's comment tab from the same opening parameter
+// that the host passed for this panel. Later server counts still take priority.
+static void HGAPrimeEpisodeCommentCount(id panel) {
+    id param=HGReadObjectGetter(panel,"param");
+    SEL countSel=sel_registerName("commentCount");
+    Method countGetter=class_getInstanceMethod(object_getClass(param),countSel);
+    if (!countGetter || strcmp(method_getTypeEncoding(countGetter),"q16@0:8")) return;
+    NSInteger count=((NSInteger(*)(id,SEL))objc_msgSend)(param,countSel);
+    if (count<=0) return;
+    NSArray *items=HGReadObjectGetter(panel,"tabItems");
+    if (![items isKindOfClass:NSArray.class]) return;
+    SEL type=sel_registerName("type"),update=sel_registerName("updateCount:");
+    for (id item in items) {
+        Class cls=object_getClass(item);
+        Method getType=class_getInstanceMethod(cls,type),setCount=class_getInstanceMethod(cls,update);
+        if (!getType || strcmp(method_getTypeEncoding(getType),"Q16@0:8") ||
+            !setCount || strcmp(method_getTypeEncoding(setCount),"v24@0:8q16") ||
+            ((NSUInteger(*)(id,SEL))objc_msgSend)(item,type)!=0) continue;
+        NSString *formatted=HGReadObjectGetter(item,"countText");
+        if (!formatted || ([formatted isKindOfClass:NSString.class] && !formatted.length))
+            ((void(*)(id,SEL,NSInteger))objc_msgSend)(item,update,count);
+        return;
+    }
+}
 static BOOL HGAIsCommentSurface(UIView *view) {
     return HGAPanelPart(view,HGACommentSurfaces());
 }

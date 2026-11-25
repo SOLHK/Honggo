@@ -222,7 +222,7 @@ static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@
 static BOOL HGADockLiquidSelection(void) {
     return [HGAppearanceString(@"dock.selectionStyle") isEqual:@"glass"];
 }
-static UIVisualEffectView *HGADockRestingLens(UIVisualEffectView *lens,UIView *selection,CGRect frame,BOOL enabled) {
+static UIVisualEffectView *HGADockRestingLens(UIVisualEffectView *lens,UIView *selection,CGRect frame,BOOL enabled,BOOL clearCenter) {
     if(!enabled || CGRectIsNull(frame)) {
         lens.effect=nil;[lens removeFromSuperview];return nil;
     }
@@ -236,6 +236,7 @@ static UIVisualEffectView *HGADockRestingLens(UIVisualEffectView *lens,UIView *s
         if(!CGRectEqualToRect(lens.frame,frame))lens.frame=frame;
         if(lens.superview!=selection.superview)[selection.superview insertSubview:lens aboveSubview:selection];
         if(!lens.effect)lens.effect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
+        HGAUpdateGlassRim(lens,clearCenter);
     }
     return lens;
 }
@@ -333,9 +334,11 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
     glass.userInteractionEnabled=YES;
     glass.accessibilityElementsHidden=NO;
     glass.overlayColor=fill;
+    glass.clearCenter=YES;
     glass.interactiveGlass=interactive;
     [glass requestMaterialRefresh];
-    return glass.contentView ?: surface;
+    // Keep the glyph and its touch target outside the optical mask.
+    return HGAClearGlassCenter(style,surface) ? surface : (glass.contentView ?: surface);
 }
 
 // Use the same UIKit track and selected fill as the header's channel switch.
@@ -1086,6 +1089,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
     BOOL haptics=HGAppearanceFlag(@"dock.haptics");
     BOOL liquidSelection=HGADockLiquidSelection();
+    BOOL open=!flat && HGAClearGlassCenter(style,self.capsule);
     UIColor *base=translucent ? [UIColor colorWithWhite:light?1:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor;
     UIColor *fill=[base colorWithAlphaComponent:!translucent || reduced ? 1 : 0];
     NSString *content=HGAppearanceString(@"dock.content");
@@ -1095,7 +1099,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.capsule.layer.cornerRadius=radius;
     BOOL systemEligible=NO;
     if(@available(iOS 26.0,*))
-        systemEligible=liquidSelection && haptics && fabs(self.hostBar.frame.origin.x)<=2.0 && !flat && HGNativeGlassConfigured() && !self.collapsed && !reduced && visible.count>1 &&
+        systemEligible=!open && liquidSelection && haptics && fabs(self.hostBar.frame.origin.x)<=2.0 && !flat && HGNativeGlassConfigured() && !self.collapsed && !reduced && visible.count>1 &&
             ([style isEqual:@"regular"] || [style isEqual:@"clear"]) && radius>=height/2-0.5 &&
             ([content isEqual:@"icon"] || !HGAppearanceFlag(@"fonts.enabled"));
     BOOL useSystem=NO;
@@ -1107,6 +1111,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(self.systemTabBar)[self removeSystemDock];
         if(!self.collapsed) {
             NSString *reason=@"Configured material or shape requires compatibility";
+            if(open)reason=@"Dock draws clear glass around the video";
             if(!haptics)reason=@"Dock handles touches without UIKit selection feedback";
             if(!liquidSelection)reason=@"Plain selection";
             if(flat)reason=@"UIKit segmented track";
@@ -1121,7 +1126,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     BOOL videoGlass=selected==0 && !flat && !reduced && ([style isEqual:@"regular"] || [style isEqual:@"clear"]);
     // Dim the video sampled by the UIKit platter. The dedicated renderer
     // can blend directly over its glass without tinting text or symbols.
-    if(videoGlass)fill=[UIColor colorWithWhite:0 alpha:[style isEqual:@"clear"] ? 0.06 : 0.16];
+    if(open)fill=UIColor.clearColor;
+    else if(videoGlass)fill=[UIColor colorWithWhite:0 alpha:[style isEqual:@"clear"] ? 0.06 : 0.16];
     UIColor *backing=useSystem && videoGlass ? fill : UIColor.clearColor;
     if(![self.capsule.backgroundColor isEqual:backing])self.capsule.backgroundColor=backing;
     if(flat || useSystem)HGARemoveGlass(self.capsule);
@@ -1155,17 +1161,20 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.selectionPan.enabled=!useSystem && !self.hidden && !self.collapsed && !UIAccessibilityIsVoiceOverRunning();
     self.dockTouch.enabled=!self.hidden && !UIAccessibilityIsVoiceOverRunning();
     self.capsule.layer.cornerRadius=radius;
-    self.capsule.layer.borderWidth=!flat && !useSystem && translucent && !classicBlur ? 0.5 : 0;
+    self.capsule.layer.borderWidth=!flat && !useSystem && translucent && !classicBlur && !open ? 0.5 : 0;
     self.capsule.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
     self.extra.layer.cornerRadius=circle/2;
     self.expand.layer.cornerRadius=22;
-    self.extra.layer.borderWidth=!flat && translucent && !classicBlur ? 0.5 : 0;
+    self.extra.layer.borderWidth=!flat && translucent && !classicBlur && !open ? 0.5 : 0;
     self.extra.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
     BOOL darkSurface=self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-    UIColor *selectionBg=HGADockSelectionColor(self.capsule.traitCollection,flat || !liquidSelection);
+    BOOL openSelection=liquidSelection && open;
+    UIColor *selectionBg=openSelection ? UIColor.clearColor : HGADockSelectionColor(self.capsule.traitCollection,flat || !liquidSelection);
     UIColor *selectionEdge=[UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.23:0.11];
     self.selection.backgroundColor=selectionBg;
-    self.selection.layer.borderWidth=liquidSelection ? 0.5 : 0;
+    self.selection.layer.borderWidth=liquidSelection && !openSelection ? 0.5 : 0;
+    self.selectionHighlight.backgroundColor=openSelection ? UIColor.clearColor : [UIColor colorWithWhite:1 alpha:0.16];
+    self.selectionHighlight.layer.borderWidth=openSelection ? 0 : 1;
     self.selection.layer.borderColor=selectionEdge.CGColor;
     CGRect selectedFrame=CGRectNull;
     NSInteger flatIndex=UISegmentedControlNoSegment;
@@ -1221,7 +1230,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         [self.dragLens removeFromSuperview];self.dragLens=nil;
     }else [self prepareSelectionLens];
     BOOL restingGlass=liquidSelection && !reduced && HGNativeGlassConfigured();
-    self.restingLens=HGADockRestingLens(self.restingLens,self.selection,selectedFrame,restingGlass && !useSystem);
+    self.restingLens=HGADockRestingLens(self.restingLens,self.selection,selectedFrame,restingGlass && !useSystem,openSelection);
     self.restingLens.hidden=self.selectionDragging || self.pressedTab || self.selectionSettling;
     NSString *action=HGAppearanceString(@"dock.action");
     NSUInteger detachedIndex=[HGATabIDs() indexOfObject:action];
@@ -1246,11 +1255,11 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.extraSelection.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         self.extraSelection.layer.cornerRadius=MIN(inner.size.width,inner.size.height)/2;
         self.extraSelection.backgroundColor=selectionBg;
-        self.extraSelection.layer.borderWidth=liquidSelection ? 0.5 : 0;
+        self.extraSelection.layer.borderWidth=liquidSelection && !openSelection ? 0.5 : 0;
         self.extraSelection.layer.borderColor=selectionEdge.CGColor;
     }
     self.extraRestingLens=HGADockRestingLens(self.extraRestingLens,self.extraSelection,self.extraButton.frame,
-        restingGlass && detachedSelected && !self.extra.hidden);
+        restingGlass && detachedSelected && !self.extra.hidden,openSelection);
     self.extraButton.selected=detachedSelected;
     self.extraButton.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[detachedIndex]);
     self.extraButton.accessibilityTraits=UIAccessibilityTraitButton | (detachedSelected?UIAccessibilityTraitSelected:0);
@@ -1345,6 +1354,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(self.selection.layer.cornerRadius!=radius)self.selection.layer.cornerRadius=radius;
     if(!CGRectEqualToRect(self.dragLens.frame,frame))self.dragLens.frame=frame;
     if(self.dragLens.layer.cornerRadius!=radius)self.dragLens.layer.cornerRadius=radius;
+    if(self.dragLens)HGAUpdateGlassRim(self.dragLens,!self.flatSegments && HGAClearGlassCenter(HGAppearanceString(@"dock.material"),self.capsule));
     if(!CGRectEqualToRect(self.selectionHighlight.frame,self.selection.bounds))self.selectionHighlight.frame=self.selection.bounds;
     if(self.selectionHighlight.layer.cornerRadius!=radius)self.selectionHighlight.layer.cornerRadius=radius;
 }
@@ -1408,6 +1418,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         // The lens refracts the video, while the navigation glyphs stay sharp.
         [self.capsule insertSubview:lens aboveSubview:self.selection];
         lens.effect=effect;
+        HGAUpdateGlassRim(lens,!self.flatSegments && HGAClearGlassCenter(style,self.capsule));
     }
 }
 - (void)showSelectionMotionMaterial {

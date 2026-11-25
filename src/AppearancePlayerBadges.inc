@@ -96,8 +96,11 @@ static void HGAApplyPlayerBadge(UIView *badge,BOOL tag) {
     if(state.paint!=paint)HGASetHidden(state.paint,NO);
     state.paint=paint;
     if(paint)HGASetHidden(paint,YES);
-    HGAInstallGlass(badge,HGALiquidPlayerMaterial(),CGRectGetHeight(badge.bounds)/2,0);
+    BOOL series=[key isEqual:@"player.hide.seriesBadge"];
+    NSString *material=series ? HGAppearanceString(@"player.material") : HGALiquidPlayerMaterial();
+    HGAInstallGlass(badge,material,CGRectGetHeight(badge.bounds)/2,0);
     HGAAppearanceMaterial *glass=HGAState(badge,NO).glass;
+    glass.clearCenter=series;
     if(!glass.interactiveGlass){glass.interactiveGlass=YES;[glass requestMaterialRefresh];}
     BOOL night=badge.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
     HGABoolGetter(badge,@"fqv_isDarkMode",&night);

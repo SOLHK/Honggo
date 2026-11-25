@@ -46,12 +46,21 @@ int main(void) {
         [defaults setBool:YES forKey:@"Honggo.enhancedDiagnostics"];
         [defaults setObject:@"unrelated-prefix-key" forKey:@"HongguoGlass.futureSetting"];
 
+        for (HGFeature f=0;f<HGFeatureCount;f++) [defaults removeObjectForKey:HGPreferenceKey(f)];
+        [defaults setBool:NO forKey:HGPreferenceKey(HGSplash)];
+        HGCheck(!HGIsEnabled(HGSplash) && HGIsEnabled(HGSidebarGameCenter) && HGIsEnabled(HGScreenshotShopping),
+            @"registering ad defaults respects an explicit off value from an earlier installation");
         HGPreferencesReset();
-        HGCheck(!HGIsEnabled(HGSidebarGameCenter), @"sidebar Game Center stays visible by default");
-        HGCheck(!HGIsEnabled(HGScreenshotShopping), @"automatic screenshot shopping is unchanged by default");
+        NSDictionary *initial=HGCurrentFeatures();
+        BOOL matches=YES;
+        for (HGFeature f=0;f<HGFeatureCount;f++) {
+            BOOL expected=f!=HGGlass && f!=HGGlassControls;
+            matches &= HGIsEnabled(f)==expected && [initial[HGFeatureIdentifier(f)] isEqual:@(expected)];
+        }
+        HGCheck(matches,@"all sixteen ad switches start enabled in runtime and backup while the two glass switches stay off");
         HGSetEnabled(HGGlass, YES);
-        HGSetEnabled(HGFeed, YES);
-        HGSetEnabled(HGMarketing, YES);
+        HGSetEnabled(HGSplash, NO);
+        HGSetEnabled(HGRedPacket, NO);
         HGSetEnabled(HGGlassControls, YES);
         HGCheck(HGIsEnabled(HGGlass) && HGIsEnabled(HGFeed) && !HGIsEnabled(HGSplash),
             @"known feature switches persist independently");
@@ -163,9 +172,7 @@ int main(void) {
             @"non-string direct keys are safely rejected");
 
         HGPreferencesReset();
-        BOOL allOff = YES;
-        for (HGFeature feature = 0; feature < HGFeatureCount; feature++) allOff &= !HGIsEnabled(feature);
-        HGCheck(allOff, @"reset returns only known feature switches to off");
+        HGCheck([HGCurrentFeatures() isEqual:initial], @"reset removes explicit choices and uses the feature defaults");
         HGCheck([[defaults dictionaryForKey:@"host.account"] isEqual:@{@"sentinel": @"not-for-backup"}] &&
             [[defaults stringForKey:@"host.theme"] isEqual:@"host-theme-unchanged"] &&
             [defaults boolForKey:@"Honggo.enhancedDiagnostics"] &&

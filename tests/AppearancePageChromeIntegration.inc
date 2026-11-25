@@ -573,7 +573,9 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         UIView *searchHit=[header hitTest:CGPointMake(CGRectGetMidX(searchButton.frame),CGRectGetMidY(searchButton.frame)) withEvent:nil];
         UIView *cornerHit=[header hitTest:CGPointMake(CGRectGetMinX(menu.frame)+1,CGRectGetMinY(menu.frame)+1) withEvent:nil];
         BOOL nativeTools=[menu isKindOfClass:UIButton.class] && [searchButton isKindOfClass:UIButton.class];
-        Check(nativeTools && menu.configuration && searchButton.configuration &&
+        BOOL clearTools=HGTestOpenGlass(header) && !HGFlatTopStyle();
+        Check(nativeTools && (clearTools ? (Find(menu,@"honggo.appearance.material") && Find(searchButton,@"honggo.appearance.material")) :
+            (menu.configuration && searchButton.configuration)) &&
             (menuHit==menu || [menuHit isDescendantOfView:menu]) &&
             (searchHit==searchButton || [searchHit isDescendantOfView:searchButton]) &&
             cornerHit!=menu && ![cornerHit isDescendantOfView:menu] &&

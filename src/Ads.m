@@ -1,5 +1,6 @@
 #import "Honggo.h"
 #import "RuntimeSupport.h"
+#import <objc/message.h>
 #import <dispatch/dispatch.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -127,6 +128,7 @@ static BOOL HGDirectGameDisplaySupported(Class model) {
 
 static BOOL HGNo(id self, SEL cmd) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGNoObject(id self, SEL cmd, id argument) { HGAdDecision(self, cmd, NO); return NO; }
+static BOOL HGNoEpisodeIndex(id self, SEL cmd, NSInteger index) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGNoObjects(id self, SEL cmd, id first, id second) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGNoTimeObject(id self, SEL cmd, double time, id context) { HGAdDecision(self, cmd, NO); return NO; }
 static BOOL HGNoTimesObject(id self, SEL cmd, double time, double duration, id context) { HGAdDecision(self, cmd, NO); return NO; }
@@ -208,6 +210,9 @@ static const HGGate HGGates[] = {
     {HGTopView, "SSBizVideoAdTopviewService", "topviewEnable", "B16@0:8", (IMP)HGNo},
     {HGTopView, "SSBizVideoAdTopviewService", "canShowTopView", "B16@0:8", (IMP)HGNo},
     {HGFeed, "SSBizVideoAdCommonAdClient", "shouldRequestShortVideoAd:", "B24@0:8@16", (IMP)HGNoObject},
+    // The homepage declines both cached and fresh sponsored cards here, before
+    // the insertion model can allocate a full-height page in the video list.
+    {HGFeed, "BDADShortVideoCommonAdManager", "checkHomePageAdBasicReqRulesWithEpisodeIndex:", "B24@0:8q16", (IMP)HGNoEpisodeIndex},
     {HGFeed, "SSBizVideoAdCommonAdClient", "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:", "B24@0:8@16", (IMP)HGYesObject},
     {HGFeed, "SSShortVideoMUnionAdService", "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:", "B24@0:8@16", (IMP)HGYesObject},
     {HGFeed, "SSShortVideoAdService", "shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:", "B24@0:8@16", (IMP)HGYesObject},
@@ -285,12 +290,45 @@ static void HGAdDecision(id object, SEL selector, BOOL result) {
 
 #include "SidebarGame.inc"
 
+// A previously prepared homepage ad can re-enter the list without another
+// homepage request. Both insertion APIs return 2 when canInsertModel is NO.
+static void HGInstallHomepageAdModelFilter(void) {
+    Class adModel=objc_lookUpClass("SSBizVideoAdInsertMaterielData");
+    SEL homepage=sel_registerName("isInShortVideoHomePage");
+    if (!HGAdMethodMatches(adModel,homepage,"B16@0:8")) return;
+    static BOOL installed[2][2];
+    const char *owners[]={"FQVShortVideoListVCInsertComponent","FQVShortVideoListVCLandSpaceInsertComponent"};
+    const char *selectors[]={"insertModel:videoDataModelUUID:","insertModel:videoIndex:isAfter:"};
+    const char *encodings[]={"q32@0:8@16q24","q36@0:8@16q24B32"};
+    for (NSUInteger c=0;c<2;c++) for (NSUInteger i=0;i<2;i++) {
+        if (installed[c][i]) continue;
+        Class owner=objc_lookUpClass(owners[c]);
+        SEL sel=sel_registerName(selectors[i]);
+        if (!HGAdMethodMatches(owner,sel,encodings[i])) continue;
+        __block IMP original=class_getMethodImplementation(owner,sel);
+        BOOL (^blocked)(id)=^BOOL(id model) {
+            return object_getClass(model)==adModel && ((BOOL(*)(id,SEL))objc_msgSend)(model,homepage);
+        };
+        IMP hook=i ? imp_implementationWithBlock(^NSInteger(id target,id model,NSInteger index,BOOL after) {
+            if (blocked(model)) return (NSInteger)2;
+            return ((NSInteger(*)(id,SEL,id,NSInteger,BOOL))original)(target,sel,model,index,after);
+        }) : imp_implementationWithBlock(^NSInteger(id target,id model,NSInteger uuid) {
+            if (blocked(model)) return (NSInteger)2;
+            return ((NSInteger(*)(id,SEL,id,NSInteger))original)(target,sel,model,uuid);
+        });
+        IMP prior=HGInstallVerifiedHook(owner,sel,encodings[i],hook,@"ads");
+        if (prior) { original=prior; installed[c][i]=YES; }
+        else imp_removeBlock(hook);
+    }
+}
+
 void HGInstallAds(void) {
     HGInstallSidebarLists();
     BOOL enabled[HGFeatureCount] = {NO};
     for (HGFeature feature = HGSplash; feature < HGFeatureCount; feature++) {
         enabled[feature] = HGIsEnabled(feature);
     }
+    if (enabled[HGFeed]) HGInstallHomepageAdModelFilter();
 
     NSUInteger installed = 0;
     NSUInteger selected = 0;

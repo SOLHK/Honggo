@@ -1,11 +1,56 @@
 // Scoped appearance operations. Values are restored only while they are still
 // owned by Honggo; a later host/third-party update becomes the new baseline.
+@interface HGAGlassRimMask : UIView
+@property(nonatomic) CGFloat shapeRadius;
+@end
+@implementation HGAGlassRimMask
++ (Class)layerClass { return CAShapeLayer.class; }
+@end
+
+static BOOL HGAClearGlassCenter(NSString *style,UIView *view) {
+    return ([style isEqual:@"regular"] || [style isEqual:@"clear"]) && HGNativeGlassConfigured() &&
+        !UIAccessibilityIsReduceTransparencyEnabled() && view.traitCollection.accessibilityContrast!=UIAccessibilityContrastHigh;
+}
+static char HGAGlassRimKey;
+static BOOL HGAUpdateGlassRim(UIVisualEffectView *effect,BOOL clearCenter) {
+    if(!effect)return NO;
+    // UIKit copies an effect's mask to its private backing views. Cache the
+    // supplied geometry and replace the mask only when its shape changes.
+    HGAGlassRimMask *old=objc_getAssociatedObject(effect,&HGAGlassRimKey);
+    if(!clearCenter) {
+        if(!old)return NO;
+        effect.maskView=nil;
+        objc_setAssociatedObject(effect,&HGAGlassRimKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return YES;
+    }
+    CGRect bounds=effect.bounds;
+    if(CGRectIsEmpty(bounds))return NO;
+    CGFloat half=MIN(bounds.size.width,bounds.size.height)/2;
+    CGFloat radius=effect.layer.cornerRadius>0 ? MIN(effect.layer.cornerRadius,half) : half;
+    if(CGRectEqualToRect(old.frame,bounds) && old.shapeRadius==radius)return NO;
+    // Even clear UIKit glass brightens a flat video matte. Sample the native
+    // optical effect at the outline and leave the entire center to the video.
+    CGFloat edge=MIN(half,MAX(1.5,MIN(3,half*0.12)));
+    HGAGlassRimMask *mask=[[HGAGlassRimMask alloc] initWithFrame:bounds];
+    mask.shapeRadius=radius;
+    mask.opaque=NO;
+    mask.backgroundColor=UIColor.clearColor;
+    UIBezierPath *path=[UIBezierPath bezierPathWithRoundedRect:mask.bounds cornerRadius:radius];
+    [path appendPath:[UIBezierPath bezierPathWithRoundedRect:CGRectInset(mask.bounds,edge,edge)
+                                                cornerRadius:MAX(0,radius-edge)]];
+    CAShapeLayer *shape=(CAShapeLayer *)mask.layer;
+    shape.fillColor=UIColor.blackColor.CGColor;shape.fillRule=kCAFillRuleEvenOdd;shape.path=path.CGPath;
+    effect.maskView=mask;
+    objc_setAssociatedObject(effect,&HGAGlassRimKey,mask,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return old==nil;
+}
 @interface HGAAppearanceMaterial : UIVisualEffectView
 @property(nonatomic,copy) NSString *style;
 @property(nonatomic,copy) NSString *materialSignature;
 @property(nonatomic) CGFloat overlayOpacity;
 @property(nonatomic,strong) UIColor *overlayColor;
 @property(nonatomic) BOOL interactiveGlass;
+@property(nonatomic) BOOL clearCenter;
 @property(nonatomic,strong) CALayer *gaussianBackdrop;
 - (void)requestMaterialRefresh;
 @end
@@ -27,6 +72,10 @@ static CALayer *HGACreateGaussianBackdrop(void) {
 }
 
 @implementation HGAAppearanceMaterial
+- (void)setClearCenter:(BOOL)clearCenter {
+    if(_clearCenter==clearCenter)return;
+    _clearCenter=clearCenter;self.materialSignature=nil;[self setNeedsLayout];
+}
 - (void)setOverlayColor:(UIColor *)color {
     if(_overlayColor==color || [_overlayColor isEqual:color])return;
     _overlayColor=color;self.materialSignature=nil;[self setNeedsLayout];
@@ -56,6 +105,8 @@ static CALayer *HGACreateGaussianBackdrop(void) {
 - (void)layoutSubviews {
     [super layoutSubviews];
     if(!self.window || CGRectIsEmpty(self.bounds))return;
+    BOOL open=self.clearCenter && HGAClearGlassCenter(self.style,self);
+    if(HGAUpdateGlassRim(self,open))self.materialSignature=nil;
     if (self.gaussianBackdrop && !CGRectEqualToRect(self.gaussianBackdrop.frame,self.bounds))
         self.gaussianBackdrop.frame=self.bounds;
     NSString *signature=[self currentMaterialSignature];
@@ -74,7 +125,7 @@ static CALayer *HGACreateGaussianBackdrop(void) {
         self.gaussianBackdrop=nil;
     }
     UIVisualEffect *effect=self.gaussianBackdrop ? nil : HGAppearanceMaterial(gaussian ? @"blur" : self.style);
-    UIColor *color=self.overlayColor ?: [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
+    UIColor *color=open ? UIColor.clearColor : self.overlayColor ?: [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
         effect ? self.overlayOpacity : 1];
     if(@available(iOS 26.0,*)) {
         if(self.interactiveGlass && [effect isKindOfClass:UIGlassEffect.class])
@@ -142,6 +193,19 @@ static void HGASetHidden(UIView *view,BOOL hide) {
         if(!view.hidden)view.hidden=YES;
     }
 }
+static void HGAApplyRailAvatarVisibility(UIView *avatar,BOOL enabled) {
+    BOOL hide=enabled && HGAppearanceFlag(@"layout.avatar.hidden");
+    UIView *rail=avatar.superview;UIWindow *window=avatar.window;
+    if(enabled && !hide && window && [rail isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionView")] &&
+        !CGRectIsEmpty(rail.bounds) && CGRectGetMinX(avatar.frame)>=CGRectGetMaxX(rail.bounds)) {
+        // The host parks this 46pt avatar at x=53 in a 46pt rail. Its follow
+        // border then leaks a few pixels into the screen from the right.
+        CGRect frame=[avatar convertRect:avatar.bounds toView:window];
+        CGFloat edge=CGRectGetMaxX(window.bounds);
+        hide=CGRectGetMinX(frame)<edge && CGRectGetMidX(frame)>=edge;
+    }
+    HGASetHidden(avatar,hide);
+}
 static void HGASetGlassHostBackground(UIView *view,BOOL clear) {
     HGAViewState *state=HGAState(view,clear);
     if(clear) {
@@ -198,7 +262,7 @@ static void HGAInstallFlatPlaybackButton(UIView *view,CGRect frame) {
     // The solid glyph keeps its contrast as the video beneath it changes.
     HGASetGlassOverlay(view,[UIColor colorWithWhite:0.16 alpha:UIAccessibilityIsReduceTransparencyEnabled() ? 1 : 0.74]);
 }
-static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius,UIColor *tint) {
+static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius,BOOL clearCenter) {
     HGAInstallGlassInRect(view,style,frame,radius,0);
     HGAAppearanceMaterial *glass=HGAState(view,NO).glass;
     BOOL solid=[style isEqual:@"solid"];
@@ -208,8 +272,9 @@ static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CG
         glass.overrideUserInterfaceStyle=desired;
         if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];
     }
-    UIColor *color=tint ?: (solid ? UIColor.secondarySystemBackgroundColor : [UIColor colorWithWhite:0.10 alpha:1]);
-    CGFloat opacity=solid || UIAccessibilityIsReduceTransparencyEnabled() ? 1 : (tint ? 0.30 : 0.12);
+    glass.clearCenter=clearCenter;
+    UIColor *color=solid ? UIColor.secondarySystemBackgroundColor : [UIColor colorWithWhite:0.10 alpha:1];
+    CGFloat opacity=solid || UIAccessibilityIsReduceTransparencyEnabled() ? 1 : 0.12;
     glass.overlayColor=[color colorWithAlphaComponent:opacity];
 }
 static NSDictionary<NSString *,NSString *> *HGAViewRoles(void) {
@@ -255,6 +320,7 @@ static BOOL HGAHasRoleAncestor(UIView *view,NSString *role) {
 @property(nonatomic,strong) UIColor *tint;
 @property(nonatomic,strong) UIColor *appliedTint;
 @property(nonatomic) UIViewContentMode contentMode;
+@property(nonatomic) UIViewContentMode appliedContentMode;
 @property(nonatomic) BOOL ownsContentMode;
 @end
 @implementation HGAIconState @end
@@ -264,11 +330,15 @@ static void HGARestoreIcon(UIView *root) {
     HGARestoreGeometry(s.imageView);
     BOOL ownedImage=s.imageView.image==s.applied || [s.imageView.image isEqual:s.applied];
     if(s.appliedTint && [s.imageView.tintColor isEqual:s.appliedTint])s.imageView.tintColor=s.tint;
-    if(s.ownsContentMode && s.imageView.contentMode==UIViewContentModeScaleAspectFit)s.imageView.contentMode=s.contentMode;
+    if(s.ownsContentMode && s.imageView.contentMode==s.appliedContentMode)s.imageView.contentMode=s.contentMode;
     if(ownedImage)s.imageView.image=s.source;
     objc_setAssociatedObject(root,&HGAIconKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 static UIImageView *HGAFindIcon(UIView *root) {
+    if ([root isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionLikeView")]) {
+        UIImageView *heart=(id)HGAViewGetter(root,"likeIcon",root);
+        if ([heart isKindOfClass:UIImageView.class]) return heart.isAnimating ? nil : heart;
+    }
     if ([root isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionCollectView")]) {
         UIImageView *star=(id)HGAViewGetter(root,"starIcon",root);
         if ([star isKindOfClass:UIImageView.class] && !star.isAnimating) return star;
@@ -291,6 +361,30 @@ static CGFloat HGAActionGlassDiameter(UIView *root) {
     return MIN(44,MIN(CGRectGetWidth(root.bounds),CGRectGetHeight(root.bounds)));
 }
 
+static BOOL (*HGARightNativePointInside)(UIView *,SEL,CGPoint,UIEvent *);
+static BOOL HGARightPointInside(UIView *rail,SEL cmd,CGPoint point,UIEvent *event) {
+    if (HGARightNativePointInside(rail,cmd,point,event)) return YES;
+    // A customized heart can be visible outside the host's 46pt rail. Let
+    // UIKit descend into the original likeIcon and arbitrate its recognizer.
+    if (rail.clipsToBounds || !rail.window) return NO;
+    for (UIView *child in rail.subviews) {
+        if (![child isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionLikeView")]) continue;
+        HGAViewState *state=HGAState(child,NO);
+        if (!state.geometry || child.hidden || child.alpha<=0.01 || !child.userInteractionEnabled) continue;
+        UIView *icon=HGAViewGetter(child,"likeIcon",child);
+        if (icon && [icon hitTest:[rail convertPoint:point toView:icon] withEvent:event]) return YES;
+    }
+    return NO;
+}
+static void HGAInstallRightHitArea(void) {
+    if (HGARightNativePointInside) return;
+    Class rail=objc_lookUpClass("SSShortVideoRightInteractionView");
+    Method getter=class_getInstanceMethod(objc_lookUpClass("SSShortVideoRightInteractionLikeView"),sel_registerName("likeIcon"));
+    if (rail && getter && !strcmp(method_getTypeEncoding(getter),"@16@0:8"))
+        HGARightNativePointInside=(void *)HGInstallVerifiedHook(rail,@selector(pointInside:withEvent:),
+            "B40@0:8{CGPoint=dd}16@32",(IMP)HGARightPointInside,@"appearance");
+}
+
 static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat,BOOL sparkles) {
     if(![@[@"like",@"collect",@"comment",@"share"] containsObject:role])return;
     if(!HGAppearanceEnabled() || (!flat && !sparkles) || !root.window) {HGARestoreIcon(root);return;}
@@ -308,9 +402,12 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat,BOOL sparkles) {
     UIImageView *icon=HGAFindIcon(root);
     HGAIconState *state=objc_getAssociatedObject(root,&HGAIconKey);
     if(state.imageView!=icon){HGARestoreIcon(root);state=nil;}
+    CGFloat requested=MIN(28 * 0.94,HGAActionGlassDiameter(root)*0.64);
+    BOOL heart=flat && [role isEqual:@"like"];
+    if (!icon || (heart && requested<=0)) { HGARestoreIcon(root); return; }
     UIImage *image=sparkles ? [[UIImage systemImageNamed:@"sparkles"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]
-        : HGAFlatActionImage(role,selected);
-    if(!icon || !image){HGARestoreIcon(root);return;}
+        : HGAFlatActionImage(role,selected,heart ? requested : 32);
+    if(!image){HGARestoreIcon(root);return;}
     if(!state){state=[HGAIconState new];state.imageView=icon;state.source=icon.image;state.tint=icon.tintColor;
         objc_setAssociatedObject(root,&HGAIconKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     else if(icon.image!=state.applied && ![icon.image isEqual:state.applied])state.source=icon.image;
@@ -318,18 +415,19 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat,BOOL sparkles) {
     if(!state.appliedTint || ![icon.tintColor isEqual:state.appliedTint])state.tint=icon.tintColor;
     state.appliedTint=color;
     if(![icon.tintColor isEqual:color])icon.tintColor=color;
-    CGFloat requested=MIN(28 * 0.94,HGAActionGlassDiameter(root)*0.64);
-    if(!state.ownsContentMode || icon.contentMode!=UIViewContentModeScaleAspectFit)state.contentMode=icon.contentMode;
+    if(!state.ownsContentMode || icon.contentMode!=state.appliedContentMode)state.contentMode=icon.contentMode;
     state.ownsContentMode=YES;
-    if(icon.contentMode!=UIViewContentModeScaleAspectFit)icon.contentMode=UIViewContentModeScaleAspectFit;
+    state.appliedContentMode=heart ? UIViewContentModeCenter : UIViewContentModeScaleAspectFit;
+    if(icon.contentMode!=state.appliedContentMode)icon.contentMode=state.appliedContentMode;
     if(icon.image!=image && ![icon.image isEqual:image])icon.image=image;
     state.applied=icon.image;
     // Bound the longest side, not the shortest one: the host sometimes gives
     // bookmark/share image views a tall rectangle. Scaling their shortest side
     // made those glyphs and their glass discs visibly larger than the heart.
-    // Only the image transform changes; native hit targets and counts stay put.
+    // The host attaches its one-tap recognizer to likeIcon itself. Center the
+    // smaller heart artwork in that original touch surface.
     CGFloat side=MAX(icon.bounds.size.width,icon.bounds.size.height);
-    if(side>0)HGASetGeometry(icon,0,0,flat ? MIN(1.5,requested/side) : 1);
+    if(side>0)HGASetGeometry(icon,0,0,(flat && !heart) ? MIN(1.5,requested/side) : 1);
 }
 
 @interface HGATextState : NSObject
@@ -450,6 +548,36 @@ static NSArray<NSString *> *HGACommentRows(void) {
 #include "AppearanceChromeGeometry.inc"
 #include "AppearanceLandscapeChrome.inc"
 
+// Limit the preference to the separate left-edge disclosure inside a playback
+// canvas. Episode titles, subtitles and the top filing number can also say AI.
+static void HGAUpdateFictionNotice(UIView *canvas) {
+    static char hiddenLabelsKey;
+    NSHashTable<UILabel *> *previous=objc_getAssociatedObject(canvas,&hiddenLabelsKey);
+    BOOL enabled=canvas.window && HGAppearanceEnabled() && HGAppearanceFlag(@"player.hideAIFictionNotice");
+    if(!previous && !enabled)return;
+    NSHashTable<UILabel *> *matched=nil;
+    if(enabled) {
+        for(UIView *node in HGADescendants(canvas,512)) {
+            if(![node isKindOfClass:UILabel.class])continue;
+            UILabel *label=(UILabel *)node;
+            NSString *text=label.attributedText.string ?: label.text;
+            if(![text containsString:@"虚"] && ![text containsString:@"演"])continue;
+            text=[[text.lowercaseString componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] componentsJoinedByString:@""];
+            BOOL fiction=[text containsString:@"虚构"] || [text containsString:@"剧情演绎"];
+            if(!fiction || (![text containsString:@"剧情"] && ![text containsString:@"ai"]))continue;
+            CGRect rect=[label convertRect:label.bounds toView:canvas];
+            if(CGRectGetMaxX(rect)>CGRectGetMinX(canvas.bounds)+CGRectGetWidth(canvas.bounds)*0.20 ||
+               CGRectGetHeight(rect)<=CGRectGetWidth(rect))continue;
+            if(!matched)matched=[NSHashTable weakObjectsHashTable];
+            [matched addObject:label];
+            HGASetHidden(label,YES);
+        }
+    }
+    for(UILabel *label in previous)
+        if(![matched containsObject:label])HGASetHidden(label,NO);
+    if(matched || previous)objc_setAssociatedObject(canvas,&hiddenLabelsKey,matched,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 void HGAppearanceProcessView(UIView *view) {
     if(!NSThread.isMainThread || HGAApplying || ![view isKindOfClass:UIView.class] ||
        HGAOwnView(view) || HGFeedSidebarOwnsLayout(view.window))return;
@@ -474,6 +602,7 @@ void HGAppearanceProcessView(UIView *view) {
             HGAApplyFullScreen(view);HGRefreshVideoBackdropForPlayer(view);return;
         }
         if([name isEqual:@"FQVShortVideoPlayerCellView"]){
+            HGAUpdateFictionNotice(view);
             for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
             HGAApplyTypography(view);HGRefreshVideoBackdropForPlayer(view);return;
         }
@@ -490,14 +619,23 @@ void HGAppearanceProcessView(UIView *view) {
         BOOL enabled=HGAppearanceEnabled() && view.window;
         BOOL header=HGAIsHeaderView(view);
         BOOL headerShowsFinder=header && HGAApplyHeaderChrome(view,enabled);
+        if([view isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionView")]) {
+            // A reused rail may reposition a hidden avatar without resizing
+            // it. Reconcile its visibility after the parent's native layout.
+            for(UIView *child in view.subviews)
+                if([child isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionAvatarView")])
+                    HGAApplyRailAvatarVisibility(child,enabled);
+        }
         if(!role){HGAApplyNativePageChrome(view,name,enabled);return;}
         BOOL outer=!HGAHasRoleAncestor(view,role);
         NSString *prefix=[@"layout." stringByAppendingString:role];
-        HGASetHidden(view,enabled && outer && (HGAppearanceFlag([prefix stringByAppendingString:@".hidden"]) ||
+        BOOL avatar=[role isEqual:@"avatar"];
+        if(!avatar)HGASetHidden(view,enabled && outer && (HGAppearanceFlag([prefix stringByAppendingString:@".hidden"]) ||
             (header && !headerShowsFinder && HGAAllTopControlsHidden())));
         HGASetGeometry(view,enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".x"]):0,
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".y"]):0,
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".scale"]):1);
+        if(avatar)HGAApplyRailAvatarVisibility(view,enabled && outer);
         BOOL action=[@[@"avatar",@"collect",@"comment",@"like",@"share",@"more"] containsObject:role];
         BOOL styleActions=action && HGAppearanceFlag(@"player.rightGlass");
         BOOL flat=enabled && outer && styleActions && HGFlatPlayerStyle();
@@ -534,12 +672,12 @@ void HGAppearanceProcessView(UIView *view) {
             }
             NSString *style=action ? HGALiquidPlayerMaterial() : HGAppearanceString(@"player.material");
             BOOL compactEpisode=episode && !CGRectEqualToRect(episodeFrame,view.bounds);
-            if(compactEpisode && HGAppearanceDockEnabled()) {
+            if(compactEpisode && ![style isEqual:@"blur"] && HGAppearanceDockEnabled()) {
                 NSString *dockStyle=HGAppearanceString(@"dock.material");
                 if([dockStyle isEqual:@"regular"] || [dockStyle isEqual:@"clear"])style=dockStyle;
             }
             if(flat)HGAInstallFlatPlaybackButton(view,glassFrame);
-            else HGAInstallPlaybackGlass(view,style,glassFrame,radius,nil);
+            else HGAInstallPlaybackGlass(view,style,glassFrame,radius,episode);
         }
         else HGARemoveGlass(view);
         HGAApplyTypography(view);

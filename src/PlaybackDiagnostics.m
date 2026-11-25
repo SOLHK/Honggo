@@ -1,5 +1,6 @@
 #import "Honggo.h"
 #import "RuntimeSupport.h"
+#import <objc/message.h>
 #include <stdatomic.h>
 #include <string.h>
 
@@ -10,6 +11,7 @@ static _Atomic(IMP) HGOriginalCleanMode;
 static _Atomic(IMP) HGOriginalPlayModelUpdate;
 static _Atomic(IMP) HGOriginalPlayStateUpdate;
 static _Atomic(IMP) HGOriginalFinishGate;
+static _Atomic(IMP) HGOriginalDiggOperation;
 static atomic_ullong HGPlaybackInvocation;
 
 static unsigned long long HGPlaybackBegin(void) {
@@ -68,6 +70,50 @@ static BOOL HGPlaybackFinishGate(id object, SEL selector, id context, id model) 
     return result;
 }
 
+typedef void (^HGLikeCompletion)(NSError *,id,BOOL);
+typedef void (*HGLikeOperation)(id,SEL,id,id,HGLikeCompletion);
+
+static BOOL HGIsEpisodeLikeCompletion(HGLikeCompletion completion) {
+    if (!completion) return NO;
+    // The same service can also consume recovery blocks. Only the verified
+    // episode-like callback includes these exact response and error classes.
+    struct BlockHeader { void *isa; int flags,reserved; void *invoke; const uintptr_t *descriptor; };
+    const struct BlockHeader *block=(__bridge const void *)completion;
+    if (!(block->flags & (1<<30))) return NO;
+    NSUInteger index=(block->flags & (1<<25)) ? 4 : 2;
+    const char *types=(const char *)block->descriptor[index];
+    return types && !strcmp(types,"v28@?0@\"BDRpcError\"8@\"FQCRpcDoArticleActionResponse\"16B24");
+}
+
+static void HGObserveDiggOperation(id owner,SEL cmd,id data,id request,HGLikeCompletion completion) {
+    HGLikeOperation original=(HGLikeOperation)atomic_load_explicit(&HGOriginalDiggOperation,memory_order_acquire);
+    if (!HGEnhancedDiagnostics() || !HGIsEpisodeLikeCompletion(completion)) {
+        original(owner,cmd,data,request,completion);
+        return;
+    }
+    original(owner,cmd,data,request,^(NSError *error,id response,BOOL flag) {
+        if (HGEnhancedDiagnostics()) {
+            SEL code=sel_registerName("code");
+            Method getCode=class_getInstanceMethod(object_getClass(response),code);
+            BOOL hasCode=getCode && !strcmp(method_getTypeEncoding(getCode),"i16@0:8");
+            int result=hasCode ? ((int(*)(id,SEL))objc_msgSend)(response,code) : 0;
+            if ([error isKindOfClass:NSError.class] || result!=0) {
+                NSMutableDictionary *fields=[NSMutableDictionary dictionary];
+                if ([error isKindOfClass:NSError.class]) {
+                    NSString *domain=error.domain;
+                    if (domain.length && domain.length<=80 &&
+                        [domain rangeOfString:@"^[A-Za-z][A-Za-z0-9._-]*$" options:NSRegularExpressionSearch].location!=NSNotFound)
+                        fields[@"errorDomain"]=domain;
+                    fields[@"errorCode"]=@(error.code);
+                }
+                if (hasCode) fields[@"responseCode"]=@(result);
+                HGLog(@"playback.like-failed",fields);
+            }
+        }
+        completion(error,response,flag);
+    });
+}
+
 void HGInstallPlaybackDiagnostics(void) {
     static const struct {
         const char *className;
@@ -76,6 +122,8 @@ void HGInstallPlaybackDiagnostics(void) {
         IMP replacement;
         _Atomic(IMP) *original;
     } methods[] = {
+        {"SSShortVideoDiggManager", "performDiggWithData:request:completion:",
+            "v40@0:8@?16@?24@?32", (IMP)HGObserveDiggOperation, &HGOriginalDiggOperation},
         {"SSBizVideoPatchAdService", "videoListVCContextDidChangeCleanMode:isCleanMode:",
             "v28@0:8@16B24", (IMP)HGPlaybackCleanMode, &HGOriginalCleanMode},
         {"SSBizVideoPatchAdService", "videoListVCContextPlayModelDidUpdatedNotifyAtScrollEnd:",
@@ -113,7 +161,7 @@ void HGInstallPlaybackDiagnostics(void) {
         }
     }
     HGRecordCapability(@"module.playback", @{@"module": @"playback",
-        @"state": installed == 4 ? @"installed" : installed ? @"partial" : @"unavailable",
-        @"installed": @(installed), @"selected": @4,
+        @"state": installed == sizeof(methods)/sizeof(methods[0]) ? @"installed" : installed ? @"partial" : @"unavailable",
+        @"installed": @(installed), @"selected": @(sizeof(methods)/sizeof(methods[0])),
         @"reason": @"observational host notifications; original behavior retained; events require enhanced diagnostics"});
 }
