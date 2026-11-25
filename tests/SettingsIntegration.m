@@ -34,6 +34,14 @@
 }
 @end
 
+static UIButton *HGNavigationButton(UIView *view, NSString *identifier) {
+    if ([view isKindOfClass:UIButton.class] && [view.accessibilityIdentifier isEqual:identifier]) return (UIButton *)view;
+    for (UIView *child in view.subviews) {
+        UIButton *button=HGNavigationButton(child,identifier);
+        if (button) return button;
+    }
+    return nil;
+}
 static NSArray<UIView *> *HGFindMenus(UIView *view) {
     NSMutableArray<UIView *> *matches = [NSMutableArray array];
     if ([view.accessibilityIdentifier isEqualToString:@"honggo.settings.menu"]) {
@@ -252,8 +260,13 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         return;
     }
     [settings loadViewIfNeeded];
-    UIButton *version = (UIButton *)settings.navigationItem.leftBarButtonItem.customView;
-    UIButton *done=(id)settings.navigationItem.rightBarButtonItem.customView;
+    UIButton *version = HGNavigationButton(settings.navigationItem.leftBarButtonItem.customView,@"honggo.settings.version");
+    UIButton *done=HGNavigationButton(settings.navigationItem.rightBarButtonItem.customView,@"honggo.settings.done");
+    [self.window layoutIfNeeded];
+    [self.searchStateTrace addObject:@{@"stage":@"navigationCapsules",
+        @"version":version.configuration.title ?: @"", @"done":done.configuration.title ?: @"",
+        @"versionSize":NSStringFromCGSize(version.bounds.size), @"doneSize":NSStringFromCGSize(done.bounds.size),
+        @"versionCorner":@(version.configuration.cornerStyle), @"doneCorner":@(done.configuration.cornerStyle)}];
     [self check:[settings.title isEqualToString:@"Honggo"] && [version isKindOfClass:UIButton.class] &&
         [version.configuration.title isEqual:HG_PLUGIN_VERSION] && [done isKindOfClass:UIButton.class] &&
         [done.configuration.title isEqual:@"完成"] && done.enabled && version.bounds.size.height>=44 &&
@@ -364,7 +377,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
 - (void)runReleaseNotesWithCompletion:(dispatch_block_t)completion {
     UINavigationController *navigation=(id)self.host.presentedViewController;
     UIViewController *settings=navigation.topViewController;
-    UIButton *version=(id)settings.navigationItem.leftBarButtonItem.customView;
+    UIButton *version=HGNavigationButton(settings.navigationItem.leftBarButtonItem.customView,@"honggo.settings.version");
     [version sendActionsForControlEvents:UIControlEventTouchUpInside];
     [self poll:^BOOL {
         UIViewController *presented=navigation.presentedViewController;
@@ -676,7 +689,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [self activateSearch:settings query:@"玻璃" completion:^(BOOL active) {
             if (!active) { completion(); return; }
             NSUInteger dismissalsBefore = self.searchEvents.dismissals;
-            UIButton *done = (id)settings.navigationItem.rightBarButtonItem.customView;
+            UIButton *done = HGNavigationButton(settings.navigationItem.rightBarButtonItem.customView,@"honggo.settings.done");
             [self recordSearchState:@"close.requested" settings:settings extra:nil];
             [done sendActionsForControlEvents:UIControlEventTouchUpInside];
             [self poll:^BOOL { return self.host.presentedViewController == nil &&

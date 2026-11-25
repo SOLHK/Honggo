@@ -458,30 +458,25 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 - (void)closeNotes { [self dismissViewControllerAnimated:YES completion:nil]; }
 @end
 
-@interface HGSettingsCapsuleButton : UIButton
-@property(nonatomic) CGFloat capsuleWidth;
-@end
-@implementation HGSettingsCapsuleButton
-- (CGSize)intrinsicContentSize {
-    return self.capsuleWidth>0 ? CGSizeMake(self.capsuleWidth,44) : [super intrinsicContentSize];
-}
-- (CGSize)sizeThatFits:(CGSize)size {
-    return self.capsuleWidth>0 ? self.intrinsicContentSize : [super sizeThatFits:size];
-}
-@end
-
-static UIBarButtonItem *HGSettingsCapsule(UIButtonConfiguration *style,NSString *title,
-        NSString *identifier,id target,SEL action,CGFloat width) {
+static UIButton *HGSettingsCapsule(UIButtonConfiguration *style,NSString *title,
+        NSString *identifier,id target,SEL action) {
     UIButtonConfiguration *config=[style copy];
     config.title=title;
-    HGSettingsCapsuleButton *button=[[HGSettingsCapsuleButton alloc] initWithFrame:CGRectZero];
-    button.configuration=config;
+    UIButton *button=[UIButton buttonWithConfiguration:config primaryAction:nil];
     button.accessibilityIdentifier=identifier;
     [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
-    button.capsuleWidth=width>0 ? width : MAX(44,ceil(button.intrinsicContentSize.width));
-    [button invalidateIntrinsicContentSize];
-    [button sizeToFit];
-    UIBarButtonItem *item=[[UIBarButtonItem alloc] initWithCustomView:button];
+    return button;
+}
+
+static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
+    // A bare configured UIButton is resized by the navigation bar to its own title.
+    UIView *slot=[[UIView alloc] initWithFrame:(CGRect){CGPointZero,size}];
+    [slot.widthAnchor constraintEqualToConstant:size.width].active=YES;
+    [slot.heightAnchor constraintEqualToConstant:size.height].active=YES;
+    button.frame=slot.bounds;
+    button.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    [slot addSubview:button];
+    UIBarButtonItem *item=[[UIBarButtonItem alloc] initWithCustomView:slot];
     if (@available(iOS 26.0,*)) item.hidesSharedBackground=YES;
     return item;
 }
@@ -523,11 +518,12 @@ static UIBarButtonItem *HGSettingsCapsule(UIButtonConfiguration *style,NSString 
     style.buttonSize=UIButtonConfigurationSizeMedium;
     style.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
     style.baseForegroundColor=UIColor.labelColor;
-    UIBarButtonItem *versionItem=HGSettingsCapsule(style,HG_PLUGIN_VERSION,@"honggo.settings.version",self,@selector(showReleaseNotes:),0);
-    UIButton *version=(UIButton *)versionItem.customView;
+    UIButton *version=HGSettingsCapsule(style,HG_PLUGIN_VERSION,@"honggo.settings.version",self,@selector(showReleaseNotes:));
+    UIButton *done=HGSettingsCapsule(style,@"完成",@"honggo.settings.done",self,@selector(closeSettings));
+    CGSize size=CGSizeMake(MAX(44,ceil(MAX(version.intrinsicContentSize.width,done.intrinsicContentSize.width))),44);
     version.accessibilityLabel=[NSString stringWithFormat:@"版本 %@，更新记录",HG_PLUGIN_VERSION];
-    self.navigationItem.leftBarButtonItem = versionItem;
-    self.navigationItem.rightBarButtonItem=HGSettingsCapsule(style,@"完成",@"honggo.settings.done",self,@selector(closeSettings),version.intrinsicContentSize.width);
+    self.navigationItem.leftBarButtonItem=HGSettingsCapsuleItem(version,size);
+    self.navigationItem.rightBarButtonItem=HGSettingsCapsuleItem(done,size);
     self.rootCategories = @[
         @{@"kind": @"appearance", @"group": @"chrome", @"title": @"页面与导航", @"id": @"honggo.settings.category.chrome"},
         @{@"kind": @"appearance", @"group": @"player", @"title": @"播放页", @"id": @"honggo.settings.category.player"},

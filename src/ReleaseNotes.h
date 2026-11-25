@@ -4,6 +4,7 @@
 // Keep entries in release order, including locally distributed test builds.
 static NSArray<NSArray<NSString *> *> *HGReleaseNotes(void) {
     return @[
+        @[@"1.5.2beta29", @"首页菜单、搜索和 Dock 保留本轮修复。设置导航栏使用相同尺寸的容器承载版本和完成按钮。"],
         @[@"1.5.2beta28", @"保留首页菜单和清透 Dock 修复，统一设置首页版本与完成按钮的宽度。"],
         @[@"1.5.2beta27", @"修复首页左上角菜单缺失，调整播放页搜索按钮和底栏在浅色模式下的显示。"],
         @[@"1.5.2beta26", @"修复首次显示顶部菜单和搜索按钮时的启动闪退。顶部频道选中胶囊四周留白，点击区域保持原大小。"],
