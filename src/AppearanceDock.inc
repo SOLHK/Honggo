@@ -211,7 +211,7 @@ static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@
     // The configuration-based button can give its title a zero-height slot
     // in a compact Dock. Reserve space for the caption before fitting the icon.
     CGRect bounds=self.bounds;
-    CGFloat width=MAX(0,CGRectGetWidth(bounds)-4),height=MAX(0,CGRectGetHeight(bounds)-4);
+    CGFloat width=MAX(0,CGRectGetWidth(bounds)-4-2*fabs(self.faceOffsetX)),height=MAX(0,CGRectGetHeight(bounds)-4);
     CGFloat titleHeight=self.currentTitle.length ? MIN(height,ceil(self.titleLabel.font.lineHeight)) : 0;
     UIImage *image=self.currentImage;
     CGFloat gap=image && titleHeight ? 2 : 0;

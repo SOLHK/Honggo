@@ -967,6 +967,10 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
             for (NSNumber *hideStore in @[@NO,@YES]) {
                 HGAppearanceSet(@"dock.hide.store",hideStore,nil);
                 host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);
+                for (NSUInteger pass=0;pass<3 && [[dock valueForKey:@"systemWarmupPending"] boolValue];pass++) {
+                    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+                    HGAppearanceLayoutDock(host.customTabBar,host);
+                }
                 CGRect homeFrame=capsule.frame;
                 for (NSNumber *index in @[@1,@3,@0]) {
                     host.selectedIndex=index.unsignedIntegerValue;HGAppearanceLayoutDock(host.customTabBar,host);
@@ -1165,7 +1169,8 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     UIView *extraSel=Find(dock,@"honggo.appearance.dock.extra.selection");
     Check(mineInCapsule.hidden && !extra.hidden && extra.selected &&
         (extra.accessibilityTraits & UIAccessibilityTraitSelected)!=0 &&
-        extraSel && !extraSel.hidden && CGRectEqualToRect(extraSel.frame,extra.bounds) && selection.hidden,
+        extraSel && !extraSel.hidden && CGRectContainsRect(extra.bounds,extraSel.frame) &&
+        CGRectGetHeight(extraSel.frame)<CGRectGetHeight(extra.bounds) && selection.hidden,
         @"detaching a tab into the circular dock button removes it from the capsule and highlights selection on the circle");
     HGAppearanceApply(@{@"dock.hide.store":@YES,@"dock.hide.mine":@YES},nil);
     host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
