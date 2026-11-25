@@ -857,10 +857,11 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 !buttons[0].configuration && !buttons[1].configuration;
             Check(native && !segments.window && categoryList.hidden && rail.superview==lens.superview && [rail isDescendantOfView:group] &&
                 CGRectEqualToRect(rail.frame,group.bounds) && HGTestFullGlassEffect(rail) && !rail.userInteractionEnabled &&
-                HGTestFullGlassEffect(refraction) && CGRectEqualToRect(refraction.frame,lens.bounds) &&
+                refraction.hidden && ![(UIGlassEffect *)effect isInteractive] &&
+                CGColorGetAlpha(lens.backgroundColor.CGColor)>0 && CGRectEqualToRect(refraction.frame,lens.bounds) &&
                 [group.subviews indexOfObject:rail.superview]<[group.subviews indexOfObject:firstTitle.superview] &&
                 !lens.hidden && [rail.superview.subviews indexOfObjectIdenticalTo:rail]<[rail.superview.subviews indexOfObjectIdenticalTo:lens],
-                @"the unmasked native rail and selection have clear capsule surfaces beneath the channel titles");
+                @"the idle channel strip shows one native rail with a recessed selection underneath the titles");
             if (native) {
                 NSUInteger before=channels.nativeSelections;
                 if (!UIAccessibilityIsReduceMotionEnabled()) {
@@ -872,12 +873,21 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sample.fixtureState=UIGestureRecognizerStateBegan;
                     sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.25,CGRectGetMidY(group.bounds));
                     [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
+                    SEL flexSource=NSSelectorFromString(@"_flexInteractionGestureView");
+                    Method baseMethod=class_getInstanceMethod(UIVisualEffectView.class,flexSource);
+                    BOOL routesTouch=YES;
+                    if (baseMethod && !strcmp(method_getTypeEncoding(baseMethod),"@16@0:8"))
+                        routesTouch=((id(*)(id,SEL))[refraction methodForSelector:flexSource])(refraction,flexSource)==group;
                     Check(refraction.superview==lens && !refraction.hidden && !rail.hidden && [rail.superview.subviews indexOfObject:rail]<[rail.superview.subviews indexOfObject:lens] &&
-                        [group.subviews indexOfObject:rail.superview]<[group.subviews indexOfObject:buttons[0].superview] && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
-                        CGRectGetHeight(lens.frame)>restingHeight && channels.nativeSelections==before,
-                        @"touch-down lifts the native refraction on the selected tab before the host selection changes");
+                        [group.subviews indexOfObject:rail.superview]<[group.subviews indexOfObject:buttons[0].superview] &&
+                        HGTestFullGlassEffect(refraction) && [(UIGlassEffect *)refraction.effect isInteractive] && routesTouch &&
+                        CGRectGetHeight(lens.frame)==restingHeight && CGAffineTransformIsIdentity(firstTitle.transform) &&
+                        channels.nativeSelections==before,
+                        @"touch-down activates native refraction on the title hit surface without resizing the selected slot or label");
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
                     [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
+                    Check(refraction.hidden && CGColorGetAlpha(lens.backgroundColor.CGColor)>0 && channels.nativeSelections==before,
+                        @"cancelling the hold immediately restores the recessed selection without selecting another channel");
                 }
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
@@ -1005,7 +1015,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 UIVisualEffectView *glass=(id)Find(mark,@"honggo.appearance.header.refraction");
                 aligned &= all.count==4 && mark && !mark.hidden && ([styles[0] isEqual:@"flat"] ? !rail.effect :
                     [rail.effect isKindOfClass:UIGlassEffect.class]) && ([selection isEqual:@"glass"] ?
-                    [glass.effect isKindOfClass:UIGlassEffect.class] : glass==nil);
+                    (glass && glass.hidden) : glass==nil);
                 for(UIButton *button in all) {
                     [button sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                     CGRect slot=[button convertRect:button.bounds toView:strip];
@@ -1014,6 +1024,21 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     CGRect selected=[mark convertRect:mark.bounds toView:strip];
                     aligned &= channels.selectedIndex==button.tag && [hit isDescendantOfView:button] &&
                         fabs(CGRectGetMidX(selected)-center.x)<0.51;
+                }
+                if (all.count && !UIAccessibilityIsReduceMotionEnabled()) {
+                    id<HGATestChannelPaging> scrubber=nil;
+                    for (UIGestureRecognizer *recognizer in all.lastObject.gestureRecognizers)
+                        if ([recognizer.delegate respondsToSelector:@selector(scrubChannels:)]) scrubber=(id)recognizer.delegate;
+                    UIVisualEffect *track=rail.effect;
+                    sample.fixtureState=UIGestureRecognizerStateBegan;
+                    sample.fixtureLocation=[all.lastObject convertPoint:CGPointMake(CGRectGetMidX(all.lastObject.bounds),
+                        CGRectGetMidY(all.lastObject.bounds)) toView:strip];
+                    [scrubber scrubChannels:sample];
+                    aligned &= scrubber && rail.effect==track && ([selection isEqual:@"glass"] ?
+                        (!glass.hidden && HGTestFullGlassEffect(glass)) : glass==nil);
+                    sample.fixtureState=UIGestureRecognizerStateCancelled;
+                    [scrubber scrubChannels:sample];
+                    aligned &= rail.effect==track && (!glass || glass.hidden);
                 }
             }
             Check(aligned,@"four visible channel titles, touch slots and both selected styles agree on every host index");

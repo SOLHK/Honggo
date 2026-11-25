@@ -54,6 +54,9 @@
 @property(nonatomic) CGPoint dockTouchStart;
 @property(nonatomic,weak) UISegmentedControl *flatSegments;
 @property(nonatomic,strong) UIVisualEffectView *dragLens;
+@property(nonatomic,strong) UIVisualEffectView *quietDragLens;
+@property(nonatomic,strong) NSMapTable<UIView *,UIView *> *quietSelectionSources;
+@property(nonatomic,weak) UIView *quietProvider;
 @property(nonatomic,strong) UIVisualEffectView *restingLens;
 @property(nonatomic,strong) UIVisualEffectView *extraRestingLens;
 @property(nonatomic) BOOL motionMaterialPresented;
@@ -652,6 +655,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 }
 
 - (void)removeSystemDock {
+    [self endQuietLens];
     self.systemDockActive=NO;
     self.quietSystemTouches=NO;self.systemHitSlots=nil;
     UIView *bar=self.hostBar,*wrapper=self.systemWrapper;
@@ -697,8 +701,6 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.systemTabBar=[[UITabBar alloc] initWithFrame:self.bounds];
         self.systemTabBar.delegate=self;
     }
-    // Slow only the system-owned animations inside our embedded bar.
-    self.systemTabBar.layer.speed=UIAccessibilityIsReduceMotionEnabled() ? 1 : 0.80;
     self.systemTabBar.backgroundColor=UIColor.clearColor;
     self.systemTabBar.barTintColor=nil;
     UIView *carrier=[self systemDockCarrier];
@@ -819,10 +821,13 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 }
 
 - (void)recordDockRenderer:(NSString *)mode reason:(NSString *)reason material:(NSString *)material {
-    NSArray *record=@[mode,reason,material];
+    NSString *requested=HGAppearanceString(@"dock.material");
+    NSString *provider=self.systemPlatter ? NSStringFromClass(self.systemPlatter.class) : @"";
+    NSArray *record=@[mode,reason,material,requested,provider];
     if([self.systemRendererRecord isEqualToArray:record])return;
     self.systemRendererRecord=record;
-    HGLog(@"appearance.dock-renderer",@{@"mode":mode,@"reason":reason,@"material":material});
+    HGLog(@"appearance.dock-renderer",@{@"mode":mode,@"reason":reason,@"material":material,
+        @"requestedMaterial":requested,@"platter":provider});
 }
 
 - (BOOL)fitSystemDockInCapsule:(CGRect)requested itemCount:(NSUInteger)count {
@@ -993,16 +998,11 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
     self.systemDockSyncing=NO;
     NSString *material=active ? [self applySystemMaterial:style] : style;
-    if(active && [style isEqual:@"clear"] && ![material isEqual:@"clear-glass"]) {
-        // Some floating providers expose no writable glass effect. The
-        // dedicated surface below can provide the requested clear material.
-        [self removeSystemDock];
-        active=NO;material=style;failure=@"Floating platter retains factory material";
-    }
     if(!active)self.failedSystemProbe=probe;
     NSString *mode=active ? (self.systemTabController?@"uikit-controller":@"uikit-tabbar") : @"compatibility";
-    [self recordDockRenderer:mode reason:active?@"UIKit floating platter receives item touches":failure
-        material:material];
+    NSString *reason=active ? (HGAppearanceFlag(@"dock.haptics") ? @"UIKit receives the original touch" :
+        @"UIKit platter with quiet touch routing") : failure;
+    [self recordDockRenderer:mode reason:reason material:material];
     return active;
 }
 
@@ -1138,6 +1138,13 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     BOOL useSystem=NO;
     BOOL tracking=self.pressedTab || self.selectionDragging || self.selectionSettling || self.motionMaterialPresented;
     BOOL nativePreview=tracking && self.systemDockActive && self.quietSystemTouches;
+    if(nativePreview && self.quietDragLens) {
+        if(self.quietProvider!=self.systemPlatter || !self.quietSelectionSources.count)[self endQuietLens];
+        for(UIView *part in self.quietSelectionSources.keyEnumerator.allObjects) {
+            if(!part.hidden || part.superview!=[self.quietSelectionSources objectForKey:part] ||
+                ![part isDescendantOfView:self.systemTabBar]){[self endQuietLens];break;}
+        }
+    }
     if(nativePreview && (!systemEligible || haptics || !CGRectEqualToRect(self.systemProbeFrame,expanded) ||
         ![self.systemItemSignature.firstObject isEqual:visible] || ![self.systemPlatter isDescendantOfView:self.systemTabBar])) {
         self.dockTouchButton=nil;
@@ -1408,6 +1415,55 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(!CGRectEqualToRect(self.selectionHighlight.frame,self.selection.bounds))self.selectionHighlight.frame=self.selection.bounds;
     if(self.selectionHighlight.layer.cornerRadius!=radius)self.selectionHighlight.layer.cornerRadius=radius;
 }
+- (void)endQuietLens {
+    self.quietDragLens.effect=nil;[self.quietDragLens removeFromSuperview];self.quietDragLens=nil;
+    for(UIView *part in self.quietSelectionSources.keyEnumerator.allObjects) {
+        if(part.hidden && part.superview==[self.quietSelectionSources objectForKey:part] &&
+            self.quietProvider==self.systemPlatter && [part isDescendantOfView:self.systemTabBar])part.hidden=NO;
+    }
+    self.quietSelectionSources=nil;self.quietProvider=nil;
+}
+- (BOOL)placeQuietLensAtX:(CGFloat)x button:(UIButton *)button {
+    if(!button || UIAccessibilityIsReduceMotionEnabled()) {
+        if(self.quietDragLens)[self endQuietLens];
+        return NO;
+    }
+    CGSize size=self.capsule.bounds.size;
+    CGRect local=HGADockSelectionFrame(x,size.width,size.height,button.bounds.size.width,YES);
+    CGRect frame=[self.capsule convertRect:local toView:self];
+    if(!self.quietSelectionSources) {
+        // Only suspend a positively identified selection surface inside our
+        // own UITabBar. Leave the platter, real tab glyphs and captions live.
+        NSMapTable<UIView *,UIView *> *thumbs=[NSMapTable weakToWeakObjectsMapTable];
+        NSBundle *uikit=[NSBundle bundleForClass:UITabBar.class];
+        for(UIView *part in HGADockSystemSubviews(self.systemTabBar)) {
+            NSString *name=NSStringFromClass(part.class);
+            if((![name containsString:@"TabSelectionView"] && ![name containsString:@"SelectionPlatter"]) ||
+                ![[NSBundle bundleForClass:part.class] isEqual:uikit] || !HGAVisible(part) ||
+                [part isKindOfClass:UIControl.class] || HGADockSystemItems(part).count)continue;
+            CGRect footprint=[part convertRect:part.bounds toView:self.capsule];
+            if(CGRectIntersectsRect(footprint,self.capsule.bounds))[thumbs setObject:part.superview forKey:part];
+        }
+        self.quietSelectionSources=thumbs;
+        if(thumbs.count) {
+            if(@available(iOS 26.0,*)) {
+                UIVisualEffectView *lens=[[UIVisualEffectView alloc] initWithEffect:nil];
+                lens.accessibilityIdentifier=@"honggo.appearance.dock.quiet-lens";
+                lens.accessibilityElementsHidden=YES;lens.userInteractionEnabled=NO;
+                lens.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
+                lens.frame=frame;lens.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
+                [self insertSubview:lens aboveSubview:[self systemDockCarrier]];
+                UIGlassEffect *glass=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
+                glass.interactive=YES;lens.effect=glass;
+                self.quietDragLens=lens;self.quietProvider=self.systemPlatter;
+                for(UIView *part in thumbs.keyEnumerator.allObjects)part.hidden=YES;
+            }
+        }
+    }
+    if(!self.quietDragLens)return NO;
+    if(!CGRectEqualToRect(self.quietDragLens.frame,frame))self.quietDragLens.frame=frame;
+    return YES;
+}
 - (UIButton *)positionDragSelection:(CGFloat)x {
     CGFloat first=CGFLOAT_MAX,last=-CGFLOAT_MAX,distance=CGFLOAT_MAX;
     UIButton *destination=nil;
@@ -1420,7 +1476,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
     if(self.quietSystemTouches) {
         self.selectionDragX=x;
-        if(destination)[self syncSystemSelection:destination.tag force:NO];
+        if(destination && ![self placeQuietLensAtX:MIN(last,MAX(first,x)) button:destination])
+            [self syncSystemSelection:destination.tag force:NO];
         return destination;
     }
     self.selection.hidden=!destination;
@@ -1437,6 +1494,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     return destination;
 }
 - (void)clearSelectionDrag {
+    [self endQuietLens];
     self.selectionGeneration++;
     self.pressedTab=nil;
     self.selectionDragging=NO;
@@ -1471,8 +1529,9 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         lens.userInteractionEnabled=NO;lens.accessibilityElementsHidden=YES;
         lens.hidden=YES;
         self.dragLens=lens;
-        // The lens refracts the video, while the navigation glyphs stay sharp.
-        [self.capsule insertSubview:lens aboveSubview:self.selection];
+        // Sample the assembled tab face during a press, including the symbol
+        // and caption beneath the moving optical surface.
+        [self.capsule addSubview:lens];
         lens.effect=effect;
     }
 }
@@ -1481,11 +1540,13 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.restingLens.hidden=YES;
     if(!self.motionMaterialPresented)[self prepareSelectionLens];
     self.motionMaterialPresented=YES;
+    if(self.dragLens)[self.capsule bringSubviewToFront:self.dragLens];
     self.dragLens.hidden=NO;
     self.selectionHighlight.alpha=1;
 }
 - (void)animateMotionGlyph:(UIButton *)glyph {
-    if(glyph==self.motionGlyph || !HGADockLiquidSelection() || UIAccessibilityIsReduceMotionEnabled())return;
+    if(glyph==self.motionGlyph || (self.dragLens && !self.dragLens.hidden) || !HGADockLiquidSelection() ||
+        UIAccessibilityIsReduceMotionEnabled())return;
     UIButton *previous=self.motionGlyph;
     self.motionGlyph=glyph;
     [UIView animateWithDuration:glyph?0.26:0.38 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0
@@ -1497,7 +1558,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         } completion:nil];
 }
 - (NSString *)dockMotionMode {
-    if(self.quietSystemTouches)return @"uikit-quiet";
+    if(self.quietSystemTouches)return self.quietDragLens ? @"uikit-quiet-lens" : @"uikit-quiet-selection";
     if(UIAccessibilityIsReduceMotionEnabled())return @"reduced-motion";
     if(!HGADockLiquidSelection())return @"plain-selection";
     Class glass=NSClassFromString(@"UIGlassEffect");
@@ -1511,7 +1572,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.pressedTab=button;
     if(self.quietSystemTouches) {
         self.selectionDragX=CGRectGetMidX(button.frame);
-        [self syncSystemSelection:button.tag force:NO];
+        if(![self placeQuietLensAtX:self.selectionDragX button:button])[self syncSystemSelection:button.tag force:NO];
         return;
     }
     self.restingLens.hidden=YES;
@@ -1643,7 +1704,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         [self endDockTouchAtPoint:point cancelled:YES];return;
     }
     if(!accessory && !self.selectionDragging && fabs(dx)>7)[self beginDockDragAtX:x];
-    if(self.selectionDragging)[self positionDragSelection:x];
+    if(self.selectionDragging || (!accessory && self.quietDragLens))[self positionDragSelection:x];
 }
 - (void)finishDockPointer:(HGADockPointer *)gesture {
     if(gesture.state==UIGestureRecognizerStateEnded || gesture.state==UIGestureRecognizerStateCancelled)

@@ -21,9 +21,8 @@ static char HGVideoBackdropLinkKey;
 @property(nonatomic, weak) UIViewController *owner;
 @property(nonatomic, strong) UIView *underlay;
 @property(nonatomic, strong) NSArray<CALayer *> *pagingMattes;
-@property(nonatomic, weak) UIView *portraitRenderer;
-@property(nonatomic) CATransform3D portraitTransform;
-@property(nonatomic, strong) NSMutableSet<UIView *> *portraitClips;
+@property(nonatomic, strong) NSMapTable<UIView *, NSValue *> *fittedRenderers;
+@property(nonatomic, strong) NSMapTable<UIImageView *, NSNumber *> *fittedCovers;
 @property(nonatomic, strong) NSMapTable<UIImageView *, NSNumber *> *cornerAlpha;
 @property(nonatomic, weak) CAGradientLayer *bottomGradient;
 @property(nonatomic, weak) UIView *detailTray;
@@ -181,31 +180,28 @@ static BOOL HGVideoBackdropSameRect(CGRect a, CGRect b, CGFloat tolerance) {
         fabs(CGRectGetMaxY(a)-CGRectGetMaxY(b)) <= tolerance;
 }
 
-static BOOL HGVideoBackdropCanExtend(UIView *renderer, UIView *root, CGRect viewport) {
-    Class metalClass = NSClassFromString(@"TTMetalView");
-    if (!HGVideoBackdropVisible(renderer, root) || HGAppearancePlayerIsTransferring(renderer) ||
-        renderer.subviews.count != 1 || renderer.layer.sublayers.count != 1) return NO;
-    UIView *metal = renderer.subviews.firstObject;
-    if (![metal isKindOfClass:metalClass] || !HGVideoBackdropVisible(metal, renderer) ||
-        renderer.layer.sublayers.firstObject != metal.layer ||
-        !CGPointEqualToPoint(renderer.layer.anchorPoint, CGPointMake(0.5,0.5))) return NO;
-    CGFloat pixel = MAX(0.75, 1 / MAX(1, renderer.traitCollection.displayScale));
-    CGRect rendered = [renderer convertRect:renderer.bounds toView:root];
-    if (fabs(CGRectGetMinY(rendered)-CGRectGetMinY(viewport)) > pixel ||
-        fabs(CGRectGetMaxY(rendered)-CGRectGetMaxY(viewport)) > pixel ||
-        fabs(CGRectGetMidX(rendered)-CGRectGetMidX(viewport)) > pixel) return NO;
-    // Read the authored Metal geometry in its parent, independently of our
-    // compositor enlargement. Aspect-fill may crop either axis as clips change.
-    CGSize video = metal.bounds.size;
-    CGRect bounds = renderer.bounds;
-    if (video.width <= 0 || video.height <= video.width || video.height < CGRectGetHeight(bounds)-pixel ||
-        fabs(metal.center.x-CGRectGetMidX(bounds)) > pixel ||
-        fabs(metal.center.y-CGRectGetMidY(bounds)) > pixel) return NO;
-    for (UIView *node = renderer; node; node = node.superview) {
-        if (node.layer.mask || (node != renderer && !CATransform3DIsIdentity(node.layer.sublayerTransform))) return NO;
-        if (node == root) return YES;
+// The native Metal surface is the entire decoded image. On a 440pt-wide feed
+// a centered 487.125pt surface has already overscanned both edges.
+static CGFloat HGVideoBackdropFitScale(CGSize picture, CGSize viewport) {
+    return MIN(1, MIN(viewport.width/picture.width, viewport.height/picture.height));
+}
+
+static UIView *HGVideoBackdropMetal(UIView *renderer, UIView *player, CGRect viewport) {
+    if (HGAppearancePlayerIsTransferring(renderer) || renderer.subviews.count != 1 ||
+        renderer.layer.sublayers.count != 1 ||
+        !HGVideoBackdropSameRect([renderer convertRect:renderer.bounds toView:player],viewport,0.75) ||
+        !CGPointEqualToPoint(renderer.layer.anchorPoint,CGPointMake(0.5,0.5))) return nil;
+    UIView *metal=renderer.subviews.firstObject;
+    if (![metal isKindOfClass:objc_lookUpClass("TTMetalView")] || renderer.layer.sublayers.firstObject!=metal.layer ||
+        metal.bounds.size.width<=0 || metal.bounds.size.height<=metal.bounds.size.width ||
+        fabs(metal.center.x-CGRectGetMidX(renderer.bounds))>0.75 ||
+        fabs(metal.center.y-CGRectGetMidY(renderer.bounds))>0.75) return nil;
+    for (UIView *node=metal; node; node=node.superview) {
+        if (node.layer.mask || !CATransform3DIsIdentity(node.layer.transform) ||
+            (node!=renderer && !CATransform3DIsIdentity(node.layer.sublayerTransform))) return nil;
+        if (node==player) return metal;
     }
-    return NO;
+    return nil;
 }
 
 // The cell's model is available before its poster or Metal surface. Both
@@ -228,45 +224,15 @@ static BOOL HGVideoBackdropSingleList(UIViewController *owner) {
     Method method=class_getInstanceMethod(object_getClass(list),single);
     return method && !strcmp(method_getTypeEncoding(method),"B16@0:8") && ((BOOL(*)(id,SEL))objc_msgSend)(list,single);
 }
-static UIView *HGVideoBackdropFeedMedia(UIView *canvas, UICollectionView *feed, CGRect cellFrame, CGFloat extra) {
-    if (!canvas || fabs(cellFrame.size.height-feed.bounds.size.height)>0.75) return nil;
-    // A downward drag moves this page's bottom from the native edge towards
-    // the physical bottom. Keep the renderer covering the remaining strip
-    // until the page itself (or its incoming neighbor) covers it completely.
-    if (CGRectGetMaxY(cellFrame) >= CGRectGetMaxY(feed.bounds)+extra) return nil;
-    Class playerClass = NSClassFromString(@"FQVPlayer");
-    Class rendererClass = NSClassFromString(@"TTPlayerView");
-    BOOL portrait=HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model"));
+static UIView *HGVideoBackdropPlayer(UIView *canvas) {
     for (UIView *wrapper in canvas.subviews) {
-        UIView *player = wrapper.subviews.firstObject;
-        if (wrapper.class != UIView.class || wrapper.subviews.count != 1 ||
-            ![player isKindOfClass:playerClass] || (!HGVideoBackdropVisible(player,feed) &&
-            !(portrait && HGVideoBackdropVisible(wrapper,feed))) ||
-            !CGPointEqualToPoint(wrapper.layer.anchorPoint, CGPointMake(0.5,0.5)) ||
-            !HGVideoBackdropSameRect(player.frame,wrapper.bounds,0.75) ||
-            !HGVideoBackdropSameRect([wrapper convertRect:wrapper.bounds toView:feed],cellFrame,0.75)) continue;
-        for (UIView *ancestor=wrapper; ancestor!=feed; ancestor=ancestor.superview)
-            if (ancestor.layer.mask || (ancestor!=wrapper && !CATransform3DIsIdentity(ancestor.layer.sublayerTransform)))
-                return nil;
-
-        // The player crossfades its cover and video inside this media wrapper.
-        // A full-height player can have a transparent or as-yet-unsized Metal
-        // surface while the cover is the actual picture. Extend their common
-        // parent once so they meet the same bottom edge throughout the fade.
-        // The paging cell, gesture controls and labels are outside this group.
-        for (UIView *renderer in player.subviews) {
-            if (![renderer isKindOfClass:rendererClass]) continue;
-            if (HGAppearancePlayerIsTransferring(renderer)) return nil;
-            if (HGVideoBackdropSameRect(renderer.frame,player.bounds,0.75)) return wrapper;
-            // A settled wide renderer has intentional space below the picture.
-            if (!CGRectIsEmpty(renderer.frame) && (!portrait || CGRectGetWidth(renderer.frame)>=CGRectGetHeight(renderer.frame))) return nil;
-        }
-        UIImageView *cover = (UIImageView *)HGView(player,"coverImageView");
-        if ([cover isKindOfClass:UIImageView.class] && cover.image && [cover isDescendantOfView:player] &&
-            HGVideoBackdropVisible(cover,player) &&
-            HGVideoBackdropSameRect([cover convertRect:cover.bounds toView:player],player.bounds,0.75))
-            return wrapper;
-        if(portrait)return wrapper;
+        UIView *player=wrapper.subviews.firstObject;
+        if (wrapper.class==UIView.class && wrapper.subviews.count==1 &&
+            [player isKindOfClass:objc_lookUpClass("FQVPlayer")] &&
+            HGVideoBackdropSameRect(wrapper.frame,canvas.bounds,0.75) &&
+            HGVideoBackdropSameRect(player.frame,wrapper.bounds,0.75) &&
+            !wrapper.layer.mask && CATransform3DIsIdentity(wrapper.layer.transform) &&
+            CATransform3DIsIdentity(wrapper.layer.sublayerTransform)) return player;
     }
     return nil;
 }
@@ -293,7 +259,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
 @implementation HGVideoBackdrop
 - (void)dealloc {
     for (CALayer *layer in _pagingMattes) [layer removeFromSuperlayer];
-    [self restorePortrait];
+    [self restorePortraitExcept:nil];
     [self restoreBottomGradient];
     [self restoreDetailTray];
     if (_ownsClipping) _feed.clipsToBounds = YES;
@@ -396,46 +362,65 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
     if (owned && !self.feed.clipsToBounds) self.feed.clipsToBounds = YES;
 }
 
-- (void)restorePortrait {
-    UIView *renderer = self.portraitRenderer;
-    NSMutableSet<UIView *> *clips = self.portraitClips;
-    self.portraitRenderer = nil;
-    self.portraitClips = nil;
-    if (!renderer && !clips.count) return;
+- (void)restorePortraitExcept:(NSSet<UIView *> *)active {
     [CATransaction begin]; [CATransaction setDisableActions:YES];
-    if (renderer && CATransform3DEqualToTransform(renderer.layer.sublayerTransform,self.portraitTransform))
-        renderer.layer.sublayerTransform = CATransform3DIdentity;
-    for (UIView *view in clips) if (!view.clipsToBounds) view.clipsToBounds = YES;
+    for (UIView *renderer in self.fittedRenderers.keyEnumerator.allObjects) {
+        if ([active containsObject:renderer]) continue;
+        CATransform3D applied=[[self.fittedRenderers objectForKey:renderer] CATransform3DValue];
+        if (CATransform3DEqualToTransform(renderer.layer.sublayerTransform,applied))
+            renderer.layer.sublayerTransform=CATransform3DIdentity;
+        [self.fittedRenderers removeObjectForKey:renderer];
+    }
+    for (UIImageView *cover in self.fittedCovers.keyEnumerator.allObjects) {
+        if ([active containsObject:cover]) continue;
+        if (cover.contentMode==UIViewContentModeScaleAspectFit)
+            cover.contentMode=[[self.fittedCovers objectForKey:cover] integerValue];
+        [self.fittedCovers removeObjectForKey:cover];
+    }
     [CATransaction commit];
 }
 
-- (BOOL)extendPortrait:(UIView *)renderer through:(UIView *)boundary extra:(CGFloat)extra {
-    if (self.portraitRenderer != renderer) [self restorePortrait];
-    if (!renderer) return NO;
-    CATransform3D current = renderer.layer.sublayerTransform;
-    if (!CATransform3DIsIdentity(current) &&
-        (self.portraitRenderer != renderer || !CATransform3DEqualToTransform(current,self.portraitTransform))) {
-        [self restorePortrait];
-        return NO;
-    }
-    CGFloat visibleHeight = CGRectGetHeight(renderer.bounds);
-    CGFloat zoom = (visibleHeight + extra) / visibleHeight;
-    CATransform3D fill = CATransform3DMakeScale(zoom,zoom,1);
-    // Keep the existing top as the anchor and extend downward to the window.
-    fill.m42 = extra / 2;
-    if (!self.portraitClips) self.portraitClips = [NSMutableSet set];
-    self.portraitRenderer = renderer;
-    self.portraitTransform = fill;
-    [CATransaction begin]; [CATransaction setDisableActions:YES];
-    if (!CATransform3DEqualToTransform(current,fill)) renderer.layer.sublayerTransform = fill;
-    for (UIView *view = renderer; view && view != boundary; view = view.superview) {
-        if (view.clipsToBounds) {
-            [self.portraitClips addObject:view];
-            view.clipsToBounds = NO;
+- (BOOL)fitPortraitInCanvas:(UIView *)canvas viewport:(CGRect)viewport active:(NSMutableSet<UIView *> *)active {
+    UIView *player=HGVideoBackdropPlayer(canvas);
+    if (!player || CGRectIsEmpty(viewport)) return NO;
+    BOOL fitted=NO;
+    for (UIView *renderer in player.subviews) {
+        if (![renderer isKindOfClass:objc_lookUpClass("TTPlayerView")]) continue;
+        if (HGAppearancePlayerIsTransferring(renderer)) return NO;
+        // Leave native landscape playback, including its poster, to the player.
+        if (!CGRectIsEmpty(renderer.frame) && renderer.bounds.size.width>=renderer.bounds.size.height) return NO;
+        UIView *metal=HGVideoBackdropMetal(renderer,player,viewport);
+        if (!metal) continue;
+        CATransform3D current=renderer.layer.sublayerTransform;
+        NSValue *previous=[self.fittedRenderers objectForKey:renderer];
+        if (!CATransform3DIsIdentity(current) &&
+            !(previous && CATransform3DEqualToTransform(current,previous.CATransform3DValue))) continue;
+        CGFloat scale=HGVideoBackdropFitScale(metal.bounds.size,viewport.size);
+        CATransform3D fit=CATransform3DMakeScale(scale,scale,1);
+        if (!self.fittedRenderers) self.fittedRenderers=[NSMapTable weakToStrongObjectsMapTable];
+        if (!previous || !CATransform3DEqualToTransform(previous.CATransform3DValue,fit))
+            [self.fittedRenderers setObject:[NSValue valueWithCATransform3D:fit] forKey:renderer];
+        if (!CATransform3DEqualToTransform(current,fit)) {
+            [CATransaction begin]; [CATransaction setDisableActions:YES];
+            renderer.layer.sublayerTransform=fit;
+            [CATransaction commit];
         }
+        [active addObject:renderer];
+        fitted=YES;
     }
-    [CATransaction commit];
-    return YES;
+    UIImageView *cover=(id)HGView(player,"coverImageView");
+    if ([cover isKindOfClass:UIImageView.class] && [cover isDescendantOfView:player] &&
+        HGVideoBackdropSameRect([cover convertRect:cover.bounds toView:player],viewport,0.75) &&
+        (cover.image ? cover.image.size.height>cover.image.size.width :
+            (fitted || HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model"))))) {
+        if (!self.fittedCovers) self.fittedCovers=[NSMapTable weakToStrongObjectsMapTable];
+        if (![self.fittedCovers objectForKey:cover] || cover.contentMode!=UIViewContentModeScaleAspectFit)
+            [self.fittedCovers setObject:@(cover.contentMode) forKey:cover];
+        if (cover.contentMode!=UIViewContentModeScaleAspectFit) cover.contentMode=UIViewContentModeScaleAspectFit;
+        [active addObject:cover];
+        fitted=YES;
+    }
+    return fitted;
 }
 
 - (void)removeFeed {
@@ -445,7 +430,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
     HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
     if (link.owner == self)
         objc_setAssociatedObject(feed, &HGVideoBackdropLinkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [self restorePortrait];
+    [self restorePortraitExcept:nil];
     [self restoreClipping];
     [self restoreBottomGradient];
     [self restoreCornerImages];
@@ -537,17 +522,33 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
     CGFloat edge=CGRectGetMaxY(feed.bounds)-0.75;
     UICollectionViewCell *cell = HGVideoBackdropCellAtY(feed,edge,&cellFrame);
     UIView *canvas = HGVideoBackdropCanvas(cell,feed,edge);
-    CGFloat extra = CGRectGetMaxY(feed.superview.bounds) - CGRectGetMaxY(feed.frame);
-    UIView *renderer = HGVideoBackdropFeedMedia(canvas, feed, cellFrame, extra);
-    CGFloat remaining = renderer ? MIN(extra, CGRectGetMaxY(feed.bounds)+extra-CGRectGetMaxY(cellFrame)) : 0;
-    BOOL fillsPortrait = [self extendPortrait:renderer through:feed extra:remaining];
-    UIColor *matte = fillsPortrait ? nil : HGVideoBackdropMatte(canvas);
+    // The feed's native page is the safe picture viewport. Both cells use
+    // their own settled fit throughout the swipe, independent of scroll offset.
+    CGRect topFrame=CGRectNull;
+    CGFloat top=CGRectGetMinY(feed.bounds)+0.75;
+    UICollectionViewCell *topCell=HGVideoBackdropCellAtY(feed,top,&topFrame);
+    NSMutableSet *active=[NSMutableSet set];
+    if (topCell && topCell!=cell && fabs(topFrame.size.height-feed.bounds.size.height)<=0.75) {
+        UIView *topCanvas=HGVideoBackdropCanvas(topCell,feed,top);
+        [self fitPortraitInCanvas:topCanvas viewport:topCanvas.bounds active:active];
+    }
+    BOOL portrait=cell && fabs(cellFrame.size.height-feed.bounds.size.height)<=0.75 &&
+        [self fitPortraitInCanvas:canvas viewport:canvas.bounds active:active];
+    [self restorePortraitExcept:active];
+    UIColor *matte=HGVideoBackdropMatte(canvas);
+    if (portrait && !matte) {
+        // During first-frame handoff the cell may not yet have its palette.
+        // Continue the native player's nearest opaque background into the Dock.
+        UIView *player=HGVideoBackdropPlayer(canvas);
+        for (UIView *node=player; node && !matte; node=node.superview) {
+            matte=HGVideoBackdropMatte(node);
+            if (node==feed.superview) break;
+        }
+    }
     [self updateUnderlay:[self pagingMatteForCanvas:canvas frame:cellFrame color:matte]];
-    [self updateBottomGradient:fillsPortrait ? HGVideoBackdropBottomGradient(canvas,feed,cellFrame) : nil];
+    [self updateBottomGradient:portrait ? HGVideoBackdropBottomGradient(canvas,feed,cellFrame) : nil];
 
-    // A prefetched next cell can already exist at the exact edge while idle.
-    // Only a visible cell with a portion on both sides may draw below the feed.
-    BOOL overflows = fillsPortrait || (cell && HGVideoBackdropCrossesBottom(feed, cellFrame));
+    BOOL overflows=cell && HGVideoBackdropCrossesBottom(feed,cellFrame);
     if (overflows || matte) [self updateCornerImages:feed.superview.subviews frame:feed.frame];
     else [self restoreCornerImages];
     if (!overflows) {
@@ -562,9 +563,14 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
 }
 
 - (void)prepareRendererTransfer:(UIView *)view {
-    UIView *renderer = self.portraitRenderer;
-    if (!renderer || (renderer != view && ![renderer isDescendantOfView:view] && ![view isDescendantOfView:renderer])) return;
-    [self restorePortrait];
+    NSMutableSet *keep=[NSMutableSet setWithArray:self.fittedRenderers.keyEnumerator.allObjects ?: @[]];
+    [keep addObjectsFromArray:self.fittedCovers.keyEnumerator.allObjects ?: @[]];
+    NSUInteger count=keep.count;
+    for (UIView *surface in keep.allObjects)
+        if (surface==view || [surface isDescendantOfView:view] || [view isDescendantOfView:surface])
+            [keep removeObject:surface];
+    if (keep.count==count) return;
+    [self restorePortraitExcept:keep];
     [self restoreClipping];
     [self restoreBottomGradient];
     [self restoreCornerImages];
@@ -591,11 +597,10 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
         return;
     }
     self.refreshing=YES;
-    UIView *tray = nil, *player = nil, *media = nil, *corners = nil, *hud=nil;
+    UIView *tray=nil, *corners=nil, *hud=nil;
+    UIView *player=HGVideoBackdropPlayer(canvas);
     Class controlsClass = NSClassFromString(@"FQVShortVideoVPlayerSingleSeriesControlView");
     Class trayClass = NSClassFromString(@"FQVShortVideoPlayerBottomView");
-    Class playerClass = NSClassFromString(@"FQVPlayer");
-    Class rendererClass = NSClassFromString(@"TTPlayerView");
     for (UIView *child in canvas.subviews) {
         if ([child isKindOfClass:controlsClass]) {
             hud=child;
@@ -603,8 +608,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
             // frames during which the host animates the controls' alpha.
             for (UIView *candidate in child.subviews)
                 if ([candidate isKindOfClass:trayClass]) { tray = candidate; break; }
-        } else if (child.class == UIView.class && child.subviews.count == 1 &&
-            [child.subviews.firstObject isKindOfClass:playerClass]) player = child.subviews.firstObject;
+        }
     }
     CGRect bottom = tray ? [tray convertRect:tray.bounds toView:canvas] : CGRectZero;
     CGRect viewport = canvas.bounds;
@@ -634,33 +638,14 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
                 CGRectGetMaxY(canvas.bounds)-CGRectGetMaxY(viewport));
         }
     }
-    UIView *wrapper=player.superview;
-    if ((hud || (portrait && HGVideoBackdropSingleList(owner))) && wrapper && HGVideoBackdropSameRect(wrapper.frame,canvas.bounds,0.75) &&
-        HGVideoBackdropSameRect(player.frame,wrapper.bounds,0.75) &&
-        CGPointEqualToPoint(wrapper.layer.anchorPoint,CGPointMake(0.5,0.5)) &&
-        bottom.size.height >= 44 && bottom.size.height <= 110 && CGRectGetHeight(viewport)>0 &&
-        HGVideoBackdropSameRect(bottom, CGRectMake(CGRectGetMinX(viewport), CGRectGetMaxY(viewport),
-            viewport.size.width, bottom.size.height), 0.75)) {
-        // Apply one crop to the media-only wrapper. The cover and the Metal
-        // frame share it through the host's crossfade; the HUD is its sibling.
-        BOOL wideRenderer=NO;
-        for (UIView *child in player.subviews) {
-            if(![child isKindOfClass:rendererClass])continue;
-            if(HGVideoBackdropCanExtend(child,player,viewport))media=wrapper;
-            else if(!CGRectIsEmpty(child.frame) && CGRectGetHeight(child.frame)<CGRectGetHeight(viewport)-1 &&
-                CGRectGetWidth(child.frame)>=CGRectGetHeight(child.frame))wideRenderer=YES;
-        }
-        if(!media) {
-            UIImageView *cover=(id)HGView(player,"coverImageView");
-            if([cover isKindOfClass:UIImageView.class] && cover.image.size.height>cover.image.size.width &&
-               [cover isDescendantOfView:player] && !cover.hidden && cover.alpha>0.01 &&
-               HGVideoBackdropSameRect([cover convertRect:cover.bounds toView:player],viewport,0.75))
-                media=wrapper;
-        }
-        if(portrait && !wideRenderer)media=wrapper;
-    }
-    CGFloat extra=media ? CGRectGetHeight(media.bounds)*bottom.size.height/CGRectGetHeight(viewport) : 0;
-    if ([self extendPortrait:media through:canvas extra:extra]) {
+    NSMutableSet *active=[NSMutableSet set];
+    BOOL fits=(hud || (portrait && HGVideoBackdropSingleList(owner))) &&
+        bottom.size.height>=44 && bottom.size.height<=110 &&
+        HGVideoBackdropSameRect(bottom,CGRectMake(CGRectGetMinX(viewport),CGRectGetMaxY(viewport),
+            viewport.size.width,bottom.size.height),0.75) &&
+        [self fitPortraitInCanvas:canvas viewport:viewport active:active];
+    [self restorePortraitExcept:active];
+    if (fits) {
         // The portrait detail player places its lower 12pt corner cutouts in
         // a separate holder at the original renderer edge.
         for (UIView *child in player.subviews) {
@@ -671,10 +656,11 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, UIView *co
         }
         [self updateCornerImages:corners.subviews frame:corners.bounds];
         [self updateBottomGradient:HGVideoBackdropBottomGradient(canvas,canvas,viewport)];
-        if (self.detailTray != tray) [self restoreDetailTray];
+        BOOL hasMatte=HGVideoBackdropMatte(canvas)!=nil;
+        if (self.detailTray!=tray || !hasMatte) [self restoreDetailTray];
         CGFloat white = 0, alpha = 0;
         UIColor *paint = tray.backgroundColor;
-        if ([[paint resolvedColorWithTraitCollection:tray.traitCollection] getWhite:&white alpha:&alpha] &&
+        if (hasMatte && [[paint resolvedColorWithTraitCollection:tray.traitCollection] getWhite:&white alpha:&alpha] &&
             white <= 0.10 && alpha >= 0.85) {
             self.detailTray = tray;
             self.detailTrayPaint = paint;
@@ -794,8 +780,9 @@ void HGRefreshVideoBackdropForPlayer(UIView *view) {
     if (feedLink ||
         (feed.window && CGRectGetMaxY(feed.frame) < CGRectGetMaxY(feed.superview.bounds)-20)) {
         [detail restore];
-        if(feedLink && !feedLink.owner.portraitRenderer && !feed.tracking && !feed.dragging && !feed.decelerating &&
-           !HGAppearancePlayerIsTransferring(view) && HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model")))
+        if(feedLink && !HGAppearancePlayerIsTransferring(view) &&
+           ((view==canvas && HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model"))) ||
+            [view isKindOfClass:objc_lookUpClass("TTPlayerView")] || [view isKindOfClass:objc_lookUpClass("FQVPlayer")]))
             HGVideoBackdropRefreshForFeed(feed);
         HGScheduleFeedLayoutRefresh(feed);
         return;

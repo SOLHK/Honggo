@@ -231,7 +231,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             }
             if(metalLayout) {
                 UIView *renderer=[(UIView *)object superview];
-                if(renderer.window && HGAppearanceDockEnabled() && [renderer isKindOfClass:objc_lookUpClass("TTPlayerView")])
+                if(renderer.window && [renderer isKindOfClass:objc_lookUpClass("TTPlayerView")] &&
+                   (HGAppearanceDockEnabled() || (HGAppearanceEnabled() && HGAppearanceFlag(@"player.controlsGlass"))))
                     HGRefreshVideoBackdropForPlayer(renderer);
                 return;
             }

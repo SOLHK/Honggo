@@ -35,7 +35,6 @@ API_AVAILABLE(ios(26.0))
         BOOL flat=[material isEqual:@"flat"];
         _rail.style=flat ? @"solid" : material;
         _rail.untintedGlass=!flat;
-        _rail.interactiveGlass=!flat;
         _rail.overlayColor=flat ? UIColor.tertiarySystemFillColor : UIColor.clearColor;
         _rail.layer.cornerCurve=kCACornerCurveContinuous;
         _rail.clipsToBounds=YES;
@@ -91,6 +90,20 @@ API_AVAILABLE(ios(26.0))
 - (void)choose:(UIButton *)button {
     self.selectedSegmentIndex=button.tag;
     [self sendActionsForControlEvents:UIControlEventValueChanged];
+}
+@end
+
+// On UIKit versions that ask an interactive glass surface for its gesture
+// view, observe the channel buttons' common ancestor while leaving hits on them.
+@interface HGAHeaderTouchGlass : HGAAppearanceMaterial
+@property(nonatomic,weak) UIView *channelControl;
+@end
+@implementation HGAHeaderTouchGlass
+- (UIView *)_flexInteractionGestureView {
+    UIView *control=self.channelControl;
+    if (control.window && control.window==self.window) return control;
+    IMP inherited=class_getMethodImplementation(HGAAppearanceMaterial.class,_cmd);
+    return ((UIView *(*)(id,SEL))inherited)(self,_cmd);
 }
 @end
 
@@ -224,11 +237,18 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     lens.accessibilityElementsHidden=YES;
     lens.accessibilityIdentifier=@"honggo.appearance.header.swipeLens";
     lens.layer.cornerCurve=kCACornerCurveContinuous;
-    lens.backgroundColor=self.glassSelection ? UIColor.clearColor : HGADockSelectionColor(self.channelControl.traitCollection,YES);
+    lens.backgroundColor=self.glassSelection ? [UIColor colorWithWhite:1 alpha:0.16] :
+        HGADockSelectionColor(self.channelControl.traitCollection,YES);
     lens.hidden=YES;
     if (@available(iOS 26.0,*)) {
         if (self.glassSelection) {
-            HGAAppearanceMaterial *refraction=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
+            Method source=class_getInstanceMethod(HGAAppearanceMaterial.class,sel_registerName("_flexInteractionGestureView"));
+            HGAAppearanceMaterial *refraction;
+            if (source && !strcmp(method_getTypeEncoding(source),"@16@0:8")) {
+                HGAHeaderTouchGlass *touchGlass=[[HGAHeaderTouchGlass alloc] initWithEffect:nil];
+                touchGlass.channelControl=self.channelControl;
+                refraction=touchGlass;
+            } else refraction=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
             refraction.style=@"clear";
             refraction.untintedGlass=YES;
             refraction.interactiveGlass=YES;
@@ -237,6 +257,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
             refraction.accessibilityIdentifier=@"honggo.appearance.header.refraction";
             refraction.accessibilityElementsHidden=YES;
             refraction.userInteractionEnabled=NO;
+            refraction.hidden=YES;
             refraction.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
             [lens addSubview:refraction];
             self.channelRefraction=refraction;
@@ -250,7 +271,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     self.channelLens=lens;
 }
 - (void)positionLensForSegment:(CGFloat)index lifted:(BOOL)lifted {
-    CGRect frame=[self lensFrameAtSegment:index lifted:lifted];
+    CGRect frame=[self lensFrameAtSegment:index lifted:lifted && !self.glassSelection];
     UIView *lens=self.channelLens;
     if (!CGRectEqualToRect(lens.frame,frame)) lens.frame=frame;
     CGFloat radius=CGRectGetHeight(frame)/2;
@@ -258,6 +279,10 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     if (self.channelRefraction && !CGRectEqualToRect(self.channelRefraction.frame,lens.bounds))
         self.channelRefraction.frame=lens.bounds;
     self.channelRefraction.materialCornerRadius=radius;
+    if (self.channelRefraction && self.channelRefraction.hidden==lifted) {
+        self.channelRefraction.hidden=!lifted;
+        lens.backgroundColor=lifted ? UIColor.clearColor : [UIColor colorWithWhite:1 alpha:0.16];
+    }
     if(self.channelRefraction.window && !self.channelRefraction.effect)[self.channelRefraction layoutIfNeeded];
 }
 - (void)liftTitle:(UILabel *)title {
@@ -299,7 +324,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
             if (![self hasChannelButtons] && control.selectedSegmentIndex!=UISegmentedControlNoSegment)
                 control.selectedSegmentIndex=UISegmentedControlNoSegment;
         }];
-        if (animated) {
+        if (animated && !self.glassSelection) {
             [UIView animateWithDuration:0.33 delay:0 usingSpringWithDamping:0.84 initialSpringVelocity:0 options:UIViewAnimationOptionBeginFromCurrentState|
                 UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionCurveEaseOut animations:^{
                 [self positionLensForSegment:index lifted:YES];
@@ -313,7 +338,8 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         [UIView performWithoutAnimation:^{[self positionLensForSegment:index lifted:YES];}];
     }
     if (@available(iOS 26.0,*)) {
-        if ([self hasChannelButtons]) [self liftTitle:((HGAHeaderGlassChannels *)control).buttons[(NSUInteger)lround(index)].titleLabel];
+        if (!self.glassSelection && [self hasChannelButtons])
+            [self liftTitle:((HGAHeaderGlassChannels *)control).buttons[(NSUInteger)lround(index)].titleLabel];
     }
 }
 - (void)finishChannelMotion {
@@ -330,6 +356,14 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         return;
     }
     if (selected==NSNotFound) selected=self.previewOrigin;
+    if (self.glassSelection) {
+        [UIView performWithoutAnimation:^{
+            [self positionLensForSegment:selected lifted:NO];
+            control.selectedSegmentIndex=selected;
+        }];
+        [control.superview setNeedsLayout];
+        return;
+    }
     NSUInteger generation=++self.channelMotionGeneration;
     self.channelLensSettling=YES;
     [UIView animateWithDuration:0.42 delay:0 usingSpringWithDamping:0.87 initialSpringVelocity:0

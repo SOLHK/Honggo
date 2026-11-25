@@ -533,8 +533,9 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
     if(!UIAccessibilityIsReduceMotionEnabled())
         Check(selection.bounds.size.height>resting+capsule.bounds.size.height*0.10 &&
             selection.bounds.size.width>restingWidth*1.06 && CGRectGetMinY(selection.frame)<0 &&
-            selection.alpha==1 && highlight.alpha==1 && home.imageView.transform.a>1.10,
-            @"same-tab press expands and lifts the glass, reveals its highlight and enlarges its glyph");
+            selection.alpha==1 && highlight.alpha==1 && (HGDockVisibleSelectionLens(selection) ?
+            CGAffineTransformIsIdentity(home.imageView.transform) : home.imageView.transform.a>1.10),
+            @"same-tab press lifts the selection with native optics or the non-glass highlight fallback");
     HGAppearanceLayoutDock(bar,host);Layout(bar);
     [dock moveDockTouchToPoint:CGPointMake((start.x+finish.x)/2,start.y)];
     Check(host.nativeTaps==taps && fabs(CGRectGetMidX(selection.frame)-(CGRectGetMidX(home.frame)+CGRectGetMidX(theater.frame))/2)<0.01,
@@ -639,7 +640,8 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     UIView *previewHighlight=Find(selection,@"honggo.appearance.dock.selection-highlight");
     Check(CGRectGetMaxX(selection.frame)>=capsule.bounds.size.width-1 && host.nativeTaps==taps &&
         (UIAccessibilityIsReduceMotionEnabled() ||
-         (previewHighlight.alpha==1 && theater.imageView.transform.a>1.10)),
+         (previewHighlight.alpha==1 && (HGDockVisibleSelectionLens(selection) ?
+          CGAffineTransformIsIdentity(theater.imageView.transform) : theater.imageView.transform.a>1.10))),
         @"fallback press previews the destination immediately without forwarding its action");
     if(@available(iOS 26.0,*)) {
         if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
@@ -647,8 +649,9 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
             UIVisualEffectView *pressLens=HGDockVisibleSelectionLens(selection);
             Check([pressLens.effect isKindOfClass:UIGlassEffect.class] && ((UIGlassEffect *)pressLens.effect).interactive &&
                 pressLens.alpha==1 && selection.alpha==1 && pressLens.superview==capsule &&
-                [capsule.subviews indexOfObjectIdenticalTo:pressLens]<[capsule.subviews indexOfObjectIdenticalTo:theater],
-                @"pressing reuses native refracting glass below the tab glyphs");
+                [capsule.subviews indexOfObjectIdenticalTo:pressLens]>[capsule.subviews indexOfObjectIdenticalTo:theater] &&
+                !pressLens.userInteractionEnabled && CGAffineTransformIsIdentity(theater.titleLabel.transform),
+                @"a press samples the complete tab face below its moving glass without blocking the tab or scaling its content");
         }
     }
     [theater sendActionsForControlEvents:UIControlEventTouchCancel];
@@ -797,6 +800,7 @@ static void HGRunDockCaptionChecks(SSTabBarController *host) {
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
 }
 
+static NSString *HGAFixtureReadOnlyMaterial(id dock,SEL selector,NSString *style) {return @"factory-glass";}
 static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     if(!HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled())return;
     NSDictionary *saved=HGAppearanceValues();
@@ -805,8 +809,8 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     CGRect roomy=frame;roomy.size.height=84;roomy.origin.y=host.view.bounds.size.height-84;
     host.customTabBar.frame=roomy;host.selectedIndex=0;
     HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.material":@"regular",
-        @"dock.content":@"both",@"dock.haptics":@YES,@"dock.radius":@29,@"dock.height":@58,@"dock.extra":@YES,@"dock.action":@"search",
-        @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@YES,@"dock.hide.mine":@YES},nil);
+        @"dock.content":@"both",@"dock.haptics":@YES,@"dock.radius":@29,@"dock.height":@58,@"dock.extra":@NO,
+        @"dock.width":@(HGADockDefaultWidth),@"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@NO,@"dock.hide.mine":@NO},nil);
     HGAppearanceLayoutDock(host.customTabBar,host);Layout(host.customTabBar);
     CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
     HGAppearanceLayoutDock(host.customTabBar,host);
@@ -818,8 +822,19 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         UITabBar *native=[dock valueForKey:@"systemTabBar"];
         UITabBarController *managed=[dock valueForKey:@"systemTabController"];
         Check([native isKindOfClass:UITabBar.class] && native.window==dock.window &&
-            !Find(capsule,@"honggo.appearance.material") && manual.hidden && fabs(carrier.transform.a-carrier.transform.d)<0.001,
+            !Find(capsule,@"honggo.appearance.material") && manual.hidden && native.layer.speed==1 &&
+            fabs(carrier.transform.a-carrier.transform.d)<0.001,
             @"the mounted UIKit floating Dock owns both selection and visible tab controls");
+        Method material=class_getInstanceMethod(dock.class,sel_registerName("applySystemMaterial:"));
+        IMP apply=method_setImplementation(material,(IMP)HGAFixtureReadOnlyMaterial);
+        @try {
+            HGAppearanceSet(@"dock.material",@"clear",nil);HGAppearanceLayoutDock(host.customTabBar,host);
+            Check([dock valueForKey:@"systemTabBar"]==native && [[dock valueForKey:@"systemDockActive"] boolValue] &&
+                !Find(capsule,@"honggo.appearance.material") && manual.hidden,
+                @"the four-item UIKit provider from the device log stays mounted when Clear cannot replace its factory material");
+        } @finally {
+            method_setImplementation(material,apply);
+        }
         NSUInteger taps=host.nativeTaps;
         if(managed) {
             if(@available(iOS 26.0,*)) {
@@ -830,8 +845,8 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
                 [managed.delegate tabBarController:managed didSelectTab:tab previousTab:managed.selectedTab];
             }
         }else {
-            UITabBarItem *tab=native.items.lastObject;
-            Check(native.items.count==2 && tab.tag==1,@"the standalone UIKit Dock owns its mapped UITabBarItems");
+            UITabBarItem *tab=native.items.count>=2 ? native.items[1] : nil;
+            Check(native.items.count==4 && tab.tag==1,@"the standalone UIKit Dock owns four mapped UITabBarItems");
             Check(tab.title.length==0 && [tab.accessibilityLabel isEqual:@"剧场"] && tab.image.CGImage &&
                 tab.selectedImage.CGImage && tab.selectedImage.renderingMode==UIImageRenderingModeAlwaysOriginal,
                 @"standalone selection cannot omit or recolor the independently drawn caption");
@@ -868,11 +883,21 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         UIButton *home=(id)Find(dock,@"honggo.appearance.tab.home");
         CGPoint first=[home convertPoint:CGPointMake(CGRectGetMidX(home.bounds),CGRectGetMidY(home.bounds)) toView:dock];
         [quietDock beginDockTouchAtPoint:point];[quietDock moveDockTouchToPoint:first];
+        UIVisualEffectView *moving=(id)Find(dock,@"honggo.appearance.dock.quiet-lens");
+        if(moving) {
+            CGPoint mid=CGPointMake((first.x+point.x)/2,first.y);
+            [quietDock moveDockTouchToPoint:mid];CGFloat before=CGRectGetMidX(moving.frame);
+            [quietDock moveDockTouchToPoint:CGPointMake(mid.x+4,mid.y)];
+            Check(fabs(CGRectGetMidX(moving.frame)-before-4)<0.5 && !moving.userInteractionEnabled &&
+                !moving.maskView && CGAffineTransformIsIdentity(moving.transform) && [quietDock hitTest:first withEvent:nil]==home,
+                @"the quiet optical lens follows sub-slot motion across four native items and leaves their tap targets accessible");
+        }
         [quietDock renderGeometry];
         Check([dock valueForKey:@"systemTabBar"]==quietBar && [[dock valueForKey:@"quietSystemTouches"] boolValue] &&
             !Find(capsule,@"honggo.appearance.material"),@"a host relayout during quiet dragging keeps UIKit as the sole visible renderer");
         [quietDock endDockTouchAtPoint:first cancelled:YES];
-        Check(host.nativeTaps==taps,@"cancelling a quiet native preview sends no host tab action");
+        Check(host.nativeTaps==taps && !Find(dock,@"honggo.appearance.dock.quiet-lens"),
+            @"cancelling a quiet native preview removes the moving glass and sends no host tab action");
         [quietDock beginDockTouchAtPoint:point];[quietDock endDockTouchAtPoint:point cancelled:NO];
     }else {
         Check([theater.currentTitle isEqual:@"剧场"],@"a quiet compatibility tab keeps its visible caption");
@@ -1023,7 +1048,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGAppearanceSet(@"dock.material",@"clear",nil);Layout(capsuleMaterial);
     Check(reduceTransparency || !HGNativeGlassConfigured() ||
         [capsuleMaterial.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")],
-        @"explicit clear glass remains available on light pages");
+        @"the custom-radius compatibility surface supplies Clear glass on light pages");
     host.selectedIndex=0;
     HGAppearanceSet(@"dock.material",@"regular",nil);Layout(capsuleMaterial);
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
