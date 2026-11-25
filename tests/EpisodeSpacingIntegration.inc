@@ -246,13 +246,35 @@ static void RunOutterEpisodeSpacingChecks(UIView *root) {
         Check(CGPointEqualToPoint(wrapper.center,settledEntry) && CGPointEqualToPoint(right.center,settledRight) &&
             CGPointEqualToPoint(progress.center,settledProgress),
             @"returning to a measured Dock recovers the original coordinates without adding the lift twice");
+        FQVShortVideoPlayerCellView *incomingCanvas=[[FQVShortVideoPlayerCellView alloc] initWithFrame:CGRectMake(0,0,440,866)];
+        FQVShortVideoVPlayerOutterMultiSeriesControlView *incomingControl=
+            [[FQVShortVideoVPlayerOutterMultiSeriesControlView alloc] initWithFrame:incomingCanvas.bounds];
+        FQVShortVideoBaseInsertView *incomingWrapper=[[FQVShortVideoBaseInsertView alloc] initWithFrame:CGRectMake(0,822,440,44)];
+        SSShortVideoBottomDistributionView *incomingEntry=[[SSShortVideoBottomDistributionView alloc] initWithFrame:incomingWrapper.bounds];
+        [incomingWrapper addSubview:incomingEntry];
+        FQVShortVideoProgressView *incomingProgress=[[FQVShortVideoProgressView alloc] initWithFrame:CGRectMake(0,841,440,30)];
+        UIView *incomingTrack=[[UIView alloc] initWithFrame:CGRectMake(16,22,408,2)];
+        incomingTrack.userInteractionEnabled=NO;[incomingProgress addSubview:incomingTrack];
+        [incomingControl addSubview:incomingProgress];[incomingControl addSubview:incomingWrapper];
+        [incomingCanvas addSubview:incomingControl];
+        FQVCollectionView *incomingFeed=[[FQVCollectionView alloc] initWithFrame:CGRectOffset(pages.bounds,pages.bounds.size.width,0)
+            collectionViewLayout:[UICollectionViewFlowLayout new]];
+        incomingFeed.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
+        [horizontal addSubview:incomingFeed];
+        [incomingFeed addSubview:incomingCanvas];
         horizontal.contentOffset = CGPointMake(70, 0);
-        Layout(control);
+        Layout(control);Layout(incomingControl);Layout(incomingEntry);
         CGRect swipeRail=[track convertRect:track.bounds toView:control];
+        CGRect incomingRail=[incomingTrack convertRect:incomingTrack.bounds toView:incomingControl];
         Check(adjustedHere && CGPointEqualToPoint(wrapper.center,settledEntry) &&
             CGPointEqualToPoint(progress.center,settledProgress) && CGPointEqualToPoint(right.center,settledRight) &&
-            CGRectGetMinY(swipeRail)-CGRectGetMaxY(wrapper.frame)>=8,
-            @"the outgoing horizontal page retains its settled episode and rail clearance");
+            CGRectGetMinY(swipeRail)-CGRectGetMaxY(wrapper.frame)>=8 &&
+            fabs(incomingWrapper.center.y-settledEntry.y)<0.01 &&
+            fabs(incomingProgress.center.y-settledProgress.y)<0.01 &&
+            CGRectGetMinY(incomingRail)-CGRectGetMaxY(incomingWrapper.frame)>=8 &&
+            Find(incomingEntry,@"honggo.appearance.material")!=nil,
+            @"both outgoing and incoming horizontal channels retain episode glass and Dock clearance during a sideways swipe");
+        [incomingFeed removeFromSuperview];
         horizontal.contentOffset = CGPointZero;
         canvas.transform=CGAffineTransformMakeTranslation(-70,0);
         Layout(control);

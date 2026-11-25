@@ -1248,7 +1248,46 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         [host.view updateTraitsIfNeeded];
         [host.customTabBar updateTraitsIfNeeded];
     }
-    HGAppearanceApply(@{@"dock.material":@"solid"},nil);Layout(dock);
+    NSUInteger preClearIndex=host.selectedIndex;
+    HGAppearanceApply(@{@"dock.style":@"glass",@"dock.material":@"clear",@"dock.selectionStyle":@"glass",
+        @"dock.radius":@29,@"dock.height":@58,@"dock.extra":@YES},nil);
+    host.selectedIndex=0;
+    HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
+    UIVisualEffectView *hostVeil=[[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial]];
+    hostVeil.frame=host.customTabBar.bounds;
+    [host.customTabBar insertSubview:hostVeil atIndex:0];
+    HGAppearanceReclaimDockChrome(host.customTabBar);
+    Check(hostVeil.hidden,
+        @"custom Dock hides host UIVisualEffectView backdrops inside SSTabBar so channel swipes never flash a veil");
+    [hostVeil removeFromSuperview];
+    UIView *clearGlassBefore=Find(capsule,@"honggo.appearance.material");
+    UIVisualEffectView *clearLensBefore=(id)Find(capsule,@"honggo.appearance.dock.drag-lens");
+    if(clearGlassBefore && clearLensBefore && !UIAccessibilityIsReduceMotionEnabled()) {
+        CGPoint homePt=[home convertPoint:CGPointMake(CGRectGetMidX(home.bounds),CGRectGetMidY(home.bounds)) toView:dock];
+        CGPoint theaterPt=[theater convertPoint:CGPointMake(CGRectGetMidX(theater.bounds),CGRectGetMidY(theater.bounds)) toView:dock];
+        [flatDock beginDockTouchAtPoint:homePt];
+        BOOL lensClearedBacking=[selection.backgroundColor isEqual:UIColor.clearColor] && !clearLensBefore.hidden;
+        [flatDock moveDockTouchToPoint:theaterPt];
+        [flatDock endDockTouchAtPoint:theaterPt cancelled:YES];
+        HGWaitForDockSelectionLensToSettle(selection);
+        Check(lensClearedBacking &&
+            Find(capsule,@"honggo.appearance.material")==clearGlassBefore &&
+            Find(capsule,@"honggo.appearance.dock.drag-lens")==clearLensBefore &&
+            [selection.backgroundColor isEqual:UIColor.secondarySystemFillColor] &&
+            clearLensBefore.hidden && CGAffineTransformIsIdentity(clearLensBefore.transform),
+            @"clear Dock reuses its glass and drag lens without recreation, clears muddy backing while tracking, and restores resting fill on settle");
+    }
+    UIButton *accBtn=(id)Find(host.customTabBar,@"honggo.appearance.dock.extra");
+    UIView *accSurface=[flatDock valueForKey:@"extra"];
+    if(accBtn && accSurface && !UIAccessibilityIsReduceMotionEnabled()) {
+        [accBtn sendActionsForControlEvents:UIControlEventTouchDown];
+        BOOL scaledSurface=accSurface.transform.a>1.01 && CGAffineTransformIsIdentity(accBtn.imageView.transform);
+        [accBtn sendActionsForControlEvents:UIControlEventTouchCancel];
+        Check(scaledSurface && CGAffineTransformIsIdentity(accSurface.transform),
+            @"accessory press springs the glass container rather than shrinking the glyph");
+    }
+    host.selectedIndex=preClearIndex;
+    HGAppearanceApply(@{@"dock.extra":@NO,@"dock.material":@"solid"},nil);HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
     UIVisualEffectView *solidMaterial=(id)Find(capsule,@"honggo.appearance.material");
     Layout(solidMaterial);
     UIColor *solidFill=solidMaterial.contentView.backgroundColor;

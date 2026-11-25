@@ -28,6 +28,8 @@ static void HGARelinquishBottomLayout(UIView *view);
 static BOOL HGAIsBottomControl(UIView *view);
 
 static void HGAResumeSettledHUDs(UIScrollView *feed);
+static void HGAReconcileCategoryEpisodes(UIView *pager);
+static void HGACategoryPagerDidScroll(UIView *pager, UIScrollView *scroll);
 
 // The native collection can be assembling cells or transferring a renderer
 // inside these callbacks. Read its settled hierarchy once after they unwind.
@@ -285,7 +287,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGScheduleFeedLayoutRefresh((UIScrollView *)HGAAncestorNamed(object,@"FQVCollectionView"));
                 }
             }
-            if(episodeWrapper)HGAEpisodeWrapperChanged(object);
+            if(episodeWrapper)HGAEpisodeReconcileWrapper(object);
             if(playerNavigation){HGAApplyPlayerNavigation(object);return;}
             if (controller) {
                 HGAppearanceProcessController(object);
@@ -294,7 +296,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             }
             else if ((selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview)) && [(UIView *)object window]) {
                 HGAApplyCleanView(object);
-                [(UIView *)object setNeedsLayout];
+                if(episode)HGAppearanceProcessView(object);
+                else [(UIView *)object setNeedsLayout];
             }
             else HGAppearanceProcessView(object);
         });
@@ -311,24 +314,27 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         });
     } else if (!strcmp(encoding,"v24@0:8@16")) {
         replacement=imp_implementationWithBlock(^(id object,id argument) {
+            BOOL sameSuperview=selector==@selector(willMoveToSuperview:) && argument==[(UIView *)object superview];
             BOOL transfer=player && (selector==@selector(willMoveToSuperview:) || selector==@selector(willMoveToWindow:));
-            BOOL episodeMove=episode && selector==@selector(willMoveToSuperview:);
+            BOOL episodeMove=episode && selector==@selector(willMoveToSuperview:) && !sameSuperview;
             BOOL episodeRender=episode && selector==sel_registerName("renderWithModel:");
-            BOOL bottomMove=bottomParticipant && selector==@selector(willMoveToSuperview:);
+            BOOL episodeAdd=episode && selector==@selector(didAddSubview:);
+            BOOL bottomMove=bottomParticipant && selector==@selector(willMoveToSuperview:) && !sameSuperview;
             BOOL modelChange=playerCanvas && selector==sel_registerName("setModel:");
+            BOOL pagerScroll=categoryPager && selector==@selector(scrollViewDidScroll:);
             BOOL guarded=(transfer || episodeMove || episodeRender || bottomMove || modelChange) && NSThread.isMainThread;
             BOOL wasApplying=HGAApplying,completed=NO;
             NSUInteger invocation=guarded && transfer && HGEnhancedDiagnostics()?++HGAPlayerTransferInvocation:0;
             HGATracePlayerTransfer(object,selector,argument,invocation,@"enter");
             if(guarded)HGAApplying=YES;
-            if(categoryPager) HGATraceCategoryCallback(selector, @"enter");
+            if(categoryPager && !pagerScroll) HGATraceCategoryCallback(selector, @"enter");
             @try {
                 if(guarded && transfer) {
                     HGAPreparePlayerTransfer(object,selector);
                     HGVideoBackdropPrepareRendererTransfer(object);
                     HGATracePlayerTransfer(object,selector,argument,invocation,@"prepared");
                 }
-                if(guarded && (episodeMove || episodeRender))HGAApplyEpisodeCorners(object,NO,0);
+                if(guarded && (episodeMove || (episodeRender && !wasApplying)))HGAApplyEpisodeCorners(object,NO,0);
                 if(guarded && episodeWrapper && bottomMove)HGAEpisodeWrapperWillMove(object);
                 if(guarded && (episodeMove || bottomMove))HGARestoreBottomLayoutForView(object);
                 if(guarded && modelChange)HGAPlayerModelWillChange(object,argument);
@@ -344,8 +350,21 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGRefreshVideoBackdropForPlayer(object);
                 return;
             }
-            if(episodeWrapper && selector==@selector(didAddSubview:))HGAEpisodeWrapperChanged(object);
+            if(episodeAdd) {
+                if(HGAOwnView(argument))return;
+                HGAppearanceProcessView(object);
+                HGAAppearanceMaterial *g=HGAState(object,NO).glass;
+                if(g && g.superview==object && [(UIView *)object subviews].firstObject!=g)
+                    [(UIView *)object sendSubviewToBack:g];
+                return;
+            }
+            if(episodeRender && wasApplying) {
+                [(UIView *)object setNeedsLayout];
+                return;
+            }
+            if(episodeWrapper && selector==@selector(didAddSubview:))HGAEpisodeReconcileWrapper(object);
             if(playerNavigation)HGAApplyPlayerNavigation(object);
+            else if(pagerScroll)HGACategoryPagerDidScroll(object,argument);
             else if(categoryPager) {
                 HGATraceCategoryCallback(selector, @"return");
                 HGAResumeCategoryFeeds(object);
@@ -353,7 +372,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             }
             else if(scrollComponent)HGARefreshBackdropAfterScroll(argument);
             else if(controller)HGAppearanceProcessController(object);
-            else if(!transfer && !episodeMove && !bottomMove)HGAppearanceProcessView(object);
+            else if(!transfer && !episodeMove && !bottomMove && !sameSuperview)HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v28@0:8@16B24")) {
         BOOL collectRefresh=[className isEqual:@"SSShortVideoRightInteractionCollectView"] &&
@@ -447,6 +466,11 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 // still in the transition tree and a whole-window scan abstains.
                 for (UIView *child in ((UIViewController *)object).viewIfLoaded.subviews)
                     HGARefreshBackdropAfterScroll(child);
+            } else if(episodeWrapper && selector==@selector(setHidden:)) {
+                if(!HGAApplying) {
+                    HGAEpisodeReconcileWrapper(object);
+                    HGAUpdateBottomLayoutForView(object);
+                }
             } else if(controller)HGAppearanceProcessController(object);
             else HGAppearanceProcessView(object);
         });
@@ -670,9 +694,13 @@ void HGInstallAppearance(void) {
             if([HGAViewRoles()[name] isEqual:@"episodes"]) {
                 HGAHook(cls,@selector(willMoveToSuperview:),"v24@0:8@16",NO);
                 HGAHook(cls,@selector(didMoveToSuperview),"v16@0:8",NO);
-            }
-            if([name isEqual:@"FQVShortVideoBaseInsertView"])
                 HGAHook(cls,@selector(didAddSubview:),"v24@0:8@16",NO);
+                HGAHook(cls,@selector(setHidden:),"v20@0:8B16",NO);
+            }
+            if([name isEqual:@"FQVShortVideoBaseInsertView"]) {
+                HGAHook(cls,@selector(didAddSubview:),"v24@0:8@16",NO);
+                HGAHook(cls,@selector(setHidden:),"v20@0:8B16",NO);
+            }
             if([name isEqual:@"FQVShortVideoBaseInsertView"] || [HGABottomControlClasses() containsObject:name] ||
                 [name isEqual:@"FQVShortVideoProgressView"] ||
                 [name isEqual:@"SSShortVideoDerivateInfoView"] || [name isEqual:@"SSShortVideoOutterSeriesInfoView"]) {
@@ -704,6 +732,8 @@ void HGInstallAppearance(void) {
         }
         Class categoryPager = objc_lookUpClass("FQRJXCategoryListContainerView");
         if ([categoryPager isSubclassOfClass:UIView.class]) {
+            if (class_getInstanceMethod(categoryPager, @selector(scrollViewDidScroll:)))
+                HGAHook(categoryPager,@selector(scrollViewDidScroll:),"v24@0:8@16",NO);
             HGAHook(categoryPager,@selector(scrollViewDidEndDecelerating:),"v24@0:8@16",NO);
             HGAHook(categoryPager,@selector(scrollViewDidEndDragging:willDecelerate:),"v28@0:8@16B24",NO);
             HGAHook(categoryPager,sel_registerName("listDidAppear:"),"v24@0:8q16",NO);

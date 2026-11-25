@@ -35,6 +35,9 @@ typedef struct {
 @property(nonatomic, strong) NSMapTable<UIImageView *, NSNumber *> *cornerAlpha;
 @property(nonatomic, weak) UIView *detailTray;
 @property(nonatomic, strong) UIColor *detailTrayPaint;
+@property(nonatomic, strong) NSMutableArray<HGVideoBackdrop *> *peers;
+@property(nonatomic, weak) UIView *horizontalClipPage;
+@property(nonatomic) BOOL ownsHorizontalClip;
 @property(nonatomic) BOOL ownsClipping;
 @property(nonatomic) BOOL refreshing;
 - (void)refreshFeed;
@@ -79,6 +82,25 @@ static BOOL HGVideoBackdropFullWindow(UIView *view, UIWindow *window) {
         fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 0.75;
 }
 
+static UIView *HGVideoBackdropCategoryPager(UIView *view, UIWindow *window) {
+    if (!view || !window) return nil;
+    Class containerClass = objc_lookUpClass("FQRJXCategoryListContainerView");
+    if (!containerClass) return nil;
+    UIScrollView *pagerScroll = nil;
+    for (UIView *node = view.superview; node && node != window; node = node.superview) {
+        if (!pagerScroll && [node isKindOfClass:UIScrollView.class]) pagerScroll = (UIScrollView *)node;
+        if ([node isKindOfClass:containerClass]) {
+            UIView *contentScroll = HGView(node, "contentScrollView");
+            if (pagerScroll && contentScroll == pagerScroll &&
+                HGVideoBackdropFullWindow(node, window) &&
+                HGVideoBackdropFullWindow(pagerScroll, window))
+                return node;
+            return nil;
+        }
+    }
+    return nil;
+}
+
 static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController *owner,
                                         UIView *root, UIView *bar) {
     UIView *parent = feed.superview;
@@ -87,8 +109,18 @@ static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController
     if (!window || !parent || !ownerView || (parent != ownerView && ![parent isDescendantOfView:ownerView]) ||
         window.bounds.size.height <= window.bounds.size.width || feed.layer.mask ||
         !HGVideoBackdropVisible(feed, window) || bar.window!=window ||
-        !HGVideoBackdropFullWindow(parent, window) || !HGVideoBackdropFullWindow(root, window) ||
+        !HGVideoBackdropFullWindow(root, window) ||
         HGVideoBackdropHasTransition(owner)) return NO;
+    BOOL alignedParent = HGVideoBackdropFullWindow(parent, window);
+    if (!alignedParent && HGVideoBackdropCategoryPager(parent, window)) {
+        CGRect rect = [parent convertRect:parent.bounds toView:window];
+        CGRect bounds = window.bounds;
+        alignedParent = fabs(CGRectGetMinY(rect) - CGRectGetMinY(bounds)) <= 0.75 &&
+            fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 0.75 &&
+            fabs(CGRectGetWidth(rect) - CGRectGetWidth(bounds)) <= 0.75 &&
+            !CGRectIsEmpty(CGRectIntersection(rect, bounds));
+    }
+    if (!alignedParent) return NO;
     CGRect frame = feed.frame, full = parent.bounds;
     CGFloat uncovered = CGRectGetMaxY(full) - CGRectGetMaxY(frame);
     return uncovered >= -0.75 && uncovered <= 160 &&
@@ -314,13 +346,34 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
 
 @implementation HGVideoBackdrop
 - (void)dealloc {
+    for (HGVideoBackdrop *peer in _peers) [peer restore];
+    [_peers removeAllObjects];
     for (CALayer *layer in _pagingMattes) [layer removeFromSuperlayer];
     [self restorePortraitExcept:nil];
     [self bringPortraitForward:nil];
     [self restoreDetailTray];
+    if (_ownsHorizontalClip && _horizontalClipPage.clipsToBounds) _horizontalClipPage.clipsToBounds = NO;
     if (_ownsClipping) _feed.clipsToBounds = YES;
     [self restoreCornerImages];
     [_underlay removeFromSuperview];
+}
+
+- (void)restoreHorizontalClip {
+    if (self.ownsHorizontalClip && self.horizontalClipPage.clipsToBounds)
+        self.horizontalClipPage.clipsToBounds = NO;
+    self.ownsHorizontalClip = NO;
+    self.horizontalClipPage = nil;
+}
+
+- (void)applyHorizontalClip:(BOOL)needed {
+    UIView *page = needed ? self.feed.superview : nil;
+    if (self.horizontalClipPage != page) [self restoreHorizontalClip];
+    if (!page) return;
+    if (!page.clipsToBounds) {
+        self.horizontalClipPage = page;
+        self.ownsHorizontalClip = YES;
+        page.clipsToBounds = YES;
+    }
 }
 
 - (void)restoreDetailTray {
@@ -520,6 +573,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         objc_setAssociatedObject(feed, &HGVideoBackdropLinkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [self restorePortraitExcept:nil];
     [self bringPortraitForward:nil];
+    [self restoreHorizontalClip];
     [self restoreClipping];
     [self restoreCornerImages];
     [self restoreDetailTray];
@@ -554,9 +608,15 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     underlay.hidden = NO;
 }
 
+- (void)restorePeers {
+    for (HGVideoBackdrop *peer in self.peers) [peer restore];
+    [self.peers removeAllObjects];
+}
+
 - (void)restore {
     if (self.refreshing) return;
     self.refreshing = YES;
+    [self restorePeers];
     [self removeFeed];
     self.refreshing = NO;
 }
@@ -649,7 +709,9 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     [self bringPortraitForward:keepUpperPicture ? topCell : (overflows && portrait ? cell : nil)];
     if (overflows || matte) [self updateCornerImages:feed.superview.subviews frame:feed.frame];
     else [self restoreCornerImages];
+    BOOL displacedHorizontally = self.root.window && !HGVideoBackdropFullWindow(feed.superview, self.root.window);
     if (!overflows) {
+        [self applyHorizontalClip:NO];
         [self restoreClipping];
         return;
     }
@@ -658,6 +720,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         self.ownsClipping = YES;
         feed.clipsToBounds = NO;
     }
+    [self applyHorizontalClip:displacedHorizontally || self.peers.count > 0];
 }
 
 - (void)prepareRendererTransfer:(UIView *)view {
@@ -796,10 +859,30 @@ static char HGDetailOwnerTrayRectKey;
     self.refreshing = NO;
 }
 
+- (void)attachFeed:(UICollectionView *)candidate owner:(UIViewController *)owner
+              root:(UIView *)root bar:(UIView *)bar {
+    if (self.feed != candidate) {
+        [self removeFeed];
+        HGVideoBackdropLink *link = objc_getAssociatedObject(candidate, &HGVideoBackdropLinkKey);
+        if (link.owner) return;
+        self.feed = candidate;
+        link = [HGVideoBackdropLink new];
+        link.owner = self;
+        objc_setAssociatedObject(candidate, &HGVideoBackdropLinkKey, link, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        HGRecordCapability(@"appearance.dock.video-backdrop", @{
+            @"module": @"appearance", @"state": @"installed", @"reason": @"native-feed-overflow",
+            @"nativeGeometryPreserved": @YES, @"nativeHierarchyPreserved": @YES, @"mirrorsFrames": @NO
+        });
+    }
+    self.root = root; self.bar = bar; self.owner = owner;
+    [self updateFeed];
+}
+
 - (void)refreshFeed {
     if (self.refreshing) return;
     self.refreshing = YES;
     [self updateFeed];
+    for (HGVideoBackdrop *peer in self.peers.copy) [peer refreshFeed];
     self.refreshing = NO;
 }
 
@@ -813,8 +896,8 @@ static char HGDetailOwnerTrayRectKey;
     if (self.feed.window==root.window && HGVideoBackdropHasTransition(self.owner)) return;
 
     Class feedClass = NSClassFromString(@"FQVCollectionView");
-    UICollectionView *candidate = nil;
-    UIViewController *owner = nil;
+    NSMutableArray<UICollectionView *> *candidates = [NSMutableArray array];
+    NSMutableArray<UIViewController *> *owners = [NSMutableArray array];
     NSMutableArray<UIView *> *queue = [branches mutableCopy];
     for (NSUInteger i = 0; feedClass && i < queue.count && i < 192; i++) {
         UIView *view = queue[i];
@@ -824,11 +907,10 @@ static char HGDetailOwnerTrayRectKey;
             UICollectionView *feed = (UICollectionView *)view;
             UIViewController *controller = HGVideoBackdropOwner(feed);
             if (!HGVideoBackdropFeedGeometry(feed, controller, root, bar)) continue;
-            if (candidate && candidate != feed) {
-                [self restore];
-                return;
+            if (![candidates containsObject:feed]) {
+                [candidates addObject:feed];
+                [owners addObject:controller];
             }
-            candidate = feed; owner = controller;
             continue;
         }
         if ([view isKindOfClass:UIVisualEffectView.class] || [view isKindOfClass:UIControl.class] ||
@@ -839,31 +921,65 @@ static char HGDetailOwnerTrayRectKey;
             [queue addObject:child];
         }
     }
-    if (!candidate) {
+    if (!candidates.count) {
         [self restore];
         return;
     }
-
-    self.refreshing = YES;
-    if (self.feed != candidate) {
-        [self removeFeed];
-        HGVideoBackdropLink *link = objc_getAssociatedObject(candidate, &HGVideoBackdropLinkKey);
-        if (link.owner) {
-            self.refreshing = NO;
+    if (candidates.count > 1) {
+        UIView *commonPager = HGVideoBackdropCategoryPager(candidates[0].superview, root.window);
+        if (!commonPager) {
+            [self restore];
             return;
         }
-        self.feed = candidate;
-        link = [HGVideoBackdropLink new];
-        link.owner = self;
-        objc_setAssociatedObject(candidate, &HGVideoBackdropLinkKey, link, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        HGRecordCapability(@"appearance.dock.video-backdrop", @{
-            @"module": @"appearance", @"state": @"installed", @"reason": @"native-feed-overflow",
-            @"nativeGeometryPreserved": @YES, @"nativeHierarchyPreserved": @YES, @"mirrorsFrames": @NO
-        });
+        for (NSUInteger idx = 1; idx < candidates.count; idx++) {
+            if (HGVideoBackdropCategoryPager(candidates[idx].superview, root.window) != commonPager) {
+                [self restore];
+                return;
+            }
+        }
     }
-    self.root = root; self.bar = bar; self.owner = owner;
-    [self updateFeed];
-    self.refreshing = NO;
+
+    self.refreshing = YES;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    @try {
+        NSUInteger primaryIndex = self.feed ? [candidates indexOfObjectIdenticalTo:self.feed] : NSNotFound;
+        if (primaryIndex == NSNotFound) primaryIndex = 0;
+        UICollectionView *primaryFeed = candidates[primaryIndex];
+        UIViewController *primaryOwner = owners[primaryIndex];
+
+        // Release any peer whose feed is no longer visible or is being promoted to primary.
+        NSMutableArray<HGVideoBackdrop *> *keptPeers = [NSMutableArray array];
+        for (HGVideoBackdrop *peer in self.peers) {
+            if (peer.feed && peer.feed != primaryFeed && [candidates containsObject:peer.feed]) {
+                [keptPeers addObject:peer];
+            } else {
+                [peer restore];
+            }
+        }
+        self.peers = keptPeers;
+
+        for (NSUInteger idx = 0; idx < candidates.count; idx++) {
+            if (idx == primaryIndex) continue;
+            UICollectionView *peerFeed = candidates[idx];
+            UIViewController *peerOwner = owners[idx];
+            HGVideoBackdrop *peer = nil;
+            for (HGVideoBackdrop *existing in self.peers) {
+                if (existing.feed == peerFeed) { peer = existing; break; }
+            }
+            if (!peer) {
+                peer = [HGVideoBackdrop new];
+                [self.peers addObject:peer];
+            }
+            peer.refreshing = YES;
+            @try { [peer attachFeed:peerFeed owner:peerOwner root:root bar:bar]; }
+            @finally { peer.refreshing = NO; }
+        }
+        [self attachFeed:primaryFeed owner:primaryOwner root:root bar:bar];
+    } @finally {
+        [CATransaction commit];
+        self.refreshing = NO;
+    }
 }
 @end
 

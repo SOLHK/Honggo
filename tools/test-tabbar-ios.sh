@@ -34,6 +34,7 @@ build_variant() {
 BOOL HGFeedSidebarOwnsLayout(UIWindow *window) { (void)window; return NO; }
 UIColor *HGOriginalTabTitleColor(UILabel *label) { return label.textColor; }
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) { (void)feed; }
+void HGRefreshVideoBackdropForCategoryPager(UIView *pager) { (void)pager; }
 void HGRefreshVideoBackdropForPlayer(UIView *view) { (void)view; }
 void HGVideoBackdropPrepareRendererTransfer(UIView *view) { (void)view; }
 OBJC

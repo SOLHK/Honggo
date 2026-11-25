@@ -1093,6 +1093,25 @@ static void HGRefreshTabBar(UIViewController *controller) {
         [state refresh];
     }
 }
+void HGRefreshVideoBackdropForCategoryPager(UIView *pager) {
+    if (!NSThread.isMainThread || !pager.window || !HGAppearanceEnabled() ||
+        HGFeedSidebarOwnsLayout(pager.window)) return;
+    UIResponder *responder = pager.nextResponder;
+    while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
+    for (UIViewController *controller = (UIViewController *)responder; controller; controller = controller.parentViewController) {
+        UIView *bar = HGView(controller, "customTabBar");
+        if (![bar isKindOfClass:HGTabBarClass]) continue;
+        HGTabState *state = HGState(bar);
+        UIView *root = controller.viewIfLoaded;
+        if (root.window == pager.window && [pager isDescendantOfView:root] &&
+            !HGTabBarIsInTransitionOrDisplaced(bar, controller)) {
+            if (!state.videoBackdrop) state.videoBackdrop = [HGVideoBackdrop new];
+            [state.videoBackdrop refreshWithBranches:@[pager] root:root bar:bar active:YES];
+        }
+        break;
+    }
+}
+
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
     if (!NSThread.isMainThread || HGFeedSidebarOwnsLayout(feed.window)) return;
     if (HGVideoBackdropRefreshForFeed(feed) || !feed.window) return;
@@ -1112,6 +1131,11 @@ void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
             }];
             if (!registered) objc_setAssociatedObject(feed,&pendingTransition,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
+        return;
+    }
+    UIView *pager = HGVideoBackdropCategoryPager(feed.superview, feed.window);
+    if (pager) {
+        HGRefreshVideoBackdropForCategoryPager(pager);
         return;
     }
     if (!HGVideoBackdropFullWindow(feed.superview, feed.window)) return;
@@ -1237,7 +1261,8 @@ static void HGRefreshBar(UIView *bar) {
 }
 static void HGResetRatio(id self, SEL cmd, double ratio) {
     HGOriginalResetRatio(self, cmd, ratio);
-    HGRefreshBar(self);
+    if (HGAppearanceDockEnabled()) HGAppearanceReclaimDockChrome(self);
+    if (HGGlassEnabled || HGAppearanceDockEnabled()) HGRefreshBar(self);
 }
 static void HGBarLayout(id self, SEL cmd) {
     HGOriginalBarLayout(self, cmd);
@@ -1427,6 +1452,7 @@ BOOL HGInstallTabBar(void) {
                 sel_registerName("updateVisualOcclusionRect:"), "v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",
                 (IMP)HGTheaterOcclusionChanged);
         }
+        HGOriginalResetRatio = (void (*)(id, SEL, double))HGReplaceMethod(HGTabBarClass, sel_registerName("resetBlurVisualViewWithRatio:"), "v24@0:8d16", (IMP)HGResetRatio);
         if (HGGlassEnabled) {
             Class mine = objc_lookUpClass("SSMine737KMPViewController");
             HGOriginalMineLayout = (void (*)(id, SEL))HGReplaceMethod(mine,
@@ -1440,7 +1466,6 @@ BOOL HGInstallTabBar(void) {
             HGOriginalBarAlpha = (void (*)(id, SEL, CGFloat))HGReplaceMethod(HGTabBarClass, @selector(setAlpha:), "v24@0:8d16", (IMP)HGBarAlpha);
             HGOriginalBarTraits = (void (*)(id, SEL, id))HGReplaceMethod(HGTabBarClass, sel_registerName("traitCollectionDidChange:"), "v24@0:8@16", (IMP)HGBarTraits);
             HGOriginalSetAppearance = (void (*)(id, SEL))HGReplaceMethod(controller, sel_registerName("setCustomTabBarAppearance"), "v16@0:8", (IMP)HGSetAppearance);
-            HGOriginalResetRatio = (void (*)(id, SEL, double))HGReplaceMethod(HGTabBarClass, sel_registerName("resetBlurVisualViewWithRatio:"), "v24@0:8d16", (IMP)HGResetRatio);
         }
         if (HGGlassEnabled) HGInstallMineClip();
         HGInstallMaskScenes();

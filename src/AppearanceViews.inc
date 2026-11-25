@@ -655,17 +655,21 @@ void HGAppearanceProcessView(UIView *view) {
             ([role isEqual:@"channels"] && !headerShowsFinder && HGAppearanceFlag(@"player.headerGlass")) ||
             ([role isEqual:@"episodes"] && HGAppearanceFlag(@"player.episodeGlass")));
         BOOL episode=[role isEqual:@"episodes"];
-        if(episode && outer)HGAApplyEpisodeInset(view,glass && !view.hidden);
+        // Keep the episode glass and inset alive across transient host hidden toggles
+        // (such as channel swipes or cell rebinding) while attached to a live window.
+        BOOL episodeStyled=episode && glass && (!view.hidden ||
+            (outer && view.window && !CGRectIsEmpty(view.bounds) && !HGAppearanceFlag(@"layout.episodes.hidden")));
+        if(episode && outer)HGAApplyEpisodeInset(view,episodeStyled);
         CGRect episodeFrame=episode ? HGAEpisodeGlassFrame(view) : CGRectZero;
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
-        if(episode)HGAApplyEpisodeCorners(view,glass && !view.hidden,episodeRadius);
+        if(episode)HGAApplyEpisodeCorners(view,episodeStyled,episodeRadius);
         BOOL sparkles=enabled && outer && [role isEqual:@"collect"] &&
             [HGAppearanceString(@"player.collectGlyph") isEqual:@"sparkles"];
         HGAApplyIcon(view,role,flat,sparkles);
         if(header) {
             HGAApplyHeaderSeparatedGlass(view,glass,enabled && outer && !headerShowsFinder && !view.hidden,
                 HGAppearanceString(@"player.material"));
-        } else if((glass || (flat && ![role isEqual:@"avatar"] && ![role isEqual:@"more"])) && !view.hidden) {
+        } else if(episodeStyled || ((glass || (flat && ![role isEqual:@"avatar"] && ![role isEqual:@"more"])) && !view.hidden)) {
             CGRect glassFrame=episode ? episodeFrame : view.bounds;
             CGFloat radius=episode ? MIN(episodeFrame.size.width,episodeFrame.size.height)/2 : 20;
             if(action) {
@@ -685,11 +689,21 @@ void HGAppearanceProcessView(UIView *view) {
             NSString *style=action ? HGALiquidButtonMaterial() : HGAppearanceString(@"player.material");
             if(episode && HGAUsesNativeGlass(style))style=HGALiquidButtonMaterial();
             if(flat)HGAInstallFlatPlaybackButton(view,glassFrame);
-            else HGAInstallButtonGlass(view,style,glassFrame,radius);
+            else {
+                HGAInstallButtonGlass(view,style,glassFrame,radius);
+                if(episode) {
+                    HGAAppearanceMaterial *g=HGAState(view,NO).glass;
+                    if(g.window && !g.effect && !CGRectIsEmpty(g.bounds))[g layoutIfNeeded];
+                    HGALogEpisodeGlassState(view,g,view.hidden ? @"kept-hidden" : @"active");
+                }
+            }
         }
-        else HGARemoveGlass(view);
+        else {
+            HGARemoveGlass(view);
+            if(episode)HGALogEpisodeGlassState(view,nil,!view.window ? @"detached" : (!glass ? @"disabled" : @"hidden"));
+        }
         HGAApplyTypography(view);
-        if(episode && outer)HGAApplyEpisodeLabels(view,episodeFrame,glass && !view.hidden);
+        if(episode && outer)HGAApplyEpisodeLabels(view,episodeFrame,episodeStyled);
         if([role isEqual:@"comment"]) {
             id delegate=HGReadObjectGetter(view,"delegate");
             if([delegate isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionCommentViewManager")])

@@ -206,13 +206,40 @@ static void RunEpisodeGlassChecks(UIView *root) {
             !other.clipsToBounds && [other.backgroundColor isEqual:UIColor.systemGreenColor],
             @"same-window episode reuse immediately restores its old wrapper without requiring layout");
         [wrapper addSubview:entry];[other removeFromSuperview];Layout(entry);
+        UIView *stableGlass=Find(entry,@"honggo.appearance.material");
+        entry.hidden=YES;Layout(entry);
+        Check(Find(entry,@"honggo.appearance.material")==stableGlass && entry.clipsToBounds &&
+            [wrapper.backgroundColor isEqual:UIColor.clearColor],
+            @"transient host hidden state preserves episode glass and clear backing while attached to the window");
+        entry.hidden=NO;
+        Check(Find(entry,@"honggo.appearance.material")==stableGlass && !entry.hidden &&
+            [content.backgroundColor isEqual:UIColor.clearColor] && [wrapper.backgroundColor isEqual:UIColor.clearColor],
+            @"unhiding the episode entry immediately keeps the same live glass surface without waiting for layout");
+        [wrapper bringSubviewToFront:entry];
+        [root bringSubviewToFront:wrapper];
+        Check(Find(entry,@"honggo.appearance.material")==stableGlass && entry.clipsToBounds && wrapper.clipsToBounds &&
+            [wrapper.backgroundColor isEqual:UIColor.clearColor],
+            @"same-parent z-order reordering never tears down episode glass or wrapper corners");
+        UIView *lateBacking=[[UIView alloc] initWithFrame:entry.bounds];
+        lateBacking.backgroundColor=UIColor.blackColor;
+        [entry addSubview:lateBacking];
+        Check([lateBacking.backgroundColor isEqual:UIColor.clearColor] &&
+            entry.subviews.firstObject==stableGlass,
+            @"dynamically added host backing plates are cleared immediately behind the live glass");
+        [lateBacking removeFromSuperview];
+        [wrapper removeFromSuperview];
+        [entry renderWithModel:@{@"background":UIColor.brownColor,@"shade":UIColor.darkGrayColor}];
+        [root addSubview:wrapper];
+        Check(Find(entry,@"honggo.appearance.material")!=nil &&
+            [content.backgroundColor isEqual:UIColor.clearColor] && [wrapper.backgroundColor isEqual:UIColor.clearColor],
+            @"re-attaching a wrapper after offscreen model rendering synchronously restores episode glass on frame zero");
         UIView *sibling=[[UIView alloc] initWithFrame:CGRectMake(0,0,20,20)];[wrapper addSubview:sibling];
         Check(!wrapper.clipsToBounds && [wrapper.backgroundColor isEqual:UIColor.darkGrayColor],
             @"adding native sibling content immediately releases wrapper clipping without requiring entry layout");
         [sibling removeFromSuperview];Layout(entry);
         [entry removeFromSuperview];
         Check(!wrapper.clipsToBounds && [wrapper.backgroundColor isEqual:UIColor.darkGrayColor] &&
-            !entry.clipsToBounds && [content.backgroundColor isEqual:UIColor.systemRedColor],
+            !entry.clipsToBounds && [content.backgroundColor isEqual:UIColor.brownColor],
             @"episode detach restores every owned surface without retaining the old wrapper");
     }@finally {
         [entry removeFromSuperview];[wrapper removeFromSuperview];

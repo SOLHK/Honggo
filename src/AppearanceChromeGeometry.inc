@@ -349,12 +349,37 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
             [self liftTitle:((HGAHeaderGlassChannels *)control).buttons[(NSUInteger)lround(index)].titleLabel];
     }
 }
+- (UIView *)pageCategoryContainer {
+    UIView *scroll = self.observedPagePan.view;
+    Class cls = objc_lookUpClass("FQRJXCategoryListContainerView");
+    for (UIView *node = scroll.superview; node; node = node.superview)
+        if (cls && [node isKindOfClass:cls]) return node;
+    return nil;
+}
+- (void)logChannelPanPhase:(NSString *)phase scroll:(UIScrollView *)scroll {
+    if (!HGEnhancedDiagnostics()) return;
+    UIWindow *window = scroll.window ?: self.channelControl.window;
+    NSMutableDictionary *payload = [@{
+        @"phase": phase ?: @"unknown",
+        @"offsetX": @(isfinite(scroll.contentOffset.x) ? round(scroll.contentOffset.x * 10.0) / 10.0 : 0),
+        @"pageWidth": @(CGRectGetWidth(scroll.bounds))
+    } mutableCopy];
+    NSDictionary *dockDiag = HGAppearanceDockDiagnosticState(window);
+    if (dockDiag) payload[@"dock"] = dockDiag;
+    HGLog(@"appearance.channel-pan", payload);
+}
 - (void)finishChannelMotion {
     [self.pageCoasting invalidate];
     self.pageCoasting=nil;
     UIView *lens=self.channelLens;
     if (!self.channelLensTracking) return;
     self.channelLensTracking=NO;
+    UIView *pager=[self pageCategoryContainer];
+    if (pager) {
+        HGRefreshVideoBackdropForCategoryPager(pager);
+        HGAReconcileCategoryEpisodes(pager);
+    }
+    [self logChannelPanPhase:@"settled" scroll:(id)self.observedPagePan.view];
     [self liftTitle:nil];
     NSInteger selected=[self hostSegment];
     UIControl<HGAHeaderSelecting> *control=self.channelControl;
@@ -401,6 +426,8 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
 - (void)followPagePan:(UIPanGestureRecognizer *)pan {
     if (self.scrubbingRail) return;
     if (pan.state!=UIGestureRecognizerStateBegan && pan.state!=UIGestureRecognizerStateChanged) {
+        UIScrollView *scroll = [pan.view isKindOfClass:UIScrollView.class] ? (id)pan.view : (id)self.observedPagePan.view;
+        [self logChannelPanPhase:(pan.state==UIGestureRecognizerStateEnded ? @"ended" : @"cancelled") scroll:scroll];
         if (pan==self.observedPagePan && self.channelLensTracking && pan.state==UIGestureRecognizerStateEnded) {
             if (!self.pageCoasting) {
                 self.pageCoasting=[CADisplayLink displayLinkWithTarget:self selector:@selector(followPageDeceleration:)];
@@ -419,11 +446,22 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     if (!page.window || !self.channelControl.window || HGFeedSidebarOwnsLayout(page.window)) return;
     CGPoint travel=[pan translationInView:page];
     if (!self.channelLensTracking && fabs(travel.x)<=fabs(travel.y)) return;
+    BOOL firstTrackingFrame = !self.channelLensTracking;
     if (pan==self.observedPagePan) {
         UIScrollView *scroll=(id)page;
+        UIView *pager=[self pageCategoryContainer];
+        if (pager) HGACategoryPagerDidScroll(pager, scroll);
+        if (firstTrackingFrame) {
+            if (pager) {
+                HGRefreshVideoBackdropForCategoryPager(pager);
+                HGAReconcileCategoryEpisodes(pager);
+            }
+            [self logChannelPanPhase:@"began" scroll:scroll];
+        }
         [self previewSegment:[self segmentForPageOffset:scroll.contentOffset.x/MAX(1,CGRectGetWidth(page.bounds))] liftAnimated:NO];
         return;
     }
+    if (firstTrackingFrame) [self logChannelPanPhase:@"began" scroll:(id)self.observedPagePan.view];
     NSInteger origin=self.channelLensTracking ? self.previewOrigin : [self hostSegment];
     if (origin==NSNotFound) return;
     // The filtered pager skips hidden host pages on release; its gesture has

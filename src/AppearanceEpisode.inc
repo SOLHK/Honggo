@@ -405,12 +405,12 @@ static void HGAApplyEpisodeSurface(HGAEpisodeSurfaceState *state,CGFloat radius,
             state.background=view.backgroundColor;
         state.clearsBackground=YES;
         if(![view.backgroundColor isEqual:UIColor.clearColor])view.backgroundColor=UIColor.clearColor;
-        CGColorRef layerPaint=view.layer.backgroundColor;
-        if(layerPaint && CGColorGetAlpha(layerPaint)>0) {
-            state.layerBackground=[UIColor colorWithCGColor:layerPaint];
-            state.clearsLayerBackground=YES;
-            view.layer.backgroundColor=nil;
-        }
+    }
+    CGColorRef layerPaint=view.layer.backgroundColor;
+    if(layerPaint && CGColorGetAlpha(layerPaint)>0) {
+        state.layerBackground=[UIColor colorWithCGColor:layerPaint];
+        state.clearsLayerBackground=YES;
+        view.layer.backgroundColor=nil;
     }
     if(!round)return;
     if(!state.rounded || fabs(view.layer.cornerRadius-state.appliedRadius)>0.001)state.radius=view.layer.cornerRadius;
@@ -530,11 +530,39 @@ static void HGAApplyEpisodeCorners(UIView *entry,BOOL enabled,CGFloat radius) {
     }
     objc_setAssociatedObject(entry,&HGAEpisodeSurfacesKey,current,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
+static char HGAEpisodeDiagKey;
+static void HGALogEpisodeGlassState(UIView *view,HGAAppearanceMaterial *glass,NSString *reason) {
+    if(!HGEnhancedDiagnostics() || !view)return;
+    NSString *effectClass=glass.effect ? NSStringFromClass(glass.effect.class) : @"none";
+    NSString *materialId=glass ? [NSString stringWithFormat:@"%p",glass] : @"none";
+    NSString *sig=[NSString stringWithFormat:@"%@|%@|%@|%d|%d",reason ?: @"",effectClass,materialId,view.hidden,view.window!=nil];
+    NSString *prev=objc_getAssociatedObject(view,&HGAEpisodeDiagKey);
+    if([prev isEqual:sig])return;
+    objc_setAssociatedObject(view,&HGAEpisodeDiagKey,sig,OBJC_ASSOCIATION_COPY_NONATOMIC);
+    HGLog(@"appearance.episode-glass",@{
+        @"viewClass":NSStringFromClass(view.class),
+        @"superviewClass":view.superview ? NSStringFromClass(view.superview.class) : @"none",
+        @"reason":reason ?: @"",
+        @"effectClass":effectClass,
+        @"materialId":materialId,
+        @"materialSignature":glass.materialSignature ?: @"",
+        @"hidden":@(view.hidden),
+        @"hasWindow":@(view.window!=nil),
+        @"bounds":NSStringFromCGRect(view.bounds)
+    });
+}
+static void HGAEpisodeReconcileWrapper(UIView *wrapper) {
+    HGAEpisodeWrapperChanged(wrapper);
+    if(!wrapper.window || wrapper.subviews.count!=1)return;
+    UIView *entry=wrapper.subviews.firstObject;
+    if([HGARole(entry) isEqual:@"episodes"])HGAppearanceProcessView(entry);
+}
 static void HGAEpisodeWrapperWillMove(UIView *wrapper) {
     if(wrapper.subviews.count!=1)return;
     UIView *entry=wrapper.subviews.firstObject;
     if(!objc_getAssociatedObject(entry,&HGAEpisodeInsetKey))return;
     HGAApplyEpisodeCorners(entry,NO,0);
     HGARemoveGlass(entry);
+    HGALogEpisodeGlassState(entry,nil,@"wrapper-reparent");
     [entry setNeedsLayout];
 }

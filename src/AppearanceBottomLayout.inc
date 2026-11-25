@@ -145,8 +145,43 @@ static void HGARegisterCategoryFeed(UIScrollView *feed) {
     }
 }
 
+static char HGCategoryScrollBucketKey;
+static void HGAReconcileCategoryEpisodes(UIView *pager) {
+    if (!NSThread.isMainThread || !pager.window || !HGAppearanceEnabled() ||
+        HGFeedSidebarOwnsLayout(pager.window)) return;
+    UIWindow *window = pager.window;
+    for (UIView *view in HGAManaged.allObjects) {
+        if (view.window != window || CGRectIsEmpty(view.bounds)) continue;
+        if (![HGARole(view) isEqual:@"episodes"] || ![view isDescendantOfView:pager]) continue;
+        CGRect inWindow = [view convertRect:view.bounds toView:window];
+        if (CGRectIsEmpty(CGRectIntersection(inWindow, window.bounds))) continue;
+        HGAppearanceProcessView(view);
+        HGAUpdateBottomLayoutForView(view);
+    }
+}
+
+static void HGACategoryPagerDidScroll(UIView *pager, UIScrollView *scroll) {
+    if (!NSThread.isMainThread || !pager.window || !HGAppearanceEnabled() ||
+        HGFeedSidebarOwnsLayout(pager.window)) return;
+    if (![scroll isKindOfClass:UIScrollView.class]) return;
+    CGFloat width = CGRectGetWidth(scroll.bounds);
+    if (width < 1.0) return;
+    CGFloat offsetX = scroll.contentOffset.x;
+    NSInteger page = (NSInteger)floor(offsetX / width);
+    BOOL split = fabs(offsetX - round(offsetX / width) * width) > 0.75;
+    NSInteger bucket = (page << 1) | (split ? 1 : 0);
+    NSNumber *previous = objc_getAssociatedObject(pager, &HGCategoryScrollBucketKey);
+    if (previous && previous.integerValue == bucket) return;
+    objc_setAssociatedObject(pager, &HGCategoryScrollBucketKey, @(bucket), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    HGRefreshVideoBackdropForCategoryPager(pager);
+    HGAReconcileCategoryEpisodes(pager);
+}
+
 static void HGAResumeCategoryFeeds(UIView *pager) {
     if (!NSThread.isMainThread) return;
+    objc_setAssociatedObject(pager, &HGCategoryScrollBucketKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    HGRefreshVideoBackdropForCategoryPager(pager);
+    HGAReconcileCategoryEpisodes(pager);
     NSHashTable *feeds = objc_getAssociatedObject(pager, &HGCategoryFeedsKey);
     for (UIScrollView *feed in feeds.allObjects) {
         if (![feed isDescendantOfView:pager]) [feeds removeObject:feed];
@@ -291,7 +326,7 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     if (feed && !currentCanvas) {
         [HGADeferredViews(feed, &HGDeferredHUDsKey) addObject:control];
         HGARegisterCategoryFeed(feed);
-        if (!visibleInFeed && !(movingSideways && state.lastLift > 0)) {
+        if (!visibleInFeed && !movingSideways) {
             if(!resuming)HGARestoreBottomState(state);
             return;
         }
@@ -358,13 +393,13 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
         needed=10;
     } else {if(!resuming)HGARestoreBottomState(state);return;}
     if(!isfinite(needed) || needed>20) {HGARestoreBottomState(state);return;}
-    // The outgoing video and Dock may move in different coordinate spaces.
-    // Carry forward the settled clearance until the horizontal transition ends.
+    // Horizontal channel movement translates only along X; the stationary Dock
+    // keeps the exact same vertical clearance for both outgoing and incoming pages.
     CGFloat overlap=NAN;
-    CGRect dock=currentCanvas ? HGADockRectInView(control) : CGRectNull;
-    if(measured && currentCanvas && !CGRectIsNull(dock) && !CGRectIsEmpty(dock) &&
+    CGRect dock=(currentCanvas || movingSideways) ? HGADockRectInView(control) : CGRectNull;
+    if(measured && (currentCanvas || movingSideways) && !CGRectIsNull(dock) && !CGRectIsEmpty(dock) &&
         CGRectGetMinY(dock)>height*0.65 && CGRectGetMinY(dock)<height+100 &&
-        CGRectGetMaxX(dock)>width*0.25 && CGRectGetMinX(dock)<width*0.75) {
+        (movingSideways || (CGRectGetMaxX(dock)>width*0.25 && CGRectGetMinX(dock)<width*0.75))) {
         // Small dock-height/lift changes share one offset across the HUD. A
         // radically different host geometry remains native instead of moving
         // controls far into the video or modifying its paging viewport.

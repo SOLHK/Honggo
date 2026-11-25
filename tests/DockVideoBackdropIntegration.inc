@@ -761,6 +761,66 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         Check(feed.clipsToBounds && !feed.superview && CGRectEqualToRect(feed.frame,CGRectMake(0,0,width,feedHeight)),
             @"detaching the feed restores its clip without moving it back into the window");
         [manager restore];
+        [wrapper removeFromSuperview];
+        [category removeFromSuperview];
+
+        // Dual-channel horizontal swipe inside FQRJXCategoryListContainerView:
+        // both outgoing and incoming portrait channels must extend behind the
+        // Dock simultaneously so no black strip or corner cutout appears mid-swipe.
+        FQRJXCategoryListContainerView *pager=[[FQRJXCategoryListContainerView alloc] initWithFrame:container.view.bounds];
+        UIScrollView *pagerScroll=[[UIScrollView alloc] initWithFrame:pager.bounds];
+        pagerScroll.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
+        pagerScroll.pagingEnabled=YES;
+        pagerScroll.contentSize=CGSizeMake(2*width,height);
+        pager.contentScrollView=pagerScroll;
+        [pager addSubview:pagerScroll];
+        [container.view insertSubview:pager belowSubview:bar];
+        page.view.frame=CGRectMake(0,0,width,height);
+        [pagerScroll addSubview:page.view];
+        [page.view insertSubview:feed atIndex:0];
+        cell.videoHeight=0;incoming.videoHeight=0;
+        [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
+        HGBackdropVideoCell *firstCell=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        firstCell.videoHeight=0;Layout(firstCell);Layout(firstCell.renderer);
+        FQVShortVideoListViewController *secondPage=[FQVShortVideoListViewController new];
+        [container addChildViewController:secondPage];[secondPage loadViewIfNeeded];
+        secondPage.view.frame=CGRectMake(width,0,width,height);
+        secondPage.view.backgroundColor=UIColor.blackColor;
+        [pagerScroll addSubview:secondPage.view];[secondPage didMoveToParentViewController:container];
+        UICollectionViewFlowLayout *secondLayout=[UICollectionViewFlowLayout new];
+        secondLayout.itemSize=CGSizeMake(width,feedHeight);secondLayout.minimumLineSpacing=0;secondLayout.minimumInteritemSpacing=0;
+        HGBackdropFeedProbe *secondFeed=[[HGBackdropFeedProbe alloc] initWithFrame:CGRectMake(0,0,width,feedHeight) collectionViewLayout:secondLayout];
+        secondFeed.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;
+        secondFeed.pagingEnabled=YES;secondFeed.clipsToBounds=YES;secondFeed.backgroundColor=UIColor.blackColor;
+        __attribute__((objc_precise_lifetime)) HGBackdropVideoDataSource *secondDataSource=[HGBackdropVideoDataSource new];
+        secondFeed.dataSource=secondDataSource;
+        [secondFeed registerClass:HGBackdropVideoCell.class forCellWithReuseIdentifier:@"live-metal"];
+        [secondPage.view addSubview:secondFeed];[secondFeed reloadData];Layout(secondFeed);
+        [secondFeed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(secondFeed);
+        HGBackdropVideoCell *secondCell=(id)[secondFeed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        Layout(secondCell);Layout(secondCell.renderer);
+        UIImageView *secondLeftCorner=[[UIImageView alloc] initWithFrame:CGRectMake(0,feedHeight-12,12,12)];
+        UIImageView *secondRightCorner=[[UIImageView alloc] initWithFrame:CGRectMake(width-12,feedHeight-12,12,12)];
+        [secondPage.view addSubview:secondLeftCorner];[secondPage.view addSubview:secondRightCorner];
+        [pagerScroll setContentOffset:CGPointMake(width*0.5,0) animated:NO];
+        [manager refreshWithBranches:@[pager] root:container.view bar:bar active:YES];
+        Check(!feed.clipsToBounds && !secondFeed.clipsToBounds &&
+            fabs(firstCell.renderer.layer.sublayerTransform.m42-45)<0.75 &&
+            fabs(secondCell.renderer.layer.sublayerTransform.m42-45)<0.75 &&
+            leftCorner.alpha==0 && rightCorner.alpha==0 &&
+            secondLeftCorner.alpha==0 && secondRightCorner.alpha==0 &&
+            page.view.clipsToBounds && secondPage.view.clipsToBounds,
+            @"horizontal channel swipe extends both visible portrait feeds behind the Dock with clean seam clipping");
+        [pagerScroll setContentOffset:CGPointMake(width,0) animated:NO];
+        [manager refreshWithBranches:@[pager] root:container.view bar:bar active:YES];
+        Check(!secondFeed.clipsToBounds && !secondPage.view.clipsToBounds &&
+            feed.clipsToBounds && !page.view.clipsToBounds &&
+            leftCorner.alpha==1 && rightCorner.alpha==1,
+            @"settling on the incoming horizontal channel keeps its portrait backdrop live and restores the offscreen channel");
+        [manager restore];
+        secondFeed.dataSource=nil;
+        [secondPage willMoveToParentViewController:nil];[secondPage.view removeFromSuperview];[secondPage removeFromParentViewController];
+        [pager removeFromSuperview];
         [container.view addSubview:page.view];page.view.frame=container.view.bounds;
         RunDetailVideoBackdropChecks(page.view);
     }@finally {
