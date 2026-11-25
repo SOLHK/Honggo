@@ -817,12 +817,12 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         [probe setValue:@0 forKey:@"systemHostSelection"];[probe setValue:stored forKey:@"systemPlatter"];
         Check([[probe applySystemMaterial:@"clear"] isEqual:@"clear-glass-slot"] &&
             [stored->_glassEffect isKindOfClass:UIGlassEffect.class] && !((UIGlassEffect *)stored->_glassEffect).tintColor &&
-            stored.overrideUserInterfaceStyle==UIUserInterfaceStyleDark,
+            stored.overrideUserInterfaceStyle==UIUserInterfaceStyleUnspecified,
             @"an item platter with a stored glass effect accepts the actual untinted Clear effect over video");
         UIView *factory=[UIView new];[probe setValue:factory forKey:@"systemPlatter"];
-        Check([[probe applySystemMaterial:@"clear"] isEqual:@"factory-video-optics"] &&
-            factory.overrideUserInterfaceStyle==UIUserInterfaceStyleDark,
-            @"a read-only video platter retains native selection with localized glass optics");
+        Check([[probe applySystemMaterial:@"clear"] isEqual:@"factory-glass"] &&
+            factory.overrideUserInterfaceStyle==UIUserInterfaceStyleUnspecified,
+            @"a read-only video platter reports its unmodified factory material for native Clear fallback");
         [probe setValue:@1 forKey:@"systemHostSelection"];
         Check([[probe applySystemMaterial:@"clear"] isEqual:@"factory-glass"] &&
             factory.overrideUserInterfaceStyle==UIUserInterfaceStyleUnspecified,
@@ -864,16 +864,6 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
             [native.tintColor isEqual:[UIColor.labelColor resolvedColorWithTraitCollection:native.traitCollection]] &&
             ![lightFaces isEqual:[dock valueForKey:@"systemItemSignature"]],
             @"switching appearance recolors the same native Dock and invalidates its composite glyphs and captions");
-        Method material=class_getInstanceMethod(dock.class,sel_registerName("applySystemMaterial:"));
-        IMP apply=method_setImplementation(material,(IMP)HGAFixtureReadOnlyMaterial);
-        @try {
-            HGAppearanceSet(@"dock.material",@"clear",nil);HGAppearanceLayoutDock(host.customTabBar,host);
-            Check([dock valueForKey:@"systemTabBar"]==native && [[dock valueForKey:@"systemDockActive"] boolValue] &&
-                !Find(capsule,@"honggo.appearance.material") && manual.hidden,
-                @"the four-item UIKit provider from the device log stays mounted when Clear cannot replace its factory material");
-        } @finally {
-            method_setImplementation(material,apply);
-        }
         NSUInteger taps=host.nativeTaps;
         if(managed) {
             if(@available(iOS 26.0,*)) {
@@ -928,7 +918,7 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         UIVisualEffectView *moving=(id)Find(dock,@"honggo.appearance.dock.quiet-lens");
         if(moving) {
             Check(quietBar.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight &&
-                moving.overrideUserInterfaceStyle==UIUserInterfaceStyleDark && HGADockFullGlass(moving),
+                moving.overrideUserInterfaceStyle==UIUserInterfaceStyleLight && HGADockFullGlass(moving),
                 @"the light native bar keeps its theme while the video's quiet Clear lens follows the optical backdrop");
             CGPoint mid=CGPointMake((first.x+point.x)/2,first.y);
             [quietDock moveDockTouchToPoint:mid];CGFloat before=CGRectGetMidX(moving.frame);
@@ -954,6 +944,24 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         UIButton *home=(id)Find(dock,@"honggo.appearance.tab.home");
         Check([home accessibilityActivate] && host.selectedIndex==0 && host.nativeTaps==taps+2,
             @"VoiceOver can activate a quiet native slot with one host selection");
+    }
+    if(quietBar) {
+        Method material=class_getInstanceMethod(dock.class,sel_registerName("applySystemMaterial:"));
+        IMP apply=method_setImplementation(material,(IMP)HGAFixtureReadOnlyMaterial);
+        @try {
+            host.selectedIndex=0;
+            HGAppearanceSet(@"dock.material",@"clear",nil);HGAppearanceLayoutDock(host.customTabBar,host);
+            UIVisualEffectView *clear=(id)Find(capsule,@"honggo.appearance.material");Layout(clear);
+            Check(![dock valueForKey:@"systemTabBar"] && !manual.hidden && HGADockFullGlass(clear) &&
+                clear.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && HGADockGlyphMatches((UIButton *)manual,YES),
+                @"a read-only video platter gives way to one untinted Clear Dock with readable playback controls");
+            host.selectedIndex=1;HGAppearanceLayoutDock(host.customTabBar,host);
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);HGAppearanceLayoutDock(host.customTabBar,host);
+            Check([dock valueForKey:@"systemTabBar"] && !Find(capsule,@"honggo.appearance.material"),
+                @"the catalogue recovers the native item platter after playback used its own Clear surface");
+        } @finally {
+            method_setImplementation(material,apply);
+        }
     }
     host.overrideUserInterfaceStyle=savedStyle;host.selectedIndex=savedIndex;host.customTabBar.frame=frame;
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);

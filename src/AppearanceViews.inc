@@ -33,6 +33,25 @@ static CALayer *HGACreateGaussianBackdrop(void) {
     return backdrop;
 }
 
+static UIUserInterfaceStyle HGAVideoPageStyle(UIViewController *controller,UIView *bar) {
+    // Playback's white controls and black video backing stay the same in both app themes.
+    static id themeManager;
+    if(!themeManager) {
+        Protocol *adapter=objc_getProtocol("SSAdaptiveUIColorProtocol");
+        id center=adapter ? HGReadObjectGetter(objc_lookUpClass("HTSServiceCenter"),"defaultCenter") : nil;
+        SEL getter=sel_registerName("getProtocolService:");
+        Method method=center ? class_getInstanceMethod(object_getClass(center),getter) : NULL;
+        if(method && !strcmp(method_getTypeEncoding(method),"@24@0:8@16"))
+            themeManager=((id (*)(id,SEL,Protocol *))objc_msgSend)(center,getter,adapter);
+    }
+    BOOL dark;
+    if(HGABoolGetter(themeManager,@"isCurrentDarkMode",&dark))
+        return dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+    UIUserInterfaceStyle appStyle=controller.viewIfLoaded.traitCollection.userInterfaceStyle;
+    if(appStyle==UIUserInterfaceStyleUnspecified)appStyle=bar.window.traitCollection.userInterfaceStyle;
+    return appStyle!=UIUserInterfaceStyleUnspecified ? appStyle : bar.traitCollection.userInterfaceStyle;
+}
+
 @implementation HGAAppearanceMaterial
 - (void)setMaterialCornerRadius:(CGFloat)radius {
     if(fabs(_materialCornerRadius-radius)<0.001)return;
@@ -80,7 +99,7 @@ static CALayer *HGACreateGaussianBackdrop(void) {
             if(native)corners=radius<=0 || radius>=MIN(self.bounds.size.width,self.bounds.size.height)*0.5-0.5 ?
                 UICornerConfiguration.capsuleConfiguration :
                 [UICornerConfiguration configurationWithUniformRadius:[UICornerRadius fixedRadius:radius]];
-            if(self.cornerConfiguration!=corners && ![self.cornerConfiguration isEqual:corners])
+            if(corners && ![self.cornerConfiguration isEqual:corners])
                 self.cornerConfiguration=corners;
             if(self.clipsToBounds==native)self.clipsToBounds=!native;
         }

@@ -596,7 +596,9 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                         oneSurface &= tool.configuration==nil && [backdrop.effect isKindOfClass:UIBlurEffect.class];
                     else {
                         oneSurface &= !tool.configuration && HGTestFullGlassEffect(backdrop) &&
-                            [[backdrop valueForKey:@"style"] isEqual:@"clear"] && tool.enabled;
+                            [[backdrop valueForKey:@"style"] isEqual:@"clear"] && tool.enabled &&
+                            backdrop.traitCollection.userInterfaceStyle==header.window.traitCollection.userInterfaceStyle &&
+                            CGColorGetAlpha(backdrop.contentView.backgroundColor.CGColor)==0;
                         if([backdrop isKindOfClass:NSClassFromString(@"HGAHeaderTouchGlass")])
                             oneSurface &= [backdrop valueForKey:@"channelControl"]==tool;
                     }
@@ -611,6 +613,36 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         }
         Check(toolOwner.menuTaps==1 && toolOwner.searchTaps==1,
             @"each top button runs its verified native action one time");
+        if (nativeTools) {
+            // Captured home variant: the header and search slot remain mounted
+            // while the feed controller supplies no sidebar icon view.
+            UIView *hostMenu=header.sideBar;
+            [hostMenu removeFromSuperview];
+            Layout(header);
+            UIButton *replacement=(id)Find(header,@"honggo.appearance.header.sidebar");
+            UIImageView *glyph=[replacement valueForKey:@"menuGlyph"];
+            CGPoint center=replacement.center;
+            UIView *hit=[header hitTest:center withEvent:nil];
+            [replacement sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+            Check(replacement==menu && glyph.image && glyph.superview==replacement && hit==replacement &&
+                !header.accessibilityElementsHidden && toolOwner.menuTaps==2,
+                @"a header without its native left slot shows one actionable menu and leaves the rest accessible");
+            HGAppearanceSet(@"layout.channels.hide.sidebar",@YES,nil);
+            Layout(header);
+            Check(!Find(header,@"honggo.appearance.header.sidebar"),@"the hide preference also removes the replacement menu");
+            HGAppearanceSet(@"layout.channels.hide.sidebar",@NO,nil);
+            HGAppearanceSet(@"player.headerGlass",@NO,nil);
+            Layout(header);
+            UIButton *plain=(id)Find(header,@"honggo.appearance.header.sidebar");
+            Check(plain && [plain valueForKey:@"menuGlyph"] && !Find(plain,material),
+                @"turning off header glass leaves the missing menu as a plain glyph");
+            HGAppearanceSet(@"player.headerGlass",@YES,nil);
+            [header addSubview:hostMenu];
+            Layout(header);
+            UIButton *back=(id)Find(header,@"honggo.appearance.header.sidebar");
+            Check(back && ![back valueForKey:@"menuGlyph"] && [back valueForKey:@"source"]==hostMenu,
+                @"the host glyph takes over when its slot remounts");
+        }
         HGAppearanceSet(@"player.headerGlass",@NO,nil);
         Check(!Find(header,@"honggo.appearance.header.sidebar") && !Find(header,@"honggo.appearance.header.search") &&
             !header.sideBar.accessibilityElementsHidden && !search.searchButtonSlotView.accessibilityElementsHidden,

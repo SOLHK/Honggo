@@ -158,6 +158,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
 @property(nonatomic) BOOL previousAccessibilityHidden;
 @property(nonatomic) BOOL previousAccessibilityElement;
 @property(nonatomic,copy) NSString *glassStyle;
+@property(nonatomic,strong) UIImageView *menuGlyph;
 @end
 @implementation HGAHeaderToolButton
 @synthesize source=_source;
@@ -466,7 +467,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
 }
 - (void)activateTool:(HGAHeaderToolButton *)sender {
     BOOL sidebar=sender==self.sidebarButton;
-    UIView *source=sender.source;
+    UIView *source=sender.source ?: (sidebar && sender.menuGlyph ? sender.superview : nil);
     if (!sender.window || !HGAVisible(source) || HGFeedSidebarOwnsLayout(sender.window)) return;
     SEL selector=sel_registerName(sidebar ? "simpleSideBarViewDidClicked" : "simpleSearchViewDidClicked");
     UIViewController *owner=HGAHeaderToolOwner(source,selector);
@@ -1137,13 +1138,12 @@ static void HGAStyleHeaderBackdrop(HGAAppearanceMaterial *glass,NSString *style)
         glass.materialSignature=nil;
         [glass setNeedsLayout];
     }
-    UIUserInterfaceStyle desired=UIUserInterfaceStyleDark;
+    UIUserInterfaceStyle desired=flat ? UIUserInterfaceStyleDark : HGAVideoPageStyle(nil,glass);
     if(glass.overrideUserInterfaceStyle!=desired) {
         glass.overrideUserInterfaceStyle=desired;
         if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];
     }
-    glass.overlayColor=flat ? (reduced ? UIColor.darkGrayColor : UIColor.tertiarySystemFillColor) :
-        [UIColor colorWithWhite:0.10 alpha:reduced ? 1 : 0.12];
+    glass.overlayColor=flat ? UIColor.tertiarySystemFillColor : (reduced ? UIColor.secondarySystemBackgroundColor : UIColor.clearColor);
     [glass requestMaterialRefresh];
 }
 
@@ -1175,14 +1175,13 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
     HGAHeaderToolButton *button=sidebar ? state.sidebarButton : state.searchButton;
     BOOL active=!CGRectIsNull(frame);
     BOOL flat=[style isEqual:@"flat"];
-    BOOL native=active && (flat || HGNativeGlassConfigured()) && HGAHeaderToolOwner(source,selector);
+    BOOL glyphOnly=[style isEqual:@"glyph"];
+    BOOL native=active && (flat || glyphOnly || HGNativeGlassConfigured()) && HGAHeaderToolOwner(source ?: header,selector);
     if (native) {
         if(!button) {
             button=[[HGAHeaderToolButton alloc] initWithFrame:frame];
             button.accessibilityIdentifier=identifier;
-            button.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
             // Keep the original glyph and badge visible above the button.
-            button.layer.zPosition=-1;
             [button addTarget:state action:@selector(activateTool:) forControlEvents:UIControlEventPrimaryActionTriggered];
         }
         BOOL nativeGlass=HGAUsesNativeGlass(style);
@@ -1201,6 +1200,21 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
         button.source=source;
         button.accessibilityLabel=source.accessibilityLabel ?: (sidebar ? @"菜单" : @"搜索");
         if (!CGRectEqualToRect(button.frame,frame)) button.frame=frame;
+        button.layer.zPosition=source ? -1 : 0;
+        if (sidebar && !source && !button.menuGlyph) {
+            UIImageSymbolConfiguration *ink=[UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightRegular];
+            UIImage *symbol=[UIImage systemImageNamed:@"line.3.horizontal" withConfiguration:ink];
+            UIImageView *glyph=[[UIImageView alloc] initWithImage:[symbol imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal]];
+            glyph.frame=button.bounds;
+            glyph.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+            glyph.contentMode=UIViewContentModeCenter;
+            glyph.isAccessibilityElement=NO;
+            [button addSubview:glyph];
+            button.menuGlyph=glyph;
+        } else if (source && button.menuGlyph) {
+            [button.menuGlyph removeFromSuperview];
+            button.menuGlyph=nil;
+        }
         if (button.superview!=header) [header addSubview:button];
         else {
             for (UIView *sibling in header.subviews.reverseObjectEnumerator) {
@@ -1210,11 +1224,11 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
                 break;
             }
         }
-        if(!flat) {
+        if(!flat && !glyphOnly) {
             HGAViewState *material=HGAState(button,YES);
             if(!material.glass)material.glass=HGAMakeHeaderCircleGlass(@"honggo.appearance.material",button);
         }
-        if(nativeGlass) {
+        if(nativeGlass && !glyphOnly) {
             // The button remains the action target. Its configuration would install
             // a second system background behind the glyph, especially on bright footage.
             HGAInstallGlassInRect(button,style,button.bounds,CGRectGetHeight(frame)/2,0);
@@ -1222,7 +1236,7 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
             circle.interactiveGlass=YES;
             HGAStyleHeaderBackdrop(circle,style);
         }
-        else if(!flat)HGAInstallPlaybackGlass(button,style,button.bounds,CGRectGetHeight(frame)/2);
+        else if(!flat && !glyphOnly)HGAInstallPlaybackGlass(button,style,button.bounds,CGRectGetHeight(frame)/2);
         else HGARemoveGlass(button);
     } else {
         HGARemoveHeaderToolButton(button);
@@ -1501,39 +1515,42 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
     // Compact remaining visible tabs when any channel is hidden so there is no
     // empty gap inside the center capsule.
     if (!tracksChannels || !enabled) HGACompactHeaderChannels(header,state);
+    UIView *sidebar=HGAViewGetter(header,"sideBar",header);
+    BOOL hideSidebar=HGAppearanceFlag(@"layout.channels.hide.sidebar");
+    CGFloat side=MIN(HGAChannelRailHeight,CGRectGetHeight(header.bounds));
+    // Some feed templates mount only the search tool. The drawer action
+    // belongs to the feed controller and takes no icon or sender argument.
+    BOOL missingSidebar=!sidebar && !hideSidebar && HGAVisible(header) &&
+        HGAHeaderToolOwner(header,sel_registerName("simpleSideBarViewDidClicked"));
+    CGRect fallbackMenu=missingSidebar ? CGRectMake(9,CGRectGetMidY(header.bounds)-side/2,side,side) : CGRectNull;
     if(!enabled) {
         [state.visibleSideTools removeAllObjects];
         HGARemoveHeaderChannelControl(state);
-        HGARemoveHeaderToolButton(state.sidebarButton);
         HGARemoveHeaderToolButton(state.searchButton);
-        state.sidebarButton=nil;
         state.searchButton=nil;
-        [state.sidebarGlass removeFromSuperview];
+        HGAApplyHeaderTool(header,state,nil,fallbackMenu,@"glyph",YES);
         [state.searchGlass removeFromSuperview];
         HGARemoveGlass(header);
         return;
     }
-    UIView *sidebar=HGAViewGetter(header,"sideBar",header);
     UIView *searchSlot=HGAHeaderSearchSlotView(header);
     HGAKeepCompactHeaderSideTools(header,state,sidebar,searchSlot);
 
     CGFloat headerW=CGRectGetWidth(header.bounds);
-    CGFloat headerH=CGRectGetHeight(header.bounds);
-    CGFloat side=MIN(HGAChannelRailHeight,headerH);
     CGFloat midY=CGRectGetMidY(header.bounds);
 
-    BOOL showSidebar=!HGAppearanceFlag(@"layout.channels.hide.sidebar") &&
+    BOOL showSidebar=!hideSidebar &&
         sidebar && !sidebar.hidden && sidebar.alpha>=0.01 && !CGRectIsEmpty(sidebar.bounds);
     BOOL showSearch=!HGAppearanceFlag(@"layout.channels.hide.search") &&
         searchSlot && !searchSlot.hidden && searchSlot.alpha>=0.01 && !CGRectIsEmpty(searchSlot.bounds);
 
-    CGRect leftCircle=CGRectNull;
+    CGRect leftCircle=fallbackMenu;
     if(showSidebar) {
         CGRect r=[sidebar convertRect:sidebar.bounds toView:header];
         CGFloat x=MAX(4.0,MIN(headerW-side-4.0,CGRectGetMidX(r)-side*0.5));
         leftCircle=CGRectMake(x,CGRectGetMidY(r)-side*0.5,side,side);
     }
-    HGAApplyHeaderTool(header,state,sidebar,leftCircle,style,YES);
+    HGAApplyHeaderTool(header,state,sidebar,leftCircle,missingSidebar && !HGNativeGlassConfigured() ? @"glyph" : style,YES);
 
     CGRect rightCircle=CGRectNull;
     if(showSearch) {
