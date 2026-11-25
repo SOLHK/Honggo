@@ -591,7 +591,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 for (UIButton *tool in @[menu,searchButton]) {
                     UIVisualEffectView *backdrop=(id)Find(tool,material);
                     Layout(backdrop);
-                    oneSurface &= tool.superview==header && tool.maskView==nil;
+                    oneSurface &= tool.superview==header && tool.maskView==nil && tool.cornerConfiguration!=nil;
                     if ([style isEqual:@"blur"])
                         oneSurface &= tool.configuration==nil && [backdrop.effect isKindOfClass:UIBlurEffect.class];
                     else {
@@ -719,7 +719,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         CGFloat center=CGRectGetMidX(lens.frame)-CGRectGetMinX(segments.frame);
         Check(lens && !lens.hidden && [header.subviews indexOfObjectIdenticalTo:lens]>[header.subviews indexOfObjectIdenticalTo:segments] &&
             center>CGRectGetWidth(segments.bounds)*0.25 && center<CGRectGetWidth(segments.bounds)*0.75 &&
-            CGRectGetHeight(lens.bounds)>CGRectGetHeight(segments.bounds)-2 &&
+            fabs(CGRectGetHeight(lens.bounds)-(CGRectGetHeight(segments.bounds)-6))<0.51 &&
             segments.selectedSegmentIndex==UISegmentedControlNoSegment && delayed,
             @"a partially completed page-body swipe lifts the header lens between titles before any navigation");
     }
@@ -1027,7 +1027,9 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     UIView *hit=[strip hitTest:center withEvent:nil];
                     CGRect selected=[mark convertRect:mark.bounds toView:strip];
                     aligned &= channels.selectedIndex==button.tag && [hit isDescendantOfView:button] &&
-                        fabs(CGRectGetMidX(selected)-center.x)<0.51;
+                        fabs(CGRectGetMidX(selected)-center.x)<0.51 &&
+                        fabs(CGRectGetWidth(selected)-(CGRectGetWidth(slot)-8))<0.51 &&
+                        fabs(CGRectGetHeight(selected)-(CGRectGetHeight(strip.bounds)-8))<0.51;
                 }
                 if (all.count && !UIAccessibilityIsReduceMotionEnabled()) {
                     id<HGATestChannelPaging> scrubber=nil;

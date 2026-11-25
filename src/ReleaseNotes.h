@@ -4,6 +4,7 @@
 // Keep entries in release order, including locally distributed test builds.
 static NSArray<NSArray<NSString *> *> *HGReleaseNotes(void) {
     return @[
+        @[@"1.5.2beta26", @"修复首次显示顶部菜单和搜索按钮时的启动闪退。顶部频道选中胶囊四周留白，点击区域保持原大小。"],
         @[@"1.5.2beta25", @"减轻播放页顶栏和 Dock 的玻璃泛白，调整冷启动及首次滑动时的画面衔接。在「短剧」中可编辑屏蔽视频关键词。"],
         @[@"1.5.2beta24", @"修正换集下滑时底栏后的整块黑区。Dock 液态玻璃、选中态和文字统一跟随浅色或深色外观。"],
         @[@"1.5.2beta23", @"竖屏短剧恢复默认等比铺满，画面延续到状态栏和播放底栏后方。新增播放时自动清屏，暂停显示控件，继续播放后收起。"],

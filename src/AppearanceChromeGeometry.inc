@@ -225,9 +225,11 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     CGRect a=[self channelFrame:left],b=[self channelFrame:right];
     CGFloat fraction=index-left;
     CGFloat slot=CGRectGetWidth(a)+(CGRectGetWidth(b)-CGRectGetWidth(a))*fraction;
-    CGFloat center=CGRectGetMidX(a)+(CGRectGetMidX(b)-CGRectGetMidX(a))*fraction-CGRectGetMinX(control.bounds);
-    HGADockSelectionBounds shape=HGADockSelectionBoundsForState(center,CGRectGetWidth(control.bounds),CGRectGetHeight(control.bounds),slot,lifted);
-    return [control convertRect:CGRectMake(CGRectGetMinX(control.bounds)+shape.x,CGRectGetMinY(control.bounds)+shape.y,shape.width,shape.height)
+    CGFloat center=CGRectGetMidX(a)+(CGRectGetMidX(b)-CGRectGetMidX(a))*fraction;
+    CGFloat inset=lifted ? 3 : 4;
+    CGRect bounds=control.bounds;
+    CGFloat width=MAX(0,slot-2*inset), height=MAX(0,CGRectGetHeight(bounds)-2*inset);
+    return [control convertRect:CGRectMake(center-width/2,CGRectGetMinY(bounds)+inset,width,height)
         toView:self.channelLens.superview];
 }
 - (void)prepareChannelLens {
@@ -1194,7 +1196,7 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
             }
             configuration.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
             button.configuration=configuration;
-            if (@available(iOS 26.0,*)) button.cornerConfiguration=flat ? UICornerConfiguration.capsuleConfiguration : nil;
+            if (@available(iOS 26.0,*)) button.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
         }
         button.source=source;
         button.accessibilityLabel=source.accessibilityLabel ?: (sidebar ? @"菜单" : @"搜索");
