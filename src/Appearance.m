@@ -353,9 +353,6 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             if(episodeAdd) {
                 if(HGAOwnView(argument))return;
                 HGAppearanceProcessView(object);
-                HGAAppearanceMaterial *g=HGAState(object,NO).glass;
-                if(g && g.superview==object && [(UIView *)object subviews].firstObject!=g)
-                    [(UIView *)object sendSubviewToBack:g];
                 return;
             }
             if(episodeRender && wasApplying) {
