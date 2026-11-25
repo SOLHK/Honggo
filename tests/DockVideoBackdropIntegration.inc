@@ -10,6 +10,13 @@
 
 @interface FQVShortVideoLockPlayRateTipsView : UIView @end
 @implementation FQVShortVideoLockPlayRateTipsView @end
+@interface FQVShortVideoListVCScrollComponent : NSObject <UIScrollViewDelegate> @end
+@implementation FQVShortVideoListVCScrollComponent
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {}
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView {}
+- (void)scrollViewDidEndScrollingAnimation:(UIScrollView *)scrollView {}
+- (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate {}
+@end
 @interface FQVShortVideoListViewController : UIViewController @end
 @implementation FQVShortVideoListViewController @end
 // Surface a collection-layout query made by the plugin while cells are in
@@ -305,10 +312,32 @@ static void RunDetailVideoBackdropChecks(UIView *root) {
         cover.contentMode==UIViewContentModeScaleAspectFill && CGRectEqualToRect(cover.frame,canvas.bounds) &&
         CATransform3DIsIdentity(wrapper.layer.sublayerTransform),
         @"the first Metal frame and the poster fill the same screen viewport with the same anchoring");
+    // Overscan poster frames (matching TTMetalView aspect-fill sizing) and
+    // incoming detail cells without a transferred HUD yet must use the exact
+    // same full-screen anchor so settling never jumps +44.5pt on handoff.
     HGVideoBackdropPrepareRendererTransfer(player);
-    Check(cover.contentMode==UIViewContentModeScaleAspectFit && CGRectEqualToRect(cover.frame,crop) &&
+    [renderer removeFromSuperview];
+    cover.frame=CGRectInset(crop,-24,0);
+    cover.contentMode=UIViewContentModeScaleAspectFill;
+    HGRefreshVideoBackdropForPlayer(canvas);
+    Check(CGRectEqualToRect(cover.frame,canvas.bounds),
+        @"an overscanned portrait poster centered on the detail viewport aligns to full screen before Metal arrives");
+    FQVShortVideoPlayerCellView *incomingDetail=[[FQVShortVideoPlayerCellView alloc] initWithFrame:root.bounds];
+    incomingDetail.model=source;
+    UIImageView *incomingCover=[[UIImageView alloc] initWithFrame:CGRectInset(crop,-24,0)];
+    incomingCover.contentMode=UIViewContentModeScaleAspectFill;
+    incomingDetail.coverImageView=incomingCover;
+    [incomingDetail addSubview:incomingCover];
+    [root addSubview:incomingDetail];
+    HGRefreshVideoBackdropForPlayer(incomingDetail);
+    Check(CGRectEqualToRect(incomingCover.frame,incomingDetail.bounds),
+        @"an incoming detail episode without its transferred HUD inherits the verified bottom tray viewport from frame zero");
+    [incomingDetail removeFromSuperview];
+    [player addSubview:renderer];HGRefreshVideoBackdropForPlayer(canvas);
+    HGVideoBackdropPrepareRendererTransfer(player);
+    Check(cover.contentMode==UIViewContentModeScaleAspectFill && CGRectEqualToRect(cover.frame,CGRectInset(crop,-24,0)) &&
         CATransform3DIsIdentity(renderer.layer.sublayerTransform),
-        @"player recycling restores the native poster mode and Metal transform");
+        @"player recycling restores the native overscan poster frame and Metal transform");
     [renderer removeFromSuperview];
     HGAAspectSourceFixture *wide=[HGAAspectSourceFixture new];wide.videoWidth=1920;wide.videoHeight=1080;canvas.model=wide;
     Check(CATransform3DIsIdentity(wrapper.layer.sublayerTransform),@"a wide source does not acquire a speculative portrait crop");
@@ -449,7 +478,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             [UIColor.greenColor setFill];UIRectFill(CGRectMake(0,0,8,16));
         }];
         UIImageView *cover=[[UIImageView alloc] initWithImage:poster];
-        cover.frame=cell.player.bounds;cell.player.coverImageView=cover;
+        cover.frame=CGRectInset(cell.player.bounds,-24,0);cell.player.coverImageView=cover;
         [cell.player addSubview:cover];cell.renderer.alpha=0;
         [cell.canvas refreshCoverImageView];HGBackdropFlushFrames(0.04);
         [cell.renderer removeFromSuperview];
@@ -492,25 +521,26 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             beforeSeam.valid && afterSeam.valid && fabs(beforeSeam.red-afterSeam.red)<0.06,
             @"the old HUD gradient no longer darkens the portrait or exposes a seam at the original tray edge");
 
+        FQVShortVideoListVCScrollComponent *scrollDriver=[FQVShortVideoListVCScrollComponent new];
         [feed setContentOffset:CGPointMake(0,feedHeight+60) animated:NO];Layout(feed);
         HGBackdropVideoCell *nextPortrait=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:2 inSection:0]];
         HGBackdropFrameModel *frameModel=[HGBackdropFrameModel new];
         nextPortrait.player.model=frameModel;
-        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
-        CGFloat heldY=cell.renderer.layer.sublayerTransform.m42;
+        [scrollDriver scrollViewDidScroll:feed];
         Check(nextPortrait && cell.layer.zPosition==1 && nextPortrait.layer.zPosition==0 &&
-            fabs(heldY-fit.m42-60)<0.75,
-            @"a first-swipe portrait with prepared geometry but no visible first frame keeps the last real picture under the Dock");
+            CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit),
+            @"scrollViewDidScroll synchronously orders the outgoing portrait above an unready neighbor without shifting its transform");
         frameModel.readyToDisPlay=YES;
         [nextPortrait.canvas vPlayerReadyToDisPlay:nextPortrait.player];
         Check(cell.layer.zPosition==0 && nextPortrait.layer.zPosition==1 &&
-            fabs(cell.renderer.layer.sublayerTransform.m42-heldY)<0.75,
-            @"native first-frame arrival hands over drawing order immediately without snapping the outgoing picture");
+            CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit) &&
+            fabs(nextPortrait.renderer.layer.sublayerTransform.m42-fit.m42)<0.75,
+            @"native first-frame arrival hands over drawing order cleanly while both cells maintain constant 1:1 scroll transforms");
         [feed setContentOffset:CGPointMake(0,feedHeight+80) animated:NO];Layout(feed);
-        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
-        Check(fabs(cell.renderer.layer.sublayerTransform.m42-(heldY-20))<0.75 &&
+        [scrollDriver scrollViewDidScroll:feed];
+        Check(CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit) &&
             fabs(cell.renderer.layer.sublayerTransform.m11-fit.m11)<0.001,
-            @"outgoing placement follows further scrolling after the first-frame handoff while zoom remains constant");
+            @"outgoing placement follows scrolling 1:1 with constant zoom and zero rubber-band shift");
         nextPortrait.player.model=nil;
         [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
@@ -519,26 +549,23 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         HGBackdropVideoCell *wideNeighbor=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:2 inSection:0]];
         wideNeighbor.videoHeight=width*9/16;Layout(wideNeighbor);Layout(wideNeighbor.renderer);
         wideNeighbor.canvas.backgroundColor=[UIColor colorWithWhite:0.10 alpha:1];
-        CGFloat pictureArrival=(feedHeight-wideNeighbor.videoHeight)/2-90;
+        CGFloat pictureArrival=(feedHeight-wideNeighbor.videoHeight)/2;
         BOOL stableCoverage=wideNeighbor!=nil && pictureArrival>100;
         CGFloat offsets[]={60,90,pictureArrival-7,pictureArrival+7,pictureArrival-7,60};
         for (NSUInteger i=0;i<sizeof(offsets)/sizeof(*offsets);i++) {
             CGFloat offset=offsets[i];
             [feed setContentOffset:CGPointMake(0,feedHeight+offset) animated:NO];Layout(feed);
-            [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
-            CGFloat shift=offset<=90 ? offset : (offset<pictureArrival ? pictureArrival-offset : 0);
+            [scrollDriver scrollViewDidScroll:feed];
+            BOOL keepUpper=offset<90;
             CATransform3D placement=cell.renderer.layer.sublayerTransform;
-            CGRect picture=[cell.metal.layer convertRect:cell.metal.layer.bounds toLayer:window.layer];
-            stableCoverage &= fabs(placement.m11-fit.m11)<0.001 && fabs(placement.m22-fit.m22)<0.001 &&
-                fabs(placement.m42-fit.m42-shift)<0.75 && !feed.clipsToBounds &&
-                (shift>0 ? (cell.layer.zPosition==1 && wideNeighbor.layer.zPosition==0) :
-                    (cell.layer.zPosition==0 && wideNeighbor.layer.zPosition==1)) &&
-                (offset>90 || CGRectGetMaxY(picture)>=height-0.75) &&
+            stableCoverage &= CATransform3DEqualToTransform(placement,fit) && !feed.clipsToBounds &&
+                (keepUpper ? (cell.layer.zPosition==1 && wideNeighbor.layer.zPosition==0) :
+                    (cell.layer.zPosition==0 && wideNeighbor.layer.zPosition==0)) &&
                 CATransform3DIsIdentity(wideNeighbor.renderer.layer.sublayerTransform) &&
                 CGRectEqualToRect(cell.renderer.frame,portraitFrame) && CGRectEqualToRect(hud.frame,cell.canvas.bounds);
         }
         Check(stableCoverage,
-            @"dragging past a wide neighbor's empty top preserves portrait pixels behind the Dock and hands off without a jump");
+            @"dragging past a wide neighbor keeps natural 1:1 portrait motion over the Dock overlap without freezing or 2x whip");
         wideNeighbor.videoHeight=0;Layout(wideNeighbor);Layout(wideNeighbor.renderer);
         [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];

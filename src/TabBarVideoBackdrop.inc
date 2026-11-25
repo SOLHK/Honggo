@@ -32,9 +32,6 @@ typedef struct {
 @property(nonatomic, strong) NSHashTable<UIView *> *portraitClips;
 @property(nonatomic, strong) NSMapTable<CAGradientLayer *, NSNumber *> *portraitGradients;
 @property(nonatomic, weak) UICollectionViewCell *frontPortraitCell;
-@property(nonatomic, weak) UICollectionViewCell *dragPortraitCell;
-@property(nonatomic) CGFloat dragPortraitShift;
-@property(nonatomic) CGFloat dragPortraitAdvance;
 @property(nonatomic, strong) NSMapTable<UIImageView *, NSNumber *> *cornerAlpha;
 @property(nonatomic, weak) UIView *detailTray;
 @property(nonatomic, strong) UIColor *detailTrayPaint;
@@ -173,6 +170,16 @@ static BOOL HGVideoBackdropSameRect(CGRect a, CGRect b, CGFloat tolerance) {
         fabs(CGRectGetMaxY(a)-CGRectGetMaxY(b)) <= tolerance;
 }
 
+static BOOL HGVideoBackdropMatchesViewport(CGRect candidate, CGRect viewport) {
+    if (HGVideoBackdropSameRect(candidate,viewport,0.75)) return YES;
+    // Host refreshCoverImageView can size a portrait poster with aspect-fill
+    // overscan centered on the same viewport (matching TTMetalView).
+    return candidate.size.width >= viewport.size.width-1.5 &&
+        candidate.size.height >= viewport.size.height-1.5 &&
+        fabs(CGRectGetMidX(candidate)-CGRectGetMidX(viewport)) <= 1.5 &&
+        fabs(CGRectGetMidY(candidate)-CGRectGetMidY(viewport)) <= 1.5;
+}
+
 // Measure the actual picture, which can extend beyond the native renderer
 // frame. Scaling from the frame instead can zoom a tall source unnecessarily.
 static CATransform3D HGVideoBackdropCoverTransform(CGSize picture, CGRect native, CGRect full) {
@@ -284,13 +291,6 @@ static CGFloat HGVideoBackdropFirstPictureY(UIView *canvas, UIView *feed) {
         if (!CGRectIsEmpty(picture)) pictureTop=MIN(pictureTop,CGRectGetMinY([cover convertRect:picture toView:feed]));
     }
     return pictureTop;
-}
-
-static CGFloat HGVideoBackdropDragCoverage(CGFloat advance, CGFloat reserve, CGFloat pictureDistance, BOOL reachedEnd) {
-    if (advance<=0 || reserve<=0.75) return 0;
-    // Release the compensation as the next picture approaches so the old
-    // video is already at its native position when its neighbor draws in front.
-    return reachedEnd ? advance : MIN(MIN(advance,reserve),MAX(0,pictureDistance));
 }
 
 static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect viewport) {
@@ -494,8 +494,8 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
             if (cover.contentMode!=UIViewContentModeScaleAspectFill) saved.contentMode=cover.contentMode;
         }
         CGRect nativeCover=[cover.superview convertRect:saved.frame toView:coordinateView];
-        if (HGVideoBackdropSameRect(nativeCover,viewport,0.75) ||
-            HGVideoBackdropSameRect(nativeCover,coordinateView.bounds,0.75)) {
+        if (HGVideoBackdropMatchesViewport(nativeCover,viewport) ||
+            HGVideoBackdropMatchesViewport(nativeCover,coordinateView.bounds)) {
             saved.appliedFrame=[coordinateView convertRect:full toView:cover.superview];
             if (!self.portraitCovers) self.portraitCovers=[NSMapTable weakToStrongObjectsMapTable];
             [self.portraitCovers setObject:[NSValue valueWithBytes:&saved objCType:@encode(HGVideoPortraitCover)] forKey:cover];
@@ -520,7 +520,6 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         objc_setAssociatedObject(feed, &HGVideoBackdropLinkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [self restorePortraitExcept:nil];
     [self bringPortraitForward:nil];
-    self.dragPortraitCell=nil;
     [self restoreClipping];
     [self restoreCornerImages];
     [self restoreDetailTray];
@@ -624,42 +623,30 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     BOOL portrait=cell && fabs(cellFrame.size.height-feed.bounds.size.height)<=0.75 &&
         [self fillPortraitInCanvas:canvas viewport:canvas.bounds full:full boundary:feed active:active];
     BOOL topPortrait=NO, keepUpperPicture=NO;
-    CGFloat shift=0, advance=0;
     if (topCell && topCell!=cell && fabs(topFrame.size.height-feed.bounds.size.height)<=0.75) {
         UIView *topCanvas=HGVideoBackdropCanvas(topCell,feed,top);
         CGRect topFull=topCanvas.bounds;
         topFull.size.height+=extra;
-        advance=CGRectGetMinY(feed.bounds)-CGRectGetMinY(topFrame);
-        // A neighbor's empty letterbox can arrive at the native paging edge
-        // well before any of its picture. Keep real pixels behind the Dock
-        // during that handoff, with a translation only and the settled zoom.
-        BOOL reachedEnd=!cell && CGRectGetMaxY(topFrame)>=feed.contentSize.height-0.75;
-        CGFloat physicalBottom=CGRectGetMaxY(feed.bounds)+extra;
-        CGFloat needed=HGVideoBackdropDragCoverage(advance,extra,
-            HGVideoBackdropFirstPictureY(canvas,feed)-physicalBottom,reachedEnd);
-        shift=needed;
-        if (self.dragPortraitCell==topCell) {
-            // A portrait first frame can arrive at a fixed scroll position.
-            // Switch the drawing order immediately and let the old picture
-            // move back with the scroll instead of jumping when it arrives.
-            CGFloat travel=fabs(advance-self.dragPortraitAdvance);
-            shift=MAX(needed,MIN(advance,self.dragPortraitShift-travel));
-        }
-        topFull.origin.y+=shift;
+        CGFloat advance=CGRectGetMinY(feed.bounds)-CGRectGetMinY(topFrame);
         topPortrait=[self fillPortraitInCanvas:topCanvas viewport:topCanvas.bounds full:topFull boundary:feed active:active];
-        keepUpperPicture=topPortrait && needed>0;
+        // Keep the outgoing portrait ordered in front across the Dock overlap
+        // while a wide or unready neighbor has no picture at its top edge,
+        // without translating topFull (which caused freeze-then-2x whip).
+        if (topPortrait && advance>0 && extra>0.75) {
+            BOOL reachedEnd=!cell && CGRectGetMaxY(topFrame)>=feed.contentSize.height-0.75;
+            CGFloat physicalBottom=CGRectGetMaxY(feed.bounds)+extra;
+            keepUpperPicture=reachedEnd ||
+                (advance<extra && HGVideoBackdropFirstPictureY(canvas,feed)>physicalBottom-extra+0.75);
+        }
     }
-    self.dragPortraitCell=topPortrait && shift>0 ? topCell : nil;
-    self.dragPortraitShift=shift;
-    self.dragPortraitAdvance=advance;
     [self restorePortraitExcept:active];
-    UIColor *matte=!portrait && !keepUpperPicture && extra>0.75 ? HGVideoBackdropMatte(canvas) : nil;
+    UIColor *matte=!portrait && extra>0.75 ? HGVideoBackdropMatte(canvas) : nil;
     [self updateUnderlay:[self pagingMatteForCanvas:canvas frame:cellFrame color:matte]];
 
     BOOL overflows=extra>0.75 && (portrait || keepUpperPicture || (cell && HGVideoBackdropCrossesBottom(feed,cellFrame)));
     // A prefetched neighbor must not cover live pixels until its own picture
     // reaches the screen. This only orders siblings within the feed.
-    [self bringPortraitForward:keepUpperPicture ? topCell : (overflows && (portrait || topPortrait) ? cell : nil)];
+    [self bringPortraitForward:keepUpperPicture ? topCell : (overflows && portrait ? cell : nil)];
     if (overflows || matte) [self updateCornerImages:feed.superview.subviews frame:feed.frame];
     else [self restoreCornerImages];
     if (!overflows) {
@@ -701,6 +688,8 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     [self restoreDetailTray];
 }
 
+static char HGDetailOwnerTrayRectKey;
+
 - (void)refreshDetail:(UIView *)canvas {
     if (self.refreshing) return;
     UIViewController *owner = HGVideoBackdropOwner(canvas);
@@ -740,8 +729,8 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     id model=HGReadObjectGetter(canvas,"model");
     BOOL portrait=HGVideoBackdropPortraitModel(model);
     if(portrait && CGRectIsEmpty(bottom)) {
-        // Before the tray is laid out, use the viewport published by the HUD,
-        // or the same per-model frame calculator used to initialize the player.
+        // Before the tray is laid out or before the shared single-series HUD
+        // transfers to an incoming cell, use the published/cached tray viewport.
         CGRect predicted=CGRectZero;
         SEL frame=sel_registerName("playerViewFrame");
         Method method=class_getInstanceMethod(object_getClass(hud),frame);
@@ -760,13 +749,27 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
             viewport=predicted;
             bottom=CGRectMake(CGRectGetMinX(viewport),CGRectGetMaxY(viewport),viewport.size.width,
                 CGRectGetMaxY(canvas.bounds)-CGRectGetMaxY(viewport));
+        } else {
+            NSValue *cached=objc_getAssociatedObject(owner,&HGDetailOwnerTrayRectKey);
+            CGRect cachedBottom=cached ? cached.CGRectValue : CGRectZero;
+            if(cachedBottom.size.height>=44 && cachedBottom.size.height<=110 &&
+               fabs(CGRectGetWidth(cachedBottom)-CGRectGetWidth(canvas.bounds))<=0.75 &&
+               fabs(CGRectGetMaxY(cachedBottom)-CGRectGetMaxY(canvas.bounds))<=0.75) {
+                bottom=CGRectMake(CGRectGetMinX(canvas.bounds),CGRectGetMaxY(canvas.bounds)-cachedBottom.size.height,
+                    CGRectGetWidth(canvas.bounds),cachedBottom.size.height);
+                viewport=canvas.bounds;
+                viewport.size.height-=bottom.size.height;
+            }
         }
     }
     NSMutableSet *active=[NSMutableSet set];
     BOOL alignedTray=bottom.size.height>=44 && bottom.size.height<=110 &&
         HGVideoBackdropSameRect(bottom,CGRectMake(CGRectGetMinX(viewport),CGRectGetMaxY(viewport),
             viewport.size.width,bottom.size.height),0.75);
-    BOOL fills=(hud || HGVideoBackdropSingleList(owner)) && (alignedTray || CGRectIsEmpty(bottom)) &&
+    if(hud && tray && alignedTray)
+        objc_setAssociatedObject(owner,&HGDetailOwnerTrayRectKey,[NSValue valueWithCGRect:bottom],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    BOOL knownSingleSeries=hud || HGVideoBackdropSingleList(owner) || objc_getAssociatedObject(owner,&HGDetailOwnerTrayRectKey)!=nil;
+    BOOL fills=knownSingleSeries && (alignedTray || CGRectIsEmpty(bottom)) &&
         [self fillPortraitInCanvas:canvas viewport:viewport full:canvas.bounds boundary:canvas active:active];
     [self restorePortraitExcept:active];
     if (fills) {
@@ -912,8 +915,10 @@ void HGRefreshVideoBackdropForPlayer(UIView *view) {
         Class control = NSClassFromString(@"FQVShortVideoVPlayerSingleSeriesControlView");
         BOOL hasSingleSeriesControls = NO;
         for (UIView *child in canvas.subviews) hasSingleSeriesControls |= [child isKindOfClass:control];
+        UIViewController *owner = HGVideoBackdropOwner(canvas);
         if (!HGAppearanceEnabled() ||
-            (!hasSingleSeriesControls && !HGVideoBackdropSingleList(HGVideoBackdropOwner(canvas)))) return;
+            (!hasSingleSeriesControls && !HGVideoBackdropSingleList(owner) &&
+             !objc_getAssociatedObject(owner,&HGDetailOwnerTrayRectKey))) return;
         detail = [HGVideoBackdrop new];
         objc_setAssociatedObject(canvas, &HGDetailVideoBackdropKey, detail, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }

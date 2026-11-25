@@ -11,8 +11,12 @@ static NSUInteger gameModelCreations;
 static NSUInteger manualGameEntries;
 static NSUInteger nativeGameInitializations;
 
+@interface HGKeywordFixtureAlbum : NSObject
+@property(nonatomic,copy) NSString *albumId,*albumName;
+@end
+@implementation HGKeywordFixtureAlbum @end
 @interface HGKeywordFixtureCell : NSObject
-@property(nonatomic,strong) id filterableSeriesVideoData,filterableEpisodeVideoData,bookData,tagInfo;
+@property(nonatomic,strong) id filterableSeriesVideoData,filterableEpisodeVideoData,derivateVideoData,albumInfo,bookData,tagInfo;
 @property(nonatomic,copy) NSString *title,*rawBookName,*videoDesc,*authorNickname,*bookName,*bookAbstract,*author,*text;
 @property(nonatomic,copy) NSArray *cellData,*categoryList,*tags;
 @end
@@ -586,6 +590,19 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     [self check:[source.built isEqual:@[keep]] name:@"with feed ads disabled, title, episode description, author, category and series name match literal case/width-insensitive keywords"];
     NSArray *noHit=@[keep];[source reqVideoDataIfNeedWithCellViewDataArr:noHit beforeBuild:nil completion:nil];
     [self check:source.built==noHit name:@"an unmatched keyword list keeps the host array identity"];
+    HGKeywordFixtureCell *albumCard=[HGKeywordFixtureCell new];
+    HGKeywordFixtureCell *derivate=[HGKeywordFixtureCell new];
+    derivate.title=@"扶不扶";derivate.authorNickname=@"彬彬解剧";
+    HGKeywordFixtureAlbum *album=[HGKeywordFixtureAlbum new];
+    album.albumId=@"7399001";album.albumName=@"盘点搞笑小品系列";
+    derivate.albumInfo=album;albumCard.derivateVideoData=derivate;
+    HGAppearanceSet(@"video.blockedKeywords",@[@"合集"],nil);
+    [source reqVideoDataIfNeedWithCellViewDataArr:@[keep,albumCard] beforeBuild:nil completion:nil];
+    [self check:[source.built isEqual:@[keep]] name:@"blocking 合集 removes creator album compilation cards even when neither title nor albumName contains 合集"];
+    HGAppearanceSet(@"video.blockedKeywords",@[@"搞笑小品"],nil);
+    [source reqVideoDataIfNeedWithCellViewDataArr:@[keep,albumCard] beforeBuild:nil completion:nil];
+    [self check:[source.built isEqual:@[keep]] name:@"blocking an album title substring removes compilation cards stored on derivative/album fields"];
+    HGAppearanceSet(@"video.blockedKeywords",@[@"abc",@"a.b",@"仙侠"],nil);
     source.hasMore=YES;source.requestedOffsets=[NSMutableArray array];source.replies=[NSMutableArray array];
     for (NSInteger offset=1;offset<=3;offset++) {
         SSShortVideoRecommendOutterCellChangeResult *result=[SSShortVideoRecommendOutterCellChangeResult new];

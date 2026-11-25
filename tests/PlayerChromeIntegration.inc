@@ -345,9 +345,52 @@ static void RunOffscreenAvatarChecks(UIView *root) {
     Check(avatar.hidden,@"the explicit avatar switch remains authoritative on a visible slot");
     [rail removeFromSuperview];HGAppearanceApply(saved,nil);
 }
+@interface HGALazyPlayControlFixture : FQVShortVideoVPlayerControlView
+@property(nonatomic) NSUInteger lazyPlayReads;
+@property(nonatomic) NSUInteger lazyFullscreenReads;
+- (UIButton *)mountLazyPlay;
+@end
+@implementation HGALazyPlayControlFixture
+- (UIButton *)playBtn {
+    self.lazyPlayReads++;
+    if (![super playBtn]) {
+        UIButton *btn=[UIButton buttonWithType:UIButtonTypeCustom];
+        btn.frame=CGRectMake(40,6,48,48);
+        [btn setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
+        [super setPlayBtn:btn];
+        [self addSubview:btn];
+    }
+    return [super playBtn];
+}
+- (UIButton *)fullscreenBtn {
+    self.lazyFullscreenReads++;
+    if (![super fullscreenBtn]) {
+        UIButton *btn=[UIButton buttonWithType:UIButtonTypeCustom];
+        btn.frame=CGRectMake(12,8,108,40);
+        [super setFullscreenBtn:btn];
+        [self addSubview:btn];
+    }
+    return [super fullscreenBtn];
+}
+- (UIButton *)mountLazyPlay { return [self playBtn]; }
+@end
+
 static void RunPlayerChromeChecks(SSTabBarController *host) {
     RunOffscreenAvatarChecks(host.view);
     RunDanmakuChromeChecks(host.view);
+    NSDictionary *savedLazy=HGAppearanceValues();
+    HGAppearanceApply(@{@"enabled":@YES,@"player.rightGlass":@YES,@"player.controlsGlass":@YES,@"player.actionStyle":@"glass"},nil);
+    HGALazyPlayControlFixture *coldHud=[[HGALazyPlayControlFixture alloc] initWithFrame:CGRectMake(10,100,144,60)];
+    [host.view addSubview:coldHud];
+    HGAppearanceProcessView(coldHud);
+    Check(coldHud.lazyPlayReads==0 && coldHud.lazyFullscreenReads==0 && coldHud.subviews.count==0,
+        @"cold-launch HUD layout does not invoke lazy playBtn or fullscreenBtn getters while buffering");
+    UIButton *mountedPlay=[coldHud mountLazyPlay];
+    HGAppearanceProcessView(coldHud);
+    Check(coldHud.lazyPlayReads==1 && Find(mountedPlay,@"honggo.appearance.material")!=nil,
+        @"once the host mounts playBtn on pause, its liquid surface attaches without extra lazy reads");
+    [coldHud removeFromSuperview];
+    HGAppearanceApply(savedLazy,nil);
     NSDictionary *saved=HGAppearanceValues();
     HGAppearanceApply(@{@"enabled":@YES,@"player.controlsGlass":@YES,@"panels.episodes":@YES,@"panels.material":@"blur"},nil);
     RunDetailNavigationChromeChecks(host);

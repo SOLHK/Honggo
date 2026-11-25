@@ -602,7 +602,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     else {
                         oneSurface &= !tool.configuration && HGTestFullGlassEffect(backdrop) &&
                             [[backdrop valueForKey:@"style"] isEqual:HGALiquidButtonMaterial()] && tool.enabled &&
-                            backdrop.traitCollection.userInterfaceStyle==header.window.traitCollection.userInterfaceStyle;
+                            backdrop.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
                         if([backdrop isKindOfClass:NSClassFromString(@"HGAHeaderTouchGlass")])
                             oneSurface &= [backdrop valueForKey:@"channelControl"]==tool;
                     }

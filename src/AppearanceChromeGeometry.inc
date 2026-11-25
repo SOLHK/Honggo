@@ -68,8 +68,8 @@ API_AVAILABLE(ios(26.0))
 - (void)layoutSubviews {
     [super layoutSubviews];
     if(self.window && ![self.rail.style isEqual:@"solid"]) {
-        UIUserInterfaceStyle appearance=HGAVideoPageStyle(nil,self);
-        if(self.rail.overrideUserInterfaceStyle!=appearance)self.rail.overrideUserInterfaceStyle=appearance;
+        if(self.rail.overrideUserInterfaceStyle!=UIUserInterfaceStyleDark)
+            self.rail.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
     }
     CGFloat radius=CGRectGetHeight(self.rail.bounds)/2;
     self.rail.materialCornerRadius=radius;
@@ -1142,7 +1142,7 @@ static void HGAStyleHeaderBackdrop(HGAAppearanceMaterial *glass,NSString *style)
         glass.materialSignature=nil;
         [glass setNeedsLayout];
     }
-    UIUserInterfaceStyle desired=flat ? UIUserInterfaceStyleDark : HGAVideoPageStyle(nil,glass);
+    UIUserInterfaceStyle desired=UIUserInterfaceStyleDark;
     if(glass.overrideUserInterfaceStyle!=desired) {
         glass.overrideUserInterfaceStyle=desired;
         if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];

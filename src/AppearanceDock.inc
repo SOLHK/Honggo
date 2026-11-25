@@ -295,7 +295,9 @@ static UIUserInterfaceStyle HGADockColorStyle(id value,UITraitCollection *traits
     return UIUserInterfaceStyleUnspecified;
 }
 static UIUserInterfaceStyle HGADockPageStyle(UIViewController *controller,UIView *bar,NSInteger selected) {
-    if(selected==0)return HGAVideoPageStyle(controller,bar);
+    // Home video playback always has a dark canvas and white chrome, even when
+    // the app's Day theme is active. Light optical Regular glass washes out white.
+    if(selected==0)return UIUserInterfaceStyleDark;
     id appearance=HGReadObjectGetter(bar,"appearanceStyle");
     UIUserInterfaceStyle style=HGADockColorStyle(HGReadObjectGetter(appearance,"selectedImageColor"),bar.traitCollection,YES);
     if(style==UIUserInterfaceStyleUnspecified)
@@ -313,9 +315,10 @@ static UIUserInterfaceStyle HGADockPageStyle(UIViewController *controller,UIView
         UIStatusBarStyle status=page.preferredStatusBarStyle;
         if(status==UIStatusBarStyleLightContent)return UIUserInterfaceStyleDark;
         if(status==UIStatusBarStyleDarkContent)return UIUserInterfaceStyleLight;
-        return content.traitCollection.userInterfaceStyle;
+        if(content.traitCollection.userInterfaceStyle!=UIUserInterfaceStyleUnspecified)
+            return content.traitCollection.userInterfaceStyle;
     }
-    return bar.traitCollection.userInterfaceStyle;
+    return HGAAdaptivePageStyle(controller,bar);
 }
 static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat radius,UIColor *fill,BOOL interactive) {
     HGAInstallGlass(surface,style,radius,0);
@@ -990,10 +993,14 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         UIView *carrier=[self systemDockCarrier];
         if(carrier.alpha!=1)carrier.alpha=1;
         if(!carrier.userInteractionEnabled)carrier.userInteractionEnabled=YES;
-        if(carrier.overrideUserInterfaceStyle!=self.capsule.overrideUserInterfaceStyle)
+        if(carrier.overrideUserInterfaceStyle!=self.capsule.overrideUserInterfaceStyle) {
             carrier.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
-        if(self.systemTabBar!=carrier && self.systemTabBar.overrideUserInterfaceStyle!=self.capsule.overrideUserInterfaceStyle)
+            if(@available(iOS 17.0,*))[carrier updateTraitsIfNeeded];
+        }
+        if(self.systemTabBar!=carrier && self.systemTabBar.overrideUserInterfaceStyle!=self.capsule.overrideUserInterfaceStyle) {
             self.systemTabBar.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
+            if(@available(iOS 17.0,*))[self.systemTabBar updateTraitsIfNeeded];
+        }
         BOOL rebuild=[self syncSystemItems:keys content:content iconSize:size];
         [self syncSystemSelection:selected force:rebuild];
         BOOL geometryChanged=!CGRectEqualToRect(self.systemProbeFrame,requested) ||

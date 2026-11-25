@@ -98,9 +98,10 @@ static void HGAApplyPlayerBadge(UIView *badge,BOOL tag) {
     if(paint)HGASetHidden(paint,YES);
     BOOL series=[key isEqual:@"player.hide.seriesBadge"];
     NSString *material=series ? HGAppearanceString(@"player.material") : HGALiquidButtonMaterial();
-    HGAInstallButtonGlass(badge,material,badge.bounds,CGRectGetHeight(badge.bounds)/2);
     BOOL night=badge.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
     HGABoolGetter(badge,@"fqv_isDarkMode",&night);
+    HGAInstallButtonGlassWithAppearance(badge,material,badge.bounds,CGRectGetHeight(badge.bounds)/2,
+        night ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight);
     UIColor *ink=night ? UIColor.whiteColor : UIColor.blackColor;
     NSString *symbol=[key isEqual:@"player.hide.followRank"] ? @"trophy.fill" : @"play.rectangle.fill";
     state.leading=HGAUpdateBadgeGlyph(state.leading,HGAViewGetter(badge,tag?"leftIcon":"iconView",badge),symbol,ink);

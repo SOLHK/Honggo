@@ -50,8 +50,13 @@
 @implementation SSShortVideoRightInteractionCollectView
 - (void)refreshUIWithModel:(id)model animated:(BOOL)animated { self.playedStockStar=animated; }
 @end
-@interface SSShortVideoRightInteractionCommentView : HGAActionFixture @end
-@implementation SSShortVideoRightInteractionCommentView @end
+@interface SSShortVideoRightInteractionCommentView : HGAActionFixture
+@property(nonatomic,weak) id delegate;
+- (void)refreshUIWithModel:(id)model;
+@end
+@implementation SSShortVideoRightInteractionCommentView
+- (void)refreshUIWithModel:(id)model { self.countLabel.text=@"抢首评"; }
+@end
 @interface SSShortVideoRightInteractionShareView : HGAActionFixture @end
 @implementation SSShortVideoRightInteractionShareView @end
 @interface SSVideoSeriesFeedHeaderView : UIView
@@ -70,6 +75,12 @@
 @end
 @implementation SSShortVideoBottomDistributionView
 - (void)renderWithModel:(NSDictionary *)model {
+    NSNumber *entryWidth=model[@"entryWidth"];
+    if(entryWidth) {
+        CGRect frame=self.frame;
+        frame.size.width=entryWidth.doubleValue;
+        self.frame=frame;
+    }
     self.defaultContentView.backgroundColor=model[@"background"];
     UIView *paint=self.subBackgroundView ?: self.defaultContentView.subviews.firstObject;
     paint.backgroundColor=model[@"shade"];
@@ -121,23 +132,30 @@
 @implementation HGTestCommentOpenParam @end
 @interface HGTestRailCommentModel : NSObject
 @property(nonatomic,strong) HGTestCommentOpenParam *videoData;
+@property(nonatomic,strong) HGTestCommentOpenParam *episodeVideoData;
 @end
 @implementation HGTestRailCommentModel @end
 @interface SSShortVideoRightInteractionCommentViewManager : NSObject
 @property(nonatomic,strong) HGTestRailCommentModel *model;
 @property(nonatomic,strong) NSNumber *countModel;
+@property(nonatomic,weak) SSShortVideoRightInteractionCommentView *commentView;
 @property(nonatomic) BOOL supportComment;
 @property(nonatomic) NSInteger displayedCount;
 - (void)updateModelWithVideoDataModel:(HGTestRailCommentModel *)model;
 - (void)refreshUIWithCommentCount:(NSInteger)count;
 - (void)updateCommentData;
 - (void)updateCommentDataByCommonRequest;
+- (void)commentViewDidClick:(id)view;
 @end
 @implementation SSShortVideoRightInteractionCommentViewManager
 - (void)updateModelWithVideoDataModel:(HGTestRailCommentModel *)model { self.model=model; }
-- (void)refreshUIWithCommentCount:(NSInteger)count { self.displayedCount=count; }
-- (void)updateCommentData { self.displayedCount=self.countModel ? self.countModel.integerValue : -1; }
-- (void)updateCommentDataByCommonRequest { self.displayedCount=self.countModel ? self.countModel.integerValue : -1; }
+- (void)refreshUIWithCommentCount:(NSInteger)count {
+    self.displayedCount=count;
+    if(self.commentView)self.commentView.countLabel.text=count>0 ? [@(count) stringValue] : @"抢首评";
+}
+- (void)updateCommentData { [self refreshUIWithCommentCount:self.countModel ? self.countModel.integerValue : 0]; }
+- (void)updateCommentDataByCommonRequest { [self refreshUIWithCommentCount:self.countModel ? self.countModel.integerValue : 0]; }
+- (void)commentViewDidClick:(id)view {}
 @end
 @interface HGTestCommentTab : NSObject
 @property(nonatomic) NSUInteger type;
@@ -556,15 +574,25 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     [commentManager updateModelWithVideoDataModel:railModel];BOOL primed=commentManager.displayedCount==74;
     [commentManager updateCommentData];primed &= commentManager.displayedCount==74;
     [commentManager updateCommentDataByCommonRequest];primed &= commentManager.displayedCount==74;
-    Check(primed,@"the right comment button displays this episode's known count at binding and during both native request paths");
+    [commentManager refreshUIWithCommentCount:0];primed &= commentManager.displayedCount==74;
+    Check(primed,@"the right comment button displays this episode's known count at binding and resists placeholder zero resets before countModel arrives");
     commentManager.countModel=@0;[commentManager updateCommentData];
     Check(commentManager.displayedCount==0,@"a real response of zero supersedes a positive feed count");
     commentManager.countModel=nil;railModel.videoData.commentCount=0;[commentManager updateCommentData];
-    Check(commentManager.displayedCount==-1,@"a missing feed count preserves the native pending state");
-    railModel.videoData.commentCount=33;commentManager.supportComment=NO;[commentManager updateCommentDataByCommonRequest];
-    Check(commentManager.displayedCount==-1,@"unavailable comments are not populated");
+    Check(commentManager.displayedCount==0,@"a missing feed count preserves the native pending state");
+    railModel.videoData=nil;railModel.episodeVideoData=[HGTestCommentOpenParam new];
+    railModel.episodeVideoData.commentCount=19;[commentManager updateModelWithVideoDataModel:railModel];
+    Check(commentManager.displayedCount==19,@"outer episode models without videoData still prime their known comment count");
+    railModel.videoData=railModel.episodeVideoData;railModel.episodeVideoData=nil;
+    commentManager.displayedCount=-1;railModel.videoData.commentCount=33;commentManager.supportComment=NO;[commentManager updateCommentDataByCommonRequest];
+    Check(commentManager.displayedCount<=0,@"unavailable comments are not populated");
     SSShortVideoRightInteractionCommentView *commentAction=[[SSShortVideoRightInteractionCommentView alloc] initWithFrame:CGRectMake(45,210,46,62)];
     [root addSubview:commentAction];
+    commentManager.supportComment=YES;commentManager.commentView=commentAction;commentAction.delegate=commentManager;
+    railModel.videoData.commentCount=101;[commentManager updateModelWithVideoDataModel:railModel];
+    [commentAction refreshUIWithModel:railModel];
+    Check([commentAction.countLabel.text isEqual:@"101"],@"a view-level refresh while countModel is pending cannot flash 抢首评 over a primed episode count");
+    commentAction.delegate=nil;commentManager.commentView=nil;
     commentAction.countLabel.text=@"74";
     BOOL countVisible=YES;
     for (NSString *style in @[@"stock",@"flat",@"glass"]) {

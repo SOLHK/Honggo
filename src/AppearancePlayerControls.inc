@@ -115,7 +115,7 @@ static void HGAPlayerControlGlass(UIView *target,BOOL sheet,BOOL episodeEntry) {
            [target.superview isKindOfClass:objc_lookUpClass("SSShortVideoEpisodePanelCollectView")]) {
             NSString *style=([panelStyle isEqual:@"regular"] || [panelStyle isEqual:@"clear"]) ?
                 HGALiquidButtonMaterial() : panelStyle;
-            HGAInstallButtonGlass(target,style,frame,radius);
+            HGAInstallAdaptiveButtonGlass(target,style,frame,radius);
         } else HGAInstallGlass(target,panelStyle,radius,0.04);
     } else HGAInstallButtonGlass(target,HGAppearanceString(@"player.material"),frame,radius);
     if(episodeEntry && target.layer.backgroundColor && CGColorGetAlpha(target.layer.backgroundColor)>0)
@@ -199,12 +199,24 @@ static HGAPlayerChromeState *HGAPlayerChromeTargets(id owner,NSArray<UIView *> *
     return state;
 }
 
-// 7.4.5.33 exposes the portrait player's playBtn as a UIButton. Its
-// state images and visibility are changed by the player itself.
+static UIView *HGALazyControlSubview(UIView *owner,const char *ivarName,const char *getterName) {
+    if(!owner)return nil;
+    Ivar ivar=ivarName ? class_getInstanceVariable(object_getClass(owner),ivarName) : NULL;
+    const char *type=ivar ? ivar_getTypeEncoding(ivar) : NULL;
+    if(type && type[0]=='@') {
+        id value=object_getIvar(owner,ivar);
+        return [value isKindOfClass:UIView.class] && (value==owner || [value isDescendantOfView:owner]) ? value : nil;
+    }
+    return getterName ? HGAViewGetter(owner,getterName,owner) : nil;
+}
+
+// 7.4.5.33 exposes the portrait player's playBtn as a lazy UIButton getter that
+// constructs and mounts the center button on first read. Read its ivar directly
+// so cold-launch network buffering never flashes a premature center pause icon.
 static char HGAPlaybackButtonKey;
 static void HGAApplyPlaybackButton(UIView *root) {
     BOOL styled=root.window && HGAppearanceEnabled() && HGAppearanceFlag(@"player.rightGlass");
-    UIButton *button=styled ? (id)HGAViewGetter(root,"playBtn",root) : nil;
+    UIButton *button=styled ? (id)HGALazyControlSubview(root,"_playBtn","playBtn") : nil;
     if(![button isKindOfClass:UIButton.class] || !button.currentImage)button=nil;
     UIButton *previous=objc_getAssociatedObject(root,&HGAPlaybackButtonKey);
     if(previous!=button) {
@@ -308,7 +320,9 @@ static void HGAApplyPlayerControls(UIView *root) {
     UIView *episodeEntry=nil;
     for(Class cls=object_getClass(root);cls && cls!=UIView.class;cls=class_getSuperclass(cls)) {
         for(NSString *getter in HGAPlayerControlGetters()[NSStringFromClass(cls)]) {
-            UIView *target=HGAViewGetter(root,getter.UTF8String,root);
+            UIView *target=[getter isEqual:@"fullscreenBtn"] ?
+                HGALazyControlSubview(root,"_fullscreenBtn","fullscreenBtn") :
+                HGAViewGetter(root,getter.UTF8String,root);
             if(!target)continue;
             if([getter isEqual:@"episodeInfoView"]) {
                 if([target isKindOfClass:NSClassFromString(@"FQVShortVideoVPlayerEpisodeInfoView")]) {

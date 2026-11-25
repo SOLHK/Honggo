@@ -33,8 +33,8 @@ static CALayer *HGACreateGaussianBackdrop(void) {
     return backdrop;
 }
 
-static UIUserInterfaceStyle HGAVideoPageStyle(UIViewController *controller,UIView *bar) {
-    // Playback's white controls and black video backing stay the same in both app themes.
+static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UIView *bar) {
+    // Catalogue, profile and modal sheets follow the host's Day/Night theme.
     static id themeManager;
     if(!themeManager) {
         Protocol *adapter=objc_getProtocol("SSAdaptiveUIColorProtocol");
@@ -260,21 +260,33 @@ static void HGAInstallFlatPlaybackButton(UIView *view,CGRect frame) {
     // The solid glyph keeps its contrast as the video beneath it changes.
     HGASetGlassOverlay(view,[UIColor colorWithWhite:0.16 alpha:UIAccessibilityIsReduceTransparencyEnabled() ? 1 : 0.74]);
 }
-static void HGAConfigureButtonGlass(HGAAppearanceMaterial *glass,UIView *view,NSString *style) {
+static void HGAConfigureButtonGlassWithAppearance(HGAAppearanceMaterial *glass,NSString *style,UIUserInterfaceStyle appearance) {
     BOOL liquid=[style isEqual:@"clear"] || [style isEqual:@"regular"];
     glass.untintedGlass=liquid;
     if(!liquid) glass.clipsToBounds=YES;
     glass.interactiveGlass=liquid;
-    UIUserInterfaceStyle appearance=HGAVideoPageStyle(nil,view);
-    if(glass.overrideUserInterfaceStyle!=appearance)glass.overrideUserInterfaceStyle=appearance;
+    if(glass.overrideUserInterfaceStyle!=appearance) {
+        glass.overrideUserInterfaceStyle=appearance;
+        if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];
+    }
     glass.overlayColor=(UIAccessibilityIsReduceTransparencyEnabled() || [style isEqual:@"solid"]) ?
         UIColor.secondarySystemBackgroundColor : UIColor.clearColor;
     [glass requestMaterialRefresh];
 }
-static void HGAInstallButtonGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius) {
+static void HGAConfigureButtonGlass(HGAAppearanceMaterial *glass,UIView *view,NSString *style) {
+    (void)view;
+    HGAConfigureButtonGlassWithAppearance(glass,style,UIUserInterfaceStyleDark);
+}
+static void HGAInstallButtonGlassWithAppearance(UIView *view,NSString *style,CGRect frame,CGFloat radius,UIUserInterfaceStyle appearance) {
     HGAInstallGlassInRect(view,style,frame,radius,0);
     HGAAppearanceMaterial *glass=HGAState(view,NO).glass;
-    if(glass)HGAConfigureButtonGlass(glass,view,style);
+    if(glass)HGAConfigureButtonGlassWithAppearance(glass,style,appearance);
+}
+static void HGAInstallButtonGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius) {
+    HGAInstallButtonGlassWithAppearance(view,style,frame,radius,UIUserInterfaceStyleDark);
+}
+static void HGAInstallAdaptiveButtonGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius) {
+    HGAInstallButtonGlassWithAppearance(view,style,frame,radius,HGAAdaptivePageStyle(nil,view));
 }
 static NSDictionary<NSString *,NSString *> *HGAViewRoles(void) {
     static NSDictionary *roles;static dispatch_once_t once;
@@ -577,6 +589,7 @@ static void HGAUpdateFictionNotice(UIView *canvas) {
     if(matched || previous)objc_setAssociatedObject(canvas,&hiddenLabelsKey,matched,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+static void HGAPrimeRightCommentCount(id manager);
 void HGAppearanceProcessView(UIView *view) {
     if(!NSThread.isMainThread || HGAApplying || ![view isKindOfClass:UIView.class] ||
        HGAOwnView(view) || HGFeedSidebarOwnsLayout(view.window))return;
@@ -676,6 +689,12 @@ void HGAppearanceProcessView(UIView *view) {
         }
         else HGARemoveGlass(view);
         HGAApplyTypography(view);
+        if(episode && outer)HGAApplyEpisodeLabels(view,episodeFrame,glass && !view.hidden);
+        if([role isEqual:@"comment"]) {
+            id delegate=HGReadObjectGetter(view,"delegate");
+            if([delegate isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionCommentViewManager")])
+                HGAPrimeRightCommentCount(delegate);
+        }
     }@finally {
         @try {
             HGAUpdateBottomLayoutForView(view);
@@ -707,16 +726,44 @@ void HGAppearanceProcessController(UIViewController *controller) {
 // The feed already supplies this episode's count before the separate comment
 // request completes. Both native request strategies can display a placeholder
 // in the meantime. Use the owner's formatter without changing its request/model.
-static void HGAPrimeRightCommentCount(id manager) {
-    if(HGReadObjectGetter(manager,"countModel"))return;
-    id data=HGReadObjectGetter(HGReadObjectGetter(manager,"model"),"videoData");
-    SEL getter=sel_registerName("commentCount"),paint=sel_registerName("refreshUIWithCommentCount:");
-    Method countMethod=class_getInstanceMethod(object_getClass(data),getter);
-    Method paintMethod=class_getInstanceMethod(object_getClass(manager),paint);
-    if(!countMethod || strcmp(method_getTypeEncoding(countMethod),"q16@0:8") ||
-       !paintMethod || strcmp(method_getTypeEncoding(paintMethod),"v24@0:8q16"))return;
-    NSInteger count=((NSInteger(*)(id,SEL))objc_msgSend)(data,getter);
+static BOOL HGAReadCommentCountValue(id object,NSInteger *outCount) {
+    if(!object)return NO;
+    const char *selectors[]={"commentCount","episodeCommentCount","totalCommentCount"};
+    for(NSUInteger i=0;i<sizeof(selectors)/sizeof(selectors[0]);i++) {
+        SEL getter=sel_registerName(selectors[i]);
+        Method method=class_getInstanceMethod(object_getClass(object),getter);
+        const char *enc=method ? method_getTypeEncoding(method) : NULL;
+        if(!enc)continue;
+        if(!strcmp(enc,"q16@0:8") || !strcmp(enc,"Q16@0:8")) {
+            *outCount=((NSInteger(*)(id,SEL))objc_msgSend)(object,getter);
+            return YES;
+        }
+        if(!strcmp(enc,"i16@0:8") || !strcmp(enc,"I16@0:8")) {
+            *outCount=(NSInteger)((int(*)(id,SEL))objc_msgSend)(object,getter);
+            return YES;
+        }
+    }
+    return NO;
+}
+static NSInteger HGAPrimedCommentCount(id manager) {
+    if(!manager || HGReadObjectGetter(manager,"countModel"))return 0;
     BOOL supported=NO;
-    if(count>0 && HGABoolGetter(manager,@"supportComment",&supported) && supported)
+    if(!HGABoolGetter(manager,@"supportComment",&supported) || !supported)return 0;
+    id model=HGReadObjectGetter(manager,"model") ?: HGReadObjectGetter(manager,"videoDataModel");
+    const char *paths[]={"videoData","episodeVideoData","seriesVideoData","shortVideoModel","videoInfo"};
+    for(NSUInteger i=0;i<sizeof(paths)/sizeof(paths[0]);i++) {
+        NSInteger count=0;
+        if(HGAReadCommentCountValue(HGReadObjectGetter(model,paths[i]),&count) && count>0)return count;
+    }
+    NSInteger direct=0;
+    if(HGAReadCommentCountValue(model,&direct) && direct>0)return direct;
+    return 0;
+}
+static void HGAPrimeRightCommentCount(id manager) {
+    NSInteger count=HGAPrimedCommentCount(manager);
+    if(count<=0)return;
+    SEL paint=sel_registerName("refreshUIWithCommentCount:");
+    Method paintMethod=class_getInstanceMethod(object_getClass(manager),paint);
+    if(paintMethod && !strcmp(method_getTypeEncoding(paintMethod),"v24@0:8q16"))
         ((void(*)(id,SEL,NSInteger))objc_msgSend)(manager,paint,count);
 }

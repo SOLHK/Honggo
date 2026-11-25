@@ -78,7 +78,7 @@ static UIView *HGAHistoryFilter(UIView *toolbar) {
 static void HGAApplyPageChromeMaterial(UIView *target,CGRect frame,NSString *style) {
     if(HGAVisible(target) && !CGRectIsEmpty(frame)) {
         CGFloat radius=MIN(CGRectGetHeight(frame)/2,24);
-        HGAInstallButtonGlass(target,style,frame,radius);
+        HGAInstallAdaptiveButtonGlass(target,style,frame,radius);
     } else if(target)HGARemoveGlass(target);
 }
 
@@ -147,7 +147,7 @@ static void HGAApplyFinderMaterial(UIView *target,CGRect frame,BOOL shortcut) {
         return;
     }
     CGFloat radius=CGRectGetHeight(frame)/2;
-    HGAInstallButtonGlass(target,HGALiquidButtonMaterial(),frame,shortcut ? MIN(radius,24) : radius);
+    HGAInstallAdaptiveButtonGlass(target,HGALiquidButtonMaterial(),frame,shortcut ? MIN(radius,24) : radius);
 }
 
 static CGRect HGAFinderSearchSurface(UIView *target,CGRect frame) {

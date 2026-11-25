@@ -90,6 +90,51 @@ static void RunEpisodeGlassChecks(UIView *root) {
         [wideContent.backgroundColor isEqual:UIColor.clearColor] && [wideBacking.backgroundColor isEqual:UIColor.clearColor] &&
         [wideEntry hitTest:trailing.center withEvent:nil]==trailing,
         @"new-model native repaint removes the separate full-width backing and keeps the arrow hit target inside the glass");
+    // Reproduce cell reuse for a medium-width collection entry (< 0.88 * screenWidth)
+    // with a second inner pill layer and clipping rich text + episode suffix label.
+    HGAppearanceSet(@"player.episodeDockWidth",@YES,nil);
+    UIView *innerPlate=[[UIView alloc] initWithFrame:CGRectMake(0,4,297,36)];
+    innerPlate.userInteractionEnabled=NO;
+    innerPlate.layer.backgroundColor=[UIColor colorWithWhite:0 alpha:0.45].CGColor;
+    [wideContent insertSubview:innerPlate aboveSubview:wideBacking];
+    UIImageView *leadIcon=[[UIImageView alloc] initWithFrame:CGRectMake(14,15,14,14)];
+    leadIcon.image=[UIImage systemImageNamed:@"square.stack.3d.up.fill"];
+    [wideContent addSubview:leadIcon];
+    NSMutableParagraphStyle *clipStyle=[NSMutableParagraphStyle new];
+    clipStyle.lineBreakMode=NSLineBreakByClipping;
+    UILabel *albumTitle=[[UILabel alloc] initWithFrame:CGRectMake(34,12,240,20)];
+    albumTitle.numberOfLines=1;
+    albumTitle.attributedText=[[NSAttributedString alloc] initWithString:@"合集 · 《盘点搞笑小品系列》"
+        attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:14 weight:UIFontWeightMedium],
+                     NSParagraphStyleAttributeName:clipStyle}];
+    UILabel *albumCount=[[UILabel alloc] initWithFrame:CGRectMake(276,12,80,20)];
+    albumCount.numberOfLines=1;
+    albumCount.font=[UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    albumCount.text=@"· 全244集";
+    [wideContent addSubview:albumTitle];[wideContent addSubview:albumCount];
+    [trailing removeFromSuperview];
+    [wideEntry renderWithModel:@{@"entryWidth":@356,@"background":UIColor.darkGrayColor,@"shade":UIColor.brownColor}];
+    Layout(wideEntry);
+    CGRect reusedGlass=[wideEntry convertRect:wideGlass.frame toView:root.window];
+    CGRect currentDock=[capsule convertRect:capsule.bounds toView:root.window];
+    CGFloat leftPad=CGRectGetMinX([leadIcon convertRect:leadIcon.bounds toView:wideGlass]);
+    CGFloat rightInk=0;
+    for(UILabel *lbl in @[albumTitle,albumCount]) {
+        if(lbl.hidden || lbl.alpha<0.01)continue;
+        CGRect tr=[lbl textRectForBounds:lbl.bounds limitedToNumberOfLines:1];
+        if(!CGRectIsEmpty(tr))rightInk=MAX(rightInk,CGRectGetMaxX([lbl convertRect:tr toView:wideGlass]));
+    }
+    CGFloat rightPad=CGRectGetWidth(wideGlass.bounds)-rightInk;
+    Check(fabs(CGRectGetMinX(reusedGlass)-CGRectGetMinX(currentDock))<0.5 &&
+        fabs(CGRectGetMaxX(reusedGlass)-CGRectGetMaxX(currentDock))<0.5 &&
+        (!innerPlate.layer.backgroundColor || CGColorGetAlpha(innerPlate.layer.backgroundColor)==0) &&
+        leftPad>=10 && rightPad>=10 && fabs(rightPad-leftPad)<=2.5,
+        @"reused collection entry stays Dock-width without double-capsule paint and keeps symmetric left and right text padding");
+    [leadIcon removeFromSuperview];[albumTitle removeFromSuperview];[albumCount removeFromSuperview];[innerPlate removeFromSuperview];
+    [wideContent addSubview:trailing];
+    wideEntry.frame=nativeWideFrame;wideContent.frame=nativeWideFrame;
+    HGAppearanceSet(@"player.episodeDockWidth",@NO,nil);
+    Layout(wideEntry);
     HGAppearanceSet(@"player.episodeGlass",@NO,nil);
     Check(CGRectEqualToRect(wideEntry.frame,nativeWideFrame) && CGRectEqualToRect(wideContent.frame,nativeWideFrame) &&
         [wideBacking.backgroundColor isEqual:UIColor.brownColor] && [wideWrapper.backgroundColor isEqual:UIColor.grayColor],

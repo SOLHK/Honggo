@@ -53,8 +53,10 @@ void HGScheduleFeedLayoutRefresh(UIScrollView *feed) {
 }
 
 static void HGARefreshBackdropAfterScroll(id scroll) {
-    if ([scroll isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class])
+    if ([scroll isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class]) {
+        HGRefreshVideoBackdropForFeed(scroll);
         HGScheduleFeedLayoutRefresh(scroll);
+    }
 }
 static CGRect HGADockRectInView(UIView *coordinateView);
 static CGRect HGAExpandedCapsuleInWindow(UIWindow *window);
@@ -200,6 +202,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         replacement=imp_implementationWithBlock(^(id component,UIView *hud,BOOL play,id model) {
             ((void(*)(id,SEL,UIView *,BOOL,id))original)(component,selector,hud,play,model);
             HGAApplyAutomaticCleanTap(component,hud,play,model);
+            if([hud isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerControlView")] && !HGAApplying)
+                HGAApplyPlaybackButton(hud);
         });
     } else if (automaticCleanStart && !strcmp(encoding,"v24@0:8q16")) {
         replacement=imp_implementationWithBlock(^(UIView *cell,NSInteger reason) {
@@ -222,6 +226,14 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             replacement=imp_implementationWithBlock(^(id manager,id model) {
                 ((void(*)(id,SEL,id))original)(manager,selector,model);
                 HGAPrimeRightCommentCount(manager);
+            });
+        } else if(selector==sel_registerName("refreshUIWithCommentCount:") && !strcmp(encoding,"v24@0:8q16")) {
+            replacement=imp_implementationWithBlock(^(id manager,NSInteger count) {
+                if(count<=0) {
+                    NSInteger primed=HGAPrimedCommentCount(manager);
+                    if(primed>0)count=primed;
+                }
+                ((void(*)(id,SEL,NSInteger))original)(manager,selector,count);
             });
         } else {
             replacement=imp_implementationWithBlock(^(id manager) {
@@ -301,9 +313,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         replacement=imp_implementationWithBlock(^(id object,id argument) {
             BOOL transfer=player && (selector==@selector(willMoveToSuperview:) || selector==@selector(willMoveToWindow:));
             BOOL episodeMove=episode && selector==@selector(willMoveToSuperview:);
+            BOOL episodeRender=episode && selector==sel_registerName("renderWithModel:");
             BOOL bottomMove=bottomParticipant && selector==@selector(willMoveToSuperview:);
             BOOL modelChange=playerCanvas && selector==sel_registerName("setModel:");
-            BOOL guarded=(transfer || episodeMove || bottomMove || modelChange) && NSThread.isMainThread;
+            BOOL guarded=(transfer || episodeMove || episodeRender || bottomMove || modelChange) && NSThread.isMainThread;
             BOOL wasApplying=HGAApplying,completed=NO;
             NSUInteger invocation=guarded && transfer && HGEnhancedDiagnostics()?++HGAPlayerTransferInvocation:0;
             HGATracePlayerTransfer(object,selector,argument,invocation,@"enter");
@@ -315,7 +328,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGVideoBackdropPrepareRendererTransfer(object);
                     HGATracePlayerTransfer(object,selector,argument,invocation,@"prepared");
                 }
-                if(guarded && episodeMove)HGAApplyEpisodeCorners(object,NO,0);
+                if(guarded && (episodeMove || episodeRender))HGAApplyEpisodeCorners(object,NO,0);
                 if(guarded && episodeWrapper && bottomMove)HGAEpisodeWrapperWillMove(object);
                 if(guarded && (episodeMove || bottomMove))HGARestoreBottomLayoutForView(object);
                 if(guarded && modelChange)HGAPlayerModelWillChange(object,argument);
@@ -507,6 +520,7 @@ void HGInstallAppearance(void) {
         Class commentRail=objc_lookUpClass("SSShortVideoRightInteractionCommentViewManager");
         if(commentRail) {
             HGAHook(commentRail,sel_registerName("updateModelWithVideoDataModel:"),"v24@0:8@16",NO);
+            HGAHook(commentRail,sel_registerName("refreshUIWithCommentCount:"),"v24@0:8q16",NO);
             HGAHook(commentRail,sel_registerName("updateCommentData"),"v16@0:8",NO);
             HGAHook(commentRail,sel_registerName("updateCommentDataByCommonRequest"),"v16@0:8",NO);
         }

@@ -317,36 +317,141 @@ static BOOL HGFeedTagsHaveKeyword(id tags, NSArray<NSString *> *keywords) {
     if (![tags isKindOfClass:NSArray.class]) return HGFeedTextHasKeyword(tags,keywords);
     for (id tag in tags) {
         if (HGFeedTextHasKeyword(tag,keywords) || HGFeedTextHasKeyword(HGReadObjectGetter(tag,"categoryName"),keywords) ||
-            HGFeedTextHasKeyword(HGReadObjectGetter(tag,"text"),keywords)) return YES;
+            HGFeedTextHasKeyword(HGReadObjectGetter(tag,"text"),keywords) ||
+            HGFeedTextHasKeyword(HGReadObjectGetter(tag,"name"),keywords) ||
+            HGFeedTextHasKeyword(HGReadObjectGetter(tag,"title"),keywords)) return YES;
     }
     return NO;
 }
 
-static BOOL HGFeedVideoHasKeyword(id video, NSArray<NSString *> *keywords) {
-    if (!video) return NO;
-    id book=HGReadObjectGetter(video,"bookData");
-    return HGFeedTextHasKeyword(HGReadObjectGetter(video,"title"),keywords) ||
-        HGFeedTextHasKeyword(HGReadObjectGetter(video,"rawBookName"),keywords) ||
-        HGFeedTextHasKeyword(HGReadObjectGetter(video,"videoDesc"),keywords) ||
-        HGFeedTextHasKeyword(HGReadObjectGetter(video,"authorNickname"),keywords) ||
-        HGFeedTagsHaveKeyword(HGReadObjectGetter(video,"categoryList"),keywords) ||
-        HGFeedTagsHaveKeyword(HGReadObjectGetter(video,"recTags"),keywords) ||
-        HGFeedTextHasKeyword(HGReadObjectGetter(HGReadObjectGetter(video,"tagInfo"),"text"),keywords) ||
-        HGFeedTextHasKeyword(HGReadObjectGetter(book,"bookName"),keywords) ||
-        HGFeedTextHasKeyword(HGReadObjectGetter(book,"bookAbstract"),keywords) ||
-        HGFeedTextHasKeyword(HGReadObjectGetter(book,"author"),keywords) ||
-        HGFeedTagsHaveKeyword(HGReadObjectGetter(book,"tags"),keywords);
+static BOOL HGFeedValueIsNonEmptyId(id value) {
+    if ([value isKindOfClass:NSString.class]) {
+        NSString *s=(NSString *)value;
+        return s.length>0 && ![s isEqualToString:@"0"];
+    }
+    if ([value isKindOfClass:NSNumber.class]) return [(NSNumber *)value longLongValue]>0;
+    return NO;
+}
+
+static BOOL HGFeedBoolGetter(id object, const char *name) {
+    if (!object) return NO;
+    SEL sel=sel_registerName(name);
+    Method m=class_getInstanceMethod(object_getClass(object),sel);
+    const char *enc=m ? method_getTypeEncoding(m) : NULL;
+    if (!enc || (strcmp(enc,"B16@0:8") && strcmp(enc,"c16@0:8"))) return NO;
+    return ((BOOL(*)(id,SEL))objc_msgSend)(object,sel);
+}
+
+static BOOL HGFeedIvarContainsAny(const char *ivarName, const char *const *tokens, NSUInteger count) {
+    if (!ivarName || !ivarName[0]) return NO;
+    NSString *lower=[@(ivarName) lowercaseString];
+    for (NSUInteger i=0;i<count;i++)
+        if ([lower containsString:@(tokens[i])]) return YES;
+    return NO;
+}
+
+static BOOL HGFeedIsModelObject(id value) {
+    return value && value!=NSNull.null && ![value isKindOfClass:NSString.class] &&
+        ![value isKindOfClass:NSNumber.class] && ![value isKindOfClass:NSValue.class] &&
+        ![value isKindOfClass:NSData.class] && ![value isKindOfClass:NSDate.class] &&
+        ![value isKindOfClass:NSArray.class] && ![value isKindOfClass:NSDictionary.class] &&
+        ![value isKindOfClass:NSSet.class] && ![value isKindOfClass:UIResponder.class];
+}
+
+static BOOL HGFeedCellMatchesKeywords(id root, NSArray<NSString *> *keywords, BOOL matchesAlbumBadge) {
+    if (!HGFeedIsModelObject(root)) return NO;
+    static const char *const textGetters[]={"title","subTitle","rawBookName","videoDesc","desc","authorNickname",
+        "nickname","bookName","bookAbstract","author","albumName","albumTitle","mixName","seriesName","name",
+        "text","content","reasonText","contentText","prefixText","leftText","tagText"};
+    static const char *const tagGetters[]={"categoryList","recTags","tags","tagList","labelList"};
+    static const char *const albumObjects[]={"albumInfo","albumData","albumModel","albumSeriesInfo","mixInfo",
+        "mixStruct","ugcAlbumInfo","pugcAlbumInfo"};
+    static const char *const albumIds[]={"albumId","albumName","albumTitle","mixId","mixName"};
+    static const char *const albumFlags[]={"isAlbum","isAlbumSeries","isAlbumVideo","isMix","isMixVideo","isPugcAlbum"};
+    static const char *const childGetters[]={"filterableSeriesVideoData","filterableEpisodeVideoData",
+        "derivateVideoData","filterableDerivateVideoData","pugcVideoData","albumVideoData","videoData",
+        "episodeVideoData","seriesVideoData","shortVideoModel","videoDataModel","bookData","seriesInfo",
+        "albumInfo","albumData","albumModel","albumSeriesInfo","mixInfo","mixStruct","ugcAlbumInfo",
+        "pugcAlbumInfo","distributionInfo","bottomDistributionInfo","bottomBarInfo","tagInfo"};
+    static const char *const textIvarTokens[]={"title","name","desc","abstract","author","nick","text","reason","label","prefix"};
+    static const char *const tagIvarTokens[]={"tag","category","label"};
+    static const char *const albumIvarTokens[]={"album","mix"};
+    static const char *const childIvarTokens[]={"video","episode","series","derivate","derivative","pugc","ugc","book","album","mix","distribution","bottom","tag"};
+
+    NSMutableArray *queue=[NSMutableArray arrayWithObject:@[root,@0]];
+    NSMutableSet *visited=[NSMutableSet setWithObject:[NSValue valueWithNonretainedObject:root]];
+    for (NSUInteger q=0;q<queue.count && q<24;q++) {
+        NSArray *entry=queue[q];
+        id obj=entry[0];
+        NSUInteger depth=[entry[1] unsignedIntegerValue];
+        if (matchesAlbumBadge) {
+            NSString *clsName=[NSStringFromClass(object_getClass(obj)) lowercaseString];
+            if ([clsName containsString:@"album"] || [clsName containsString:@"mix"]) return YES;
+            for (NSUInteger i=0;i<sizeof(albumFlags)/sizeof(albumFlags[0]);i++)
+                if (HGFeedBoolGetter(obj,albumFlags[i])) return YES;
+            for (NSUInteger i=0;i<sizeof(albumIds)/sizeof(albumIds[0]);i++)
+                if (HGFeedValueIsNonEmptyId(HGReadObjectGetter(obj,albumIds[i]))) return YES;
+            for (NSUInteger i=0;i<sizeof(albumObjects)/sizeof(albumObjects[0]);i++)
+                if (HGFeedIsModelObject(HGReadObjectGetter(obj,albumObjects[i]))) return YES;
+        }
+        for (NSUInteger i=0;i<sizeof(textGetters)/sizeof(textGetters[0]);i++)
+            if (HGFeedTextHasKeyword(HGReadObjectGetter(obj,textGetters[i]),keywords)) return YES;
+        for (NSUInteger i=0;i<sizeof(tagGetters)/sizeof(tagGetters[0]);i++)
+            if (HGFeedTagsHaveKeyword(HGReadObjectGetter(obj,tagGetters[i]),keywords)) return YES;
+
+        void (^enqueue)(id)=^(id child) {
+            if (depth>=3 || visited.count>=24 || !HGFeedIsModelObject(child)) return;
+            NSValue *key=[NSValue valueWithNonretainedObject:child];
+            if ([visited containsObject:key]) return;
+            [visited addObject:key];
+            [queue addObject:@[child,@(depth+1)]];
+        };
+        for (NSUInteger i=0;i<sizeof(childGetters)/sizeof(childGetters[0]);i++)
+            enqueue(HGReadObjectGetter(obj,childGetters[i]));
+
+        for (Class cls=object_getClass(obj);cls && cls!=NSObject.class;cls=class_getSuperclass(cls)) {
+            unsigned int ivarCount=0;
+            Ivar *ivars=class_copyIvarList(cls,&ivarCount);
+            if (!ivars) continue;
+            BOOL matched=NO;
+            for (unsigned int i=0;i<ivarCount && i<96;i++) {
+                const char *enc=ivar_getTypeEncoding(ivars[i]);
+                if (!enc || enc[0]!='@') continue;
+                const char *name=ivar_getName(ivars[i]);
+                id val=object_getIvar(obj,ivars[i]);
+                if (!val || val==NSNull.null) continue;
+                if (matchesAlbumBadge && HGFeedIvarContainsAny(name,albumIvarTokens,2) &&
+                    (HGFeedValueIsNonEmptyId(val) || HGFeedIsModelObject(val) ||
+                     ([val isKindOfClass:NSDictionary.class] && [(NSDictionary *)val count]>0))) {
+                    matched=YES;break;
+                }
+                if ([val isKindOfClass:NSString.class] &&
+                    HGFeedIvarContainsAny(name,textIvarTokens,sizeof(textIvarTokens)/sizeof(textIvarTokens[0])) &&
+                    HGFeedTextHasKeyword(val,keywords)) {
+                    matched=YES;break;
+                }
+                if ([val isKindOfClass:NSArray.class] &&
+                    HGFeedIvarContainsAny(name,tagIvarTokens,sizeof(tagIvarTokens)/sizeof(tagIvarTokens[0])) &&
+                    HGFeedTagsHaveKeyword(val,keywords)) {
+                    matched=YES;break;
+                }
+                if (HGFeedIsModelObject(val) &&
+                    HGFeedIvarContainsAny(name,childIvarTokens,sizeof(childIvarTokens)/sizeof(childIvarTokens[0])))
+                    enqueue(val);
+            }
+            free(ivars);
+            if (matched) return YES;
+        }
+    }
+    return NO;
 }
 
 static NSArray *HGFilterKeywordFeedPage(NSArray *cells, NSArray<NSString *> *keywords) {
     if (!keywords.count || ![cells isKindOfClass:NSArray.class]) return cells;
+    BOOL matchesAlbumBadge=HGFeedTextHasKeyword(@"合集",keywords);
     NSMutableIndexSet *hidden=nil;
     for (NSUInteger i=0;i<cells.count;i++) {
-        id cell=cells[i];
-        id series=HGReadObjectGetter(cell,"filterableSeriesVideoData");
-        id episode=HGReadObjectGetter(cell,"filterableEpisodeVideoData");
-        if (!HGFeedVideoHasKeyword(series,keywords) &&
-            (series==episode || !HGFeedVideoHasKeyword(episode,keywords))) continue;
+        if (!HGFeedCellMatchesKeywords(cells[i],keywords,matchesAlbumBadge)) continue;
         if (!hidden) hidden=[NSMutableIndexSet indexSet];
         [hidden addIndex:i];
     }
@@ -363,13 +468,13 @@ static HGForwardingAdHook HGKeywordFeedHook;
 - (id)currentVideoFeedListDataSource;
 - (void)commonRefreshPageWithReloadPage:(BOOL)reload clientReqType:(int)type withCallBack:(void (^)(void))callback;
 @end
-static __weak UIViewController<HGKeywordFeedPage> *HGActiveKeywordFeedPage;
+static NSHashTable<UIViewController<HGKeywordFeedPage> *> *HGKeywordFeedPages;
 static NSUInteger HGKeywordRevision;
-static char HGKeywordPageRevisionKey;
+static char HGKeywordPageRevisionKey, HGKeywordPageVisibleKey;
 static HGForwardingAdHook HGKeywordAppearHook, HGKeywordDisappearHook, HGKeywordFinishHook;
 
 static void HGRefreshKeywordFeedIfNeeded(UIViewController<HGKeywordFeedPage> *page) {
-    if (!page.viewIfLoaded.window || page!=HGActiveKeywordFeedPage ||
+    if (!page.viewIfLoaded.window || ![objc_getAssociatedObject(page,&HGKeywordPageVisibleKey) boolValue] ||
         [objc_getAssociatedObject(page,&HGKeywordPageRevisionKey) unsignedIntegerValue]==HGKeywordRevision ||
         [page videoFeedRefreshing]) return;
     id source=[page currentVideoFeedListDataSource];
@@ -381,11 +486,13 @@ static void HGRefreshKeywordFeedIfNeeded(UIViewController<HGKeywordFeedPage> *pa
 }
 static void HGKeywordPageAppeared(UIViewController<HGKeywordFeedPage> *page, SEL cmd) {
     ((void(*)(id,SEL))atomic_load(&HGKeywordAppearHook.original))(page,cmd);
-    HGActiveKeywordFeedPage=page;
+    if (!HGKeywordFeedPages) HGKeywordFeedPages=[NSHashTable weakObjectsHashTable];
+    [HGKeywordFeedPages addObject:page];
+    objc_setAssociatedObject(page,&HGKeywordPageVisibleKey,@YES,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     HGRefreshKeywordFeedIfNeeded(page);
 }
 static void HGKeywordPageDisappearing(id page, SEL cmd, NSUInteger reason) {
-    if (HGActiveKeywordFeedPage==page) HGActiveKeywordFeedPage=nil;
+    objc_setAssociatedObject(page,&HGKeywordPageVisibleKey,@NO,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     ((void(*)(id,SEL,NSUInteger))atomic_load(&HGKeywordDisappearHook.original))(page,cmd,reason);
 }
 static void HGKeywordPageFinished(UIViewController<HGKeywordFeedPage> *page, SEL cmd, id context) {
@@ -467,7 +574,8 @@ static void HGInstallKeywordFeedFilter(void) {
         [NSNotificationCenter.defaultCenter addObserverForName:HGVideoBlockedKeywordsDidChangeNotification
             object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
             HGKeywordRevision++;
-            HGRefreshKeywordFeedIfNeeded(HGActiveKeywordFeedPage);
+            for (UIViewController<HGKeywordFeedPage> *page in HGKeywordFeedPages.allObjects)
+                HGRefreshKeywordFeedIfNeeded(page);
         }];
     });
 }
