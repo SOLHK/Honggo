@@ -302,6 +302,11 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
                     visitedRoles++;
                     if ([role isEqual:@"collect"]) {
                         UITableViewController *editor=(id)navigation.topViewController;
+                        [editor loadViewIfNeeded];
+                        [window layoutIfNeeded];
+                        NSDate *ready=[NSDate dateWithTimeIntervalSinceNow:1.5];
+                        while ((!editor.view.window || editor.transitionCoordinator.isAnimated) && ready.timeIntervalSinceNow>0)
+                            [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
                         NSIndexPath *scalePath=HGMenuPath(editor,@"layout.collect.scale");
                         UITableViewCell *cell=scalePath ? [editor tableView:editor.tableView cellForRowAtIndexPath:scalePath] : nil;
                         UISlider *slider=(id)Find(cell,@"layout.collect.scale");
@@ -316,14 +321,25 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
                         stepper.value++;
                         [stepper sendActionsForControlEvents:UIControlEventValueChanged];
                         Check(slider.value==42 && [slider.accessibilityValue isEqual:@"42%"],@"one step advances from 41% to 42%");
+                        double chosen=HGAppearanceNumber(@"layout.collect.scale");
                         NSIndexPath *copy=HGMenuPath(editor,@"@role.copyRightSize");
                         if (copy) [editor tableView:editor.tableView didSelectRowAtIndexPath:copy];
-                        double chosen=HGAppearanceNumber(@"layout.collect.scale");
-                        BOOL shared=copy && chosen!=1;
-                        for (NSString *r in @[@"avatar",@"comment",@"like",@"share",@"more"])
-                            shared &= HGAppearanceNumber([NSString stringWithFormat:@"layout.%@.scale",r])==chosen;
+                        NSDate *applied=[NSDate dateWithTimeIntervalSinceNow:1.5];
+                        while ((!editor.presentedViewController || editor.presentedViewController.isBeingPresented) && applied.timeIntervalSinceNow>0)
+                            [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+                        NSDictionary *stored=[NSUserDefaults.standardUserDefaults dictionaryForKey:@"Honggo.Appearance.v1"];
+                        BOOL shared=editor.view.window==window && copy && fabs(chosen-(0.65+41.0/49*0.35))<1e-6;
+                        for (NSString *r in @[@"avatar",@"collect",@"comment",@"like",@"share",@"more"]) {
+                            NSString *key=[NSString stringWithFormat:@"layout.%@.scale",r];
+                            shared &= [stored[key] isEqual:@(chosen)];
+                        }
+                        if (!shared) NSLog(@"SIZE_COPY mounted=%d row=%@ source=%f stored=%@ sheet=%@",
+                            editor.view.window==window,copy,chosen,[stored dictionaryWithValuesForKeys:@[@"layout.avatar.scale",
+                                @"layout.collect.scale",@"layout.comment.scale",@"layout.like.scale",@"layout.share.scale",@"layout.more.scale"]],
+                            editor.presentedViewController.title);
                         Check(shared,@"applying a single size updates every right-hand control");
                         [editor dismissViewControllerAnimated:NO completion:nil];
+                        [window layoutIfNeeded];
                     }
                     [navigation popViewControllerAnimated:NO];
                     [window layoutIfNeeded];
