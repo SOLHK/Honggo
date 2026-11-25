@@ -1145,8 +1145,13 @@ static void HGAStyleHeaderBackdrop(HGAAppearanceMaterial *glass,NSString *style)
     [glass requestMaterialRefresh];
 }
 
-static HGAAppearanceMaterial *HGAMakeHeaderCircleGlass(NSString *identifier) {
-    HGAAppearanceMaterial *glass=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
+static HGAAppearanceMaterial *HGAMakeHeaderCircleGlass(NSString *identifier,UIView *hitTarget) {
+    HGAAppearanceMaterial *glass;
+    Method gesture=hitTarget ? class_getInstanceMethod(HGAAppearanceMaterial.class,sel_registerName("_flexInteractionGestureView")) : NULL;
+    if(gesture && !strcmp(method_getTypeEncoding(gesture),"@16@0:8")) {
+        HGAHeaderTouchGlass *interactive=[[HGAHeaderTouchGlass alloc] initWithEffect:nil];
+        interactive.channelControl=hitTarget;glass=interactive;
+    }else glass=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
     glass.accessibilityIdentifier=identifier;
     glass.userInteractionEnabled=NO;
     glass.accessibilityElementsHidden=YES;
@@ -1178,21 +1183,18 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
             button.layer.zPosition=-1;
             [button addTarget:state action:@selector(activateTool:) forControlEvents:UIControlEventPrimaryActionTriggered];
         }
-        BOOL backdrop=!flat && !HGAUsesNativeGlass(style);
-        NSString *configurationStyle=backdrop ? @"backdrop" : style;
+        BOOL nativeGlass=HGAUsesNativeGlass(style);
+        NSString *configurationStyle=flat ? @"flat" : @"backdrop";
         if (![button.glassStyle isEqual:configurationStyle]) {
             button.glassStyle=configurationStyle;
             UIButtonConfiguration *configuration=nil;
             if (flat) {
                 configuration=UIButtonConfiguration.filledButtonConfiguration;
                 configuration.baseBackgroundColor=UIColor.tertiarySystemFillColor;
-            } else if (@available(iOS 26.0,*)) {
-                if (!backdrop) configuration=[style isEqual:@"clear"] ?
-                    UIButtonConfiguration.clearGlassButtonConfiguration : UIButtonConfiguration.glassButtonConfiguration;
             }
             configuration.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
             button.configuration=configuration;
-            if (@available(iOS 26.0,*)) button.cornerConfiguration=backdrop ? nil : UICornerConfiguration.capsuleConfiguration;
+            if (@available(iOS 26.0,*)) button.cornerConfiguration=flat ? UICornerConfiguration.capsuleConfiguration : nil;
         }
         button.source=source;
         button.accessibilityLabel=source.accessibilityLabel ?: (sidebar ? @"菜单" : @"搜索");
@@ -1206,14 +1208,26 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
                 break;
             }
         }
-        if(backdrop)HGAInstallPlaybackGlass(button,style,button.bounds,CGRectGetHeight(frame)/2);
+        if(!flat) {
+            HGAViewState *material=HGAState(button,YES);
+            if(!material.glass)material.glass=HGAMakeHeaderCircleGlass(@"honggo.appearance.material",button);
+        }
+        if(nativeGlass) {
+            // The button remains the action target. Its configuration would install
+            // a second system background behind the glyph, especially on bright footage.
+            HGAInstallGlassInRect(button,style,button.bounds,CGRectGetHeight(frame)/2,0);
+            HGAAppearanceMaterial *circle=HGAState(button,NO).glass;
+            circle.interactiveGlass=YES;
+            HGAStyleHeaderBackdrop(circle,style);
+        }
+        else if(!flat)HGAInstallPlaybackGlass(button,style,button.bounds,CGRectGetHeight(frame)/2);
         else HGARemoveGlass(button);
     } else {
         HGARemoveHeaderToolButton(button);
         button=nil;
     }
     if (active && !button) {
-        if(!glass)glass=HGAMakeHeaderCircleGlass(identifier);
+        if(!glass)glass=HGAMakeHeaderCircleGlass(identifier,nil);
         if(!CGRectEqualToRect(glass.frame,frame))glass.frame=frame;
         CGFloat radius=CGRectGetHeight(frame)/2;
         glass.materialCornerRadius=radius;
@@ -1477,6 +1491,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
         objc_setAssociatedObject(header,&HGAHeaderInsetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     if(HGFlatTopStyle())style=@"flat";
+    else if(HGAUsesNativeGlass(style))style=@"clear"; // Single transparent rail over video, like the playback reference.
     BOOL glassSelection=HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
         [HGAppearanceString(@"player.headerSelectionStyle") isEqual:@"glass"];
     BOOL tracksChannels=state.channelControl && [state.channelStyle isEqual:style] &&

@@ -166,6 +166,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         selector==sel_registerName("controlView:singleTapPlay:model:");
     BOOL backdropChange=playerCanvas && (selector==sel_registerName("refreshBgColor") ||
         selector==sel_registerName("refreshCoverImageView"));
+    BOOL firstPicture=playerCanvas && selector==sel_registerName("vPlayerReadyToDisPlay:");
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL mediaPlayer=[className isEqual:@"FQVPlayer"];
     BOOL metalLayout=[className isEqual:@"TTMetalView"] && selector==@selector(layoutSubviews);
@@ -272,6 +273,17 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 [(UIView *)object setNeedsLayout];
             }
             else HGAppearanceProcessView(object);
+        });
+    } else if (firstPicture && !strcmp(encoding,"v24@0:8@16")) {
+        replacement=imp_implementationWithBlock(^(UIView *cell,UIView *player) {
+            // This native delegate hides the series cover immediately.
+            // Commit the real renderer's geometry before that handoff.
+            if(NSThread.isMainThread && cell.window && !HGAApplying) {
+                Class mediaClass=objc_lookUpClass("FQVPlayer");
+                UIView *media=[player isKindOfClass:mediaClass] ? player : HGReadObjectGetter(cell,"vPlayer");
+                HGRefreshVideoBackdropForPlayer([media isKindOfClass:mediaClass] && [media isDescendantOfView:cell] ? media : cell);
+            }
+            ((void(*)(id,SEL,id))original)(cell,selector,player);
         });
     } else if (!strcmp(encoding,"v24@0:8@16")) {
         replacement=imp_implementationWithBlock(^(id object,id argument) {
@@ -492,8 +504,9 @@ void HGInstallAppearance(void) {
                 IMP update=imp_implementationWithBlock(^(UIView *surface,CGRect frame) {
                     CGRect previous=surface.frame;
                     ((void (*)(id,SEL,CGRect))originalMetalFrame)(surface,@selector(setFrame:),frame);
-                    if (surface.window && !CGRectEqualToRect(previous,surface.frame))
-                        HGScheduleFeedLayoutRefresh((UIScrollView *)HGAAncestorNamed(surface,@"FQVCollectionView"));
+                    if (surface.window && !CGRectEqualToRect(previous,surface.frame) &&
+                        [surface.superview isKindOfClass:objc_lookUpClass("TTPlayerView")])
+                        HGRefreshVideoBackdropForPlayer(surface.superview);
                 });
                 originalMetalFrame=HGInstallVerifiedHook(metal,@selector(setFrame:),"v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",update,@"appearance");
                 if (!originalMetalFrame) imp_removeBlock(update);
@@ -607,6 +620,7 @@ void HGInstallAppearance(void) {
             if([name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 HGAHook(cls,sel_registerName("refreshBgColor"),"v16@0:8",NO);
                 HGAHook(cls,sel_registerName("refreshCoverImageView"),"v16@0:8",NO);
+                HGAHook(cls,sel_registerName("vPlayerReadyToDisPlay:"),"v24@0:8@16",NO);
                 HGAHook(cls,sel_registerName("playWithType:"),"v24@0:8q16",NO);
                 HGAHook(cls,sel_registerName("resumeWithType:"),"v24@0:8q16",NO);
             }

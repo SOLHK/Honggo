@@ -454,6 +454,19 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
             }
         }
         if ([group isEqual:@"drama"]) {
+            NSIndexPath *keywordPath=HGMenuPath(detail,@"video.blockedKeywords");
+            if(keywordPath)[detail tableView:detail.tableView didSelectRowAtIndexPath:keywordPath];
+            UIViewController *editor=navigation.topViewController;
+            UITextView *input=(id)Find(editor.view,@"honggo.video.keywordEditor");
+            NSArray *oldKeywords=HGVideoBlockedKeywords();
+            if(input) {
+                input.text=@"  校园  \n\n校园\n都市";
+                UIBarButtonItem *save=editor.navigationItem.rightBarButtonItem;
+                [UIApplication.sharedApplication sendAction:save.action to:save.target from:save forEvent:nil];
+            }
+            Check(input && navigation.topViewController==detail && [HGVideoBlockedKeywords() isEqual:@[@"校园",@"都市"]],
+                @"saving the multiline editor from the drama page updates the active keyword list");
+            HGAppearanceSet(@"video.blockedKeywords",oldKeywords,nil);
             NSIndexPath *choice = HGMenuPath(detail, @"player.separateProgress");
             if (choice) [detail tableView:detail.tableView didSelectRowAtIndexPath:choice];
             choiceOpened = [detail.presentedViewController isKindOfClass:UIAlertController.class] &&

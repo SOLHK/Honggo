@@ -352,7 +352,8 @@ static UIUserInterfaceStyle HGADockPageStyle(UIViewController *controller,UIView
     }
     return bar.traitCollection.userInterfaceStyle;
 }
-static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat radius,UIColor *fill,BOOL interactive) {
+static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat radius,UIColor *fill,BOOL interactive,
+                                     UIUserInterfaceStyle optics) {
     HGAInstallGlass(surface,style,radius,0);
     HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
     // Native regular glass already diffuses its backdrop. A second system
@@ -361,6 +362,7 @@ static UIView *HGADockMaterialContent(UIView *surface,NSString *style,CGFloat ra
     glass.accessibilityElementsHidden=NO;
     glass.overlayColor=fill;
     glass.untintedGlass=YES;
+    if(glass.overrideUserInterfaceStyle!=optics)glass.overrideUserInterfaceStyle=optics;
     glass.interactiveGlass=interactive;
     [glass requestMaterialRefresh];
     return glass.contentView ?: surface;
@@ -439,25 +441,35 @@ static NSArray<UIView *> *HGADockSystemItems(UIView *root) {
     return items;
 }
 
-static UIImage *HGADockSystemImage(NSString *symbol,NSString *caption,CGFloat size,UIColor *color,BOOL selected) {
+static void HGADockSetInkEdge(UIButton *button,UIColor *edge) {
+    CALayer *layer=button.layer;
+    if(edge) {
+        layer.shadowOffset=CGSizeZero;layer.shadowRadius=1;
+        layer.shadowColor=edge.CGColor;layer.shadowOpacity=1;
+    }else if(layer.shadowOpacity)layer.shadowOpacity=0;
+}
+
+static UIImage *HGADockSystemImage(NSString *symbol,NSString *caption,CGFloat size,UIColor *color,BOOL selected,UIColor *edge) {
     UIImageSymbolConfiguration *config=[UIImageSymbolConfiguration configurationWithPointSize:size weight:UIImageSymbolWeightMedium];
     UIImage *glyph=symbol ? [UIImage systemImageNamed:symbol withConfiguration:config] : nil;
     if(selected && glyph)
         glyph=[UIImage systemImageNamed:[symbol stringByAppendingString:@".fill"] withConfiguration:config] ?: glyph;
     glyph=[glyph imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal];
-    if(!caption)return glyph;
+    if(!caption && !edge)return glyph;
     // The floating provider can collapse its title slot independently of the
     // image when the feed scrolls. Put the complete tab face inside the lens.
     UIFont *font=[UIFont systemFontOfSize:glyph ? 11 : 15 weight:selected ? UIFontWeightSemibold : UIFontWeightRegular];
     NSDictionary *ink=@{NSForegroundColorAttributeName:color,NSFontAttributeName:font};
-    CGSize text=[caption sizeWithAttributes:ink];
+    CGSize text=caption ? [caption sizeWithAttributes:ink] : CGSizeZero;
     CGSize glyphSize=glyph ? glyph.size : CGSizeZero;
-    CGFloat titleY=glyph ? ceil(glyphSize.height)+2 : 0;
-    CGSize canvas=CGSizeMake(ceil(MAX(glyphSize.width,text.width)),titleY+ceil(text.height));
+    CGFloat titleY=glyph ? ceil(glyphSize.height)+(caption ? 2 : 0) : 0;
+    CGFloat pad=edge ? 1 : 0;
+    CGSize canvas=CGSizeMake(ceil(MAX(glyphSize.width,text.width))+2*pad,titleY+ceil(text.height)+2*pad);
     UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:canvas];
     UIImage *face=[renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-        [glyph drawAtPoint:CGPointMake((canvas.width-glyphSize.width)/2,0)];
-        [caption drawAtPoint:CGPointMake((canvas.width-text.width)/2,titleY) withAttributes:ink];
+        if(edge)CGContextSetShadowWithColor(context.CGContext,CGSizeZero,1,edge.CGColor);
+        [glyph drawAtPoint:CGPointMake((canvas.width-glyphSize.width)/2,pad)];
+        [caption drawAtPoint:CGPointMake((canvas.width-text.width)/2,titleY+pad) withAttributes:ink];
     }];
     return [face imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
 }
@@ -732,9 +744,11 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     UITraitCollection *traits=self.capsule.traitCollection;
     UIColor *selected=[UIColor.labelColor resolvedColorWithTraitCollection:traits];
     UIColor *normal=[UIColor.secondaryLabelColor resolvedColorWithTraitCollection:traits];
+    BOOL videoClear=HGASelectedTab(self.hostController)==0 && [HGAppearanceString(@"dock.material") isEqual:@"clear"];
+    UIColor *edge=videoClear ? [UIColor colorWithWhite:traits.userInterfaceStyle==UIUserInterfaceStyleLight ? 1 : 0 alpha:0.78] : nil;
     NSMutableArray<NSNumber *> *enabled=[NSMutableArray arrayWithCapacity:keys.count];
     for(NSString *key in keys)[enabled addObject:@([(UIControl *)[self.targets objectForKey:key] isEnabled])];
-    NSArray *signature=@[keys,content,@(size),selected,normal,enabled];
+    NSArray *signature=@[keys,content,@(size),selected,normal,enabled,@(videoClear)];
     if([self.systemItemSignature isEqualToArray:signature])return NO;
     self.systemTabBar.tintColor=selected;
     self.systemTabBar.unselectedItemTintColor=normal;
@@ -747,8 +761,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         NSString *label=HGATabTitles()[index];
         NSString *symbol=[content isEqual:@"text"] ? nil : HGATabSymbols()[index];
         NSString *caption=[content isEqual:@"icon"] ? nil : label;
-        UIImage *image=HGADockSystemImage(symbol,caption,size,normal,NO);
-        UIImage *selectedImage=HGADockSystemImage(symbol,caption,size,selected,YES);
+        UIImage *image=HGADockSystemImage(symbol,caption,size,normal,NO,edge);
+        UIImage *selectedImage=HGADockSystemImage(symbol,caption,size,selected,YES,edge);
         if(self.systemTabController) {
             if(@available(iOS 26.0,*)) {
                 UITab *tab=replace ? [[UITab alloc] initWithTitle:@"" image:image identifier:key viewControllerProvider:^UIViewController *(UITab *requestedTab) {
@@ -799,11 +813,34 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 - (NSString *)applySystemMaterial:(NSString *)style {
     if(@available(iOS 26.0,*)) {
         UIView *surface=self.systemPlatter;
+        BOOL clear=[style isEqual:@"clear"];
+        BOOL videoClear=clear && self.systemHostSelection==0;
+        // The item platter can draw its glass directly, with no effect view behind it.
+        // Give that material the video optics independently of the bar and its
+        // already resolved app-theme tab faces. Catalogue pages inherit normally.
+        UIUserInterfaceStyle optics=videoClear ? UIUserInterfaceStyleDark : UIUserInterfaceStyleUnspecified;
+        if(surface.overrideUserInterfaceStyle!=optics)surface.overrideUserInterfaceStyle=optics;
         SEL setter=sel_registerName("setGlassEffect:");
         Method method=class_getInstanceMethod(object_getClass(surface),setter);
         UIVisualEffect *current=HGReadObjectGetter(surface,"glassEffect");
-        UIVisualEffectView *backing=nil;
-        if(!method || strcmp(method_getTypeEncoding(method),"v24@0:8@16") || ![current isKindOfClass:UIVisualEffect.class]) {
+        BOOL hasSetter=method && !strcmp(method_getTypeEncoding(method),"v24@0:8@16");
+        if(hasSetter && !current) {
+            Method getter=class_getInstanceMethod(object_getClass(surface),sel_registerName("glassEffect"));
+            hasSetter=getter && !strcmp(method_getTypeEncoding(getter),"@16@0:8");
+        }
+        UIVisualEffectView *backing=[surface isKindOfClass:UIVisualEffectView.class] ? (UIVisualEffectView *)surface : nil;
+        Ivar slot=NULL;
+        if(!backing && !hasSetter) {
+            Ivar ivar=class_getInstanceVariable(object_getClass(surface),"_glassEffect");
+            const char *type=ivar ? ivar_getTypeEncoding(ivar) : NULL;
+            if(type && *type=='@') {
+                id effect=object_getIvar(surface,ivar);
+                if([effect isKindOfClass:UIVisualEffect.class] || (!effect && !strcmp(type,"@\"UIGlassEffect\""))) {
+                    slot=ivar;current=effect;
+                }
+            }
+        }
+        if(!backing && !hasSetter && !slot) {
             // The item platter on iOS 27 can have a separate backing view
             // directly under the tab bar. Never replace its moving selection.
             for(UIView *child in self.systemTabBar.subviews) {
@@ -812,10 +849,12 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
                 UIVisualEffectView *candidate=(id)child;
                 if(candidate.effect && (!backing || child.bounds.size.width>backing.bounds.size.width))backing=candidate;
             }
-            if(!backing)return @"factory-glass";
-            surface=backing;current=backing.effect;
+            if(!backing)return videoClear ? @"factory-video-optics" : @"factory-glass";
         }
-        BOOL clear=[style isEqual:@"clear"];
+        if(backing) {
+            surface=backing;current=backing.effect;
+            if(surface.overrideUserInterfaceStyle!=optics)surface.overrideUserInterfaceStyle=optics;
+        }
         if(surface!=self.customSystemPlatter || ![style isEqual:self.systemMaterialStyle] ||
             ![current isEqual:self.installedSystemGlass]) {
             UIGlassEffect *glass=[UIGlassEffect effectWithStyle:clear ? UIGlassEffectStyleClear : UIGlassEffectStyleRegular];
@@ -824,13 +863,21 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
                 backing.backgroundColor=UIColor.clearColor;backing.contentView.backgroundColor=UIColor.clearColor;
                 backing.effect=glass;
                 self.installedSystemGlass=backing.effect;
+            }else if(slot) {
+                object_setIvar(surface,slot,glass);
+                self.installedSystemGlass=object_getIvar(surface,slot);
+                [surface setNeedsLayout];[surface setNeedsDisplay];
             }else {
                 ((void(*)(id,SEL,id))objc_msgSend)(surface,setter,glass);
                 self.installedSystemGlass=HGReadObjectGetter(surface,"glassEffect");
                 [surface setNeedsLayout];
             }
+            if(![self.installedSystemGlass isKindOfClass:UIGlassEffect.class] ||
+                (current && self.installedSystemGlass==current))
+                return videoClear ? @"factory-video-optics" : @"factory-glass";
             self.customSystemPlatter=surface;self.systemMaterialStyle=style;
         }
+        if(slot)return clear ? @"clear-glass-slot" : @"regular-glass-slot";
         return clear ? @"clear-glass" : @"regular-glass";
     }
     return @"factory-glass";
@@ -1144,6 +1191,9 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     BOOL haptics=HGAppearanceFlag(@"dock.haptics");
     BOOL liquidSelection=HGADockLiquidSelection();
     BOOL nativeGlass=!flat && HGAUsesNativeGlass(style);
+    BOOL videoClear=nativeGlass && selected==0 && [style isEqual:@"clear"];
+    UIUserInterfaceStyle glassOptics=videoClear ? UIUserInterfaceStyleDark : UIUserInterfaceStyleUnspecified;
+    UIColor *inkEdge=videoClear ? [UIColor colorWithWhite:surfaceStyle==UIUserInterfaceStyleLight ? 1 : 0 alpha:0.78] : nil;
     UIColor *base=translucent ? [UIColor colorWithWhite:light?1:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor;
     UIColor *fill=[base colorWithAlphaComponent:!translucent || reduced ? 1 : 0];
     NSString *content=HGAppearanceString(@"dock.content");
@@ -1202,7 +1252,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(nativeGlass)fill=UIColor.clearColor;
     if(![self.capsule.backgroundColor isEqual:UIColor.clearColor])self.capsule.backgroundColor=UIColor.clearColor;
     if(flat || useSystem)HGARemoveGlass(self.capsule);
-    else HGADockMaterialContent(self.capsule,style,self.collapsed?22:radius,fill,NO);
+    else HGADockMaterialContent(self.capsule,style,self.collapsed?22:radius,fill,NO,glassOptics);
     self.flatSegments=HGADockFlatBacking(self.capsule,flat ? visible.count : 0);
     UIView *background=HGAState(self.capsule,NO).glass;
     if(self.selection.superview!=self.capsule) {
@@ -1212,13 +1262,16 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(flat){HGARemoveGlass(self.extra);HGARemoveGlass(self.expand);}
     UISegmentedControl *extraTrack=HGADockFlatBacking(self.extra,flat ? 1 : 0);
     HGADockFlatBacking(self.expand,flat ? 1 : 0);
-    UIView *extraContent=flat ? self.extra : HGADockMaterialContent(self.extra,style,circle/2,fill,haptics);
-    UIView *expandContent=flat ? self.expand : HGADockMaterialContent(self.expand,style,22,fill,haptics);
+    UIView *extraContent=flat ? self.extra : HGADockMaterialContent(self.extra,style,circle/2,fill,haptics,glassOptics);
+    UIView *expandContent=flat ? self.expand : HGADockMaterialContent(self.expand,style,22,fill,haptics,glassOptics);
     // UIKit can adapt dynamic label colors to the material's own background
     // when the foreground belongs to the visual effect's contentView.
     if(self.extraSelection.superview!=extraContent)[extraContent insertSubview:self.extraSelection atIndex:0];
     if(self.extraButton.superview!=extraContent)[extraContent addSubview:self.extraButton];
     if(self.expandButton.superview!=expandContent)[expandContent addSubview:self.expandButton];
+    UIUserInterfaceStyle buttonStyle=videoClear ? surfaceStyle : UIUserInterfaceStyleUnspecified;
+    if(self.extraButton.overrideUserInterfaceStyle!=buttonStyle)self.extraButton.overrideUserInterfaceStyle=buttonStyle;
+    if(self.expandButton.overrideUserInterfaceStyle!=buttonStyle)self.expandButton.overrideUserInterfaceStyle=buttonStyle;
     if(styleChangedAny) {
         if(@available(iOS 17.0,*)) {
             for(UIView *surface in @[self.capsule,self.extra,self.expand])[surface updateTraitsIfNeeded];
@@ -1262,6 +1315,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         b.isAccessibilityElement=YES;
         b.accessibilityLabel=HGATabTitles()[index];
         b.accessibilityTraits=UIAccessibilityTraitButton | (active?UIAccessibilityTraitSelected:0);
+        HGADockSetInkEdge(b,self.quietSystemTouches ? nil : inkEdge);
         if(self.quietSystemTouches) {
             // The UITabBar draws both content and selection. These unpainted
             // controls use its measured slots without triggering touch haptics.
@@ -1311,6 +1365,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }else [self prepareSelectionLens];
     BOOL restingGlass=nativeSelection;
     self.restingLens=HGADockRestingLens(self.restingLens,self.selection,selectedFrame,restingGlass && !useSystem);
+    if(self.restingLens.overrideUserInterfaceStyle!=glassOptics)self.restingLens.overrideUserInterfaceStyle=glassOptics;
+    if(self.dragLens.overrideUserInterfaceStyle!=glassOptics)self.dragLens.overrideUserInterfaceStyle=glassOptics;
     self.restingLens.hidden=self.selectionDragging || self.pressedTab || self.selectionSettling;
     NSString *action=HGAppearanceString(@"dock.action");
     NSUInteger detachedIndex=[HGATabIDs() indexOfObject:action];
@@ -1326,6 +1382,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     CGFloat extraIconSize=MIN(requestedIcon,circle*0.34);
     HGADockConfigureButton(self.extraButton,nil,extraImage,extraIconSize,accessoryFont,accessoryColor);
     HGADockConfigureButton(self.expandButton,nil,[UIImage systemImageNamed:@"ellipsis"],MIN(requestedIcon,22),accessoryFont,accessoryColor);
+    HGADockSetInkEdge(self.extraButton,inkEdge);HGADockSetInkEdge(self.expandButton,inkEdge);
     NSInteger detachedSegment=detachedSelected ? 0 : UISegmentedControlNoSegment;
     if(extraTrack && extraTrack.selectedSegmentIndex!=detachedSegment)extraTrack.selectedSegmentIndex=detachedSegment;
     self.extraSelection.hidden=flat || !detachedSelected || self.extra.hidden;
@@ -1340,6 +1397,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
     self.extraRestingLens=HGADockRestingLens(self.extraRestingLens,self.extraSelection,self.extraButton.frame,
         restingGlass && detachedSelected && !self.extra.hidden);
+    if(self.extraRestingLens.overrideUserInterfaceStyle!=glassOptics)self.extraRestingLens.overrideUserInterfaceStyle=glassOptics;
     self.extraButton.selected=detachedSelected;
     self.extraButton.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[detachedIndex]);
     self.extraButton.accessibilityTraits=UIAccessibilityTraitButton | (detachedSelected?UIAccessibilityTraitSelected:0);
@@ -1472,7 +1530,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
                 UIVisualEffectView *lens=[[UIVisualEffectView alloc] initWithEffect:nil];
                 lens.accessibilityIdentifier=@"honggo.appearance.dock.quiet-lens";
                 lens.accessibilityElementsHidden=YES;lens.userInteractionEnabled=NO;
-                lens.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
+                BOOL videoClear=self.systemHostSelection==0 && [HGAppearanceString(@"dock.material") isEqual:@"clear"];
+                lens.overrideUserInterfaceStyle=videoClear ? UIUserInterfaceStyleDark : self.capsule.overrideUserInterfaceStyle;
                 lens.frame=frame;lens.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
                 [self insertSubview:lens aboveSubview:[self systemDockCarrier]];
                 UIGlassEffect *glass=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];

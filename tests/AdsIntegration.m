@@ -1,6 +1,7 @@
 // Exercise the production installer/replacements on the Objective-C runtime.
 // These controlled host fixtures do not establish real Hongguo device behavior.
 #import "Honggo.h"
+#import "AppearancePreferences.h"
 #import <objc/message.h>
 #include <stdint.h>
 #import <QuartzCore/QuartzCore.h>
@@ -9,6 +10,57 @@ static NSUInteger forceRequests, feedRequests, manualEntries;
 static NSUInteger gameModelCreations;
 static NSUInteger manualGameEntries;
 static NSUInteger nativeGameInitializations;
+
+@interface HGKeywordFixtureCell : NSObject
+@property(nonatomic,strong) id filterableSeriesVideoData,filterableEpisodeVideoData,bookData,tagInfo;
+@property(nonatomic,copy) NSString *title,*rawBookName,*videoDesc,*authorNickname,*bookName,*bookAbstract,*author,*text;
+@property(nonatomic,copy) NSArray *cellData,*categoryList,*tags;
+@end
+@implementation HGKeywordFixtureCell @end
+@interface SSShortVideoRecommendOutterCellChangeResult : NSObject
+@property(nonatomic) BOOL hasMore;
+@property(nonatomic,getter=isSuccess) BOOL success;
+@property(nonatomic) NSInteger nextOffset;
+@property(nonatomic,strong) HGKeywordFixtureCell *cellViewData;
+@end
+@implementation SSShortVideoRecommendOutterCellChangeResult @end
+@interface SSShortVideoRecommendOutterListDataSource : NSObject
+@property(nonatomic) BOOL hasMore;
+@property(nonatomic) NSInteger nextOffset;
+@property(nonatomic,strong) NSMutableArray *replies,*requestedOffsets;
+@property(nonatomic,strong) NSArray *built;
+- (void)reqVideoDataIfNeedWithCellViewDataArr:(NSArray *)cells beforeBuild:(void (^)(void))before completion:(void (^)(void))done;
+@end
+@implementation SSShortVideoRecommendOutterListDataSource
+- (NSInteger)nextLoadMoreCellId { return 75; }
+- (BOOL)canHandleVideoFeedCellViewData:(id)cell { return [cell isKindOfClass:HGKeywordFixtureCell.class]; }
+- (BOOL)isRecommendPeopleCellViewData:(id)cell { return NO; }
+- (void)updatePagingWithCellChangeResult:(SSShortVideoRecommendOutterCellChangeResult *)result {
+    self.nextOffset=result.nextOffset;self.hasMore=result.hasMore;
+}
+- (void)requestLoadMoreDataWithCellId:(NSInteger)cellId completion:(void (^)(id))completion {
+    [self.requestedOffsets addObject:@(self.nextOffset)];
+    id result=self.replies.firstObject;
+    if(result)[self.replies removeObjectAtIndex:0];
+    completion(result);
+}
+- (void)reqVideoDataIfNeedWithCellViewDataArr:(NSArray *)cells beforeBuild:(void (^)(void))before completion:(void (^)(void))done {
+    self.built=cells;if(before)before();if(done)done();
+}
+@end
+@interface SSVideoFeedContainerViewController : UIViewController
+@property(nonatomic,strong) id currentVideoFeedListDataSource;
+@property(nonatomic) BOOL videoFeedRefreshing;
+@property(nonatomic) NSUInteger reloads;
+@end
+@implementation SSVideoFeedContainerViewController
+- (void)feedHostDidAppear {}
+- (void)feedHostWillDisappearForReason:(NSUInteger)reason {}
+- (void)videoListVCContextFinishRefreshingData:(id)context {self.videoFeedRefreshing=NO;}
+- (void)commonRefreshPageWithReloadPage:(BOOL)reload clientReqType:(int)type withCallBack:(void (^)(void))callback {
+    if(reload && type==1)self.reloads++;
+}
+@end
 
 @interface BDADShortVideoCommonAdManager : NSObject
 @property(nonatomic) NSUInteger cacheLookups;
@@ -340,11 +392,11 @@ static NSArray *HGGameFeedFixture(SSVideoMiniGameService *service) {
 - (id)createDirectLiveRoomInnerListWithParamsMaker:(id)params { return params; }
 @end
 
-@interface SSShortVideoRecommendOutterListDataSource : NSObject
+@interface SSShortVideoRecommendOutterListDataSource (HGLiveCardFixture)
 - (id)liveFeedDataModelWithCellViewData:(id)cell;
 - (id)videoDataModelWithCellViewData:(id)cell;
 @end
-@implementation SSShortVideoRecommendOutterListDataSource
+@implementation SSShortVideoRecommendOutterListDataSource (HGLiveCardFixture)
 - (id)liveFeedDataModelWithCellViewData:(id)cell { return cell; }
 - (id)videoDataModelWithCellViewData:(id)cell { return cell; }
 @end
@@ -505,6 +557,51 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *checks;
 @end
 @implementation HGAdsTests
+- (void)checkVideoKeywords {
+    NSArray *saved=HGVideoBlockedKeywords();
+    HGAppearanceSet(@"video.blockedKeywords",@[],nil);
+    SSShortVideoRecommendOutterListDataSource *source=[SSShortVideoRecommendOutterListDataSource new];
+    SSVideoFeedContainerViewController *page=[SSVideoFeedContainerViewController new];
+    page.currentVideoFeedListDataSource=source;[self.window addSubview:page.view];[page feedHostDidAppear];
+    NSUInteger baseline=page.reloads;
+    HGKeywordFixtureCell *keep=[HGKeywordFixtureCell new], *title=[HGKeywordFixtureCell new], *desc=[HGKeywordFixtureCell new];
+    HGKeywordFixtureCell *author=[HGKeywordFixtureCell new], *tags=[HGKeywordFixtureCell new], *series=[HGKeywordFixtureCell new];
+    for(HGKeywordFixtureCell *cell in @[keep,title,desc,author,tags,series])
+        cell.filterableSeriesVideoData=[HGKeywordFixtureCell new];
+    [title.filterableSeriesVideoData setTitle:@"pre ＡＢＣ post"];
+    desc.filterableEpisodeVideoData=[HGKeywordFixtureCell new];[desc.filterableEpisodeVideoData setVideoDesc:@"part abc"];
+    [author.filterableSeriesVideoData setAuthorNickname:@"A.b"];
+    [tags.filterableSeriesVideoData setCategoryList:@[@"日常",@"仙侠"]];
+    HGKeywordFixtureCell *book=[HGKeywordFixtureCell new];book.bookName=@"系列 ABC";[series.filterableSeriesVideoData setBookData:book];
+    [keep.filterableSeriesVideoData setTitle:@"AxB"];
+    NSArray *all=@[keep,title,desc,author,tags,series];
+    [source reqVideoDataIfNeedWithCellViewDataArr:all beforeBuild:nil completion:nil];
+    [self check:source.built==all name:@"empty keywords preserve the original host page object"];
+    [page feedHostWillDisappearForReason:1];
+    HGAppearanceSet(@"video.blockedKeywords",@[@"abc",@"a.b",@"仙侠"],nil);
+    [self check:page.reloads==baseline name:@"saving keywords leaves a hidden feed alone"];
+    [page feedHostDidAppear];[page feedHostDidAppear];
+    [self check:page.reloads==baseline+1 name:@"returning to the buffered recommendation refreshes once for the new keywords"];
+    [source reqVideoDataIfNeedWithCellViewDataArr:all beforeBuild:nil completion:nil];
+    [self check:[source.built isEqual:@[keep]] name:@"with feed ads disabled, title, episode description, author, category and series name match literal case/width-insensitive keywords"];
+    NSArray *noHit=@[keep];[source reqVideoDataIfNeedWithCellViewDataArr:noHit beforeBuild:nil completion:nil];
+    [self check:source.built==noHit name:@"an unmatched keyword list keeps the host array identity"];
+    source.hasMore=YES;source.requestedOffsets=[NSMutableArray array];source.replies=[NSMutableArray array];
+    for (NSInteger offset=1;offset<=3;offset++) {
+        SSShortVideoRecommendOutterCellChangeResult *result=[SSShortVideoRecommendOutterCellChangeResult new];
+        result.success=YES;result.nextOffset=offset;result.hasMore=offset<3;
+        result.cellViewData=[HGKeywordFixtureCell new];result.cellViewData.cellData=offset==3 ? @[keep,desc] : @[desc,title];
+        [source.replies addObject:result];
+    }
+    __block NSUInteger before=0,done=0;
+    [source reqVideoDataIfNeedWithCellViewDataArr:@[title,tags] beforeBuild:^{before++;} completion:^{done++;}];
+    NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:1];
+    while(!done && deadline.timeIntervalSinceNow>0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    [self check:before==1 && done==1 && [source.built isEqual:@[keep]] && source.nextOffset==3 &&
+        [source.requestedOffsets isEqual:@[@0,@1,@2]] name:@"consecutive fully blocked pages advance real host offsets and deliver one final page"];
+    [page feedHostWillDisappearForReason:1];[page.view removeFromSuperview];HGAppearanceSet(@"video.blockedKeywords",saved,nil);
+}
 - (void)check:(BOOL)passed name:(NSString *)name {
     [self.checks addObject:@{@"name": name, @"passed": @(passed)}];
     NSLog(@"[HonggoAdsTests] %@: %@", passed ? @"PASS" : @"FAIL", name);
@@ -995,6 +1092,7 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     Method naturalInsert = class_getInstanceMethod(SSNaturalAdManager.class, @selector(tryInsertDataToSaaS:));
     IMP originalNaturalInsert = method_getImplementation(naturalInsert);
     HGInstallAds();
+    [self checkVideoKeywords];
     BDADShortVideoCommonAdManager *homepageAds=[BDADShortVideoCommonAdManager new];
     [self check:[[homepageAds homepageCard:@"quote" cached:YES] isEqual:@"quote"] &&
         [[homepageAds homepageCard:@"external-game" cached:NO] isEqual:@"external-game"] &&

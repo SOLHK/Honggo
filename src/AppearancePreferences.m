@@ -4,6 +4,7 @@
 #include <math.h>
 
 NSString *const HGAppearanceDidChangeNotification = @"Honggo.Appearance.changed";
+NSString *const HGVideoBlockedKeywordsDidChangeNotification = @"Honggo.VideoKeywords.changed";
 static NSString *const HGAStore = @"Honggo.Appearance.v1";
 static NSString *const HGAR15GeometryMigration = @"Honggo.Appearance.r15GeometryMigrated";
 static NSString *const HGADockWidthMigration = @"Honggo.Appearance.dockWidthMigrated";
@@ -21,8 +22,8 @@ static NSObject *HGALock(void) { static NSObject *lock; static dispatch_once_t o
                 @synchronized(lock) { HGACachedValues=nil; }
             }];
     }); return lock; }
-NSArray *HGAppearanceGroups(void) { return @[@"general",@"dock",@"chrome",@"mine",@"player",@"gestures",@"panels",@"fonts"]; }
-NSArray *HGAppearanceGroupTitles(void) { return @[@"外观总开关",@"悬浮底栏 Dock",@"顶部导航与找剧",@"我的页面",@"播放布局与控件",@"播放手势",@"弹出面板",@"字体与字号"]; }
+NSArray *HGAppearanceGroups(void) { return @[@"general",@"dock",@"chrome",@"mine",@"player",@"gestures",@"panels",@"fonts",@"drama"]; }
+NSArray *HGAppearanceGroupTitles(void) { return @[@"外观总开关",@"悬浮底栏 Dock",@"顶部导航与找剧",@"我的页面",@"播放布局与控件",@"播放手势",@"弹出面板",@"字体与字号",@"短剧"]; }
 NSArray *HGAppearanceRoles(void) { return @[@"avatar", @"collect", @"comment", @"like", @"share", @"more", @"channels", @"info", @"tags", @"progress", @"danmaku", @"episodes", @"notice"]; }
 NSArray *HGAppearanceRoleTitles(void) { return @[@"作者头像", @"收藏", @"评论", @"点赞", @"分享", @"更多", @"顶部频道", @"作者与剧集信息", @"分类标签", @"进度条", @"弹幕入口", @"观看全集入口", @"内容声明"]; }
 static NSDictionary *HGADef(NSString *key, NSString *group, NSString *title, NSString *kind, id value, NSDictionary *extra) {
@@ -112,6 +113,8 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"player.hide.followRank",@"player",@"隐藏追更榜按钮");
         flag(@"player.hide.seriesBadge",@"player",@"隐藏系列剧按钮");
         flag(@"player.hideAIFictionNotice",@"player",@"隐藏 AI 剧情虚构提示");
+        [a addObject:HGADef(@"video.blockedKeywords",@"drama",@"屏蔽视频关键词",@"keywordList",@[],
+            @{@"keywords":@"视频过滤 屏蔽词 关键词屏蔽"})];
         [a addObject:HGADef(@"player.commentMovesVideo",@"panels",@"打开评论区时上移视频",@"bool",@YES,
             @{@"keywords":@"评论 画面 上移 评论区上移 视频上移"})];
         [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
@@ -181,6 +184,25 @@ static BOOL HGAValid(NSDictionary *def,id value) {
     NSString *pattern=[kind isEqual:@"fontfile"] ? @"^[a-f0-9]{64}\\.(ttf|otf|ttc)$" : @"^[^\\x00-\\x1F/\\\\]{1,128}$";
     return [value rangeOfString:pattern options:NSRegularExpressionSearch].location!=NSNotFound;
 }
+static id HGAValidatedValue(NSDictionary *definition,id value) {
+    if (![definition[@"kind"] isEqual:@"keywordList"])
+        return HGAValid(definition,value) ? value : nil;
+    if (![value isKindOfClass:NSArray.class]) return nil;
+    NSMutableArray *words=[NSMutableArray array];
+    NSMutableSet *seen=[NSMutableSet set];
+    NSCharacterSet *whitespace=NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    for (id entry in value) {
+        if (![entry isKindOfClass:NSString.class]) return nil;
+        NSString *word=[entry stringByTrimmingCharactersInSet:whitespace];
+        if (!word.length) continue;
+        if ([word rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location!=NSNotFound) return nil;
+        NSString *folded=[word stringByFoldingWithOptions:NSCaseInsensitiveSearch|NSWidthInsensitiveSearch locale:nil];
+        if ([seen containsObject:folded]) continue;
+        [seen addObject:folded];
+        [words addObject:[word copy]];
+    }
+    return words.copy;
+}
 NSDictionary *HGAppearanceValues(void) {
     @synchronized(HGALock()) {
         if (HGACachedValues) return HGACachedValues;
@@ -238,7 +260,7 @@ NSDictionary *HGAppearanceValues(void) {
         }
         NSMutableDictionary *values=[NSMutableDictionary dictionary];
         for(NSDictionary *def in HGAppearanceCatalog()) { id value=stored[def[@"key"]];
-            values[def[@"key"]]=HGAValid(def,value)?value:def[@"default"]; }
+            values[def[@"key"]]=HGAValidatedValue(def,value) ?: def[@"default"]; }
         HGACachedValues=values.copy; return HGACachedValues;
     }
 }
@@ -249,22 +271,41 @@ id HGAppearanceValue(NSString *key) {
 BOOL HGAppearanceFlag(NSString *key){ return [HGAppearanceValue(key) boolValue]; }
 double HGAppearanceNumber(NSString *key){ return [HGAppearanceValue(key) doubleValue]; }
 NSString *HGAppearanceString(NSString *key){ id v=HGAppearanceValue(key); return [v isKindOfClass:NSString.class]?v:@""; }
+NSArray<NSString *> *HGVideoBlockedKeywords(void) { return HGAppearanceValue(@"video.blockedKeywords"); }
 BOOL HGFlatDockStyle(void) { return [HGAppearanceString(@"dock.style") isEqual:@"flat"]; }
 BOOL HGFlatTopStyle(void) { return [HGAppearanceString(@"player.headerStyle") isEqual:@"flat"]; }
 BOOL HGFlatPlayerStyle(void) { return [HGAppearanceString(@"player.actionStyle") isEqual:@"flat"]; }
 static BOOL HGAError(NSError **error,NSString *message) { if(error)*error=[NSError errorWithDomain:@"Honggo.Appearance" code:1 userInfo:@{NSLocalizedDescriptionKey:message}]; return NO; }
+static NSData *HGAConfigurationData(NSDictionary *values,NSError **error) {
+    return [NSJSONSerialization dataWithJSONObject:@{@"format":@"Honggo.appearance",@"schema":@1,@"values":values}
+        options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:error];
+}
 BOOL HGAppearanceApply(NSDictionary *values,NSError **error) {
     if(![values isKindOfClass:NSDictionary.class] || values.count==0 || values.count>HGAppearanceCatalog().count) return HGAError(error,@"外观配置内容无效。");
     NSMutableDictionary *snapshot=values.mutableCopy;
-    for(id key in snapshot) if(!HGAValid(HGADefinition(key),snapshot[key])) return HGAError(error,@"存在未知设置、错误类型或超出范围的数值。");
+    for(id key in values) {
+        id value=HGAValidatedValue(HGADefinition(key),values[key]);
+        if(!value)return HGAError(error,@"存在未知设置、错误类型或超出范围的数值。");
+        snapshot[key]=value;
+    }
+    BOOL keywordsChanged=NO;
     @synchronized(HGALock()) {
-        NSMutableDictionary *merged=[HGAppearanceValues() mutableCopy]; [merged addEntriesFromDictionary:snapshot];
+        NSDictionary *current=HGAppearanceValues();
+        keywordsChanged=snapshot[@"video.blockedKeywords"] &&
+            ![current[@"video.blockedKeywords"] isEqual:snapshot[@"video.blockedKeywords"]];
+        NSMutableDictionary *merged=[current mutableCopy]; [merged addEntriesFromDictionary:snapshot];
+        if ([merged[@"video.blockedKeywords"] count] && HGAConfigurationData(merged,nil).length>128*1024)
+            return HGAError(error,@"关键词列表使配置超出 128 KiB 备份上限。请减少关键词后再保存。");
         if([merged[@"dock.hide.home"] boolValue] && [merged[@"dock.hide.theater"] boolValue] && [merged[@"dock.hide.store"] boolValue] && [merged[@"dock.hide.mine"] boolValue]) return HGAError(error,@"至少保留一个底栏导航项目。");
         // One persisted dictionary, after complete validation: no partial imports.
         [NSUserDefaults.standardUserDefaults setObject:merged.copy forKey:HGAStore];
         HGACachedValues=merged.copy;
     }
-    void (^notify)(void)=^{ [NSNotificationCenter.defaultCenter postNotificationName:HGAppearanceDidChangeNotification object:nil]; };
+    void (^notify)(void)=^{
+        [NSNotificationCenter.defaultCenter postNotificationName:HGAppearanceDidChangeNotification object:nil];
+        if(keywordsChanged)
+            [NSNotificationCenter.defaultCenter postNotificationName:HGVideoBlockedKeywordsDidChangeNotification object:nil];
+    };
     if(NSThread.isMainThread) notify(); else dispatch_async(dispatch_get_main_queue(),notify);
     return YES;
 }
@@ -280,13 +321,14 @@ BOOL HGAppearanceNeedsGlass(void) {
 }
 NSDictionary *HGAppearancePreset(NSString *name) {
     NSMutableDictionary *d=[NSMutableDictionary dictionary]; for(NSDictionary *def in HGAppearanceCatalog()) d[def[@"key"]]=def[@"default"];
+    d[@"video.blockedKeywords"]=HGVideoBlockedKeywords();
     if([name isEqual:@"glass"] || [name isEqual:@"focus"]) {
         for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"dock.haptics",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"])d[key]=@YES;
         if([name isEqual:@"focus"]) {d[@"dock.collapse"]=@YES; d[@"dock.autoCollapse"]=@YES; for(NSString *role in @[@"avatar",@"tags",@"notice"])d[[NSString stringWithFormat:@"layout.%@.hidden",role]]=@YES; }
     }
     return d.copy;
 }
-NSData *HGAppearanceExport(NSError **error) { return [NSJSONSerialization dataWithJSONObject:@{@"format":@"Honggo.appearance",@"schema":@1,@"values":HGAppearanceValues()} options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:error]; }
+NSData *HGAppearanceExport(NSError **error) { return HGAConfigurationData(HGAppearanceValues(),error); }
 NSDictionary *HGAppearanceParse(NSData *data,NSError **error) {
     if(![data isKindOfClass:NSData.class] || !data.length || data.length>128*1024){HGAError(error,@"请选择不超过 128 KiB 的外观 JSON。");return nil;}
     id root=[NSJSONSerialization JSONObjectWithData:data options:0 error:error];
@@ -309,6 +351,10 @@ NSDictionary *HGAppearanceParse(NSData *data,NSError **error) {
             for(NSString *field in @[@"asset",@"symbol"])
                 [d removeObjectForKey:[NSString stringWithFormat:@"icons.%@.%@.%@",role,state,field]];
     if(!d.count){HGAError(error,@"文件未包含可用的外观参数。");return nil;}
-    for(id key in d) if(!HGAValid(HGADefinition(key),d[key])){HGAError(error,@"文件包含未知或无效的外观参数。");return nil;}
+    for(id key in d.allKeys) {
+        id value=HGAValidatedValue(HGADefinition(key),d[key]);
+        if(!value){HGAError(error,@"文件包含未知或无效的外观参数。");return nil;}
+        d[key]=value;
+    }
     return d.copy;
 }

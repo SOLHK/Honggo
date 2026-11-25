@@ -26,8 +26,13 @@
 @end
 @interface FQVPlayer : UIView
 @property(nonatomic,strong) UIImageView *coverImageView;
+@property(nonatomic,strong) id model;
 @end
 @implementation FQVPlayer @end
+@interface HGBackdropFrameModel : NSObject
+@property(nonatomic) BOOL readyToDisPlay;
+@end
+@implementation HGBackdropFrameModel @end
 @interface FQVShortVideoGradientLayerView : UIView @end
 @implementation FQVShortVideoGradientLayerView
 + (Class)layerClass { return CAGradientLayer.class; }
@@ -49,12 +54,20 @@
 @end
 
 @interface FQVShortVideoPlayerCellView (HGBackdropPaletteFixture)
+@property(nonatomic,strong) UIImageView *coverImageView;
 - (void)refreshBgColor;
 - (void)refreshCoverImageView;
+- (void)vPlayerReadyToDisPlay:(FQVPlayer *)player;
 @end
 @implementation FQVShortVideoPlayerCellView (HGBackdropPaletteFixture)
+static char HGBackdropCellCoverKey;
+- (UIImageView *)coverImageView {return objc_getAssociatedObject(self,&HGBackdropCellCoverKey);}
+- (void)setCoverImageView:(UIImageView *)cover {
+    objc_setAssociatedObject(self,&HGBackdropCellCoverKey,cover,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 - (void)refreshCoverImageView {}
 - (void)refreshBgColor { self.backgroundColor=[UIColor colorWithRed:0.24 green:0.29 blue:0.32 alpha:1]; }
+- (void)vPlayerReadyToDisPlay:(FQVPlayer *)player { self.coverImageView.hidden=YES; }
 @end
 
 @interface HGBackdropMetalFixture : TTMetalView
@@ -356,6 +369,25 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             (__bridge id)[UIColor colorWithWhite:0 alpha:0.2].CGColor];
         gradient.colors=stockGradient;gradient.locations=@[@0,@1];
         gradient.startPoint=CGPointMake(0.5,0);gradient.endPoint=CGPointMake(0.5,1);
+
+        UIImage *firstPoster=[[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(16,28)]
+            imageWithActions:^(UIGraphicsImageRendererContext *context) {
+                [UIColor.cyanColor setFill];UIRectFill(CGRectMake(0,0,16,28));
+            }];
+        UIImageView *firstCover=[[UIImageView alloc] initWithImage:firstPoster];
+        firstCover.frame=cell.canvas.bounds;cell.canvas.coverImageView=firstCover;
+        [cell.videoWrapper removeFromSuperview];
+        [cell.canvas insertSubview:firstCover belowSubview:hud];
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        Check(CGRectGetHeight(firstCover.frame)==height && !feed.clipsToBounds && !cell.videoWrapper.superview,
+            @"cold playback can fill behind the Dock using the cell-owned poster before the player exists");
+        [cell.canvas insertSubview:cell.videoWrapper belowSubview:firstCover];
+        cell.renderer.layer.sublayerTransform=CATransform3DIdentity;
+        [cell.canvas vPlayerReadyToDisPlay:cell.player];
+        Check(firstCover.hidden && fabs(cell.renderer.layer.sublayerTransform.m42-45)<0.75 && !feed.clipsToBounds,
+            @"the renderer reaches its full viewport synchronously when the native callback hides the cold poster");
+        [firstCover removeFromSuperview];cell.canvas.coverImageView=nil;
+
         cell.metalOverscanX=24;Layout(cell);
         CGRect portraitFrame=cell.renderer.frame;
         CGRect nativeMetalBounds=cell.metal.bounds;
@@ -405,12 +437,10 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         cell.metal.frame=CGRectZero;
         [cell.renderer addSubview:cell.metal];
         HGBackdropFlushFrames(0.03);
-        cell.metal.bounds=nativeMetalBounds;
-        cell.metal.center=nativeMetalCenter;
-        [cell.metal setNeedsLayout];[cell.metal layoutIfNeeded];
-        HGBackdropFlushFrames(0.04);
+        cell.metal.frame=CGRectMake(nativeMetalCenter.x-nativeMetalBounds.size.width/2,
+            nativeMetalCenter.y-nativeMetalBounds.size.height/2,nativeMetalBounds.size.width,nativeMetalBounds.size.height);
         Check(!feed.clipsToBounds && CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit),
-            @"late Metal sizing after Home refresh recovers the portrait backdrop without a scroll");
+            @"late Metal sizing restores the portrait backdrop before the next display transaction");
         // A reselected Home feed may show a poster with the retained renderer
         // fully faded. Match the observed 0 -> 1 handoff and check the image,
         // HUD and material separately at native screen coordinates.
@@ -461,6 +491,29 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         Check(gradient.opacity==0 && gradient.colors.count==2 &&
             beforeSeam.valid && afterSeam.valid && fabs(beforeSeam.red-afterSeam.red)<0.06,
             @"the old HUD gradient no longer darkens the portrait or exposes a seam at the original tray edge");
+
+        [feed setContentOffset:CGPointMake(0,feedHeight+60) animated:NO];Layout(feed);
+        HGBackdropVideoCell *nextPortrait=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:2 inSection:0]];
+        HGBackdropFrameModel *frameModel=[HGBackdropFrameModel new];
+        nextPortrait.player.model=frameModel;
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        CGFloat heldY=cell.renderer.layer.sublayerTransform.m42;
+        Check(nextPortrait && cell.layer.zPosition==1 && nextPortrait.layer.zPosition==0 &&
+            fabs(heldY-fit.m42-60)<0.75,
+            @"a first-swipe portrait with prepared geometry but no visible first frame keeps the last real picture under the Dock");
+        frameModel.readyToDisPlay=YES;
+        [nextPortrait.canvas vPlayerReadyToDisPlay:nextPortrait.player];
+        Check(cell.layer.zPosition==0 && nextPortrait.layer.zPosition==1 &&
+            fabs(cell.renderer.layer.sublayerTransform.m42-heldY)<0.75,
+            @"native first-frame arrival hands over drawing order immediately without snapping the outgoing picture");
+        [feed setContentOffset:CGPointMake(0,feedHeight+80) animated:NO];Layout(feed);
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        Check(fabs(cell.renderer.layer.sublayerTransform.m42-(heldY-20))<0.75 &&
+            fabs(cell.renderer.layer.sublayerTransform.m11-fit.m11)<0.001,
+            @"outgoing placement follows further scrolling after the first-frame handoff while zoom remains constant");
+        nextPortrait.player.model=nil;
+        [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
 
         [feed setContentOffset:CGPointMake(0,feedHeight+60) animated:NO];Layout(feed);
         HGBackdropVideoCell *wideNeighbor=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:2 inSection:0]];

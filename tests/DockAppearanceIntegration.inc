@@ -17,7 +17,14 @@ static NSUInteger HGFixtureDockImpacts;
 @end
 @interface HGAAppearanceDock (HGATestQuietLayout)
 - (void)renderGeometry;
+- (NSString *)applySystemMaterial:(NSString *)style;
 @end
+@interface HGTestDockStoredPlatter : UIView {
+@public
+    UIVisualEffect *_glassEffect;
+}
+@end
+@implementation HGTestDockStoredPlatter @end
 
 typedef struct {
     NSUInteger blue;
@@ -803,6 +810,24 @@ static void HGRunDockCaptionChecks(SSTabBarController *host) {
 static NSString *HGAFixtureReadOnlyMaterial(id dock,SEL selector,NSString *style) {return @"factory-glass";}
 static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     if(!HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled())return;
+    if(@available(iOS 26.0,*)) {
+        HGAAppearanceDock *probe=[[HGAAppearanceDock alloc] initWithFrame:CGRectMake(0,0,400,84)];
+        HGTestDockStoredPlatter *stored=[HGTestDockStoredPlatter new];
+        stored->_glassEffect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleRegular];
+        [probe setValue:@0 forKey:@"systemHostSelection"];[probe setValue:stored forKey:@"systemPlatter"];
+        Check([[probe applySystemMaterial:@"clear"] isEqual:@"clear-glass-slot"] &&
+            [stored->_glassEffect isKindOfClass:UIGlassEffect.class] && !((UIGlassEffect *)stored->_glassEffect).tintColor &&
+            stored.overrideUserInterfaceStyle==UIUserInterfaceStyleDark,
+            @"an item platter with a stored glass effect accepts the actual untinted Clear effect over video");
+        UIView *factory=[UIView new];[probe setValue:factory forKey:@"systemPlatter"];
+        Check([[probe applySystemMaterial:@"clear"] isEqual:@"factory-video-optics"] &&
+            factory.overrideUserInterfaceStyle==UIUserInterfaceStyleDark,
+            @"a read-only video platter retains native selection with localized glass optics");
+        [probe setValue:@1 forKey:@"systemHostSelection"];
+        Check([[probe applySystemMaterial:@"clear"] isEqual:@"factory-glass"] &&
+            factory.overrideUserInterfaceStyle==UIUserInterfaceStyleUnspecified,
+            @"leaving playback releases the factory platter's optical override");
+    }
     NSDictionary *saved=HGAppearanceValues();
     NSUInteger savedIndex=host.selectedIndex;
     UIUserInterfaceStyle savedStyle=host.overrideUserInterfaceStyle;
@@ -903,8 +928,8 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         UIVisualEffectView *moving=(id)Find(dock,@"honggo.appearance.dock.quiet-lens");
         if(moving) {
             Check(quietBar.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight &&
-                moving.overrideUserInterfaceStyle==UIUserInterfaceStyleLight && HGADockFullGlass(moving),
-                @"the quiet drag lens uses real glass with the same light appearance as the native tab bar");
+                moving.overrideUserInterfaceStyle==UIUserInterfaceStyleDark && HGADockFullGlass(moving),
+                @"the light native bar keeps its theme while the video's quiet Clear lens follows the optical backdrop");
             CGPoint mid=CGPointMake((first.x+point.x)/2,first.y);
             [quietDock moveDockTouchToPoint:mid];CGFloat before=CGRectGetMidX(moving.frame);
             [quietDock moveDockTouchToPoint:CGPointMake(mid.x+4,mid.y)];

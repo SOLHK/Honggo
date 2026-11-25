@@ -1,5 +1,6 @@
 #import "Honggo.h"
 #import "RuntimeSupport.h"
+#import "AppearancePreferences.h"
 #import <objc/message.h>
 #import <dispatch/dispatch.h>
 #include <stdatomic.h>
@@ -290,6 +291,190 @@ static void HGAdDecision(id object, SEL selector, BOOL result) {
 
 #include "SidebarGame.inc"
 
+// Raw cards from both disk and the network reach this same outer-feed builder
+// before it generates mixed-page models and their parallel video indexes.
+@protocol HGKeywordFeedResult <NSObject>
+- (BOOL)isSuccess;
+- (BOOL)hasMore;
+- (NSInteger)nextOffset;
+- (id)cellViewData;
+@end
+@protocol HGKeywordFeedSource <NSObject>
+- (BOOL)hasMore;
+- (NSInteger)nextOffset;
+- (NSInteger)nextLoadMoreCellId;
+- (BOOL)canHandleVideoFeedCellViewData:(id)cell;
+- (BOOL)isRecommendPeopleCellViewData:(id)cell;
+- (void)updatePagingWithCellChangeResult:(id)result;
+- (void)requestLoadMoreDataWithCellId:(NSInteger)cellId completion:(void (^)(id<HGKeywordFeedResult>))completion;
+@end
+
+static BOOL HGFeedTextHasKeyword(id text, NSArray<NSString *> *keywords) {
+    if (![text isKindOfClass:NSString.class]) return NO;
+    for (NSString *keyword in keywords)
+        if ([text rangeOfString:keyword options:NSCaseInsensitiveSearch|NSWidthInsensitiveSearch].location!=NSNotFound) return YES;
+    return NO;
+}
+
+static BOOL HGFeedTagsHaveKeyword(id tags, NSArray<NSString *> *keywords) {
+    if (![tags isKindOfClass:NSArray.class]) return HGFeedTextHasKeyword(tags,keywords);
+    for (id tag in tags) {
+        if (HGFeedTextHasKeyword(tag,keywords) || HGFeedTextHasKeyword(HGReadObjectGetter(tag,"categoryName"),keywords) ||
+            HGFeedTextHasKeyword(HGReadObjectGetter(tag,"text"),keywords)) return YES;
+    }
+    return NO;
+}
+
+static BOOL HGFeedVideoHasKeyword(id video, NSArray<NSString *> *keywords) {
+    if (!video) return NO;
+    id book=HGReadObjectGetter(video,"bookData");
+    return HGFeedTextHasKeyword(HGReadObjectGetter(video,"title"),keywords) ||
+        HGFeedTextHasKeyword(HGReadObjectGetter(video,"rawBookName"),keywords) ||
+        HGFeedTextHasKeyword(HGReadObjectGetter(video,"videoDesc"),keywords) ||
+        HGFeedTextHasKeyword(HGReadObjectGetter(video,"authorNickname"),keywords) ||
+        HGFeedTagsHaveKeyword(HGReadObjectGetter(video,"categoryList"),keywords) ||
+        HGFeedTagsHaveKeyword(HGReadObjectGetter(video,"recTags"),keywords) ||
+        HGFeedTextHasKeyword(HGReadObjectGetter(HGReadObjectGetter(video,"tagInfo"),"text"),keywords) ||
+        HGFeedTextHasKeyword(HGReadObjectGetter(book,"bookName"),keywords) ||
+        HGFeedTextHasKeyword(HGReadObjectGetter(book,"bookAbstract"),keywords) ||
+        HGFeedTextHasKeyword(HGReadObjectGetter(book,"author"),keywords) ||
+        HGFeedTagsHaveKeyword(HGReadObjectGetter(book,"tags"),keywords);
+}
+
+static NSArray *HGFilterKeywordFeedPage(NSArray *cells, NSArray<NSString *> *keywords) {
+    if (!keywords.count || ![cells isKindOfClass:NSArray.class]) return cells;
+    NSMutableIndexSet *hidden=nil;
+    for (NSUInteger i=0;i<cells.count;i++) {
+        id cell=cells[i];
+        id series=HGReadObjectGetter(cell,"filterableSeriesVideoData");
+        id episode=HGReadObjectGetter(cell,"filterableEpisodeVideoData");
+        if (!HGFeedVideoHasKeyword(series,keywords) &&
+            (series==episode || !HGFeedVideoHasKeyword(episode,keywords))) continue;
+        if (!hidden) hidden=[NSMutableIndexSet indexSet];
+        [hidden addIndex:i];
+    }
+    if (!hidden) return cells;
+    NSMutableArray *kept=[cells mutableCopy];
+    [kept removeObjectsAtIndexes:hidden];
+    return kept;
+}
+
+typedef void (*HGKeywordFeedBuilder)(id, SEL, NSArray *, id, id);
+static HGForwardingAdHook HGKeywordFeedHook;
+@protocol HGKeywordFeedPage <NSObject>
+- (BOOL)videoFeedRefreshing;
+- (id)currentVideoFeedListDataSource;
+- (void)commonRefreshPageWithReloadPage:(BOOL)reload clientReqType:(int)type withCallBack:(void (^)(void))callback;
+@end
+static __weak UIViewController<HGKeywordFeedPage> *HGActiveKeywordFeedPage;
+static NSUInteger HGKeywordRevision;
+static char HGKeywordPageRevisionKey;
+static HGForwardingAdHook HGKeywordAppearHook, HGKeywordDisappearHook, HGKeywordFinishHook;
+
+static void HGRefreshKeywordFeedIfNeeded(UIViewController<HGKeywordFeedPage> *page) {
+    if (!page.viewIfLoaded.window || page!=HGActiveKeywordFeedPage ||
+        [objc_getAssociatedObject(page,&HGKeywordPageRevisionKey) unsignedIntegerValue]==HGKeywordRevision ||
+        [page videoFeedRefreshing]) return;
+    id source=[page currentVideoFeedListDataSource];
+    if (![source isKindOfClass:objc_lookUpClass("SSShortVideoRecommendOutterListDataSource")]) return;
+    objc_setAssociatedObject(page,&HGKeywordPageRevisionKey,@(HGKeywordRevision),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // The container uses these same arguments to rebuild its existing feed
+    // and publishes the new video and mixed-item indexes as one refresh.
+    [page commonRefreshPageWithReloadPage:YES clientReqType:1 withCallBack:nil];
+}
+static void HGKeywordPageAppeared(UIViewController<HGKeywordFeedPage> *page, SEL cmd) {
+    ((void(*)(id,SEL))atomic_load(&HGKeywordAppearHook.original))(page,cmd);
+    HGActiveKeywordFeedPage=page;
+    HGRefreshKeywordFeedIfNeeded(page);
+}
+static void HGKeywordPageDisappearing(id page, SEL cmd, NSUInteger reason) {
+    if (HGActiveKeywordFeedPage==page) HGActiveKeywordFeedPage=nil;
+    ((void(*)(id,SEL,NSUInteger))atomic_load(&HGKeywordDisappearHook.original))(page,cmd,reason);
+}
+static void HGKeywordPageFinished(UIViewController<HGKeywordFeedPage> *page, SEL cmd, id context) {
+    ((void(*)(id,SEL,id))atomic_load(&HGKeywordFinishHook.original))(page,cmd,context);
+    HGRefreshKeywordFeedIfNeeded(page);
+}
+
+static void HGBuildKeywordFeedPage(id<HGKeywordFeedSource> source, SEL cmd, NSArray *cells, id beforeBuild, id completion) {
+    HGKeywordFeedBuilder original=(HGKeywordFeedBuilder)atomic_load_explicit(&HGKeywordFeedHook.original,memory_order_acquire);
+    NSArray *kept=HGFilterKeywordFeedPage(cells,HGVideoBlockedKeywords());
+    if (kept==cells || kept.count || ![source hasMore]) {
+        original(source,cmd,kept,beforeBuild,completion);
+        return;
+    }
+    NSInteger offset=[source nextOffset], cellId=[source nextLoadMoreCellId];
+    [source requestLoadMoreDataWithCellId:cellId completion:^(id<HGKeywordFeedResult> result) {
+        if (![result isKindOfClass:objc_lookUpClass("SSShortVideoRecommendOutterCellChangeResult")]) {
+            // The 7.4.5 host also supplies alternate implementations of its load-more result protocol.
+            Protocol *hostProtocol=objc_getProtocol("SSShortVideoRecommendOutterLoadMoreResultProtocol");
+            if (!hostProtocol || ![result conformsToProtocol:hostProtocol]) {
+                original(source,cmd,kept,beforeBuild,completion);
+                return;
+            }
+        }
+        id container=result.cellViewData;
+        if (![result isSuccess] || [source nextOffset]!=offset || [source nextLoadMoreCellId]!=cellId ||
+            !container || ![source canHandleVideoFeedCellViewData:container]) {
+            original(source,cmd,kept,beforeBuild,completion);
+            return;
+        }
+        NSArray *next=[source isRecommendPeopleCellViewData:container] ? @[container] : HGReadObjectGetter(container,"cellData");
+        if (![next isKindOfClass:NSArray.class]) {
+            original(source,cmd,kept,beforeBuild,completion);
+            return;
+        }
+        NSInteger nextOffset=result.nextOffset;
+        BOOL more=result.hasMore;
+        if (more && nextOffset<offset) {
+            original(source,cmd,kept,beforeBuild,completion);
+            return;
+        }
+        [source updatePagingWithCellChangeResult:result];
+        if (!more || nextOffset<=offset || !next.count) {
+            original(source,cmd,HGFilterKeywordFeedPage(next,HGVideoBlockedKeywords()),beforeBuild,completion);
+            return;
+        }
+        // Cached results may call back synchronously. Start the next pass on
+        // the host UI queue so consecutive hidden pages never consume the stack.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if ([source nextOffset]!=nextOffset) original(source,cmd,kept,beforeBuild,completion);
+            else HGBuildKeywordFeedPage(source,cmd,next,beforeBuild,completion);
+        });
+    }];
+}
+
+static void HGInstallKeywordFeedFilter(void) {
+    Class source=objc_lookUpClass("SSShortVideoRecommendOutterListDataSource");
+    Class result=objc_lookUpClass("SSShortVideoRecommendOutterCellChangeResult");
+    if (!HGAdMethodMatches(result,@selector(isSuccess),"B16@0:8") || !HGAdMethodMatches(result,@selector(hasMore),"B16@0:8") ||
+        !HGAdMethodMatches(result,@selector(nextOffset),"q16@0:8") || !HGAdMethodMatches(result,@selector(cellViewData),"@16@0:8") ||
+        !HGAdMethodMatches(source,@selector(hasMore),"B16@0:8") || !HGAdMethodMatches(source,@selector(nextOffset),"q16@0:8") ||
+        !HGAdMethodMatches(source,@selector(nextLoadMoreCellId),"q16@0:8") ||
+        !HGAdMethodMatches(source,@selector(canHandleVideoFeedCellViewData:),"B24@0:8@16") ||
+        !HGAdMethodMatches(source,@selector(isRecommendPeopleCellViewData:),"B24@0:8@16") ||
+        !HGAdMethodMatches(source,@selector(updatePagingWithCellChangeResult:),"v24@0:8@16") ||
+        !HGAdMethodMatches(source,@selector(requestLoadMoreDataWithCellId:completion:),"v32@0:8q16@?24")) return;
+    HGInstallForwardingAdHook(source,
+        sel_registerName("reqVideoDataIfNeedWithCellViewDataArr:beforeBuild:completion:"),"v40@0:8@16@?24@?32",
+        (IMP)HGBuildKeywordFeedPage,&HGKeywordFeedHook);
+    Class page=objc_lookUpClass("SSVideoFeedContainerViewController");
+    if (!HGKeywordFeedHook.installed || !HGAdMethodMatches(page,@selector(videoFeedRefreshing),"B16@0:8") ||
+        !HGAdMethodMatches(page,@selector(currentVideoFeedListDataSource),"@16@0:8") ||
+        !HGAdMethodMatches(page,@selector(commonRefreshPageWithReloadPage:clientReqType:withCallBack:),"v32@0:8B16i20@?24")) return;
+    HGInstallForwardingAdHook(page,sel_registerName("feedHostDidAppear"),"v16@0:8",(IMP)HGKeywordPageAppeared,&HGKeywordAppearHook);
+    HGInstallForwardingAdHook(page,sel_registerName("feedHostWillDisappearForReason:"),"v24@0:8Q16",(IMP)HGKeywordPageDisappearing,&HGKeywordDisappearHook);
+    HGInstallForwardingAdHook(page,sel_registerName("videoListVCContextFinishRefreshingData:"),"v24@0:8@16",(IMP)HGKeywordPageFinished,&HGKeywordFinishHook);
+    static dispatch_once_t once;
+    dispatch_once(&once,^{
+        [NSNotificationCenter.defaultCenter addObserverForName:HGVideoBlockedKeywordsDidChangeNotification
+            object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+            HGKeywordRevision++;
+            HGRefreshKeywordFeedIfNeeded(HGActiveKeywordFeedPage);
+        }];
+    });
+}
+
 // A previously prepared homepage ad can re-enter the list without another
 // homepage request. Both insertion APIs return 2 when canInsertModel is NO.
 static void HGInstallHomepageAdModelFilter(void) {
@@ -323,6 +508,7 @@ static void HGInstallHomepageAdModelFilter(void) {
 }
 
 void HGInstallAds(void) {
+    HGInstallKeywordFeedFilter();
     HGInstallSidebarLists();
     BOOL enabled[HGFeatureCount] = {NO};
     for (HGFeature feature = HGSplash; feature < HGFeatureCount; feature++) {

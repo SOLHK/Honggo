@@ -2,6 +2,7 @@
 #import <Foundation/Foundation.h>
 
 FOUNDATION_EXPORT NSString *const HGAppearanceDidChangeNotification;
+FOUNDATION_EXPORT NSString *const HGVideoBlockedKeywordsDidChangeNotification;
 FOUNDATION_EXPORT const double HGADockDefaultWidth;
 // Typed, independent appearance domain. No host preferences or old switch IDs.
 NSArray<NSDictionary *> *HGAppearanceCatalog(void);
@@ -14,6 +15,7 @@ id HGAppearanceValue(NSString *key);
 BOOL HGAppearanceFlag(NSString *key);
 double HGAppearanceNumber(NSString *key);
 NSString *HGAppearanceString(NSString *key);
+NSArray<NSString *> *HGVideoBlockedKeywords(void);
 BOOL HGFlatDockStyle(void);
 BOOL HGFlatTopStyle(void);
 BOOL HGFlatPlayerStyle(void);

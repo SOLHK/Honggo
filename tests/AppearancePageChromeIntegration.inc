@@ -594,12 +594,15 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     oneSurface &= tool.superview==header && tool.maskView==nil;
                     if ([style isEqual:@"blur"])
                         oneSurface &= tool.configuration==nil && [backdrop.effect isKindOfClass:UIBlurEffect.class];
-                    else
-                        oneSurface &= tool.configuration && tool.configuration.cornerStyle==UIButtonConfigurationCornerStyleCapsule &&
-                            !backdrop && tool.enabled;
+                    else {
+                        oneSurface &= !tool.configuration && HGTestFullGlassEffect(backdrop) &&
+                            [[backdrop valueForKey:@"style"] isEqual:@"clear"] && tool.enabled;
+                        if([backdrop isKindOfClass:NSClassFromString(@"HGAHeaderTouchGlass")])
+                            oneSurface &= [backdrop valueForKey:@"channelControl"]==tool;
+                    }
                 }
             }
-            Check(oneSurface,@"menu and search each have one native glass button, and switching to classic blur uses its own backdrop");
+            Check(oneSurface,@"menu and search each have one untinted Clear surface over video; classic blur retains its own effect");
             HGAppearanceApply(@{@"player.headerStyle":savedStyle,@"player.material":savedMaterial},nil);
         }
         if (nativeTools) {
@@ -856,7 +859,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 buttons[0].buttonType==UIButtonTypeCustom && buttons[1].buttonType==UIButtonTypeCustom &&
                 !buttons[0].configuration && !buttons[1].configuration;
             Check(native && !segments.window && categoryList.hidden && rail.superview==lens.superview && [rail isDescendantOfView:group] &&
-                CGRectEqualToRect(rail.frame,group.bounds) && HGTestFullGlassEffect(rail) && !rail.userInteractionEnabled &&
+                CGRectEqualToRect(rail.frame,group.bounds) && HGTestFullGlassEffect(rail) &&
+                [[rail valueForKey:@"style"] isEqual:@"clear"] && !rail.userInteractionEnabled &&
                 refraction.hidden && ![(UIGlassEffect *)effect isInteractive] &&
                 CGColorGetAlpha(lens.backgroundColor.CGColor)>0 && CGRectEqualToRect(refraction.frame,lens.bounds) &&
                 [group.subviews indexOfObject:rail.superview]<[group.subviews indexOfObject:firstTitle.superview] &&

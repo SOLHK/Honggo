@@ -171,6 +171,19 @@ int main(void) {@autoreleasepool {
         @"retired tint and icon options are not searchable or writable");
     Check(!HGAppearanceSet(@"fonts.asset",@"file:///etc/passwd",nil),@"font URI rejected");
     Check(!HGAppearanceSet(@"fonts.asset",@"a.ttf/../b",nil),@"font path traversal rejected");
+    Check(!HGVideoBlockedKeywords().count &&
+        [HGAppearanceSearch(@"关键词屏蔽").firstObject[@"key"] isEqual:@"video.blockedKeywords"],
+        @"existing settings start with an empty, searchable keyword filter");
+    __block NSUInteger keywordChanges=0;
+    id observer=[NSNotificationCenter.defaultCenter addObserverForName:HGVideoBlockedKeywordsDidChangeNotification
+        object:nil queue:nil usingBlock:^(NSNotification *change){keywordChanges++;}];
+    Check(HGAppearanceSet(@"video.blockedKeywords",@[@" 都市 ",@"",@"ＡＩ",@"ai"],nil) &&
+        [HGVideoBlockedKeywords() isEqual:@[@"都市",@"ＡＩ"]] &&
+        !HGAppearanceSet(@"video.blockedKeywords",@[@1],nil) &&
+        HGAppearanceSet(@"video.blockedKeywords",@[@"都市",@"ＡＩ "],nil) && keywordChanges==1 &&
+        [HGAppearancePreset(@"glass")[@"video.blockedKeywords"] isEqual:HGVideoBlockedKeywords()],
+        @"keyword storage trims, deduplicates case and width, rejects malformed updates and survives visual presets");
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
     Check(HGAppearanceSet(@"fonts.name",@"HelveticaNeue-Bold",nil),@"font name accepted");
     NSDictionary *before=HGAppearanceValues();
     Check(!HGAppearanceApply(@{@"enabled":@YES,@"layout.like.x":@999},nil) && [before isEqual:HGAppearanceValues()],@"one invalid field rejects the whole update");
@@ -196,7 +209,8 @@ int main(void) {@autoreleasepool {
     Check(HGAppearanceNeedsGlass(),@"startup knows the visual preset requests glass");
     Check(HGAppearanceApply(HGAppearancePreset(@"focus"),nil) && HGAppearanceFlag(@"dock.autoCollapse") && HGAppearanceFlag(@"layout.tags.hidden"),@"focus preset supplies collapse and clean layout");
     HGAppearanceReset();
-    Check(!HGAppearanceEnabled() && !HGAppearanceNeedsGlass(),@"reset stops the new appearance path");
+    Check(!HGAppearanceEnabled() && !HGAppearanceNeedsGlass() && !HGVideoBlockedKeywords().count,
+        @"reset restores the appearance and empty video filter defaults");
     Check([[NSUserDefaults.standardUserDefaults stringForKey:@"host.fixture"] isEqual:@"preserve"],@"reset preserves unrelated host settings");
     NSLog(@"Appearance preferences: %lu checks, %lu failures",(unsigned long)checks,(unsigned long)failures);
     return failures?1:0;

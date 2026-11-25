@@ -224,6 +224,61 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     }
 }
 
+@interface HGVideoKeywordEditor : UIViewController
+@property(nonatomic,strong) UITextView *editor;
+@end
+
+@implementation HGVideoKeywordEditor
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title=@"屏蔽视频关键词";
+    self.view.backgroundColor=UIColor.systemGroupedBackgroundColor;
+    self.navigationItem.rightBarButtonItem=[[UIBarButtonItem alloc] initWithTitle:@"保存"
+        style:UIBarButtonItemStyleDone target:self action:@selector(saveKeywords)];
+    UILabel *hint=[UILabel new];
+    hint.text=@"每行一个关键词。视频信息包含任意一个词时自动屏蔽。清空并保存即可关闭。";
+    hint.numberOfLines=0;
+    hint.font=[UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    hint.adjustsFontForContentSizeCategory=YES;
+    hint.textColor=UIColor.secondaryLabelColor;
+    self.editor=[UITextView new];
+    self.editor.accessibilityLabel=@"屏蔽关键词，每行一个";
+    self.editor.accessibilityIdentifier=@"honggo.video.keywordEditor";
+    self.editor.backgroundColor=UIColor.secondarySystemGroupedBackgroundColor;
+    self.editor.font=[UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    self.editor.adjustsFontForContentSizeCategory=YES;
+    self.editor.textContainerInset=UIEdgeInsetsMake(12,8,12,8);
+    self.editor.layer.cornerRadius=12;
+    self.editor.text=[HGVideoBlockedKeywords() componentsJoinedByString:@"\n"];
+    hint.translatesAutoresizingMaskIntoConstraints=NO;
+    self.editor.translatesAutoresizingMaskIntoConstraints=NO;
+    [self.view addSubview:hint];
+    [self.view addSubview:self.editor];
+    UILayoutGuide *margin=self.view.layoutMarginsGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [hint.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:16],
+        [hint.leadingAnchor constraintEqualToAnchor:margin.leadingAnchor],
+        [hint.trailingAnchor constraintEqualToAnchor:margin.trailingAnchor],
+        [self.editor.topAnchor constraintEqualToAnchor:hint.bottomAnchor constant:10],
+        [self.editor.leadingAnchor constraintEqualToAnchor:margin.leadingAnchor],
+        [self.editor.trailingAnchor constraintEqualToAnchor:margin.trailingAnchor],
+        [self.editor.bottomAnchor constraintEqualToAnchor:self.view.keyboardLayoutGuide.topAnchor constant:-12]
+    ]];
+}
+- (void)saveKeywords {
+    NSArray *lines=[self.editor.text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet];
+    NSError *error=nil;
+    if (HGAppearanceSet(@"video.blockedKeywords",lines,&error)) {
+        [self.navigationController popViewControllerAnimated:YES];
+        return;
+    }
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"关键词未保存"
+        message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+@end
+
 @implementation HGAAppearanceController
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -377,6 +432,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             [rows addObject:HGATool([@"@role.reset." stringByAppendingString:role],@"恢复此项默认")];
         }
     } else if([self.group isEqual:@"drama"]) {
+        section(@"内容过滤");
+        HGAAddDefs(rows,@[@"video.blockedKeywords"]);
         section(@"全集入口");
         HGAAddDefs(rows,@[@"player.episodeGlass",@"player.episodeDockWidth",@"player.separateProgress"]);
         [rows addObject:HGARoleEntry(@"episodes")];
@@ -492,6 +549,9 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         NSString *value=HGAppearanceString(key);
         if([kind isEqual:@"choice"]) {
             NSUInteger i=[row[@"choices"] indexOfObject:value];cell.detailTextLabel.text=i!=NSNotFound?row[@"labels"][i]:@"默认";
+        }else if([kind isEqual:@"keywordList"]) {
+            NSUInteger count=HGVideoBlockedKeywords().count;
+            cell.detailTextLabel.text=count ? [NSString stringWithFormat:@"已设置 %lu 个关键词",(unsigned long)count] : @"未设置";
         }else if([kind isEqual:@"fontfile"])cell.detailTextLabel.text=value.length?@"已选择本地资源，点击可更换或清除":@"未选择";
         else if(![kind isEqual:@"action"])cell.detailTextLabel.text=value.length?value:@"跟随系统／预设";
         if([key hasPrefix:@"@role.reset."])cell.textLabel.textColor=UIColor.systemRedColor;
@@ -539,6 +599,10 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 - (void)openRow:(NSDictionary *)row {
     if(self.busy)return;
     NSString *key=row[@"key"],*kind=row[@"kind"];
+    if([kind isEqual:@"keywordList"]){
+        [self.navigationController pushViewController:[HGVideoKeywordEditor new] animated:YES];
+        return;
+    }
     if([key isEqual:@"@community"]){HGShowCommunity(self);return;}
     if([key hasPrefix:@"@group."]){HGOpenAppearance(self,[key substringFromIndex:7]);return;}
     if([key hasPrefix:@"@role.copyRightSize."]) {
