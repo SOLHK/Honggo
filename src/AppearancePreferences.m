@@ -101,6 +101,8 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
                 [@"隐藏" stringByAppendingString:mineShortcutNames[i]]);
         [a addObject:HGADef(@"gestures.pinchClean",@"gestures",@"双指展开清屏、收缩恢复",@"bool",@NO,
             @{@"keywords":@"双指清屏 捏合恢复 双指放大 双指缩小"})];
+        [a addObject:HGADef(@"gestures.cleanWhilePlaying",@"gestures",@"播放时自动清屏",@"bool",@NO,
+            @{@"keywords":@"默认清屏 沉浸观看 暂停显示控件"})];
         [a addObject:HGADef(@"gestures.doubleTapComments",@"gestures",@"双击短剧画面打开评论区",@"bool",@NO,
             @{@"keywords":@"双击评论 双击打开评论"})];
         [a addObject:HGADef(@"player.episodeGlass",@"player",@"全集入口玻璃",@"bool",@YES,nil)];

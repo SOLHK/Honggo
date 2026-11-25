@@ -744,9 +744,10 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     CGFloat bottom = MIN(CGRectGetMaxY(root.bounds), CGRectGetMaxY(windowRect));
     CGRect barRect = [bar convertRect:bar.bounds toView:root];
     CGFloat barTop = CGRectGetMinY(barRect);
-    if (HGTabBarIsInTransitionOrDisplaced(bar, self.controller) ||
-        bottom - barTop < 20 || bottom - barTop > 160) {
-        [self.videoBackdrop restore]; return;
+    if (HGTabBarIsInTransitionOrDisplaced(bar, self.controller)) return;
+    if (bottom - barTop < 20 || bottom - barTop > 160) {
+        [self.videoBackdrop refreshFeed];
+        return;
     }
     NSMutableArray<HGViewportRecord *> *records = [NSMutableArray array];
     // Walk only sibling content branches below the tab bar in z-order; ignore
@@ -763,8 +764,8 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
         }
         path = parent;
     }
-    if (self.customDock && !self.videoBackdrop) self.videoBackdrop = [HGVideoBackdrop new];
-    BOOL renderVideo=self.customDock || (HGAppearanceEnabled() && HGVideoBackdropSpeedTipVisible(self.videoBackdrop.feed));
+    BOOL renderVideo=HGAppearanceEnabled();
+    if (renderVideo && !self.videoBackdrop) self.videoBackdrop = [HGVideoBackdrop new];
     [self.videoBackdrop refreshWithBranches:branches root:root bar:bar active:renderVideo];
     for (UIView *branch in branches) {
         if (!HGContainsVisibleVerticalPager(branch, root))
@@ -899,7 +900,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     // Never open a disabled-actions CATransaction or mutate viewports/dock while
     // customTabBar is displaced horizontally (sidebar slide or nav push to search).
     if (HGTabBarIsInTransitionOrDisplaced(currentBar, self.controller)) {
-        [self.videoBackdrop restore];
+        if (!currentBar.window || !HGAppearanceEnabled()) [self.videoBackdrop restore];
         if (currentBar.frame.origin.x < -2 && currentBar.window && HGAppearanceDockEnabled() &&
             !HGAppearanceDockIsMutating(currentBar)) {
             self.refreshing = YES;
@@ -918,13 +919,13 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
             // Release the old mode once before taking new baselines. Do not
             // restore/reapply live list geometry on every custom-dock layout.
             HGAppearanceRestoreDock(bar);
-            [self restore];
+            [self restoreTabSurfaces];
             self.customDock = customDock;
         }
         if (!customDock) HGAppearanceRestoreDock(bar);
         if ((!HGGlassEnabled && !customDock) || !bar.window || bar.hidden) {
             HGAppearanceRestoreDock(bar);
-            if (bar.window && HGAppearanceEnabled() && HGVideoBackdropSpeedTipVisible(self.videoBackdrop.feed)) {
+            if (bar.window && HGAppearanceEnabled()) {
                 [self.videoBackdrop refreshFeed];
                 [self restoreTabSurfaces];
             } else [self restore];
@@ -948,13 +949,14 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
         }
         UIView *content = HGView(bar, "contentView");
         if (!content || content == bar || ![content isDescendantOfView:bar]) {
-            [self restore];
+            [self.videoBackdrop refreshFeed];
+            [self restoreTabSurfaces];
             return;
         }
         CGRect frame = [content convertRect:content.bounds toView:bar];
         if (!isfinite(frame.size.width) || !isfinite(frame.size.height) ||
             frame.size.width < 64 || frame.size.height < 32) {
-            [self.videoBackdrop restore];
+            [self.videoBackdrop refreshFeed];
             self.glass.hidden = YES;
             return;
         }
@@ -1015,7 +1017,10 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
             for (UIView *child in bar.subviews)
                 if ([child.accessibilityIdentifier isEqual:@"honggo.appearance.dock"] && !child.hidden) attached = YES;
             if (attached) [self refreshViewports];
-            else [self restore]; // Unmapped/too-small dock: keep native navigation visible.
+            else {
+                [self.videoBackdrop refreshFeed];
+                [self restoreTabSurfaces];
+            }
             return;
         }
         [self prepareGlass:frame content:content];
@@ -1091,8 +1096,7 @@ static void HGRefreshTabBar(UIViewController *controller) {
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
     if (!NSThread.isMainThread || HGFeedSidebarOwnsLayout(feed.window)) return;
     if (HGVideoBackdropRefreshForFeed(feed) || !feed.window) return;
-    BOOL speed=HGAppearanceEnabled() && HGVideoBackdropSpeedTipVisible((UICollectionView *)feed);
-    if (!HGAppearanceDockEnabled() && !speed) return;
+    if (!HGAppearanceEnabled()) return;
     UIViewController *videoOwner=HGVideoBackdropOwner(feed);
     id<UIViewControllerTransitionCoordinator> transition=videoOwner.transitionCoordinator;
     if (transition) {
@@ -1121,7 +1125,7 @@ void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
         if (![bar isKindOfClass:HGTabBarClass]) continue;
         HGTabState *state = HGState(bar);
         UIView *root = controller.viewIfLoaded;
-        if ((state.customDock || speed) && [feed isDescendantOfView:root] &&
+        if ([feed isDescendantOfView:root] &&
             !HGTabBarIsInTransitionOrDisplaced(bar, controller) &&
             HGVideoBackdropFeedGeometry((UICollectionView *)feed, videoOwner, root, bar)) {
             if (!state.videoBackdrop) state.videoBackdrop=[HGVideoBackdrop new];

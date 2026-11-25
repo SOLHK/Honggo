@@ -32,16 +32,20 @@ static BOOL HGAPlayerIsSeries(UIView *player) {
 // its list page, and suppress only playback chrome mounted on that page.
 @interface HGACleanTarget : NSObject
 @property(nonatomic) BOOL interaction;
+@property(nonatomic) BOOL accessibilityHidden;
 @property(nonatomic,strong) CALayer *nativeMask;
 @property(nonatomic,strong) CALayer *cleanMask;
 @end
 @implementation HGACleanTarget @end
 @interface HGACleanPlayback : NSObject
 @property(nonatomic,weak) UIView *page;
+@property(nonatomic) BOOL automatic;
 @property(nonatomic,strong) NSMapTable<UIView *,HGACleanTarget *> *targets;
 @end
 @implementation HGACleanPlayback @end
 static NSMapTable<UIWindow *,HGACleanPlayback *> *HGACleanPages;
+static NSMapTable<UIView *,id> *HGACleanPausedModels;
+static BOOL HGACleanTapInstalled;
 static NSHashTable *HGAPlayerNavigations;
 static UIView *HGAPlayerDetailNavigationTitle(UIView *bar);
 static NSString * const HGACleanOpacity = @"honggo.clean.opacity";
@@ -51,6 +55,7 @@ static void HGACleanCover(HGACleanPlayback *state,UIView *target) {
     if(![state.targets objectForKey:target]) {
         HGACleanTarget *record=[HGACleanTarget new];
         record.interaction=target.userInteractionEnabled;
+        record.accessibilityHidden=target.accessibilityElementsHidden;
         [state.targets setObject:record forKey:target];
     }
     if(![target.layer animationForKey:HGACleanOpacity]) {
@@ -62,6 +67,7 @@ static void HGACleanCover(HGACleanPlayback *state,UIView *target) {
         [target.layer addAnimation:cover forKey:HGACleanOpacity];
     }
     if(target.userInteractionEnabled)target.userInteractionEnabled=NO;
+    if(state.automatic)target.accessibilityElementsHidden=YES;
 }
 // The host repaints the title column and progress rail during paging, including
 // opacity animations. A transparent mask on these two ink surfaces stays in
@@ -85,6 +91,10 @@ static void HGACleanCoverInk(HGACleanPlayback *state,UIView *ink) {
         [CATransaction commit];
     }
 }
+static void HGACleanCoverChrome(HGACleanPlayback *state,UIView *view) {
+    if(state.automatic)HGACleanCoverInk(state,view);
+    else HGACleanCover(state,view);
+}
 static void HGACleanRestore(HGACleanPlayback *state,UIView *target) {
     HGACleanTarget *record=[state.targets objectForKey:target];
     if(!record)return;
@@ -95,7 +105,12 @@ static void HGACleanRestore(HGACleanPlayback *state,UIView *target) {
     }
     [target.layer removeAnimationForKey:HGACleanOpacity];
     target.userInteractionEnabled=record.interaction;
+    if(state.automatic && target.accessibilityElementsHidden)target.accessibilityElementsHidden=record.accessibilityHidden;
     [state.targets removeObjectForKey:target];
+}
+static NSArray<NSString *> *HGAAutomaticCleanControlClasses(void) {
+    return @[@"FQVShortVideoLoadingView",@"FQVShortVideoBottomFastPlayTipView",@"FQVShortVideoFastPlayTipView",
+        @"FQVShortVideoLockPlayRateTipsView",@"FQVShortVideoPlayRateTipsView",@"FQVShortVideoResolutionTipsView"];
 }
 static void HGAEndCleanPlayback(UIWindow *window) {
     HGACleanPlayback *state=[HGACleanPages objectForKey:window];
@@ -128,11 +143,12 @@ static void HGAApplyCleanView(UIView *view) {
         for(NSUInteger i=0;i<sizeof(slots)/sizeof(slots[0]);i++) {
             Ivar ivar=class_getInstanceVariable(object_getClass(view),slots[i]);
             id child=ivar && ivar_getTypeEncoding(ivar)[0]=='@' ? object_getIvar(view,ivar) : nil;
-            if([child isKindOfClass:UIView.class] && [child isDescendantOfView:view])HGACleanCover(state,child);
+            if([child isKindOfClass:UIView.class] && [child isDescendantOfView:view])HGACleanCoverChrome(state,child);
         }
         for(UIView *child in view.subviews) {
             if([child isKindOfClass:objc_lookUpClass("FQVShortVideoProgressView")])
                 HGACleanCoverInk(state,child);
+            else if(state.automatic && [child isKindOfClass:UIControl.class])HGACleanCoverInk(state,child);
         }
         UIView *info=HGAViewGetter(view,"baseInfoView",view);
         HGACleanCoverInk(state,HGAViewGetter(info,"leftContainer",info));
@@ -149,10 +165,11 @@ static void HGAApplyCleanView(UIView *view) {
     if([role isEqual:@"progress"] || titleColumn)
         HGACleanCoverInk(state,view);
     else if(bar || metadata || [HGACleanControlClasses() containsObject:NSStringFromClass(view.class)] ||
+       (state.automatic && [HGAAutomaticCleanControlClasses() containsObject:NSStringFromClass(view.class)]) ||
        [view isKindOfClass:objc_lookUpClass("FQVShortVideoPlayerBottomView")] ||
        [view isKindOfClass:objc_lookUpClass("FQVShortVideoControlCleanSwitchView")] ||
        [view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerEpisodeInfoView")])
-        HGACleanCover(state,view);
+        HGACleanCoverChrome(state,view);
 }
 static void HGAApplyCleanNavigation(id component) {
     if(!HGACleanPages.count)return;
@@ -160,26 +177,86 @@ static void HGAApplyCleanNavigation(id component) {
     if(![bar isKindOfClass:UIView.class] || !bar.window)return;
     HGACleanPlayback *state=[HGACleanPages objectForKey:bar.window];
     if(state.page && [bar isDescendantOfView:state.page]) {
-        HGACleanCover(state,bar);
-        HGACleanCover(state,HGAPlayerDetailNavigationTitle(bar));
+        HGACleanCoverChrome(state,bar);
+        HGACleanCoverChrome(state,HGAPlayerDetailNavigationTitle(bar));
     }
 }
-static void HGABeginCleanPlayback(UIView *player) {
-    UIWindow *window=player.window;
-    if(!window)return;
+static UIView *HGACleanPageForPlayer(UIView *player,BOOL automatic) {
     UIViewController *owner=HGAOwner(player);
-    for(UIViewController *vc=owner;vc;vc=vc.parentViewController)
-        if([vc isKindOfClass:objc_lookUpClass("FQVShortVideoListViewController")]){owner=vc;break;}
-    UIView *page=owner.viewIfLoaded;
-    if(!page)return;
+    UIView *list=nil;
+    for(UIViewController *vc=owner;vc;vc=vc.parentViewController) {
+        if(automatic && [vc isKindOfClass:objc_lookUpClass("SSShortVideoDetailViewController")])return vc.viewIfLoaded;
+        if(!list && [vc isKindOfClass:objc_lookUpClass("FQVShortVideoListViewController")]) {
+            list=vc.viewIfLoaded;
+            if(!automatic)return list;
+        }
+    }
+    return list ?: owner.viewIfLoaded;
+}
+static void HGABeginCleanPlayback(UIView *player,BOOL automatic) {
+    UIWindow *window=player.window;
+    UIView *page=HGACleanPageForPlayer(player,automatic);
+    if(!window || !page)return;
+    HGACleanPlayback *previous=[HGACleanPages objectForKey:window];
+    if(previous.page==page && previous.automatic==automatic)return;
     if(!HGACleanPages)HGACleanPages=[NSMapTable weakToStrongObjectsMapTable];
     HGAEndCleanPlayback(window);
     HGACleanPlayback *state=[HGACleanPlayback new];
-    state.page=page;state.targets=[NSMapTable weakToStrongObjectsMapTable];
+    state.page=page;state.automatic=automatic;state.targets=[NSMapTable weakToStrongObjectsMapTable];
     [HGACleanPages setObject:state forKey:window];
     for(UIView *node in HGAManaged.allObjects)if(node.window==window)HGAApplyCleanView(node);
     for(UIView *node in HGADescendants(player,300))HGAApplyCleanView(node);
     for(id component in HGAPlayerNavigations.allObjects)HGAApplyCleanNavigation(component);
+}
+
+static BOOL HGAAutomaticCleanEnabled(void) {
+    return HGACleanTapInstalled && HGAppearanceFlag(@"gestures.cleanWhilePlaying");
+}
+
+static void HGAStartAutomaticCleanForCell(UIView *cell,BOOL waitingForFrame) {
+    if(!NSThread.isMainThread || !HGAAutomaticCleanEnabled() ||
+       ![cell isKindOfClass:objc_lookUpClass("FQVShortVideoPlayerCellView")] ||
+       !HGAVisible(cell) || HGFeedSidebarOwnsLayout(cell.window))return;
+    // Prefetch can prepare adjacent cells while a different scene owns the HUD.
+    id model=HGReadObjectGetter(cell,"model");
+    id context=HGReadObjectGetter(cell,"listVCContext");
+    if(!model || model!=HGReadObjectGetter(context,"currentModel"))return;
+    UIView *player=HGAViewGetter(cell,"vPlayerControlView",cell);
+    if(!player || !HGAPlayerIsSeries(player))return;
+    if(waitingForFrame) {
+        BOOL playing=NO;
+        id pausedModel=[HGACleanPausedModels objectForKey:player];
+        if(!HGABoolGetter(cell,@"isUserPlaying",&playing) || !playing ||
+           (pausedModel && pausedModel==HGReadObjectGetter(player,"videoDataModel")))return;
+    }else [HGACleanPausedModels removeObjectForKey:player];
+    HGABeginCleanPlayback(player,YES);
+}
+
+static void HGAApplyAutomaticCleanTap(id component,UIView *player,BOOL play,id model) {
+    if(!NSThread.isMainThread || !HGAAutomaticCleanEnabled() || !HGAVisible(player) ||
+       !HGAPlayerIsSeries(player) || !model || model!=HGReadObjectGetter(component,"currentVideoDataModel"))return;
+    // The native action explicitly distinguishes click_pause and click_continue.
+    // Buffering and scroll recycling do not take this path.
+    if(play) {
+        [HGACleanPausedModels removeObjectForKey:player];
+        HGABeginCleanPlayback(player,YES);
+    } else {
+        if(!HGACleanPausedModels)HGACleanPausedModels=[NSMapTable weakToWeakObjectsMapTable];
+        [HGACleanPausedModels setObject:model forKey:player];
+        UIWindow *window=player.window;
+        UIView *page=[HGACleanPages objectForKey:window].page;
+        if(page && [player isDescendantOfView:page])HGAEndCleanPlayback(window);
+    }
+}
+
+static void HGARefreshCleanPlayback(void) {
+    BOOL automatic=HGAAutomaticCleanEnabled(),manual=HGAppearanceFlag(@"gestures.pinchClean");
+    for(UIWindow *window in HGACleanPages.keyEnumerator.allObjects) {
+        HGACleanPlayback *state=[HGACleanPages objectForKey:window];
+        if(!(state.automatic ? automatic : manual))HGAEndCleanPlayback(window);
+    }
+    if(automatic)for(UIView *view in HGAManaged.allObjects)HGAStartAutomaticCleanForCell(view,YES);
+    else HGACleanPausedModels=nil;
 }
 
 static BOOL HGAPlayerGestureSurface(UIView *player,UIView *hit) {
@@ -249,7 +326,7 @@ static BOOL HGAPlayerGestureSurface(UIView *player,UIView *hit) {
     BOOL clean=page && [self.player isDescendantOfView:page];
     if(!clean && gesture.scale>=1.15) {
         self.changedCleanMode=YES;
-        HGABeginCleanPlayback(self.player);
+        HGABeginCleanPlayback(self.player,NO);
     }else if(gesture.scale<=0.85) {
         // Native clean mode can also have been selected from the playback menu.
         BOOL nativeClean=NO;

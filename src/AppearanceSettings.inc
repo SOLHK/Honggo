@@ -341,7 +341,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"mine.hide.shortcut.row",@"mine.hide.shortcut.store",@"mine.hide.shortcut.messages",
             @"mine.hide.shortcut.games",@"mine.hide.shortcut.updates",@"mine.hide.shortcut.more"]);
     } else if([self.group isEqual:@"gestures"]) {
-        HGAAddDefs(rows,@[@"gestures.pinchClean",@"gestures.doubleTapComments"]);
+        HGAAddDefs(rows,@[@"gestures.cleanWhilePlaying",@"gestures.pinchClean",@"gestures.doubleTapComments"]);
     } else if([self.group isEqual:@"chrome.finder.hide"]) {
         NSArray *prefixes=@[@"finder.hide.category.",@"finder.hide.shortcut."];
         for(NSString *prefix in prefixes) {
@@ -359,7 +359,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     } else if([self.group isEqual:@"player"]) {
         section(@"播放与手势");
         HGAAddDefs(rows,@[@"player.fullscreen",@"player.highestQuality",@"player.hideNowPlayingIsland",
-            @"player.disableEpisodeSwipe",@"gestures.pinchClean"]);
+            @"player.disableEpisodeSwipe",@"gestures.cleanWhilePlaying",@"gestures.pinchClean"]);
         section(@"播放控件");
         [rows addObject:HGASubpage(@"@group.rightButtons",@"右侧按钮",@"头像、收藏、评论、点赞、分享、更多")];
         HGAAddDefs(rows,@[@"player.rightGlass",@"player.actionStyle",@"player.collectGlyph",@"player.material",@"player.controlsGlass"]);
@@ -470,7 +470,9 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         [toggle addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged];
         cell.accessoryView=toggle;
         if([key isEqual:@"player.fullscreen"])
-            cell.detailTextLabel.text=@"仅横屏播放横向视频时铺满，竖屏保持原比例";
+            cell.detailTextLabel.text=@"横屏播放宽画幅视频时铺满。竖屏短剧已默认等比铺满。";
+        if([key isEqual:@"gestures.cleanWhilePlaying"])
+            cell.detailTextLabel.text=@"播放时隐藏控件，点按画面暂停后显示，继续播放时再次隐藏。";
         if([key isEqual:@"player.hideAIFictionNotice"])
             cell.detailTextLabel.text=@"隐藏播放器左侧的独立文字提示，保留原始画幅";
         if([key isEqual:@"player.hideNowPlayingIsland"])

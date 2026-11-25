@@ -412,6 +412,8 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         if ([group isEqual:@"comments"])
             Check(HGMenuPath(detail,@"panels.comment") && HGMenuPath(detail,@"player.commentMovesVideo") &&
                 HGMenuPath(detail,@"gestures.doubleTapComments"),@"comments groups its panel, video layout and opening gesture");
+        if ([group isEqual:@"player"])
+            Check(HGMenuPath(detail,@"gestures.cleanWhilePlaying")!=nil,@"the playback page exposes automatic clean mode");
         if ([group isEqual:@"player"] || [group isEqual:@"drama"]) {
             BOOL player=[group isEqual:@"player"];
             NSArray *roles=player ? @[@"channels",@"info",@"tags",@"progress",@"danmaku",@"notice",

@@ -160,6 +160,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     __block IMP original=actual && !strcmp(actual,encoding)?method_getImplementation(method):NULL;
     NSString *className=NSStringFromClass(cls);
     BOOL playerCanvas=[className isEqual:@"FQVShortVideoPlayerCellView"];
+    BOOL automaticCleanStart=playerCanvas && (selector==sel_registerName("playWithType:") ||
+        selector==sel_registerName("resumeWithType:"));
+    BOOL automaticCleanTap=[className isEqual:@"FQVShortVideoListVCControlViewComponent"] &&
+        selector==sel_registerName("controlView:singleTapPlay:model:");
     BOOL backdropChange=playerCanvas && (selector==sel_registerName("refreshBgColor") ||
         selector==sel_registerName("refreshCoverImageView"));
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
@@ -190,6 +194,16 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         replacement=imp_implementationWithBlock(^(id component,id model) {
             ((void(*)(id,SEL,id))original)(component,selector,model);
             HGASchedulePlaybackQuality(component,model,nil);
+        });
+    } else if (automaticCleanTap && !strcmp(encoding,"v36@0:8@16B24@28")) {
+        replacement=imp_implementationWithBlock(^(id component,UIView *hud,BOOL play,id model) {
+            ((void(*)(id,SEL,UIView *,BOOL,id))original)(component,selector,hud,play,model);
+            HGAApplyAutomaticCleanTap(component,hud,play,model);
+        });
+    } else if (automaticCleanStart && !strcmp(encoding,"v24@0:8q16")) {
+        replacement=imp_implementationWithBlock(^(UIView *cell,NSInteger reason) {
+            ((void(*)(id,SEL,NSInteger))original)(cell,selector,reason);
+            HGAStartAutomaticCleanForCell(cell,NO);
         });
     } else if (feedShareTap && !strcmp(encoding,"v24@0:8@16")) {
         replacement=imp_implementationWithBlock(^(id manager,id shareView) {
@@ -231,8 +245,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             }
             if(metalLayout) {
                 UIView *renderer=[(UIView *)object superview];
-                if(renderer.window && [renderer isKindOfClass:objc_lookUpClass("TTPlayerView")] &&
-                   (HGAppearanceDockEnabled() || (HGAppearanceEnabled() && HGAppearanceFlag(@"player.controlsGlass"))))
+                if(renderer.window && HGAppearanceEnabled() && [renderer isKindOfClass:objc_lookUpClass("TTPlayerView")])
                     HGRefreshVideoBackdropForPlayer(renderer);
                 return;
             }
@@ -337,7 +350,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     } else if (!strcmp(encoding,"v32@0:8@16@24")) {
         replacement=imp_implementationWithBlock(^(id object,id first,id second) {
             ((void(*)(id,SEL,id,id))original)(object,selector,first,second);
-            if(qualityPlayback)HGASchedulePlaybackQuality(object,nil,first);
+            if(qualityPlayback) {
+                HGASchedulePlaybackQuality(object,nil,first);
+                HGAStartAutomaticCleanForCell(first,YES);
+            }
             else HGAppearanceProcessView(object);
         });
     } else if (selector==@selector(collectionView:willDisplayCell:forItemAtIndexPath:) &&
@@ -419,8 +435,7 @@ void HGAppearanceRefresh(void) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();}); return; }
     HGARefreshPlaybackQualityPreference();
     HGAUpdateEpisodeMedia(UIApplication.sharedApplication.applicationState!=UIApplicationStateBackground);
-    if(HGACleanPages.count && !HGAppearanceFlag(@"gestures.pinchClean"))
-        for(UIWindow *window in HGACleanPages.keyEnumerator.allObjects)HGAEndCleanPlayback(window);
+    HGARefreshCleanPlayback();
     HGARefreshAssets();
     HGARefreshMinePublishVisibility();
     // A zero-height shortcut owner may no longer have a visible cell to
@@ -451,6 +466,12 @@ void HGInstallAppearance(void) {
         if(playComponent) {
             HGAHook(playComponent,sel_registerName("dataModelDidPlay:"),"v24@0:8@16",NO);
             HGAHook(playComponent,sel_registerName("cellView:vPlayerReadyToDisplay:"),"v32@0:8@16@24",NO);
+        }
+        Class controlComponent=objc_lookUpClass("FQVShortVideoListVCControlViewComponent");
+        if(controlComponent) {
+            SEL tap=sel_registerName("controlView:singleTapPlay:model:");
+            HGAHook(controlComponent,tap,"v36@0:8@16B24@28",NO);
+            HGACleanTapInstalled=HGAHooks[@"FQVShortVideoListVCControlViewComponent/controlView:singleTapPlay:model:"]!=nil;
         }
         HGAInstallMineShortcutHooks();
         HGAInstallFinderShortcutHook();
@@ -487,6 +508,7 @@ void HGInstallAppearance(void) {
         [classes addObjectsFromArray:HGABottomControlClasses()];
         [classes addObjectsFromArray:HGAPlayerControlClasses()];
         [classes addObjectsFromArray:HGACleanControlClasses()];
+        [classes addObjectsFromArray:HGAAutomaticCleanControlClasses()];
         [classes addObjectsFromArray:HGALandscapeChromeClasses()];
         [classes addObject:@"FQVTransitionPlayerTopContentView"];
         [classes addObject:@"FQVShortVideoVPlayerSingleSeriesControlView"];
@@ -585,6 +607,8 @@ void HGInstallAppearance(void) {
             if([name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 HGAHook(cls,sel_registerName("refreshBgColor"),"v16@0:8",NO);
                 HGAHook(cls,sel_registerName("refreshCoverImageView"),"v16@0:8",NO);
+                HGAHook(cls,sel_registerName("playWithType:"),"v24@0:8q16",NO);
+                HGAHook(cls,sel_registerName("resumeWithType:"),"v24@0:8q16",NO);
             }
             if([name isEqual:@"FQCShortVideoDanmakuEntranceView"])
                 HGAHook(cls,sel_registerName("refreshIcon"),"v16@0:8",NO);

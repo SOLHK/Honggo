@@ -110,6 +110,8 @@ int main(void) {@autoreleasepool {
     Check([HGAppearanceSearch(@"双指清屏").firstObject[@"key"] isEqual:@"gestures.pinchClean"] &&
         [HGAppearanceSearch(@"双击评论").firstObject[@"key"] isEqual:@"gestures.doubleTapComments"],
         @"global search recognizes the commonly used gesture names");
+    Check([HGAppearanceSearch(@"暂停显示控件").firstObject[@"key"] isEqual:@"gestures.cleanWhilePlaying"] &&
+        !HGAppearanceFlag(@"gestures.cleanWhilePlaying"), @"automatic playback clean is searchable and opt-in");
     Check([HGAppearanceSearch(@"评论区上移").firstObject[@"key"] isEqual:@"player.commentMovesVideo"] &&
         HGAppearanceFlag(@"player.commentMovesVideo"), @"the comment video movement switch is searchable and defaults to host behavior");
     Check(HGFlatTopStyle() && !HGFlatDockStyle() && !HGFlatPlayerStyle(),

@@ -255,15 +255,15 @@ static void RunDetailVideoBackdropChecks(UIView *root) {
     [hud addSubview:hud.singleSeriesBottomView];[canvas addSubview:hud];[root addSubview:canvas];
     Layout(hud);
     CATransform3D fit=renderer.layer.sublayerTransform;
-    CGFloat scale=crop.size.width/metal.bounds.size.width;
+    CGFloat scale=MAX(canvas.bounds.size.width/metal.bounds.size.width,canvas.bounds.size.height/metal.bounds.size.height);
     CGRect fitted=[metal.layer convertRect:metal.layer.bounds toLayer:player.layer];
     Check(CATransform3DIsIdentity(wrapper.layer.sublayerTransform) &&
         fabs(fit.m11-scale)<0.001 && fabs(fit.m22-scale)<0.001 &&
-        fabs(CGRectGetMinX(fitted))<0.75 && fabs(CGRectGetMaxX(fitted)-crop.size.width)<0.75 &&
-        fabs(CGRectGetMidY(fitted)-CGRectGetMidY(crop))<0.75 && CGRectGetMaxY(fitted)<CGRectGetMinY(bottom) &&
+        CGRectGetMinX(fitted)<=0.75 && CGRectGetMaxX(fitted)>=crop.size.width-0.75 &&
+        fabs(CGRectGetMinY(fitted))<0.75 && fabs(CGRectGetMaxY(fitted)-CGRectGetMaxY(canvas.bounds))<0.75 &&
         CGRectEqualToRect(renderer.frame,crop) && CGRectEqualToRect(hud.singleSeriesBottomView.frame,bottom) &&
-        canvas.clipsToBounds && renderer.clipsToBounds,
-        @"detail shows both encoded side edges and the full picture above the episode tray");
+        canvas.clipsToBounds && !renderer.clipsToBounds,
+        @"portrait detail fills the screen behind its episode tray using the minimum uniform scale");
     Check(leftBottom.alpha==0 && rightBottom.alpha==0 && leftTop.alpha==1 &&
         [hud.singleSeriesBottomView.backgroundColor isEqual:UIColor.clearColor],
         @"detail continuation clears the matched bottom cutouts and old black tray paint");
@@ -280,18 +280,21 @@ static void RunDetailVideoBackdropChecks(UIView *root) {
     HGAAspectSourceFixture *source=[HGAAspectSourceFixture new];source.videoWidth=720;source.videoHeight=1280;
     canvas.model=source;
     UIImageView *cover=[[UIImageView alloc] initWithFrame:crop];
-    cover.contentMode=UIViewContentModeScaleAspectFill;
+    cover.contentMode=UIViewContentModeScaleAspectFit;
     player.coverImageView=cover;
     [player addSubview:cover];HGRefreshVideoBackdropForPlayer(canvas);
-    Check(cover.contentMode==UIViewContentModeScaleAspectFit && CATransform3DIsIdentity(wrapper.layer.sublayerTransform) &&
+    Check(cover.contentMode==UIViewContentModeScaleAspectFill && CGRectEqualToRect(cover.frame,canvas.bounds) &&
+        CATransform3DIsIdentity(wrapper.layer.sublayerTransform) &&
         !renderer.superview && CGRectIsEmpty(hud.singleSeriesBottomView.frame),
-        @"a known episode fits its cover before its image, first Metal frame and tray layout arrive");
+        @"a known episode fills behind the controls before its first Metal frame or tray layout arrives");
     [player addSubview:renderer];hud.singleSeriesBottomView.frame=bottom;Layout(hud);
     Check(CATransform3DEqualToTransform(renderer.layer.sublayerTransform,fit) &&
-        cover.contentMode==UIViewContentModeScaleAspectFit && CATransform3DIsIdentity(wrapper.layer.sublayerTransform),
-        @"the first Metal frame and the poster use the same fitted viewport");
+        cover.contentMode==UIViewContentModeScaleAspectFill && CGRectEqualToRect(cover.frame,canvas.bounds) &&
+        CATransform3DIsIdentity(wrapper.layer.sublayerTransform),
+        @"the first Metal frame and the poster fill the same screen viewport with the same anchoring");
     HGVideoBackdropPrepareRendererTransfer(player);
-    Check(cover.contentMode==UIViewContentModeScaleAspectFill && CATransform3DIsIdentity(renderer.layer.sublayerTransform),
+    Check(cover.contentMode==UIViewContentModeScaleAspectFit && CGRectEqualToRect(cover.frame,crop) &&
+        CATransform3DIsIdentity(renderer.layer.sublayerTransform),
         @"player recycling restores the native poster mode and Metal transform");
     [renderer removeFromSuperview];
     HGAAspectSourceFixture *wide=[HGAAspectSourceFixture new];wide.videoWidth=1920;wide.videoHeight=1080;canvas.model=wide;
@@ -366,31 +369,34 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         Check(feed.visibleQueries == 0, @"backdrop uses mounted cells without forcing collection layout");
         CATransform3D fit=cell.renderer.layer.sublayerTransform;
         CGRect nativePicture=[cell.metal.layer convertRect:cell.metal.layer.bounds toLayer:cell.canvas.layer];
-        CGFloat safeScale=width/(width+48);
-        Check(feed.clipsToBounds && cell.canvas.clipsToBounds && cell.player.clipsToBounds && cell.renderer.clipsToBounds &&
-            fabs(fit.m11-safeScale)<0.001 && fabs(fit.m22-fit.m11)<0.001 && fit.m42==0 &&
-            fabs(CGRectGetMinX(nativePicture))<=0.75 && fabs(CGRectGetMaxX(nativePicture)-width)<=0.75 &&
-            fabs(CGRectGetHeight(nativePicture)-feedHeight*safeScale)<=0.75 &&
+        CGFloat scale=height/feedHeight;
+        Check(!feed.clipsToBounds && !cell.canvas.clipsToBounds && !cell.player.clipsToBounds && !cell.renderer.clipsToBounds &&
+            fabs(fit.m11-scale)<0.001 && fabs(fit.m22-fit.m11)<0.001 && fabs(fit.m42-45)<0.001 &&
+            CGRectGetMinX(nativePicture)<=0.75 && CGRectGetMaxX(nativePicture)>=width-0.75 &&
+            fabs(CGRectGetMinY(nativePicture))<=0.75 && fabs(CGRectGetMaxY(nativePicture)-height)<=0.75 &&
             CATransform3DIsIdentity(cell.videoWrapper.layer.sublayerTransform) &&
-            CGRectEqualToRect(cell.renderer.frame,portraitFrame) && HGBackdropNativeUnchanged(portraitGeometry),
-            @"a settled portrait fits all encoded edges above the Dock without changing paging or HUD geometry");
-        UIView *lockTip=[[FQVShortVideoLockPlayRateTipsView alloc] initWithFrame:CGRectMake(0,feedHeight-60,width,40)];
-        [feed.superview addSubview:lockTip];
+            CGRectEqualToRect(cell.renderer.frame,portraitFrame) && HGBackdropNativeUnchanged(portraitGeometry) &&
+            cell.layer.zPosition==1,
+            @"a settled portrait paints from the status bar through the Dock without resizing the pager or HUD");
         bar.alpha=0;
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
-        Check(bar.alpha==0 && feed.clipsToBounds && CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit),
-            @"the 2x lock hint preserves portrait video coverage while the host fades out its dock");
-        [lockTip removeFromSuperview];
+        Check(bar.alpha==0 && !feed.clipsToBounds && CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit),
+            @"fading out the Dock leaves the portrait geometry untouched before the next frame");
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
-        Check(feed.clipsToBounds && CATransform3DIsIdentity(cell.renderer.layer.sublayerTransform),
-            @"a hidden dock without a speed hint releases the video extension");
-        bar.alpha=1;
+        bar.hidden=YES;bar.alpha=1;
+        HGAppearanceSet(@"dock.enabled",@NO,nil);
+        HGRefreshVideoBackdropForFeed(feed);
+        Check(!feed.clipsToBounds &&
+            CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit),
+            @"an actually hidden Dock and disabled custom Dock preference preserve the same portrait coverage");
+        HGAppearanceSet(@"dock.enabled",@YES,nil);
+        bar.hidden=NO;
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
         [hud handleOutterFeedClipBounds:NO];
         BOOL previewUnclipped=!feed.clipsToBounds && !cell.canvas.clipsToBounds;
         [hud handleOutterFeedClipBounds:YES];
         HGBackdropFlushFrames(0.04);
-        Check(hud.nativeClipPasses==3 && previewUnclipped && feed.clipsToBounds && cell.canvas.clipsToBounds &&
+        Check(hud.nativeClipPasses==3 && previewUnclipped && !feed.clipsToBounds && !cell.canvas.clipsToBounds &&
             CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit) && HGBackdropNativeUnchanged(portraitGeometry),
             @"native seek preview and completion preserve the live portrait backdrop and pager geometry");
         // Reselecting Home recycles the video surface. The host may attach
@@ -403,7 +409,7 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         cell.metal.center=nativeMetalCenter;
         [cell.metal setNeedsLayout];[cell.metal layoutIfNeeded];
         HGBackdropFlushFrames(0.04);
-        Check(feed.clipsToBounds && CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit),
+        Check(!feed.clipsToBounds && CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit),
             @"late Metal sizing after Home refresh recovers the portrait backdrop without a scroll");
         // A reselected Home feed may show a poster with the retained renderer
         // fully faded. Match the observed 0 -> 1 handoff and check the image,
@@ -420,14 +426,15 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         [cell.canvas refreshCoverImageView];HGBackdropFlushFrames(0.04);
         CGRect posterFrame=[cover.layer convertRect:cover.layer.bounds toLayer:window.layer];
         UIView *matteView=Find(feed.superview,@"honggo.video.matte");
-        Check(feed.clipsToBounds && fabs(CGRectGetMaxY(posterFrame)-feedHeight)<=0.75 &&
-            cover.contentMode==UIViewContentModeScaleAspectFit && matteView && !matteView.hidden &&
+        Check(!feed.clipsToBounds && fabs(CGRectGetMinY(posterFrame))<=0.75 && fabs(CGRectGetMaxY(posterFrame)-height)<=0.75 &&
+            cover.contentMode==UIViewContentModeScaleAspectFill && (!matteView || matteView.hidden) &&
             CGRectEqualToRect(hud.frame,cell.canvas.bounds),
-            @"the fitted poster stays above the reserved Dock area when the renderer is detached");
+            @"the portrait poster remains full screen with the renderer detached and no painted tray behind it");
         [cell.player insertSubview:cell.renderer belowSubview:cover];cell.renderer.alpha=0.35;cover.alpha=0.65;
         [cell.canvas refreshCoverImageView];HGBackdropFlushFrames(0.04);
-        CGRect handoffFrame=[cell.renderer.layer convertRect:cell.renderer.layer.bounds toLayer:window.layer];
-        Check(CGRectEqualToRect(posterFrame,handoffFrame) && feed.clipsToBounds &&
+        CGRect handoffFrame=[cell.metal.layer convertRect:cell.metal.layer.bounds toLayer:window.layer];
+        Check(fabs(CGRectGetMinY(posterFrame)-CGRectGetMinY(handoffFrame))<=0.75 &&
+            fabs(CGRectGetMaxY(posterFrame)-CGRectGetMaxY(handoffFrame))<=0.75 && !feed.clipsToBounds &&
             CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit),
             @"the retained renderer and its fading cover reach the same edge at intermediate alpha");
         [cover removeFromSuperview];cell.player.coverImageView=nil;cell.renderer.alpha=1;
@@ -437,34 +444,33 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         HGBackdropRGB dockPortrait=HGBackdropAverageColor(portrait,window,dockSample);
         HGBackdropRGB leftEdge=HGBackdropAverageColor(portrait,window,CGRectMake(2,CGRectGetMidY(nativePicture),5,5));
         HGBackdropRGB rightEdge=HGBackdropAverageColor(portrait,window,CGRectMake(width-7,CGRectGetMidY(nativePicture),5,5));
-        HGBackdropRGB lowerEdge=HGBackdropAverageColor(portrait,window,CGRectMake(width/2,CGRectGetMaxY(nativePicture)-7,5,5));
+        HGBackdropRGB upperEdge=HGBackdropAverageColor(portrait,window,CGRectMake(width*0.76,2,5,5));
+        HGBackdropRGB lowerEdge=HGBackdropAverageColor(portrait,window,CGRectMake(width*0.76,height-7,5,5));
         HGBackdropRGB beforeSeam=HGBackdropAverageColor(portrait,window,CGRectMake(width*0.35,feedHeight-3,width*0.3,2));
         HGBackdropRGB afterSeam=HGBackdropAverageColor(portrait,window,CGRectMake(width*0.35,feedHeight+1,width*0.3,2));
         Check(portraitPresented && nativePortrait.valid && nativePortrait.red>MAX(nativePortrait.green,nativePortrait.blue)+0.35 &&
-            dockPortrait.valid && MAX(dockPortrait.red,MAX(dockPortrait.green,dockPortrait.blue))<0.06 &&
+            dockPortrait.valid && dockPortrait.red>MAX(dockPortrait.green,dockPortrait.blue)+0.35 &&
             HGBackdropNativeUnchanged(portraitGeometry),
-            @"the live portrait stays above the Dock and its native matte fills the reserved strip");
+            @"the live portrait appears behind the Dock instead of a black or colored underlay");
         Check(leftCorner.alpha==0 && rightCorner.alpha==0 && otherImage.alpha==1 &&
             leftEdge.valid && leftEdge.red>MAX(leftEdge.green,leftEdge.blue)+0.35 &&
             rightEdge.valid && rightEdge.red>MAX(rightEdge.green,rightEdge.blue)+0.35 &&
+            upperEdge.valid && upperEdge.red>MAX(upperEdge.green,upperEdge.blue)+0.35 &&
             lowerEdge.valid && lowerEdge.red>MAX(lowerEdge.green,lowerEdge.blue)+0.35,
-            @"encoded left, right and subtitle edges remain visible in the real Metal compositor");
-        Check(gradient.colors.count==3 && fabs([gradient.locations[1] doubleValue]-(1-16.0/280))<0.001 &&
-            CGColorGetAlpha((__bridge CGColorRef)gradient.colors.lastObject)==0 &&
+            @"the compositor contains video pixels at both sides and at the physical top and bottom");
+        Check(gradient.opacity==0 && gradient.colors.count==2 &&
             beforeSeam.valid && afterSeam.valid && fabs(beforeSeam.red-afterSeam.red)<0.06,
-            @"the native HUD gradient fades out at the joined video edge without a brightness step");
+            @"the old HUD gradient no longer darkens the portrait or exposes a seam at the original tray edge");
 
-        // Move down towards the previous episode. The active portrait cell
-        // still covers the original bottom but leaves 50pt below its edge.
+        // Move towards the previous episode without resizing either picture.
         [feed setContentOffset:CGPointMake(0,feedHeight-40) animated:NO];Layout(feed);
-        cell.metal.bounds=(CGRect){CGPointZero,CGSizeMake(width,feedHeight+12)};
+        cell.metal.bounds=(CGRect){CGPointZero,CGSizeMake(width,height+36)};
         cell.metal.center=CGPointMake(width/2,feedHeight/2);
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
         CATransform3D movingFit=cell.renderer.layer.sublayerTransform;
-        Check(!feed.clipsToBounds && movingFit.m42==0 &&
-            fabs(movingFit.m22-feedHeight/(feedHeight+12))<0.001 &&
+        Check(!feed.clipsToBounds && movingFit.m42==45 && movingFit.m22==1 &&
             CATransform3DIsIdentity(cell.videoWrapper.layer.sublayerTransform) && CGRectEqualToRect(cell.renderer.frame,portraitFrame),
-            @"during reverse paging vertical overscan fits the same safe height at every scroll offset");
+            @"a taller native picture already covers the screen and is not enlarged again during reverse paging");
         HGBackdropVideoCell *previous=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
         previous.metalOverscanX=12;Layout(previous);Layout(cell);
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
@@ -472,10 +478,11 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         CATransform3D currentFit=cell.renderer.layer.sublayerTransform;
         [feed setContentOffset:CGPointMake(0,feedHeight-24) animated:NO];Layout(feed);
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
-        Check(previous && fabs(previousFit.m11-width/(width+24))<0.001 && fabs(currentFit.m11-safeScale)<0.001 &&
+        Check(previous && fabs(previousFit.m11-scale)<0.001 && fabs(currentFit.m11-scale)<0.001 &&
             CATransform3DEqualToTransform(previousFit,previous.renderer.layer.sublayerTransform) &&
-            CATransform3DEqualToTransform(currentFit,cell.renderer.layer.sublayerTransform),
-            @"outgoing and incoming portraits retain independent fitted widths as the page boundary moves");
+            CATransform3DEqualToTransform(currentFit,cell.renderer.layer.sublayerTransform) &&
+            previous.layer.zPosition==0 && cell.layer.zPosition==1,
+            @"outgoing and incoming portraits keep stable independent frames and only the bottom page paints above prefetched neighbors");
         [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
         Layout(cell);[manager refreshWithBranches:branches root:container.view bar:bar active:YES];
 
@@ -488,7 +495,8 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
                 movingCell.renderer.clipsToBounds && movingCell.player.clipsToBounds &&
                 movingCell.canvas.clipsToBounds && feed.clipsToBounds &&
                 leftCorner.alpha==1 && rightCorner.alpha==1 &&
-                [gradient.colors isEqualToArray:stockGradient] && [gradient.locations isEqualToArray:@[@0,@1]];
+                gradient.opacity==1 && [gradient.colors isEqualToArray:stockGradient] &&
+                [gradient.locations isEqualToArray:@[@0,@1]];
         };
         UIView *temporary=[[UIView alloc] initWithFrame:cell.player.bounds];
         [cell.player addSubview:temporary];
@@ -552,10 +560,10 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         [incoming.canvas refreshBgColor]; HGBackdropFlushFrames(0.04);
         BOOL bluePresented=[incoming.metal presentRed:0.05 green:0.08 blue:0.92];
         NSArray *swipeGeometry=HGBackdropNativeSnapshot(@[page.view,feed,incoming,incoming.contentView,
-            incoming.canvas,incoming.renderer,incoming.metal,marker]);
-        Check(!feed.clipsToBounds && !underlay.hidden && [underlay.backgroundColor isEqual:incoming.canvas.backgroundColor] &&
+            incoming.canvas,incoming.metal,marker]);
+        Check(!feed.clipsToBounds && underlay.hidden &&
             HGBackdropNativeUnchanged(swipeGeometry),
-            @"a crossing native page draws below the collection without changing its frames offset or paging stride");
+            @"a crossing portrait draws below the collection without a matte or changes to paging geometry");
         CGRect incomingSample=CGRectMake(width*0.35,feedHeight-13,width*0.3,9);
         UIImage *swipe=HGBackdropCompositorCapture(@"swipe",window,incomingSample,dockSample);
         HGBackdropRGB nativeBlue=HGBackdropAverageColor(swipe,window,incomingSample);
@@ -568,8 +576,9 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             @"compositor shows the upright incoming native HUD at its actual position over the live Metal frame");
 
         [manager refreshWithBranches:branches root:container.view bar:bar active:NO];
-        Check(feed.clipsToBounds && !underlay.superview && HGBackdropNativeUnchanged(swipeGeometry),
-            @"disabling floating navigation restores feed clipping without repagination");
+        Check(feed.clipsToBounds && !underlay.superview && HGBackdropNativeUnchanged(swipeGeometry) &&
+            CATransform3DIsIdentity(incoming.renderer.layer.sublayerTransform) && incoming.layer.zPosition==0,
+            @"releasing portrait display restores feed ownership and clipping without repagination");
         CAShapeLayer *hostMask=[CAShapeLayer layer];
         hostMask.frame=feed.bounds;
         CGPathRef maskPath=CGPathCreateWithRect((CGRect){CGPointZero,feed.bounds.size},NULL);

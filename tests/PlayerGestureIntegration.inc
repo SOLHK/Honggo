@@ -46,6 +46,111 @@ static BOOL HGAGestureChromeCovered(UIView *view) {
     CABasicAnimation *opacity=(id)[view.layer animationForKey:@"honggo.clean.opacity"];
     return [opacity.keyPath isEqual:@"opacity"] && [opacity.toValue isEqual:@0] && !view.userInteractionEnabled;
 }
+@interface HGAAutoCleanContextFixture : NSObject
+@property(nonatomic,strong) id currentModel;
+@end
+@implementation HGAAutoCleanContextFixture @end
+
+@interface FQVShortVideoPlayerCellView (HGAAutoCleanFixture)
+- (void)playWithType:(NSInteger)reason;
+- (void)resumeWithType:(NSInteger)reason;
+@end
+@implementation FQVShortVideoPlayerCellView (HGAAutoCleanFixture)
+- (void)playWithType:(NSInteger)reason {}
+- (void)resumeWithType:(NSInteger)reason {}
+@end
+
+@interface HGAAutoCleanCellFixture : FQVShortVideoPlayerCellView
+@property(nonatomic,strong) HGAAutoCleanContextFixture *listVCContext;
+@property(nonatomic,strong) UIView *vPlayerControlView;
+@property(nonatomic) BOOL isUserPlaying;
+@end
+@implementation HGAAutoCleanCellFixture @end
+
+@interface FQVShortVideoListVCControlViewComponent : NSObject
+@property(nonatomic,strong) id currentVideoDataModel;
+@property(nonatomic) NSUInteger taps;
+- (void)controlView:(UIView *)hud singleTapPlay:(BOOL)play model:(id)model;
+@end
+@implementation FQVShortVideoListVCControlViewComponent
+- (void)controlView:(UIView *)hud singleTapPlay:(BOOL)play model:(id)model { self.taps++; }
+@end
+
+@interface FQCShortVideoDanmakuContainerView : UIView @end
+@implementation FQCShortVideoDanmakuContainerView @end
+@interface FQVShortVideoLoadingView : UIView @end
+@implementation FQVShortVideoLoadingView @end
+
+static void RunAutomaticCleanChecks(UIView *root) {
+    HGAppearanceApply(@{@"enabled":@NO,@"gestures.cleanWhilePlaying":@YES,@"gestures.pinchClean":@YES,
+        @"player.highestQuality":@NO},nil);
+    SSTabBarController *host=(id)root.nextResponder;
+    UIViewController *list=[NSClassFromString(@"FQVShortVideoListViewController") new];
+    [host addChildViewController:list];list.view.frame=root.bounds;[root addSubview:list.view];
+    [list didMoveToParentViewController:host];
+    HGAAutoCleanCellFixture *cell=[[HGAAutoCleanCellFixture alloc] initWithFrame:list.view.bounds];
+    HGAGesturePlayerFixture *hud=[[HGAGesturePlayerFixture alloc] initWithFrame:cell.bounds];
+    hud.isSeriesType=YES;
+    cell.model=hud;cell.vPlayerControlView=hud;
+    cell.listVCContext=[HGAAutoCleanContextFixture new];
+    cell.listVCContext.currentModel=[NSObject new];
+    [cell addSubview:hud];[list.view addSubview:cell];
+    TTMetalView *picture=[[TTMetalView alloc] initWithFrame:cell.bounds];[cell insertSubview:picture belowSubview:hud];
+    FQVShortVideoProgressView *progress=[[FQVShortVideoProgressView alloc] initWithFrame:CGRectMake(10,310,240,24)];
+    FQCShortVideoDanmakuContainerView *comments=[[FQCShortVideoDanmakuContainerView alloc] initWithFrame:hud.bounds];
+    FQVShortVideoLoadingView *loading=[[FQVShortVideoLoadingView alloc] initWithFrame:hud.bounds];
+    UIButton *play=[UIButton buttonWithType:UIButtonTypeCustom];
+    SSShortVideoBottomDistributionView *entry=[SSShortVideoBottomDistributionView new];
+    for(UIView *control in @[progress,comments,loading,play,entry])[hud addSubview:control];
+    UIView *dock=host.customTabBar;
+    FQVShortVideoListVCControlViewComponent *tap=[FQVShortVideoListVCControlViewComponent new];
+    tap.currentVideoDataModel=hud;
+    [cell playWithType:10];
+    Check(!HGAGestureChromeCovered(progress),@"an adjacent prepared cell does not enter playback clean mode");
+    cell.listVCContext.currentModel=cell.model;
+    [cell playWithType:10];
+    Check(HGAGestureChromeCovered(dock) && HGAGestureChromeCovered(progress) && HGAGestureChromeCovered(entry) &&
+        HGAGestureChromeCovered(comments) && HGAGestureChromeCovered(loading) && HGAGestureChromeCovered(play) &&
+        play.accessibilityElementsHidden && !picture.layer.mask && !hud.layer.mask && hud.userInteractionEnabled,
+        @"the current episode starts clean with playback controls, danmaku and loading ink hidden while original taps and video stay available");
+    [entry.layer removeAllAnimations];
+    Check(entry.layer.mask.opacity==0 && entry.layer.mask && !entry.isHidden && entry.alpha==1,
+        @"host animation resets cannot flash the episode entry during clean playback");
+    [tap controlView:hud singleTapPlay:NO model:[NSObject new]];
+    Check(HGAGestureChromeCovered(progress),@"a stale tap from another episode cannot expose the active HUD");
+    [tap controlView:hud singleTapPlay:NO model:hud];
+    Check(!HGAGestureChromeCovered(dock) && !entry.layer.mask && !progress.layer.mask && play.userInteractionEnabled &&
+        !play.accessibilityElementsHidden && tap.taps==2,@"the native tap pause restores controls and accessibility immediately");
+    cell.isUserPlaying=YES;
+    id ready=[NSClassFromString(@"FQVShortVideoListVCPlayComponent") new];
+    SEL shown=NSSelectorFromString(@"cellView:vPlayerReadyToDisplay:");
+    ((void(*)(id,SEL,id,id))[ready methodForSelector:shown])(ready,shown,cell,nil);
+    Check(!HGAGestureChromeCovered(dock),@"a late first-frame callback cannot re-hide a user-paused episode");
+    [tap controlView:hud singleTapPlay:YES model:hud];
+    Check(HGAGestureChromeCovered(dock) && HGAGestureChromeCovered(play) && tap.taps==3,
+        @"the native continue action re-enters automatic clean mode");
+    [list viewDidDisappear:NO];
+    Check(!HGAGestureChromeCovered(dock) && !entry.layer.mask,@"leaving the feed releases all shared and episode controls");
+
+    SSShortVideoDetailViewController *detail=[SSShortVideoDetailViewController new];
+    [host addChildViewController:detail];detail.view.frame=root.bounds;[root addSubview:detail.view];
+    [detail didMoveToParentViewController:host];
+    UIViewController *episodeList=[NSClassFromString(@"FQVShortVideoListViewController") new];
+    [detail addChildViewController:episodeList];episodeList.view.frame=detail.view.bounds;
+    [detail.view addSubview:episodeList.view];[episodeList didMoveToParentViewController:detail];
+    [episodeList.view addSubview:cell];
+    FQVShortVideoListVCNavBarComponent *navigation=[FQVShortVideoListVCNavBarComponent new];
+    navigation.navBar=[[UIView alloc] initWithFrame:CGRectMake(0,0,360,44)];
+    [detail.view addSubview:navigation.navBar];[navigation updateNavgationBarLeftView];
+    [cell resumeWithType:2];
+    Check(HGAGestureChromeCovered(navigation.navBar) && HGAGestureChromeCovered(progress),
+        @"detail resume covers its local navigation and the next episode's controls");
+    HGAppearanceSet(@"gestures.cleanWhilePlaying",@NO,nil);
+    Check(!HGAGestureChromeCovered(navigation.navBar) && !HGAGestureChromeCovered(dock) && !progress.layer.mask,
+        @"disabling auto clean restores detail chrome even if the manual gesture remains enabled");
+    [detail willMoveToParentViewController:nil];[detail.view removeFromSuperview];[detail removeFromParentViewController];
+    [list willMoveToParentViewController:nil];[list.view removeFromSuperview];[list removeFromParentViewController];
+}
 static void RunPlayerGestureChecks(UIView *root) {
     NSDictionary *saved=HGAppearanceValues();
     HGAppearanceApply(@{@"enabled":@NO,@"gestures.pinchClean":@YES,@"gestures.doubleTapComments":@YES},nil);
@@ -153,5 +258,7 @@ static void RunPlayerGestureChecks(UIView *root) {
     Check(!tap.view && player.pinch.view==player && player.doubleTapGesture.view==player,
         @"disabling both removes only plugin recognizers");
     [list willMoveToParentViewController:nil];[list.view removeFromSuperview];[list removeFromParentViewController];
-    [header removeFromSuperview];[otherEntry removeFromSuperview];HGAppearanceApply(saved,nil);
+    [header removeFromSuperview];[otherEntry removeFromSuperview];
+    RunAutomaticCleanChecks(root);
+    HGAppearanceApply(saved,nil);
 }
