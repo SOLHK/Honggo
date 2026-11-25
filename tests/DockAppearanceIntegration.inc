@@ -761,7 +761,9 @@ static void HGRunDockCaptionChecks(SSTabBarController *host) {
         @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.mine":@NO},nil);
     for(NSString *style in @[@"glass",@"plain"]) {
         BOOL showStore=[style isEqual:@"plain"];
-        HGAppearanceApply(@{@"dock.selectionStyle":style,@"dock.hide.store":@(!showStore)},nil);
+        BOOL applied=HGAppearanceApply(@{@"dock.selectionStyle":style,@"dock.hide.store":showStore ? @NO : @YES},nil);
+        Check(applied && [HGAppearanceString(@"dock.selectionStyle") isEqual:style] &&
+            HGAppearanceFlag(@"dock.hide.store")==!showStore,@"quiet Dock fixture applies its selected style and visible tab count");
         HGAppearanceLayoutDock(host.customTabBar,host);
         HGAAppearanceDock *dock=(id)Find(host.customTabBar,@"honggo.appearance.dock");
         UIView *capsule=Find(dock,@"honggo.appearance.dock.capsule");

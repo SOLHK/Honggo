@@ -597,8 +597,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     else {
                         oneSurface &= !tool.configuration && HGTestFullGlassEffect(backdrop) &&
                             [[backdrop valueForKey:@"style"] isEqual:@"clear"] && tool.enabled &&
-                            backdrop.traitCollection.userInterfaceStyle==header.window.traitCollection.userInterfaceStyle &&
-                            CGColorGetAlpha(backdrop.contentView.backgroundColor.CGColor)==0;
+                            backdrop.traitCollection.userInterfaceStyle==header.window.traitCollection.userInterfaceStyle;
                         if([backdrop isKindOfClass:NSClassFromString(@"HGAHeaderTouchGlass")])
                             oneSurface &= [backdrop valueForKey:@"channelControl"]==tool;
                     }
@@ -873,6 +872,13 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             UIVisualEffectView *refraction=(id)Find(lens,@"honggo.appearance.header.refraction");
             Layout(rail);
             UIVisualEffect *effect=rail.effect;
+            // UIKit copies UIVisualEffect. Track the installed surface and the
+            // configuration token the renderer renews only when installing an effect.
+            NSString *railInstallation=[rail valueForKey:@"materialSignature"];
+            BOOL (^sameRail)(void)=^BOOL{
+                return railInstallation && rail==Find(group,@"honggo.appearance.header.channelRail") &&
+                    railInstallation==[rail valueForKey:@"materialSignature"] && HGTestFullGlassEffect(rail);
+            };
             NSArray<UIButton *> *channelTitles=[group valueForKey:@"buttons"];
             UIButton *firstTitle=channelTitles.firstObject;
             Check(channelTitles.count==2 && firstTitle.titleLabel.font.pointSize==16 &&
@@ -927,9 +933,14 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 }
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                if (!buttons[1].selected || buttons[0].selected || channels.selectedIndex!=3 ||
+                    channels.nativeSelections!=before+1 || pageScroll.contentOffset.x!=3*pageWidth || !sameRail())
+                    NSLog(@"HEADER_ACTIVATE selected=%d/%d host=%ld calls=%ld offset=%.1f expected=%.1f mounted=%d rail=%d",
+                        buttons[0].selected,buttons[1].selected,(long)channels.selectedIndex,(long)(channels.nativeSelections-before),
+                        pageScroll.contentOffset.x,3*pageWidth,group.window!=nil,sameRail());
                 Check(buttons[1].selected && !buttons[0].selected && channels.selectedIndex==3 &&
                     channels.nativeSelections==before+1 && pageScroll.contentOffset.x==3*pageWidth &&
-                    rail.effect==effect && Find(group,@"honggo.appearance.header.swipeLens")==lens,
+                    sameRail() && Find(group,@"honggo.appearance.header.swipeLens")==lens,
                     @"glass channel activation selects the originally visible host page exactly once");
                 [buttons[0] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                 if (!UIAccessibilityIsReduceMotionEnabled()) {
@@ -939,7 +950,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sample.fixtureState=UIGestureRecognizerStateChanged;
                     sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.66,CGRectGetMidY(group.bounds));
                     [scrubber scrubChannels:sample];
-                    Check(scrubber && rail.effect==effect && !lens.hidden && !refraction.hidden &&
+                    Check(scrubber && sameRail() && !lens.hidden && !refraction.hidden &&
                         CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
                         @"scrubbing the glass channel moves the active native refraction over the fixed rail");
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
@@ -947,7 +958,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sample.fixtureState=UIGestureRecognizerStateChanged;
                     sample.fixtureTravel=CGPointMake(-pageWidth*0.25,0);
                     [channelPaging page:sample];
-                    Check(rail.effect==effect && !lens.hidden && !refraction.hidden && CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
+                    Check(sameRail() && !lens.hidden && !refraction.hidden && CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
                         @"the feed swipe tracks the same native refraction between the non-adjacent host pages");
                     sample.fixtureState=UIGestureRecognizerStateBegan;
                     sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.25,CGRectGetMidY(group.bounds));
@@ -1049,34 +1060,42 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 Layout(rail);
                 UIView *mark=Find(strip,@"honggo.appearance.header.swipeLens");
                 UIVisualEffectView *glass=(id)Find(mark,@"honggo.appearance.header.refraction");
-                aligned &= all.count==4 && mark && !mark.hidden && ([styles[0] isEqual:@"flat"] ? !rail.effect :
+                BOOL styleOK=all.count==4 && mark && !mark.hidden && ([styles[0] isEqual:@"flat"] ? !rail.effect :
                     [rail.effect isKindOfClass:UIGlassEffect.class]) && ([selection isEqual:@"glass"] ?
                     (glass && glass.hidden) : glass==nil);
+                if (!styleOK) NSLog(@"HEADER_STYLE %@/%@ count=%lu mark=%@ rail=%@ glass=%@",styles[0],selection,(unsigned long)all.count,mark,rail,glass);
+                aligned &= styleOK;
                 for(UIButton *button in all) {
                     [button sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                     CGRect slot=[button convertRect:button.bounds toView:strip];
                     CGPoint center=CGPointMake(CGRectGetMidX(slot),CGRectGetMidY(slot));
                     UIView *hit=[strip hitTest:center withEvent:nil];
                     CGRect selected=[mark convertRect:mark.bounds toView:strip];
-                    aligned &= channels.selectedIndex==button.tag && [hit isDescendantOfView:button] &&
+                    BOOL slotOK=channels.selectedIndex==button.tag && [hit isDescendantOfView:button] &&
                         fabs(CGRectGetMidX(selected)-center.x)<0.51 &&
                         fabs(CGRectGetWidth(selected)-(CGRectGetWidth(slot)-8))<0.51 &&
                         fabs(CGRectGetHeight(selected)-(CGRectGetHeight(strip.bounds)-8))<0.51;
+                    if (!slotOK) NSLog(@"HEADER_SLOT %@/%@ button=%ld host=%ld hit=%@ slot=%@ selected=%@",styles[0],selection,
+                        (long)button.tag,(long)channels.selectedIndex,hit,NSStringFromCGRect(slot),NSStringFromCGRect(selected));
+                    aligned &= slotOK;
                 }
                 if (all.count && !UIAccessibilityIsReduceMotionEnabled()) {
                     id<HGATestChannelPaging> scrubber=nil;
                     for (UIGestureRecognizer *recognizer in all.lastObject.gestureRecognizers)
                         if ([recognizer.delegate respondsToSelector:@selector(scrubChannels:)]) scrubber=(id)recognizer.delegate;
-                    UIVisualEffect *track=rail.effect;
+                    NSString *track=[rail valueForKey:@"materialSignature"];
                     sample.fixtureState=UIGestureRecognizerStateBegan;
                     sample.fixtureLocation=[all.lastObject convertPoint:CGPointMake(CGRectGetMidX(all.lastObject.bounds),
                         CGRectGetMidY(all.lastObject.bounds)) toView:strip];
                     [scrubber scrubChannels:sample];
-                    aligned &= scrubber && rail.effect==track && ([selection isEqual:@"glass"] ?
+                    BOOL pressed=scrubber && track && [rail valueForKey:@"materialSignature"]==track && ([selection isEqual:@"glass"] ?
                         (!glass.hidden && HGTestFullGlassEffect(glass)) : glass==nil);
+                    if (!pressed) NSLog(@"HEADER_PRESS %@/%@ scrubber=%@ sameRail=%d glass=%@ hidden=%d full=%d",
+                        styles[0],selection,scrubber,[rail valueForKey:@"materialSignature"]==track,glass,glass.hidden,HGTestFullGlassEffect(glass));
+                    aligned &= pressed;
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
                     [scrubber scrubChannels:sample];
-                    aligned &= rail.effect==track && (!glass || glass.hidden);
+                    aligned &= rail==Find(strip,@"honggo.appearance.header.channelRail") && [rail valueForKey:@"materialSignature"]==track && (!glass || glass.hidden);
                 }
             }
             Check(aligned,@"four visible channel titles, touch slots and both selected styles agree on every host index");

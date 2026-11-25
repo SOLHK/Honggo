@@ -458,18 +458,29 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 - (void)closeNotes { [self dismissViewControllerAnimated:YES completion:nil]; }
 @end
 
+@interface HGSettingsCapsuleButton : UIButton
+@property(nonatomic) CGFloat capsuleWidth;
+@end
+@implementation HGSettingsCapsuleButton
+- (CGSize)intrinsicContentSize {
+    return self.capsuleWidth>0 ? CGSizeMake(self.capsuleWidth,44) : [super intrinsicContentSize];
+}
+- (CGSize)sizeThatFits:(CGSize)size {
+    return self.capsuleWidth>0 ? self.intrinsicContentSize : [super sizeThatFits:size];
+}
+@end
+
 static UIBarButtonItem *HGSettingsCapsule(UIButtonConfiguration *style,NSString *title,
         NSString *identifier,id target,SEL action,CGFloat width) {
     UIButtonConfiguration *config=[style copy];
     config.title=title;
-    UIButton *button=[UIButton buttonWithConfiguration:config primaryAction:nil];
+    HGSettingsCapsuleButton *button=[[HGSettingsCapsuleButton alloc] initWithFrame:CGRectZero];
+    button.configuration=config;
     button.accessibilityIdentifier=identifier;
     [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    button.capsuleWidth=width>0 ? width : MAX(44,ceil(button.intrinsicContentSize.width));
+    [button invalidateIntrinsicContentSize];
     [button sizeToFit];
-    if (!width) width=ceil(button.bounds.size.width);
-    button.bounds=CGRectMake(0,0,width,44);
-    [button.widthAnchor constraintEqualToConstant:width].active=YES;
-    [button.heightAnchor constraintEqualToConstant:44].active=YES;
     UIBarButtonItem *item=[[UIBarButtonItem alloc] initWithCustomView:button];
     if (@available(iOS 26.0,*)) item.hidesSharedBackground=YES;
     return item;
@@ -516,7 +527,7 @@ static UIBarButtonItem *HGSettingsCapsule(UIButtonConfiguration *style,NSString 
     UIButton *version=(UIButton *)versionItem.customView;
     version.accessibilityLabel=[NSString stringWithFormat:@"版本 %@，更新记录",HG_PLUGIN_VERSION];
     self.navigationItem.leftBarButtonItem = versionItem;
-    self.navigationItem.rightBarButtonItem=HGSettingsCapsule(style,@"完成",@"honggo.settings.done",self,@selector(closeSettings),version.bounds.size.width);
+    self.navigationItem.rightBarButtonItem=HGSettingsCapsule(style,@"完成",@"honggo.settings.done",self,@selector(closeSettings),version.intrinsicContentSize.width);
     self.rootCategories = @[
         @{@"kind": @"appearance", @"group": @"chrome", @"title": @"页面与导航", @"id": @"honggo.settings.category.chrome"},
         @{@"kind": @"appearance", @"group": @"player", @"title": @"播放页", @"id": @"honggo.settings.category.player"},

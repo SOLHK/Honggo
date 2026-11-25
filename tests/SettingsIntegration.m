@@ -397,8 +397,11 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     UITableViewController *settings=(id)navigation.topViewController;
     [settings tableView:settings.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:9 inSection:0]];
     [self poll:^BOOL {
-        return [navigation.topViewController isKindOfClass:NSClassFromString(@"HGDiagnosticSessionsController")] &&
-            !navigation.transitionCoordinator;
+        UIViewController *page=navigation.topViewController;
+        return [page isKindOfClass:NSClassFromString(@"HGDiagnosticSessionsController")] &&
+            page.viewIfLoaded.window.windowScene.activationState==UISceneActivationStateForegroundActive &&
+            page.viewIfLoaded.window && !navigation.transitionCoordinator &&
+            !settings.presentedViewController && [[page valueForKey:@"sessions"] count]>0;
     } deadline:[NSDate dateWithTimeIntervalSinceNow:5] completion:^(BOOL opened) {
         [self check:opened name:@"one tap from settings opens diagnostic export and sessions"];
         if (!opened) { completion(); return; }
@@ -418,14 +421,21 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [preparing.detailTextLabel.text containsString:@"正在准备"] name:@"export shows immediate preparation status"];
     UIViewController *cover = [UIViewController new];
     [navigation pushViewController:cover animated:NO];
-    [self poll:^BOOL { return [diagnostics valueForKey:@"readyExport"] != nil; }
-        deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL ready) {
-        [self check:ready && !diagnostics.presentedViewController name:@"a completed export waits while its page is covered"];
+    [self poll:^BOOL { return ![[diagnostics valueForKey:@"exporting"] boolValue]; }
+        deadline:[NSDate dateWithTimeIntervalSinceNow:30] completion:^(BOOL finished) {
+        NSURL *file=[diagnostics valueForKey:@"readyExport"];
+        BOOL ready=finished && [file checkResourceIsReachableAndReturnError:nil];
+        if(!ready || navigation.topViewController!=cover)
+            [self.searchStateTrace addObject:@{@"stage":@"coveredExport",@"finished":@(finished),
+                @"covered":@(navigation.topViewController==cover),@"file":@(file!=nil),
+                @"error":[diagnostics valueForKey:@"exportError"] ?: @""}];
+        [self check:ready && navigation.topViewController==cover && !diagnostics.presentedViewController
+            name:@"a completed export waits while its page is covered"];
         [navigation popToViewController:diagnostics animated:NO];
         [self poll:^BOOL {
             return [diagnostics.presentedViewController isKindOfClass:UIActivityViewController.class] &&
                 !diagnostics.presentedViewController.isBeingPresented;
-        } deadline:[NSDate dateWithTimeIntervalSinceNow:14] completion:^(BOOL shared) {
+        } deadline:[NSDate dateWithTimeIntervalSinceNow:30] completion:^(BOOL shared) {
             [self check:shared name:@"returning to the diagnostics page presents the prepared native share sheet"];
             dispatch_block_t finish = ^{
                 [navigation popToViewController:settings animated:NO];

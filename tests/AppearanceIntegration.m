@@ -273,6 +273,9 @@ static BOOL HGInstallMaterialEffectSpy(void) {
 - (void)pushViewController:(UIViewController *)controller animated:(BOOL)animated {
     [super pushViewController:controller animated:NO];
 }
+- (UIViewController *)popViewControllerAnimated:(BOOL)animated {
+    return [super popViewControllerAnimated:NO];
+}
 @end
 
 static NSIndexPath *HGMenuPath(UITableViewController *menu, NSString *key) {
@@ -457,18 +460,27 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
             NSIndexPath *keywordPath=HGMenuPath(detail,@"video.blockedKeywords");
             if(keywordPath)[detail tableView:detail.tableView didSelectRowAtIndexPath:keywordPath];
             UIViewController *editor=navigation.topViewController;
+            [window layoutIfNeeded];
             UITextView *input=(id)Find(editor.view,@"honggo.video.keywordEditor");
             NSArray *oldKeywords=HGVideoBlockedKeywords();
-            if(input) {
+            BOOL sent=NO;
+            if(input.window==window) {
                 input.text=@"  校园  \n\n校园\n都市";
                 UIBarButtonItem *save=editor.navigationItem.rightBarButtonItem;
-                [UIApplication.sharedApplication sendAction:save.action to:save.target from:save forEvent:nil];
+                sent=[UIApplication.sharedApplication sendAction:save.action to:save.target from:save forEvent:nil];
             }
-            Check(input && navigation.topViewController==detail && [HGVideoBlockedKeywords() isEqual:@[@"校园",@"都市"]],
+            [window layoutIfNeeded];
+            BOOL saved=sent && navigation.topViewController==detail && [HGVideoBlockedKeywords() isEqual:@[@"校园",@"都市"]];
+            if(!saved)NSLog(@"KEYWORD_EDITOR input=%@ sent=%d top=%@ values=%@ alert=%@",
+                input.class,sent,navigation.topViewController.class,HGVideoBlockedKeywords(),editor.presentedViewController.title);
+            Check(saved,
                 @"saving the multiline editor from the drama page updates the active keyword list");
             HGAppearanceSet(@"video.blockedKeywords",oldKeywords,nil);
             NSIndexPath *choice = HGMenuPath(detail, @"player.separateProgress");
             if (choice) [detail tableView:detail.tableView didSelectRowAtIndexPath:choice];
+            NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:1.5];
+            while(choice && !detail.presentedViewController && deadline.timeIntervalSinceNow>0)
+                [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             choiceOpened = [detail.presentedViewController isKindOfClass:UIAlertController.class] &&
                 [detail.presentedViewController.title isEqual:@"合集与进度条分开布局"];
             [detail dismissViewControllerAnimated:NO completion:nil];
