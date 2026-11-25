@@ -1,3 +1,5 @@
+#import "DockSelectionGeometry.h"
+
 // The episode entry has a native content view inside an insert wrapper. A
 // rounded material alone leaves their rectangular fills visible at its corners.
 // Decorate only this observed component; preserve native control proportions.
@@ -40,8 +42,10 @@ static void HGAApplyEpisodeInset(UIView *entry,BOOL enabled) {
     }
     if(!state){state=[HGAEpisodeInsetState new];objc_setAssociatedObject(entry,&HGAEpisodeInsetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     state.sourceBounds=source;state.parent=entry.superview;
-    CGFloat inset=round(MAX(12,width*0.09));
-    CGRect bounds=source;bounds.size.width-=inset*2;
+    // The fixed reference is the stock four-tab Dock with no accessory.
+    // It remains centered even when the live Dock is narrower or collapsed.
+    CGRect bounds=source;
+    bounds.size.width=HGADockRowWidth(window.bounds.size.width,HGADockDefaultWidth,0,4,4,true);
     CGFloat targetCenter=center;
     if(match) {
         // Width is measured in the entry's coordinates so a user scale still

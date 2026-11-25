@@ -74,11 +74,19 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root);
 @end
 @interface FQFeedListView : UIView <UICollectionViewDataSource>
 @property(nonatomic,strong) UICollectionView *listView;
+@property(nonatomic,strong) CAShapeLayer *visualOcclusionMaskLayer;
+- (void)updateVisualOcclusionRect:(CGRect)rect;
 @end
 @implementation FQFeedListView
+- (void)updateVisualOcclusionRect:(CGRect)rect {
+    self.visualOcclusionMaskLayer=[CAShapeLayer layer];
+    self.layer.mask=self.visualOcclusionMaskLayer;
+}
 - (void)layoutSubviews {
     [super layoutSubviews];
     self.listView.frame = self.bounds;
+    self.visualOcclusionMaskLayer.frame=self.bounds;
+    self.visualOcclusionMaskLayer.path=[UIBezierPath bezierPathWithRect:self.bounds].CGPath;
 }
 - (NSInteger)collectionView:(UICollectionView *)list numberOfItemsInSection:(NSInteger)section { return 1; }
 - (__kindof UICollectionViewCell *)collectionView:(UICollectionView *)list cellForItemAtIndexPath:(NSIndexPath *)path {
@@ -994,6 +1002,19 @@ static UIImage *HGWhiteImage(void) {
         CGPointEqualToPoint(grid.contentOffset,CGPointMake(0,180)) &&
         CGPointEqualToPoint(pager.contentOffset,CGPointMake(width,0))
         name:@"theatre relayout after a header movement keeps the native top and restores the bottom extension"];
+
+    // The beta18 snapshots show y=100 and y=70 with the same 857pt height on a 956pt screen.
+    list.frame=CGRectMake(0,100,width,height-99);
+    [list layoutIfNeeded];
+    list.transform=CGAffineTransformMakeTranslation(0,-30);
+    native=list.frame;
+    [list updateVisualOcclusionRect:CGRectMake(0,0,width,46)];
+    [list layoutIfNeeded];
+    [self check:fabs(CGRectGetMaxY([grid convertRect:grid.bounds toView:root])-height)<0.75 &&
+        list.layer.mask==list.visualOcclusionMaskLayer && list.frame.origin.y==70 &&
+        CGPointEqualToPoint(grid.contentOffset,CGPointMake(0,180)) &&
+        CGPointEqualToPoint(pager.contentOffset,CGPointMake(width,0))
+        name:@"collapsing the theatre header repairs the 29-point gap and retains the native mask and scroll offsets"];
 
     [theater willMoveToParentViewController:nil];
     [theater.view removeFromSuperview];

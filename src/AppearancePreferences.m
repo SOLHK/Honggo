@@ -46,6 +46,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"enabled",@"general",@"启用外观定制");
         flag(@"dock.enabled",@"dock",@"使用可定制悬浮底栏");
         buttonStyle(@"dock.style",@"dock",@"底栏按钮风格",@"glass");
+        choice(@"dock.selectionStyle",@"dock",@"底栏选中效果",@[@"glass",@"plain"],@[@"液态玻璃选中",@"普通选中"]);
         choice(@"dock.material",@"dock",@"底栏材质",@[@"regular",@"clear",@"blur",@"solid"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）",@"纯色"]);
         choice(@"dock.content",@"dock",@"底栏显示",@[@"both",@"text",@"icon"],@[@"图标和文字",@"仅文字",@"仅图标"]);
         number(@"dock.width",@"dock",@"底栏宽度比例",HGADockDefaultWidth,0.55,1);
@@ -68,6 +69,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         choice(@"player.collectGlyph",@"player",@"收藏按钮图标",@[@"star",@"sparkles"],@[@"五角星",@"闪光星"]);
         flag(@"player.headerGlass",@"chrome",@"自定义顶部按钮");
         buttonStyle(@"player.headerStyle",@"chrome",@"顶部按钮风格",@"flat");
+        choice(@"player.headerSelectionStyle",@"chrome",@"顶部频道选中效果",@[@"plain",@"glass"],@[@"普通选中",@"液态玻璃选中"]);
         NSArray *channelIDs=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
         NSArray *channelNames=@[@"菜单",@"关注",@"漫剧",@"真人剧",@"推荐",@"搜索"];
         for(NSUInteger i=0;i<channelIDs.count;i++)

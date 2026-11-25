@@ -253,33 +253,34 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     }
     [settings loadViewIfNeeded];
     UIButton *version = (UIButton *)settings.navigationItem.leftBarButtonItem.customView;
-    NSArray *expectedHeaders=@[@"界面与导航",@"短剧播放",@"过滤与兼容",@"管理与支持"];
-    BOOL categoryHeaders = settings.tableView.numberOfSections==(NSInteger)expectedHeaders.count;
-    for (NSUInteger section=0; categoryHeaders && section<expectedHeaders.count; section++)
-        categoryHeaders = [[settings tableView:settings.tableView titleForHeaderInSection:section] isEqual:expectedHeaders[section]];
+    UIButton *done=(id)settings.navigationItem.rightBarButtonItem.customView;
     [self check:[settings.title isEqualToString:@"Honggo"] && [version isKindOfClass:UIButton.class] &&
-        [version.configuration.title isEqual:HG_PLUGIN_VERSION] && version.bounds.size.height>=44 && categoryHeaders
-        name:@"the settings homepage shows its version with navigation, playback, filtering and management sections"];
+        [version.configuration.title isEqual:HG_PLUGIN_VERSION] && [done isKindOfClass:UIButton.class] &&
+        [done.configuration.title isEqual:@"完成"] && done.enabled && version.bounds.size.height>=44 &&
+        CGSizeEqualToSize(version.bounds.size,done.bounds.size) &&
+        version.configuration.cornerStyle==UIButtonConfigurationCornerStyleCapsule &&
+        done.configuration.cornerStyle==UIButtonConfigurationCornerStyleCapsule
+        name:@"the settings homepage presents equal native capsules for release history and Done"];
     [settings.tableView reloadData];
     [settings.tableView layoutIfNeeded];
-    BOOL level1HasNoInlineSwitches = settings.tableView.numberOfSections == 4;
-    NSMutableSet *categories = [NSMutableSet set];
+    BOOL level1HasNoInlineSwitches = settings.tableView.numberOfSections == 1 &&
+        ![settings tableView:settings.tableView titleForHeaderInSection:0];
+    NSMutableArray *titles = [NSMutableArray array];
     for (NSInteger section = 0; section < settings.tableView.numberOfSections; section++) {
         for (NSInteger r = 0; r < [settings.tableView numberOfRowsInSection:section]; r++) {
             UITableViewCell *row = [settings tableView:settings.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:section]];
             if ([row.accessoryView isKindOfClass:UISwitch.class] || row.accessoryType != UITableViewCellAccessoryDisclosureIndicator)
                 level1HasNoInlineSwitches = NO;
-            if (row.accessibilityIdentifier) [categories addObject:row.accessibilityIdentifier];
+            if (row.textLabel.text) [titles addObject:row.textLabel.text];
         }
     }
-    [self check:level1HasNoInlineSwitches && categories.count == 13 && ![categories containsObject:@"honggo.settings.category.icons"] &&
-        [categories containsObject:@"honggo.settings.category.gestures"] &&
-        [categories containsObject:@"honggo.settings.category.mine"]
-        name:@"gestures and profile are directly reachable alongside all other home categories"];
+    [self check:level1HasNoInlineSwitches && [titles isEqual:@[@"页面与导航",@"播放页",@"底栏 Dock",@"短剧",
+        @"我的页面",@"评论区",@"外观",@"广告与推广",@"导出与备份",@"诊断日志",@"作者与频道"]]
+        name:@"the home lists eleven feature destinations in one section"];
 
     // Verify Level-2 and Level-3 subpages expose all 18 switches, diagnostics, backup, and channel.
     Class subpageClass = NSClassFromString(@"HGSettingsSubpageController");
-    NSIndexPath *logsPath=[NSIndexPath indexPathForRow:1 inSection:3];
+    NSIndexPath *logsPath=[NSIndexPath indexPathForRow:9 inSection:0];
     UITableViewCell *logsEntry=[settings tableView:settings.tableView cellForRowAtIndexPath:logsPath];
     [self check:[logsEntry.textLabel.text isEqual:@"诊断日志"] && HGEnhancedDiagnostics()
         name:@"the settings homepage exposes diagnostics directly"];
@@ -393,7 +394,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     UINavigationController *navigation = (id)self.host.presentedViewController;
     if (![navigation isKindOfClass:UINavigationController.class]) { completion(); return; }
     UITableViewController *settings=(id)navigation.topViewController;
-    [settings tableView:settings.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:3]];
+    [settings tableView:settings.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:9 inSection:0]];
     [self poll:^BOOL {
         return [navigation.topViewController isKindOfClass:NSClassFromString(@"HGDiagnosticSessionsController")] &&
             !navigation.transitionCoordinator;
@@ -644,13 +645,13 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [settings.tableView.backgroundView.accessibilityIdentifier isEqual:@"honggo.settings.search.empty"]
         name:@"unmatched search has no stale rows and exposes an accessible empty state"];
     [self filterSettings:settings text:@" \n\t "];
-    [self check:[settings.tableView numberOfSections] == 4 &&
-        [settings.tableView numberOfRowsInSection:0] == 5 &&
+    [self check:[settings.tableView numberOfSections] == 1 &&
+        [settings.tableView numberOfRowsInSection:0] == 11 &&
         settings.tableView.backgroundView == nil
         name:@"whitespace search restores the clean level-1 category list and removes the empty state"];
     [self filterSettings:settings text:@""];
-    [self check:[settings.tableView numberOfSections] == 4 &&
-        [settings.tableView numberOfRowsInSection:0] == 5
+    [self check:[settings.tableView numberOfSections] == 1 &&
+        [settings.tableView numberOfRowsInSection:0] == 11
         name:@"clearing the query restores the clean level-1 category list"];
     [self runSearchAction:0 settings:settings completion:completion];
 }
@@ -664,9 +665,9 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         [self activateSearch:settings query:@"玻璃" completion:^(BOOL active) {
             if (!active) { completion(); return; }
             NSUInteger dismissalsBefore = self.searchEvents.dismissals;
-            UIBarButtonItem *done = settings.navigationItem.rightBarButtonItem;
+            UIButton *done = (id)settings.navigationItem.rightBarButtonItem.customView;
             [self recordSearchState:@"close.requested" settings:settings extra:nil];
-            [UIApplication.sharedApplication sendAction:done.action to:done.target from:done forEvent:nil];
+            [done sendActionsForControlEvents:UIControlEventTouchUpInside];
             [self poll:^BOOL { return self.host.presentedViewController == nil &&
                     self.searchEvents.dismissals > dismissalsBefore; }
                 deadline:[NSDate dateWithTimeIntervalSinceNow:8] completion:^(BOOL closed) {

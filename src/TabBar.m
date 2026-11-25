@@ -52,6 +52,7 @@ static void (*HGOriginalMineLayout)(id, SEL);
 static void (*HGOriginalMineAppear)(id, SEL, BOOL);
 static void (*HGOriginalMallMount)(id, SEL);
 static void (*HGOriginalTheaterListLayout)(id, SEL);
+static void (*HGOriginalTheaterOcclusion)(id, SEL, CGRect);
 static void (*HGOriginalToggleFeedSidebar)(id, SEL, double);
 static char HGMineRefreshPendingKey;
 
@@ -650,10 +651,19 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
 - (void)collectViewports:(UIView *)view root:(UIView *)root barTop:(CGFloat)barTop
         bottom:(CGFloat)bottom records:(NSMutableArray<HGViewportRecord *> *)records depth:(NSUInteger)depth {
     if (view == self.bar || [self.bar isDescendantOfView:view] || view.hidden || view.alpha < 0.01 ||
-        depth > 10 || !CGAffineTransformIsIdentity(view.transform) || view.layer.mask ||
+        depth > 10 ||
         HGIsOverlayOrDrawerView(view) ||
         [view isKindOfClass:UIControl.class] || [view isKindOfClass:UITableViewCell.class] ||
         [view isKindOfClass:UICollectionViewCell.class] || [view isKindOfClass:UIVisualEffectView.class]) return;
+    CGAffineTransform transform=view.transform;
+    if (view.layer.mask || !CGAffineTransformIsIdentity(transform)) {
+        // The theatre list redraws its own top cutout against its bounds in
+        // layoutSubviews. Keep this mask in place as the viewport grows.
+        if (![view isKindOfClass:objc_lookUpClass("FQFeedListView")] ||
+            !CGAffineTransformEqualToTransform(transform,CGAffineTransformMakeTranslation(0,transform.ty)) ||
+            (view.layer.mask && view.layer.mask!=HGObject(view,"visualOcclusionMaskLayer")) ||
+            !HGTheaterPageForView(view)) return;
+    }
     Class mineRoot = objc_lookUpClass("SSMine737KMPRootView");
     if (mineRoot && [view isKindOfClass:mineRoot]) return; // Dedicated visual clip; host owns all layout.
     // This is scrollable content (including a collapsing header), not a viewport.
@@ -1169,8 +1179,7 @@ static void HGMallMount(UIViewController *page, SEL cmd) {
     // Run the existing reversible viewport pass after the initial mount/reset.
     HGRefreshContainingTabBar(page);
 }
-static void HGTheaterListLayout(UIView *list, SEL cmd) {
-    HGOriginalTheaterListLayout(list, cmd);
+static void HGReconcileTheaterListBottom(UIView *list, BOOL scheduleLayout) {
     UIWindow *window = list.window;
     if (!window || list.hidden || (!HGGlassEnabled && !HGAppearanceDockEnabled())) return;
     CGRect frame = [list convertRect:list.bounds toView:window];
@@ -1181,8 +1190,19 @@ static void HGTheaterListLayout(UIView *list, SEL cmd) {
     if (!theater) return;
     UIViewController *owner = HGContainingTabController(theater);
     UIView *bar = HGView(owner, "customTabBar");
-    if (bar.window == window && CGRectGetMaxY(frame) >= CGRectGetMinY([bar convertRect:bar.bounds toView:window]) - 2)
-        HGRefreshTabBar(owner);
+    if (bar.window != window || CGRectGetMaxY(frame) < CGRectGetMinY([bar convertRect:bar.bounds toView:window]) - 2) return;
+    // The header can move the viewport up without changing its size. Defer
+    // that correction to layout so we never rebuild the Dock in the scroll delegate.
+    if (scheduleLayout) [list setNeedsLayout];
+    else HGRefreshTabBar(owner);
+}
+static void HGTheaterListLayout(UIView *list, SEL cmd) {
+    HGOriginalTheaterListLayout(list, cmd);
+    HGReconcileTheaterListBottom(list,NO);
+}
+static void HGTheaterOcclusionChanged(UIView *list, SEL cmd, CGRect occlusion) {
+    HGOriginalTheaterOcclusion(list,cmd,occlusion);
+    HGReconcileTheaterListBottom(list,YES);
 }
 static void HGMineLayout(UIViewController *page, SEL cmd) {
     HGOriginalMineLayout(page, cmd);
@@ -1396,9 +1416,13 @@ BOOL HGInstallTabBar(void) {
                 "v24@0:8@16",(IMP)HGSpeedTipMove);
         }
         Class theaterList = objc_lookUpClass("FQFeedListView");
-        if ([theaterList isSubclassOfClass:UIView.class])
+        if ([theaterList isSubclassOfClass:UIView.class]) {
             HGOriginalTheaterListLayout = (void (*)(id, SEL))HGReplaceMethod(theaterList,
                 @selector(layoutSubviews), "v16@0:8", (IMP)HGTheaterListLayout);
+            HGOriginalTheaterOcclusion = (void (*)(id,SEL,CGRect))HGReplaceMethod(theaterList,
+                sel_registerName("updateVisualOcclusionRect:"), "v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",
+                (IMP)HGTheaterOcclusionChanged);
+        }
         if (HGGlassEnabled) {
             Class mine = objc_lookUpClass("SSMine737KMPViewController");
             HGOriginalMineLayout = (void (*)(id, SEL))HGReplaceMethod(mine,

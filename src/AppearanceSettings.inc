@@ -179,23 +179,32 @@ static NSString *HGARoleSummary(NSString *role) {
     return @"默认";
 }
 
+static NSDictionary *HGARoleEntry(NSString *role) {
+    NSString *title=HGAppearanceRoleTitles()[[HGAppearanceRoles() indexOfObject:role]];
+    return HGASubpage([@"@group.role." stringByAppendingString:role],title,HGARoleSummary(role));
+}
+
 static NSString *HGAGroupDisplayTitle(NSString *group) {
     if(!group.length)return @"外观";
     if([group hasPrefix:@"setting."])return HGAGroupDisplayTitle(HGACatalogDef([group substringFromIndex:8])[@"group"]);
     NSDictionary<NSString *,NSString *> *titles=@{
         @"general":@"外观总开关",
-        @"dock":@"悬浮底栏",
+        @"dock":@"底栏 Dock",
         @"dock.geometry":@"底栏尺寸与圆角",
         @"dock.extra":@"独立圆形按钮",
         @"dock.collapse":@"收缩与手势",
         @"dock.hide":@"底栏导航项隐藏",
-        @"chrome":@"顶部导航与找剧",
+        @"chrome":@"页面与导航",
         @"mine":@"我的页面",
         @"gestures":@"播放手势",
         @"chrome.hide":@"顶部按钮与频道隐藏",
         @"chrome.finder.hide":@"找剧频道与快捷入口",
         @"chrome.mine.hide":@"我的快捷入口",
-        @"player":@"播放布局与控件",
+        @"player":@"播放页",
+        @"rightButtons":@"右侧按钮",
+        @"drama":@"短剧",
+        @"comments":@"评论区",
+        @"panelMaterial":@"面板材质",
         @"panels":@"弹出面板",
         @"fonts":@"字体与字号"
     };
@@ -289,12 +298,13 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     } else if(!self.group.length) {
         HGAAddDefs(rows, @[@"enabled"]);
         section(@"界面与播放");
-        [rows addObject:HGASubpage(@"@group.dock",@"悬浮底栏",HGAppearanceFlag(@"dock.enabled")?@"已开启":@"默认")];
-        [rows addObject:HGASubpage(@"@group.chrome",@"顶部导航与找剧",@"频道、搜索与快捷入口")];
+        [rows addObject:HGASubpage(@"@group.dock",@"底栏 Dock",HGAppearanceFlag(@"dock.enabled")?@"已开启":@"默认")];
+        [rows addObject:HGASubpage(@"@group.chrome",@"页面与导航",@"频道、搜索与快捷入口")];
         [rows addObject:HGASubpage(@"@group.mine",@"我的页面",@"订单、消息、游戏、追更与更多功能")];
-        [rows addObject:HGASubpage(@"@group.player",@"播放布局与控件",@"播放方式、控件位置与大小")];
-        [rows addObject:HGASubpage(@"@group.gestures",@"播放手势",@"双指清屏与双击评论")];
-        [rows addObject:HGASubpage(@"@group.panels",@"弹出面板",@"评论、选集、分享与倍速面板")];
+        [rows addObject:HGASubpage(@"@group.player",@"播放页",@"手势、控件位置与大小")];
+        [rows addObject:HGASubpage(@"@group.drama",@"短剧",@"全集入口、选集与剧集信息")];
+        [rows addObject:HGASubpage(@"@group.comments",@"评论区",@"面板、播放画面与打开方式")];
+        [rows addObject:HGASubpage(@"@group.panelMaterial",@"面板材质",@"材质与底色不透明度")];
         section(@"文字");
         [rows addObject:HGASubpage(@"@group.fonts",@"字体与字号",HGAppearanceFlag(@"fonts.enabled")?@"已开启":@"默认")];
     } else if([self.group hasPrefix:@"setting."]) {
@@ -302,7 +312,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     } else if([self.group isEqual:@"general"]) {
         HGAAddDefs(rows,@[@"enabled"]);
     } else if([self.group isEqual:@"dock"]) {
-        HGAAddDefs(rows,@[@"dock.enabled",@"dock.style"]);
+        HGAAddDefs(rows,@[@"dock.enabled",@"dock.style",@"dock.selectionStyle"]);
         if(!HGFlatDockStyle())HGAAddDefs(rows,@[@"dock.material"]);
         HGAAddDefs(rows,@[@"dock.content",@"dock.haptics"]);
         section(@"布局与交互");
@@ -320,7 +330,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"dock.hide.home",@"dock.hide.theater",@"dock.hide.store",@"dock.hide.mine"]);
     } else if([self.group isEqual:@"chrome"]) {
         section(@"顶部导航");
-        HGAAddDefs(rows,@[@"player.headerGlass",@"player.headerStyle"]);
+        HGAAddDefs(rows,@[@"player.headerGlass",@"player.headerStyle",@"player.headerSelectionStyle"]);
         [rows addObject:HGASubpage(@"@group.chrome.hide",@"顶部按钮与频道隐藏",@"菜单、频道与搜索")];
         section(@"找剧");
         HGAAddDefs(rows,@[@"player.finderGlass",@"player.finderAI"]);
@@ -347,19 +357,28 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"layout.channels.hide.sidebar",@"layout.channels.hide.follow",@"layout.channels.hide.comic",
             @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search"]);
     } else if([self.group isEqual:@"player"]) {
-        section(@"播放与材质");
-        HGAAddDefs(rows,@[@"player.fullscreen",@"player.disableEpisodeSwipe",@"player.separateProgress",
-            @"player.rightGlass",@"player.actionStyle",@"player.collectGlyph",@"player.material",@"player.episodeGlass",@"player.episodeDockWidth",@"player.controlsGlass"]);
-        section(@"剧集信息按钮");
+        section(@"播放与手势");
+        HGAAddDefs(rows,@[@"player.fullscreen",@"player.disableEpisodeSwipe",@"gestures.pinchClean"]);
+        section(@"播放控件");
+        [rows addObject:HGASubpage(@"@group.rightButtons",@"右侧按钮",@"头像、收藏、评论、点赞、分享、更多")];
+        HGAAddDefs(rows,@[@"player.rightGlass",@"player.actionStyle",@"player.collectGlyph",@"player.material",@"player.controlsGlass"]);
+        section(@"位置与大小");
+        for (NSString *role in @[@"channels",@"info",@"tags",@"progress",@"danmaku",@"notice"])
+            [rows addObject:HGARoleEntry(role)];
+    } else if([self.group isEqual:@"rightButtons"]) {
+        for (NSString *role in HGARightButtonRoles()) [rows addObject:HGARoleEntry(role)];
+    } else if([self.group isEqual:@"drama"]) {
+        section(@"全集入口");
+        HGAAddDefs(rows,@[@"player.episodeGlass",@"player.episodeDockWidth",@"player.separateProgress"]);
+        [rows addObject:HGARoleEntry(@"episodes")];
+        section(@"剧集信息");
         HGAAddDefs(rows,@[@"player.hide.followRank",@"player.hide.seriesBadge"]);
-        NSArray *roles = HGAppearanceRoles(), *roleTitles = HGAppearanceRoleTitles();
-        for (NSUInteger i = 0; i < roles.count; i++) {
-            NSString *role = roles[i];
-            if ([role isEqual:@"avatar"]) section(@"右侧按钮");
-            if ([role isEqual:@"channels"]) section(@"频道与剧集信息");
-            if ([role isEqual:@"progress"]) section(@"进度与播放入口");
-            [rows addObject:HGASubpage([@"@group.role." stringByAppendingString:role], roleTitles[i], HGARoleSummary(role))];
-        }
+        section(@"播放面板");
+        HGAAddDefs(rows,@[@"panels.episodes",@"panels.share",@"panels.longpress",@"panels.speed"]);
+    } else if([self.group isEqual:@"comments"]) {
+        HGAAddDefs(rows,@[@"panels.comment",@"panels.commentMaterial",@"player.commentMovesVideo",@"gestures.doubleTapComments"]);
+    } else if([self.group isEqual:@"panelMaterial"]) {
+        HGAAddDefs(rows,@[@"panels.material",@"panels.opacity"]);
     } else if([self.group hasPrefix:@"role."]) {
         NSString *role=[self.group substringFromIndex:5];
         NSString *prefix=[@"layout." stringByAppendingString:role];

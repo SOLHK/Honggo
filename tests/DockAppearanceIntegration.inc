@@ -61,7 +61,7 @@ static BOOL HGADockNeutralTranslucent(UIColor *color,UITraitCollection *traits) 
 }
 static BOOL HGADockGlyphMatches(UIButton *button,BOOL lightGlyph) {
     CGFloat r,g,b,a;
-    UIColor *color=[button.configuration.baseForegroundColor resolvedColorWithTraitCollection:button.traitCollection];
+    UIColor *color=[(button.configuration.baseForegroundColor ?: button.tintColor) resolvedColorWithTraitCollection:button.traitCollection];
     return [color getRed:&r green:&g blue:&b alpha:&a] &&
         a>0.75 && (lightGlyph ? MIN(r,MIN(g,b))>0.90 : MAX(r,MAX(g,b))<0.10);
 }
@@ -705,6 +705,88 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     HGAppearanceSet(@"dock.material",@"regular",nil);
 }
 
+static BOOL HGADockDrawsEveryCaption(UIView *capsule,NSArray<UIButton *> *buttons) {
+    if(!capsule.window || buttons.count==0)return NO;
+    for(UIButton *button in buttons) {
+        Layout(button);
+        UILabel *title=button.titleLabel;
+        if(button.hidden || title.hidden || CGRectIsEmpty(title.frame) || !button.currentImage ||
+            !CGRectContainsRect(button.bounds,title.frame) || CGRectGetMinY(title.frame)<CGRectGetMaxY(button.imageView.frame)-0.5)return NO;
+    }
+    UIImage *visible=HGARenderDockView(capsule);
+    [CATransaction begin];[CATransaction setDisableActions:YES];
+    for(UIButton *button in buttons)button.titleLabel.layer.opacity=0;
+    UIImage *masked=HGARenderDockView(capsule);
+    for(UIButton *button in buttons)button.titleLabel.layer.opacity=1;
+    [CATransaction commit];
+    for(UIButton *button in buttons) {
+        CGRect area=[button.titleLabel convertRect:button.titleLabel.bounds toView:capsule];
+        CGRect pixels=CGRectIntegral(CGRectApplyAffineTransform(area,CGAffineTransformMakeScale(visible.scale,visible.scale)));
+        CGImageRef ink=CGImageCreateWithImageInRect(visible.CGImage,pixels),blank=CGImageCreateWithImageInRect(masked.CGImage,pixels);
+        BOOL drawn=ink && blank && ![UIImagePNGRepresentation([UIImage imageWithCGImage:ink])
+            isEqual:UIImagePNGRepresentation([UIImage imageWithCGImage:blank])];
+        if(ink)CGImageRelease(ink);
+        if(blank)CGImageRelease(blank);
+        if(!drawn)return NO;
+    }
+    return YES;
+}
+
+static void HGRunDockCaptionChecks(SSTabBarController *host) {
+    NSDictionary *saved=HGAppearanceValues();
+    NSUInteger previous=host.selectedIndex;
+    host.selectedIndex=0;
+    HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.material":@"clear",@"dock.style":@"glass",
+        @"dock.content":@"both",@"dock.haptics":@NO,@"dock.extra":@NO,@"dock.height":@58,
+        @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.mine":@NO},nil);
+    for(NSString *style in @[@"glass",@"plain"]) {
+        BOOL showStore=[style isEqual:@"plain"];
+        HGAppearanceApply(@{@"dock.selectionStyle":style,@"dock.hide.store":@(!showStore)},nil);
+        HGAppearanceLayoutDock(host.customTabBar,host);
+        HGAAppearanceDock *dock=(id)Find(host.customTabBar,@"honggo.appearance.dock");
+        UIView *capsule=Find(dock,@"honggo.appearance.dock.capsule");
+        NSMutableArray *items=[NSMutableArray array];
+        for(NSString *key in (showStore ? @[@"home",@"theater",@"store",@"mine"] : @[@"home",@"theater",@"mine"])) {
+            UIView *button=Find(capsule,[@"honggo.appearance.tab." stringByAppendingString:key]);
+            if(button)[items addObject:button];
+        }
+        Check(items.count==(showStore?4:3) && HGADockDrawsEveryCaption(capsule,items),
+            [NSString stringWithFormat:@"%@ quiet-mode tab captions contribute pixels to the visible Dock",@(items.count)]);
+        UIVisualEffectView *rest=(id)Find(capsule,@"honggo.appearance.dock.resting-lens");
+        BOOL nativeGlass=HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled();
+        Check((nativeGlass && !showStore) ? (!rest.hidden && [rest.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")]) : !rest,
+            @"quiet navigation mounts the selected glass at rest only for the glass style");
+        if(showStore) {
+            UIButton *last=items.lastObject;
+            NSUInteger taps=host.nativeTaps;
+            CGPoint point=[last convertPoint:CGPointMake(CGRectGetMidX(last.bounds),CGRectGetMidY(last.bounds)) toView:dock];
+            [dock beginDockTouchAtPoint:point];
+            UIView *selection=Find(capsule,@"honggo.appearance.dock.selection");
+            UIView *highlight=Find(selection,@"honggo.appearance.dock.selection-highlight");
+            Check(!Find(capsule,@"honggo.appearance.dock.drag-lens") && highlight.alpha==0 && selection.layer.borderWidth==0 &&
+                Find(capsule,@"honggo.appearance.material") && CGAffineTransformIsIdentity(last.imageView.transform),
+                @"plain selection retains its glass rail while pressing without a lens or an enlarged symbol");
+            [dock endDockTouchAtPoint:point cancelled:NO];
+            Check(host.selectedIndex==3 && host.nativeTaps==taps+1 && HGADockDrawsEveryCaption(capsule,items),
+                @"quiet four-tab selection forwards once and the switched Dock still paints every caption");
+            HGWaitForDockSelectionLensToSettle(selection);
+        }
+    }
+    HGAppearanceApply(@{@"dock.extra":@YES,@"dock.action":@"mine", @"dock.selectionStyle":@"glass"},nil);
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    UIButton *extra=(id)Find(host.customTabBar,@"honggo.appearance.dock.extra");
+    UIVisualEffectView *lens=(id)Find(extra.superview,@"honggo.appearance.dock.resting-lens");
+    if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled())
+        Check(extra.selected && !lens.hidden && [lens.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")] &&
+            CGRectEqualToRect(lens.frame,extra.frame),@"the detached selected tab carries the same resting lens on its own circle");
+    HGAppearanceSet(@"dock.selectionStyle",@"plain",nil);
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    Check(extra.selected && !Find(extra.superview,@"honggo.appearance.dock.resting-lens"),
+        @"plain selection removes the detached circle lens while keeping the current tab selected");
+    host.selectedIndex=previous;
+    HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
+}
+
 static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     if(!HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled())return;
     NSDictionary *saved=HGAppearanceValues();
@@ -766,7 +848,7 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     UIButton *theater=(id)Find(dock,@"honggo.appearance.tab.theater");
     NSUInteger taps=host.nativeTaps;
     [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
-    Check([theater.configuration.title isEqual:@"剧场"] && !theater.hidden && host.selectedIndex==1 && host.nativeTaps==taps+1,
+    Check([theater.currentTitle isEqual:@"剧场"] && !theater.hidden && host.selectedIndex==1 && host.nativeTaps==taps+1,
         @"quiet navigation preserves both the caption and the original tab action");
     host.selectedIndex=savedIndex;host.customTabBar.frame=frame;
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
@@ -845,15 +927,15 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
         host.overrideUserInterfaceStyle==UIUserInterfaceStyleLight,
         @"video dock keeps dark glass without changing the host light theme");
-    Check(!home.automaticallyUpdatesConfiguration && !home.configuration.automaticallyUpdateForSelection,
+    Check(!home.configuration,
         @"dock owns selection appearance instead of inheriting UIKit accent selection");
     HGADockPixelCounts normal=HGADockPixels(home),accessory=HGADockPixels(extra);
     Check(normal.brightNeutral>8 && accessory.brightNeutral>8,
         @"tab and independent profile glyphs render white on a dark surface");
     Check(normal.blue==0 && accessory.blue==0,
         @"rendered selected tab and independent button contain no inherited blue accent");
-    CGFloat activeOpacity=CGColorGetAlpha([home.configuration.baseForegroundColor resolvedColorWithTraitCollection:home.traitCollection].CGColor);
-    CGFloat inactiveOpacity=CGColorGetAlpha([theater.configuration.baseForegroundColor resolvedColorWithTraitCollection:theater.traitCollection].CGColor);
+    CGFloat activeOpacity=CGColorGetAlpha([home.tintColor resolvedColorWithTraitCollection:home.traitCollection].CGColor);
+    CGFloat inactiveOpacity=CGColorGetAlpha([theater.tintColor resolvedColorWithTraitCollection:theater.traitCollection].CGColor);
     Check(inactiveOpacity>0.50 && inactiveOpacity<activeOpacity && activeOpacity>0.90,
         @"unselected navigation glyphs stay neutral and quieter than the selected tab");
     Check(MAX(home.imageView.bounds.size.width,home.imageView.bounds.size.height)<36 &&
@@ -1030,5 +1112,6 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     host.selectedIndex=savedIndex;host.overrideUserInterfaceStyle=savedStyle;host.view.tintColor=savedTint;
     host.customTabBar.frame=savedBarFrame;
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
+    HGRunDockCaptionChecks(host);
     HGRunDockSystemAdapterChecks(host);
 }

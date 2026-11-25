@@ -50,7 +50,7 @@ static void RunEpisodeGlassChecks(UIView *root) {
         CGRectEqualToRect(wideContent.bounds,wideEntry.bounds) && CGAffineTransformIsIdentity(wideEntry.transform),
         @"edge-to-edge episode entry gains side margins through native layout width without scaling text");
     UIView *wideGlass=Find(wideEntry,@"honggo.appearance.material");
-    Check(wideEntry.bounds.size.width<=screenWidth*0.83 && wideEntry.bounds.size.height==44 &&
+    Check(fabs(wideEntry.bounds.size.width-screenWidth*HGADockDefaultWidth)<0.01 && wideEntry.bounds.size.height==44 &&
         wideGlass.bounds.size.height==36 && fabs(wideGlass.layer.cornerRadius-18)<0.01,
         @"the watching entry has a compact glass capsule inside its native-height hit target");
     CGRect insetWideFrame=wideEntry.frame;
@@ -69,9 +69,10 @@ static void RunEpisodeGlassChecks(UIView *root) {
             fabs(CGRectGetMaxX(entryRect)-CGRectGetMaxX(dockRect))<0.5 &&
             wideEntry.bounds.size.height==44,@"the episode glass follows both edges of the mounted Dock capsule");
     }
-    HGAppearanceApply(@{@"player.episodeDockWidth":@NO,@"dock.width":savedWidth},nil);
+    HGAppearanceApply(@{@"player.episodeDockWidth":@NO,@"dock.width":@0.55},nil);
     Layout(wideEntry);
-    Check(CGRectEqualToRect(wideEntry.frame,insetWideFrame),@"turning off width sync restores the entry's own margins");
+    Check(CGRectEqualToRect(wideEntry.frame,insetWideFrame),@"a shortened Dock leaves the fixed four-tab reference width centered when sync is off");
+    HGAppearanceSet(@"dock.width",savedWidth,nil);
     HGAppearanceSet(@"player.episodeGlass",@NO,nil);
     Check(CGRectEqualToRect(wideEntry.frame,nativeWideFrame) && [wideWrapper.backgroundColor isEqual:UIColor.grayColor],
         @"disabling episode glass restores the authored full-width entry and backing");

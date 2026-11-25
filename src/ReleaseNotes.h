@@ -4,6 +4,7 @@
 // Keep entries in release order, including locally distributed test builds.
 static NSArray<NSArray<NSString *> *> *HGReleaseNotes(void) {
     return @[
+        @[@"1.5.2beta19", @"修正关闭触感时底栏缺字、多频道选中错位和剧场下滑白边。顶部与底栏可分别选择普通或液态玻璃选中。全集入口默认采用四项 Dock 宽度，可跟随当前 Dock。设置按功能分组，六个右侧按钮集中管理。"],
         @[@"1.5.2beta18", @"调整底栏的选中颜色、图文、玻璃与触感。顶部频道统一字号并缩小胶囊。双指清屏可跨集保持，侧栏游戏中心按开关过滤。新增全集入口与 Dock 等宽、滑杆数值微调和右侧按钮尺寸同步。"],
         @[@"1.5.2beta17", @"找剧页顶部按钮按屏幕像素对齐，统一圆形按钮的宽高。"],
         @[@"1.5.2beta16", @"改进连续切换频道和回弹时再次按住顶部按钮的响应。"],

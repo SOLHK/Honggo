@@ -332,7 +332,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(!firstModal && !lastModal, @"both valid appearance switch edits complete without a save error sheet");
     BOOL rolesRouted = YES, choiceOpened = NO;
     NSUInteger visitedRoles = 0, styleRows = 0;
-    for (NSString *group in @[@"dock", @"chrome", @"panels", @"fonts", @"player"]) {
+    for (NSString *group in @[@"dock", @"chrome", @"panelMaterial", @"fonts", @"player", @"comments", @"drama"]) {
         NSIndexPath *path = HGMenuPath(home, [@"@group." stringByAppendingString:group]);
         if (path) [home tableView:home.tableView didSelectRowAtIndexPath:path];
         UITableViewController *detail = (id)navigation.topViewController;
@@ -343,18 +343,39 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         [window layoutIfNeeded];
         NSString *styleKey=@{@"dock":@"dock.style",@"chrome":@"player.headerStyle",@"player":@"player.actionStyle"}[group];
         if (styleKey && HGMenuPath(detail,styleKey)) styleRows++;
-        if ([group isEqual:@"player"]) {
-            for (NSString *role in HGAppearanceRoles()) {
+        if ([group isEqual:@"dock"] || [group isEqual:@"chrome"]) {
+            NSString *selection=[group isEqual:@"dock"] ? @"dock.selectionStyle" : @"player.headerSelectionStyle";
+            Check(HGMenuPath(detail,selection)!=nil,@"the selection treatment is reachable beside its own rail style");
+        }
+        if ([group isEqual:@"comments"])
+            Check(HGMenuPath(detail,@"panels.comment") && HGMenuPath(detail,@"player.commentMovesVideo") &&
+                HGMenuPath(detail,@"gestures.doubleTapComments"),@"comments groups its panel, video layout and opening gesture");
+        if ([group isEqual:@"player"] || [group isEqual:@"drama"]) {
+            BOOL player=[group isEqual:@"player"];
+            NSArray *roles=player ? @[@"channels",@"info",@"tags",@"progress",@"danmaku",@"notice",
+                @"avatar",@"collect",@"comment",@"like",@"share",@"more"] : @[@"episodes"];
+            UITableViewController *roleList=detail;
+            for (NSString *role in roles) {
+                if ([role isEqual:@"avatar"]) {
+                    NSIndexPath *right=HGMenuPath(detail,@"@group.rightButtons");
+                    if (right) [detail tableView:detail.tableView didSelectRowAtIndexPath:right];
+                    roleList=(id)navigation.topViewController;
+                    [window layoutIfNeeded];
+                    rolesRouted &= right && [[roleList valueForKey:@"group"] isEqual:@"rightButtons"] &&
+                        [roleList.tableView numberOfRowsInSection:0]==6;
+                }
                 NSString *destination = [@"role." stringByAppendingString:role];
-                NSIndexPath *entry = HGMenuPath(detail, [@"@group." stringByAppendingString:destination]);
-                if (entry) [detail tableView:detail.tableView didSelectRowAtIndexPath:entry];
-                if (entry && navigation.topViewController != detail &&
+                NSIndexPath *entry = HGMenuPath(roleList, [@"@group." stringByAppendingString:destination]);
+                if (entry) [roleList tableView:roleList.tableView didSelectRowAtIndexPath:entry];
+                if (entry && navigation.topViewController != roleList &&
                         [[navigation.topViewController valueForKey:@"group"] isEqual:destination]) {
                     visitedRoles++;
                     [navigation popViewControllerAnimated:NO];
                     [window layoutIfNeeded];
                 } else rolesRouted = NO;
             }
+        }
+        if ([group isEqual:@"drama"]) {
             NSIndexPath *choice = HGMenuPath(detail, @"player.separateProgress");
             if (choice) [detail tableView:detail.tableView didSelectRowAtIndexPath:choice];
             choiceOpened = [detail.presentedViewController isKindOfClass:UIAlertController.class] &&
@@ -562,11 +583,11 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
     Check(self.host.nativeTaps==1 && self.host.selectedIndex==1,@"custom tab forwards exactly one native navigation action");
     HGAppearanceSet(@"dock.content",@"icon",nil);
-    Check(theater.configuration.title.length==0 && theater.configuration.image!=nil,@"icon-only content is actually rendered");
+    Check(theater.currentTitle.length==0 && theater.currentImage!=nil,@"icon-only mode supplies the tab icon");
     HGAppearanceSet(@"dock.content",@"text",nil);
-    Check(theater.configuration.image==nil && theater.configuration.title.length>0,@"text-only content is actually rendered");
+    Check(theater.currentImage==nil && theater.currentTitle.length>0,@"text-only mode supplies the tab caption");
     HGAppearanceSet(@"dock.content",@"both",nil);
-    Check(theater.configuration.image!=nil && theater.configuration.title.length>0,@"mixed icon and text content is rendered");
+    Check(theater.currentImage!=nil && theater.currentTitle.length>0,@"mixed mode supplies both icon and caption");
     HGAppearanceSet(@"dock.hide.store",@YES,nil);
     Check(Find(dock,@"honggo.appearance.tab.store").hidden,@"individual tab visibility works");
     HGAppearanceSet(@"dock.height",@56,nil);
@@ -614,10 +635,8 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     UITableViewController *playerPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [playerPage setValue:@"player" forKey:@"group"];[playerPage loadViewIfNeeded];
     BOOL noInlineRoleSliders=YES;
-    NSInteger playerRows=0;
     for (NSInteger section=0; section<playerPage.tableView.numberOfSections; section++) {
         NSInteger count=[playerPage.tableView numberOfRowsInSection:section];
-        playerRows+=count;
         for (NSInteger r=0; r<count; r++) {
             UITableViewCell *cell=[playerPage tableView:playerPage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:section]];
             if ([cell isKindOfClass:NSClassFromString(@"HGAPercentCell")]) noInlineRoleSliders=NO;
@@ -625,12 +644,13 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     }
     NSIndexPath *swipeSetting=HGMenuPath(playerPage,@"player.disableEpisodeSwipe");
     UITableViewCell *swipeCell=swipeSetting ? [playerPage tableView:playerPage.tableView cellForRowAtIndexPath:swipeSetting] : nil;
-    NSIndexPath *rankSetting=HGMenuPath(playerPage,@"player.hide.followRank");
-    NSIndexPath *seriesSetting=HGMenuPath(playerPage,@"player.hide.seriesBadge");
-    Check(playerPage.tableView.numberOfSections==5 && playerRows==12+(NSInteger)HGAppearanceRoles().count &&
-        rankSetting && seriesSetting && rankSetting.section==1 && seriesSetting.section==1 &&
+    UITableViewController *dramaPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [dramaPage setValue:@"drama" forKey:@"group"];[dramaPage loadViewIfNeeded];
+    Check(HGMenuPath(dramaPage,@"player.hide.followRank") && HGMenuPath(dramaPage,@"player.hide.seriesBadge") &&
+        HGMenuPath(dramaPage,@"player.episodeDockWidth") && HGMenuPath(dramaPage,@"player.episodeGlass") &&
+        HGMenuPath(playerPage,@"@group.rightButtons") && !HGMenuPath(playerPage,@"@group.role.collect") &&
         noInlineRoleSliders && swipeSetting && swipeSetting.section==0 && [swipeCell.accessoryView isKindOfClass:UISwitch.class],
-        @"playback settings include the episode swipe switch and per-control subpages");
+        @"playback groups the six right-hand buttons while drama groups episode entry and badge settings");
     UITableViewController *rolePage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [rolePage setValue:@"role.avatar" forKey:@"group"];[rolePage loadViewIfNeeded];
     NSUInteger pctSliders=0;

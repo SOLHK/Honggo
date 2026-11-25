@@ -259,7 +259,7 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 @interface HGSettingsController () <UISearchResultsUpdating, UISearchControllerDelegate, UIDocumentPickerDelegate>
 @property(nonatomic, strong) UISearchController *settingsSearch;
 @property(nonatomic, copy) NSString *activeQuery;
-@property(nonatomic, copy) NSArray<NSArray<NSDictionary *> *> *rootCategories;
+@property(nonatomic, copy) NSArray<NSDictionary *> *rootCategories;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleFeatures;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleDiagnostics;
 @property(nonatomic, copy) NSArray<NSNumber *> *visibleConfiguration;
@@ -317,6 +317,12 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
     } else if ([pid isEqual:@"ads.misc"]) {
         self.title = @"书城、侧栏与截图";
         for (NSNumber *f in @[@(HGBookstoreAd), @(HGSidebarGameCenter), @(HGScreenshotShopping)]) [rows addObject:@{@"kind": @"feature", @"feature": f}];
+    } else if ([pid isEqual:@"appearance"]) {
+        self.title = @"外观";
+        [rows addObject:@{@"kind":@"appearance",@"group":@"general",@"title":@"外观总开关",@"id":@"honggo.settings.appearance.general"}];
+        [rows addObject:@{@"kind":@"appearance",@"group":@"fonts",@"title":@"字体与字号",@"id":@"honggo.settings.appearance.fonts"}];
+        [rows addObject:@{@"kind":@"appearance",@"group":@"panelMaterial",@"title":@"面板材质",@"id":@"honggo.settings.appearance.material"}];
+        [rows addObject:@{@"kind":@"subpage",@"page":@"base",@"title":@"系统玻璃与兼容",@"id":@"honggo.settings.appearance.base"}];
     } else if ([pid isEqual:@"base"]) {
         self.title = @"基础与兼容开关";
         for (NSNumber *f in @[@(HGGlass), @(HGGlassControls)]) [rows addObject:@{@"kind": @"feature", @"feature": f}];
@@ -452,6 +458,23 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 - (void)closeNotes { [self dismissViewControllerAnimated:YES completion:nil]; }
 @end
 
+static UIBarButtonItem *HGSettingsCapsule(UIButtonConfiguration *style,NSString *title,
+        NSString *identifier,id target,SEL action,CGFloat width) {
+    UIButtonConfiguration *config=[style copy];
+    config.title=title;
+    UIButton *button=[UIButton buttonWithConfiguration:config primaryAction:nil];
+    button.accessibilityIdentifier=identifier;
+    [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    [button sizeToFit];
+    if (!width) width=ceil(button.bounds.size.width);
+    button.bounds=CGRectMake(0,0,width,44);
+    [button.widthAnchor constraintEqualToConstant:width].active=YES;
+    [button.heightAnchor constraintEqualToConstant:44].active=YES;
+    UIBarButtonItem *item=[[UIBarButtonItem alloc] initWithCustomView:button];
+    if (@available(iOS 26.0,*)) item.hidesSharedBackground=YES;
+    return item;
+}
+
 @implementation HGSettingsController
 - (void)showReleaseNotes:(UIButton *)button {
     if(self.presentedViewController)return;
@@ -486,35 +509,26 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
     UIButtonConfiguration *style;
     if (@available(iOS 26.0,*)) style=[UIButtonConfiguration glassButtonConfiguration];
     else style=[UIButtonConfiguration grayButtonConfiguration];
-    style.title=HG_PLUGIN_VERSION;
-    style.buttonSize=UIButtonConfigurationSizeLarge;
+    style.buttonSize=UIButtonConfigurationSizeMedium;
     style.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
     style.baseForegroundColor=UIColor.labelColor;
-    UIButton *version=[UIButton buttonWithConfiguration:style primaryAction:nil];
+    UIBarButtonItem *versionItem=HGSettingsCapsule(style,HG_PLUGIN_VERSION,@"honggo.settings.version",self,@selector(showReleaseNotes:),0);
+    UIButton *version=(UIButton *)versionItem.customView;
     version.accessibilityLabel=[NSString stringWithFormat:@"版本 %@，更新记录",HG_PLUGIN_VERSION];
-    [version addTarget:self action:@selector(showReleaseNotes:) forControlEvents:UIControlEventTouchUpInside];
-    version.accessibilityIdentifier = @"honggo.settings.version";
-    [version.heightAnchor constraintEqualToConstant:44].active=YES;
-    [version sizeToFit];
-    UIBarButtonItem *versionItem = [[UIBarButtonItem alloc] initWithCustomView:version];
-    if (@available(iOS 26.0, *)) versionItem.hidesSharedBackground = YES;
     self.navigationItem.leftBarButtonItem = versionItem;
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
-        initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeSettings)];
+    self.navigationItem.rightBarButtonItem=HGSettingsCapsule(style,@"完成",@"honggo.settings.done",self,@selector(closeSettings),version.bounds.size.width);
     self.rootCategories = @[
-        @[@{@"kind": @"appearance", @"group": @"general", @"title": @"外观总开关", @"id": @"honggo.settings.category.appearance"},
-        @{@"kind": @"appearance", @"group": @"chrome", @"title": @"顶部导航与找剧", @"id": @"honggo.settings.category.chrome"},
-        @{@"kind": @"appearance", @"group": @"dock", @"title": @"悬浮底栏", @"id": @"honggo.settings.category.dock"},
+        @{@"kind": @"appearance", @"group": @"chrome", @"title": @"页面与导航", @"id": @"honggo.settings.category.chrome"},
+        @{@"kind": @"appearance", @"group": @"player", @"title": @"播放页", @"id": @"honggo.settings.category.player"},
+        @{@"kind": @"appearance", @"group": @"dock", @"title": @"底栏 Dock", @"id": @"honggo.settings.category.dock"},
+        @{@"kind": @"appearance", @"group": @"drama", @"title": @"短剧", @"id": @"honggo.settings.category.drama"},
         @{@"kind": @"appearance", @"group": @"mine", @"title": @"我的页面", @"id": @"honggo.settings.category.mine"},
-        @{@"kind": @"appearance", @"group": @"fonts", @"title": @"字体与字号", @"id": @"honggo.settings.category.fonts"}],
-        @[@{@"kind": @"appearance", @"group": @"player", @"title": @"播放布局与控件", @"id": @"honggo.settings.category.player"},
-        @{@"kind": @"appearance", @"group": @"gestures", @"title": @"播放手势", @"id": @"honggo.settings.category.gestures"},
-        @{@"kind": @"appearance", @"group": @"panels", @"title": @"弹出面板", @"id": @"honggo.settings.category.panels"}],
-        @[@{@"kind": @"subpage", @"page": @"ads", @"title": @"广告与推广拦截", @"id": @"honggo.settings.category.ads"},
-        @{@"kind": @"subpage", @"page": @"base", @"title": @"基础与兼容开关", @"id": @"honggo.settings.category.base"}],
-        @[@{@"kind": @"subpage", @"page": @"backup", @"title": @"导出与备份", @"id": @"honggo.settings.category.backup"},
+        @{@"kind": @"appearance", @"group": @"comments", @"title": @"评论区", @"id": @"honggo.settings.category.comments"},
+        @{@"kind": @"subpage", @"page": @"appearance", @"title": @"外观", @"id": @"honggo.settings.category.appearance"},
+        @{@"kind": @"subpage", @"page": @"ads", @"title": @"广告与推广", @"id": @"honggo.settings.category.ads"},
+        @{@"kind": @"subpage", @"page": @"backup", @"title": @"导出与备份", @"id": @"honggo.settings.category.backup"},
         @{@"kind": @"diagnostics", @"title": @"诊断日志", @"id": @"honggo.settings.category.diagnostics"},
-        @{@"kind": @"subpage", @"page": @"community", @"title": @"作者与频道", @"id": @"honggo.settings.category.community"}]
+        @{@"kind": @"subpage", @"page": @"community", @"title": @"作者与频道", @"id": @"honggo.settings.category.community"}
     ];
     self.settingsSearch = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.settingsSearch.searchResultsUpdater = self;
@@ -612,10 +626,10 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
     });
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return self.isFiltering ? 5 : self.rootCategories.count;
+    return self.isFiltering ? 5 : 1;
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (!self.isFiltering) return self.rootCategories[section].count;
+    if (!self.isFiltering) return self.rootCategories.count;
     if (section == 4) return self.visibleAppearance.count;
     if (section == 3) return self.communityVisible ? 1 : 0;
     return section == 0 ? self.visibleFeatures.count : section == 1 ? self.visibleDiagnostics.count :
@@ -623,7 +637,7 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (![self tableView:tableView numberOfRowsInSection:section]) return nil;
-    if (!self.isFiltering) return @[@"界面与导航",@"短剧播放",@"过滤与兼容",@"管理与支持"][section];
+    if (!self.isFiltering) return nil;
     return @[@"功能开关", @"诊断日志", @"配置管理", @"更新与频道", @"界面与播放设置"][section];
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
@@ -636,7 +650,7 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (!self.isFiltering) {
-        NSDictionary *category = self.rootCategories[indexPath.section][indexPath.row];
+        NSDictionary *category = self.rootCategories[indexPath.row];
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.textLabel.text = category[@"title"];
         cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
@@ -833,7 +847,7 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (self.preferenceOperationInFlight || HGActivateSwitchRow(tableView, indexPath)) return;
     if (!self.isFiltering) {
-        NSDictionary *category = self.rootCategories[indexPath.section][indexPath.row];
+        NSDictionary *category = self.rootCategories[indexPath.row];
         NSString *kind = category[@"kind"];
         if ([kind isEqual:@"appearance"]) {
             NSString *group = [category[@"group"] length] ? category[@"group"] : nil;
