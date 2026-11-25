@@ -26,6 +26,7 @@ typedef NS_ENUM(NSUInteger, HGFeature) {
 };
 
 FOUNDATION_EXPORT NSString *const HGPreferencesErrorDomain;
+FOUNDATION_EXPORT NSString *const HGSidebarGameChanged;
 FOUNDATION_EXPORT const NSUInteger HGPreferencesMaximumBytes;
 
 NSString *HGFeatureIdentifier(HGFeature feature);

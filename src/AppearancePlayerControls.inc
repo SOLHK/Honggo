@@ -354,7 +354,6 @@ static void HGAApplyPlayerControls(UIView *root) {
     }
 }
 
-static NSHashTable *HGAPlayerNavigations;
 static CGRect HGAPlayerNavigationContent(UIView *view,UIView *bar) {
     if(!HGAVisible(view))return CGRectNull;
     if([view isKindOfClass:UIButton.class]) {
@@ -390,6 +389,7 @@ static void HGAApplyPlayerNavigation(id component) {
     @try {
         if(!HGAPlayerNavigations)HGAPlayerNavigations=[NSHashTable weakObjectsHashTable];
         [HGAPlayerNavigations addObject:component];
+        HGAApplyCleanNavigation(component);
         if(!HGAppearanceEnabled() || !HGAppearanceFlag(@"player.controlsGlass")) {
             HGAPlayerChromeTargets(component,nil,nil);return;
         }

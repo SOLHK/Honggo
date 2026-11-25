@@ -109,6 +109,15 @@
 }
 @end
 static char HGADockKey;
+static void (*HGADockOriginalImpact)(id,SEL);
+static void HGADockHostImpact(id controller,SEL cmd) {
+    if(HGAppearanceDockEnabled() && !HGAppearanceFlag(@"dock.haptics")) {
+        UIView *bar=HGReadObjectGetter(controller,"customTabBar");
+        HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
+        if(bar && dock.superview==bar)return;
+    }
+    HGADockOriginalImpact(controller,cmd);
+}
 static void (*HGADockOriginalBarColor)(UIView *,SEL,UIColor *);
 static void HGADockSetBarColor(UIView *bar,SEL selector,UIColor *color) {
     HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
@@ -142,6 +151,22 @@ static CGRect HGADockRectInView(UIView *coordinateView) {
         }
     }
     return result;
+}
+static CGRect HGAExpandedCapsuleInWindow(UIWindow *window) {
+    if(!window || !HGAppearanceDockEnabled())return CGRectNull;
+    for(UIView *bar in HGABars.allObjects) {
+        HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
+        if(dock.window==window && !dock.collapsed && HGAVisible(dock.capsule))
+            return [dock.capsule convertRect:dock.capsule.bounds toView:window];
+    }
+    return CGRectNull;
+}
+static void HGAInvalidateDockDependentLayout(UIWindow *window) {
+    BOOL sync=HGAppearanceFlag(@"player.episodeDockWidth");
+    for(UIView *view in HGAManaged.allObjects) {
+        if(view.window==window && (HGAIsBottomControl(view) || (sync && [HGARole(view) isEqual:@"episodes"])))
+            [view setNeedsLayout];
+    }
 }
 static NSArray *HGATabIDs(void){return @[@"home",@"theater",@"store",@"mine"];}
 static NSString *HGADockDetachedTabKey(NSArray<NSString *> *visible) {
@@ -348,15 +373,31 @@ static UIGlassEffect *HGAApplyClearTabMaterial(UIView *platter) API_AVAILABLE(io
     if (![original isKindOfClass:UIGlassEffect.class]) return nil;
     UIGlassEffect *clear=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
     clear.interactive=original.interactive;
-    clear.tintColor=original.tintColor;
     ((void(*)(id,SEL,id))objc_msgSend)(platter,setter,clear);
     return original;
 }
 
-static UIImage *HGADockSystemImage(NSString *symbol,CGFloat size,UIColor *color) {
+static UIImage *HGADockSystemImage(NSString *symbol,NSString *caption,CGFloat size,UIColor *color,BOOL selected) {
     UIImageSymbolConfiguration *config=[UIImageSymbolConfiguration configurationWithPointSize:size weight:UIImageSymbolWeightMedium];
-    UIImage *image=[UIImage systemImageNamed:symbol withConfiguration:config];
-    return [image imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal];
+    UIImage *glyph=symbol ? [UIImage systemImageNamed:symbol withConfiguration:config] : nil;
+    if(selected && glyph)
+        glyph=[UIImage systemImageNamed:[symbol stringByAppendingString:@".fill"] withConfiguration:config] ?: glyph;
+    glyph=[glyph imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal];
+    if(!caption)return glyph;
+    // The floating provider can collapse its title slot independently of the
+    // image when the feed scrolls. Put the complete tab face inside the lens.
+    UIFont *font=[UIFont systemFontOfSize:glyph ? 11 : 15 weight:selected ? UIFontWeightSemibold : UIFontWeightRegular];
+    NSDictionary *ink=@{NSForegroundColorAttributeName:color,NSFontAttributeName:font};
+    CGSize text=[caption sizeWithAttributes:ink];
+    CGSize glyphSize=glyph ? glyph.size : CGSizeZero;
+    CGFloat titleY=glyph ? ceil(glyphSize.height)+2 : 0;
+    CGSize canvas=CGSizeMake(ceil(MAX(glyphSize.width,text.width)),titleY+ceil(text.height));
+    UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:canvas];
+    UIImage *face=[renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        [glyph drawAtPoint:CGPointMake((canvas.width-glyphSize.width)/2,0)];
+        [caption drawAtPoint:CGPointMake((canvas.width-text.width)/2,titleY) withAttributes:ink];
+    }];
+    return [face imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
 }
 static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     return HGAVisible(capsule) && CGRectContainsPoint(capsule.bounds,point) &&
@@ -483,6 +524,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     return NO;
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
+    if([self.hostBar.layer animationForKey:HGACleanOpacity])return NO;
     if(gesture==self.dockTouch && (touch.view==self.extraButton || [touch.view isDescendantOfView:self.extraButton]))
         return NO;
     if(gesture==self.dockTouch)
@@ -626,37 +668,37 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     for(NSString *key in keys)[enabled addObject:@([(UIControl *)[self.targets objectForKey:key] isEnabled])];
     NSArray *signature=@[keys,content,@(size),selected,normal,enabled];
     if([self.systemItemSignature isEqualToArray:signature])return NO;
+    self.systemTabBar.tintColor=selected;
+    self.systemTabBar.unselectedItemTintColor=normal;
     BOOL replace=![self.systemItemSignature.firstObject isEqual:keys];
     BOOL metricsChanged=replace || ![self.systemItemSignature[1] isEqual:content] || ![self.systemItemSignature[2] isEqual:@(size)];
     NSMutableArray *items=[NSMutableArray arrayWithCapacity:keys.count];
     for(NSUInteger slot=0;slot<keys.count;slot++) {
         NSString *key=keys[slot];
         NSUInteger index=[HGATabIDs() indexOfObject:key];
-        NSString *symbol=HGATabSymbols()[index],*label=HGATabTitles()[index];
-        NSString *title=[content isEqual:@"icon"]?@"":label;
-        UIImage *image=nil,*selectedImage=nil;
-        if(![content isEqual:@"text"]) {
-            image=HGADockSystemImage(symbol,size,normal);
-            selectedImage=HGADockSystemImage([symbol stringByAppendingString:@".fill"],size,selected) ?:
-                HGADockSystemImage(symbol,size,selected);
-        }
+        NSString *label=HGATabTitles()[index];
+        NSString *symbol=[content isEqual:@"text"] ? nil : HGATabSymbols()[index];
+        NSString *caption=[content isEqual:@"icon"] ? nil : label;
+        UIImage *image=HGADockSystemImage(symbol,caption,size,normal,NO);
+        UIImage *selectedImage=HGADockSystemImage(symbol,caption,size,selected,YES);
         if(self.systemTabController) {
             if(@available(iOS 26.0,*)) {
-                UITab *tab=replace ? [[UITab alloc] initWithTitle:title image:image identifier:key viewControllerProvider:^UIViewController *(UITab *requestedTab) {
+                UITab *tab=replace ? [[UITab alloc] initWithTitle:@"" image:image identifier:key viewControllerProvider:^UIViewController *(UITab *requestedTab) {
                         UIViewController *empty=[UIViewController new];
                         empty.view.backgroundColor=UIColor.clearColor;empty.view.userInteractionEnabled=NO;
                         return empty;
                     }] : [self.systemTabController tabForIdentifier:key];
-                if(!replace){tab.title=title;tab.image=image;}
+                if(!replace)tab.image=image;
                 if(@available(iOS 26.1,*))tab.selectedImage=selectedImage;
+                tab.accessibilityLabel=label;
                 tab.enabled=enabled[slot].boolValue;
                 tab.userInfo=@(index);
                 [items addObject:tab];
             }
         }else {
-            UITabBarItem *item=replace ? [[UITabBarItem alloc] initWithTitle:title image:image selectedImage:selectedImage] :
+            UITabBarItem *item=replace ? [[UITabBarItem alloc] initWithTitle:nil image:image selectedImage:selectedImage] :
                 self.systemTabBar.items[slot];
-            if(!replace){item.title=title;item.image=image;item.selectedImage=selectedImage;}
+            if(!replace){item.image=image;item.selectedImage=selectedImage;}
             item.tag=(NSInteger)index;item.enabled=enabled[slot].boolValue;item.accessibilityLabel=label;
             [items addObject:item];
         }
@@ -814,7 +856,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     selected:(NSInteger)selected style:(NSString *)style requestedFrame:(CGRect)requested {
     // A failed mount is cached for this geometry and tab configuration, so a
     // legacy UIKit provider is not recreated on every host layout callback.
-    NSArray *probe=@[keys,content,[NSValue valueWithCGSize:self.bounds.size],
+    NSArray *probe=@[keys,content,style,[NSValue valueWithCGSize:self.bounds.size],
         [NSValue valueWithCGSize:requested.size],[NSValue valueWithNonretainedObject:self.window],
         [NSValue valueWithNonretainedObject:self.hostBar.superview]];
     if([self.failedSystemProbe isEqualToArray:probe])return NO;
@@ -863,10 +905,17 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         managed=YES;
     }
     self.systemDockSyncing=NO;
+    NSString *material=active ? [self applySystemMaterial:style] : style;
+    if(active && [style isEqual:@"clear"] && ![material isEqual:@"clear-glass"]) {
+        // Some floating providers expose no writable glass effect. The
+        // dedicated surface below can provide the requested clear material.
+        [self removeSystemDock];
+        active=NO;material=style;failure=@"Floating platter retains factory material";
+    }
     if(!active)self.failedSystemProbe=probe;
     NSString *mode=active ? (self.systemTabController?@"uikit-controller":@"uikit-tabbar") : @"compatibility";
     [self recordDockRenderer:mode reason:active?@"UIKit floating platter receives item touches":failure
-        material:active?[self applySystemMaterial:style]:style];
+        material:material];
     return active;
 }
 
@@ -984,6 +1033,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         surface.layer.cornerCurve=kCACornerCurveContinuous;
     }
     BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
+    BOOL haptics=HGAppearanceFlag(@"dock.haptics");
     UIColor *base=translucent ? [UIColor colorWithWhite:light?1:0.10 alpha:1] : UIColor.secondarySystemBackgroundColor;
     UIColor *fill=[base colorWithAlphaComponent:!translucent || reduced ? 1 : 0];
     NSString *content=HGAppearanceString(@"dock.content");
@@ -993,7 +1043,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.capsule.layer.cornerRadius=radius;
     BOOL systemEligible=NO;
     if(@available(iOS 26.0,*))
-        systemEligible=fabs(self.hostBar.frame.origin.x)<=2.0 && !flat && HGNativeGlassConfigured() && !self.collapsed && !reduced && visible.count>1 &&
+        systemEligible=haptics && fabs(self.hostBar.frame.origin.x)<=2.0 && !flat && HGNativeGlassConfigured() && !self.collapsed && !reduced && visible.count>1 &&
             ([style isEqual:@"regular"] || [style isEqual:@"clear"]) && radius>=height/2-0.5 &&
             ([content isEqual:@"icon"] || !HGAppearanceFlag(@"fonts.enabled"));
     BOOL useSystem=NO;
@@ -1004,12 +1054,20 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }else if(!systemEligible) {
         if(self.systemTabBar)[self removeSystemDock];
         if(!self.collapsed)[self recordDockRenderer:flat?@"flat":@"compatibility"
-            reason:flat?@"UIKit segmented track":@"Configured material or shape requires compatibility" material:flat?@"flat":style];
+            reason:flat?@"UIKit segmented track":(haptics?@"Configured material or shape requires compatibility":@"Dock handles touches without UIKit selection feedback")
+            material:flat?@"flat":style];
     }
     CGRect actual=useSystem ? self.systemCapsuleFrame : expanded;
     CGRect capsuleFrame=self.collapsed ? compact : actual;
-    if(!CGRectEqualToRect(self.capsule.frame,capsuleFrame))self.capsule.frame=capsuleFrame;
+    BOOL capsuleChanged=!CGRectEqualToRect(self.capsule.frame,capsuleFrame);
+    if(capsuleChanged)self.capsule.frame=capsuleFrame;
     self.extra.frame=CGRectMake(CGRectGetMaxX(actual)+HGADockAccessoryGap,rowTop+(rowHeight-circle)/2,circle,circle);
+    BOOL videoGlass=selected==0 && !flat && !reduced && ([style isEqual:@"regular"] || [style isEqual:@"clear"]);
+    // Dim the video sampled by the UIKit platter. The dedicated renderer
+    // can blend directly over its glass without tinting text or symbols.
+    if(videoGlass)fill=[UIColor colorWithWhite:0 alpha:[style isEqual:@"clear"] ? 0.06 : 0.16];
+    UIColor *backing=useSystem && videoGlass ? fill : UIColor.clearColor;
+    if(![self.capsule.backgroundColor isEqual:backing])self.capsule.backgroundColor=backing;
     if(flat || useSystem)HGARemoveGlass(self.capsule);
     else HGADockMaterialContent(self.capsule,style,self.collapsed?22:radius,fill,NO);
     self.flatSegments=HGADockFlatBacking(self.capsule,flat ? visible.count : 0);
@@ -1021,8 +1079,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(flat){HGARemoveGlass(self.extra);HGARemoveGlass(self.expand);}
     UISegmentedControl *extraTrack=HGADockFlatBacking(self.extra,flat ? 1 : 0);
     HGADockFlatBacking(self.expand,flat ? 1 : 0);
-    UIView *extraContent=flat ? self.extra : HGADockMaterialContent(self.extra,style,circle/2,fill,YES);
-    UIView *expandContent=flat ? self.expand : HGADockMaterialContent(self.expand,style,22,fill,YES);
+    UIView *extraContent=flat ? self.extra : HGADockMaterialContent(self.extra,style,circle/2,fill,haptics);
+    UIView *expandContent=flat ? self.expand : HGADockMaterialContent(self.expand,style,22,fill,haptics);
     // UIKit can adapt dynamic label colors to the material's own background
     // when the foreground belongs to the visual effect's contentView.
     if(self.extraSelection.superview!=extraContent)[extraContent insertSubview:self.extraSelection atIndex:0];
@@ -1127,12 +1185,11 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.extraButton.accessibilityTraits=UIAccessibilityTraitButton | (detachedSelected?UIAccessibilityTraitSelected:0);
     CGRect occupied=self.collapsed?compact:(extra?CGRectUnion(actual,self.extra.frame):actual);
     occupied=[self convertRect:occupied toView:self.window];
-    if(!CGRectEqualToRect(self.lastOccupiedRect,occupied)) {
+    if(capsuleChanged || !CGRectEqualToRect(self.lastOccupiedRect,occupied)) {
         self.lastOccupiedRect=occupied;
         // Let the native HUD finish its own layout before reconciling the new
         // capsule edge. Never reenter a player layout from a tab-bar setter.
-        for(UIView *view in HGAManaged.allObjects)
-            if(view.window==self.window && HGAIsBottomControl(view))[view setNeedsLayout];
+        HGAInvalidateDockDependentLayout(self.window);
     }
 }
 - (void)restore {
@@ -1169,8 +1226,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(backgroundOwned && [bar.backgroundColor isEqual:UIColor.clearColor])bar.backgroundColor=background;
         if(backgroundOwned && !bar.opaque)bar.opaque=opaque;
         [self removeFromSuperview];
-        if(previousWindow)for(UIView *view in HGAManaged.allObjects)
-            if(view.window==previousWindow && HGAIsBottomControl(view))[view setNeedsLayout];
+        if(previousWindow)HGAInvalidateDockDependentLayout(previousWindow);
     } @finally {
         self.rendering=wasRendering;self.restoring=NO;
     }
@@ -1537,6 +1593,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 @end
 static UIView *(*HGADockHostOriginalHit)(id,SEL,CGPoint,UIEvent *);
 static UIView *HGADockHostHit(id bar,SEL cmd,CGPoint point,UIEvent *event) {
+    if([[(UIView *)bar layer] animationForKey:HGACleanOpacity])return nil;
     HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
     // Only a host bar moved above its verified inactive sibling needs this
     // pass-through. UIKit owns all touches in the actual tab item subtree.
@@ -1578,6 +1635,11 @@ void HGAppearanceLayoutDock(UIView *bar,UIViewController *controller) {
     if(!HGABars)HGABars=[NSHashTable weakObjectsHashTable];[HGABars addObject:bar];
     HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
     if(!HGAppearanceDockEnabled()){[dock restore];return;}
+    static dispatch_once_t impactOnce;
+    dispatch_once(&impactOnce,^{
+        HGADockOriginalImpact=(void (*)(id,SEL))HGInstallVerifiedHook(objc_lookUpClass("SSTabBarController"),
+            sel_registerName("impactFeedback"),"v16@0:8",(IMP)HGADockHostImpact,@"appearance");
+    });
     if(!HGADockOriginalBarColor)HGADockOriginalBarColor=(void (*)(UIView *,SEL,UIColor *))
         HGInstallVerifiedHook(objc_lookUpClass("SSTabBar"),@selector(setBackgroundColor:),"v24@0:8@16",
             (IMP)HGADockSetBarColor,@"appearance");

@@ -15,11 +15,15 @@ static UIColor *HGADockSelectionColor(UITraitCollection *traits,BOOL flat) {
 @property(nonatomic) NSInteger selectedSegmentIndex;
 @end
 
+static const CGFloat HGAChannelTitleSize=16;
+static const CGFloat HGAChannelRailHeight=38;
+
 // One native glass rail backs the entire channel switch. The labels and their
 // hit targets do not get rebuilt when the selected channel changes.
 API_AVAILABLE(ios(26.0))
 @interface HGAHeaderGlassChannels : UIControl <HGAHeaderSelecting,UITabBarDelegate,UITabBarControllerDelegate>
 @property(nonatomic,copy) NSArray<UIButton *> *buttons;
+@property(nonatomic,strong) UIStackView *titleRow;
 @property(nonatomic,strong) UITabBar *tabBar;
 @property(nonatomic,strong) UITabBarController *tabController;
 @property(nonatomic) BOOL standaloneWarmed;
@@ -50,18 +54,19 @@ API_AVAILABLE(ios(26.0))
         _rail.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         [_previewRail addSubview:_rail];
         UIStackView *row=[[UIStackView alloc] initWithFrame:self.bounds];
+        _titleRow=row;
         row.distribution=UIStackViewDistributionFillEqually;
         row.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-        [_previewRail addSubview:row];
+        [self addSubview:row];
         NSMutableArray *buttons=[NSMutableArray arrayWithCapacity:titles.count];
         for (NSUInteger index=0;index<titles.count;index++) {
             UIButton *button=[UIButton buttonWithType:UIButtonTypeCustom];
             button.tag=(NSInteger)index;
             [button setTitle:titles[index] forState:UIControlStateNormal];
-            [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+            [button setTitleColor:[UIColor.whiteColor colorWithAlphaComponent:0.66] forState:UIControlStateNormal];
             [button setTitleColor:[UIColor.whiteColor colorWithAlphaComponent:0.86] forState:UIControlStateHighlighted];
             [button setTitleColor:UIColor.whiteColor forState:UIControlStateSelected];
-            button.titleLabel.font=[UIFont systemFontOfSize:13];
+            button.titleLabel.font=[UIFont systemFontOfSize:HGAChannelTitleSize weight:UIFontWeightMedium];
             button.titleLabel.lineBreakMode=NSLineBreakByClipping;
             [button addTarget:self action:@selector(choose:) forControlEvents:UIControlEventPrimaryActionTriggered];
             [row addArrangedSubview:button];
@@ -69,20 +74,14 @@ API_AVAILABLE(ios(26.0))
         }
         _buttons=[buttons copy];
 
-        // Give UIKit the title as tab artwork so the floating lens refracts the
-        // title itself, in the same layer as a Dock symbol. Keep the real title
-        // as the accessible item label.
+        // UIKit scales its floating provider to fit the rail. Keep the actual
+        // titles above both providers so paging cannot change their point size.
+        UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(24,24)];
+        UIImage *slotImage=[renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {}];
         NSMutableArray *items=[NSMutableArray arrayWithCapacity:titles.count];
         for (NSString *title in titles) {
-            NSDictionary *ink=@{NSFontAttributeName:[UIFont systemFontOfSize:19 weight:UIFontWeightMedium],
-                NSForegroundColorAttributeName:UIColor.whiteColor};
-            CGSize size=[title sizeWithAttributes:ink];
-            UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(ceil(size.width),ceil(size.height))];
-            UIImage *image=[renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-                [title drawAtPoint:CGPointZero withAttributes:ink];
-            }];
             UITabBarItem *item=[[UITabBarItem alloc] initWithTitle:nil
-                image:[image imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal] tag:(NSInteger)items.count];
+                image:slotImage tag:(NSInteger)items.count];
             item.accessibilityLabel=title;
             [items addObject:item];
         }
@@ -91,7 +90,7 @@ API_AVAILABLE(ios(26.0))
         _tabBar.delegate=self;
         _tabBar.items=items;
         _tabBar.layer.speed=UIAccessibilityIsReduceMotionEnabled() ? 1 : 0.80;
-        [self addSubview:_tabBar];
+        [self insertSubview:_tabBar belowSubview:row];
     }
     return self;
 }
@@ -144,7 +143,7 @@ API_AVAILABLE(ios(26.0))
     }
     if(self.tabController.parentViewController!=owner) {
         [owner addChildViewController:self.tabController];
-        [self addSubview:self.tabController.view];
+        [self insertSubview:self.tabController.view belowSubview:self.titleRow];
         [self.tabController didMoveToParentViewController:owner];
     }
     return YES;
@@ -154,6 +153,8 @@ API_AVAILABLE(ios(26.0))
     self.tabBar.hidden=preview || !self.platter;
     self.tabController.viewIfLoaded.hidden=self.tabBar.hidden;
     self.previewRail.hidden=!self.tabBar.hidden;
+    self.titleRow.userInteractionEnabled=self.tabBar.hidden;
+    self.titleRow.accessibilityElementsHidden=!self.tabBar.hidden;
 }
 - (UIView *)fitTabPlatter {
     UITabBar *bar=self.tabBar;
@@ -216,6 +217,7 @@ API_AVAILABLE(ios(26.0))
     if(self.tabController && !self.tabController.parentViewController && ![self attachManagedTabs])return;
     if (CGSizeEqualToSize(self.bounds.size,self.fittedSize) && [self.platter isDescendantOfView:self.tabBar]) return;
     self.fittingTabProvider=YES;
+    self.titleRow.userInteractionEnabled=NO;
     UIView *platter=[self fitTabPlatter];
     if(!platter && self.standaloneWarmed && !self.tabController && [self attachManagedTabs]) {
         platter=[self fitTabPlatter];
@@ -257,7 +259,7 @@ API_AVAILABLE(ios(26.0))
 - (void)applySelection:(BOOL)selected toButton:(UIButton *)button {
     button.selected=selected;
     button.accessibilityTraits=UIAccessibilityTraitButton | (selected ? UIAccessibilityTraitSelected : 0);
-    button.titleLabel.font=[UIFont systemFontOfSize:13 weight:selected ? UIFontWeightSemibold : UIFontWeightRegular];
+    button.titleLabel.font=[UIFont systemFontOfSize:HGAChannelTitleSize weight:selected ? UIFontWeightSemibold : UIFontWeightMedium];
 }
 - (void)setSelectedSegmentIndex:(NSInteger)index {
     if (_selectedSegmentIndex==index) return;
@@ -1426,8 +1428,7 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
     if (!selected || strcmp(method_getTypeEncoding(selected),"q16@0:8") || !select ||
         strcmp(method_getTypeEncoding(select),"B28@0:8q16B24") || ![titles isKindOfClass:NSArray.class] ||
         ![collection isKindOfClass:UICollectionView.class] ||
-        (collection!=state.channelCollection && !HGAVisible(collection)) ||
-        (!layout && collection.contentSize.width>CGRectGetWidth(collection.bounds)+0.5)) {
+        (collection!=state.channelCollection && !HGAVisible(collection))) {
         HGARemoveHeaderChannelControl(state);
         return NO;
     }
@@ -1450,6 +1451,18 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
         HGARemoveHeaderChannelControl(state);
         return NO;
     }
+    // Size the replacement from the model. Reused or partially clipped host
+    // cells can report different extents while the feed scrolls.
+    NSDictionary *ink=@{NSFontAttributeName:[UIFont systemFontOfSize:HGAChannelTitleSize weight:UIFontWeightSemibold]};
+    CGFloat slotWidth=48;
+    for (NSString *title in items) slotWidth=MAX(slotWidth,ceil([title sizeWithAttributes:ink].width)+6);
+    CGFloat width=slotWidth*visibleCount;
+    if (width>CGRectGetWidth(frame)) {
+        HGARemoveHeaderChannelControl(state);
+        return NO;
+    }
+    frame.origin.x=MAX(CGRectGetMinX(frame),MIN(CGRectGetMaxX(frame)-width,CGRectGetMidX(header.bounds)-width/2));
+    frame.size.width=width;
     BOOL useGlass=![style isEqual:@"flat"] && HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled();
     NSString *controlStyle=useGlass ? style : @"flat";
     UIControl<HGAHeaderSelecting> *control=state.channelControl;
@@ -1466,7 +1479,12 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
                 [glassControl addTarget:state action:@selector(interruptPagePreview:) forControlEvents:UIControlEventTouchDown];
             }
         }
-        if (!control) control=(UIControl<HGAHeaderSelecting> *)[[UISegmentedControl alloc] initWithItems:items];
+        if (!control) {
+            UISegmentedControl *segments=[[UISegmentedControl alloc] initWithItems:items];
+            [segments setTitleTextAttributes:@{NSFontAttributeName:[UIFont systemFontOfSize:HGAChannelTitleSize weight:UIFontWeightMedium]} forState:UIControlStateNormal];
+            [segments setTitleTextAttributes:ink forState:UIControlStateSelected];
+            control=(UIControl<HGAHeaderSelecting> *)segments;
+        }
         control.accessibilityIdentifier=@"honggo.appearance.material";
         control.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
         [control addTarget:state action:@selector(changeChannel:) forControlEvents:UIControlEventValueChanged];
@@ -1645,7 +1663,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
 
     CGFloat headerW=CGRectGetWidth(header.bounds);
     CGFloat headerH=CGRectGetHeight(header.bounds);
-    CGFloat side=MIN(42.0,MAX(36.0,headerH));
+    CGFloat side=MIN(HGAChannelRailHeight,headerH);
     CGFloat midY=CGRectGetMidY(header.bounds);
 
     BOOL showSidebar=!HGAppearanceFlag(@"layout.channels.hide.sidebar") &&
@@ -1686,7 +1704,8 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
         }
         if(maxX-minX>=24.0) {
             CGRect centerFrame=CGRectMake(minX,midY-side*0.5,maxX-minX,side);
-            if (HGAApplyHeaderChannelControl(header,state,centerFrame,style)) {
+            CGRect available=CGRectMake(minAllowed,centerFrame.origin.y,maxAllowed-minAllowed,side);
+            if (HGAApplyHeaderChannelControl(header,state,available,style)) {
                 HGAViewState *material=HGAState(header,YES);
                 [material.glass removeFromSuperview];
                 material.glass=nil;

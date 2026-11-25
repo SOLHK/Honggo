@@ -300,6 +300,31 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
                 if (entry && navigation.topViewController != detail &&
                         [[navigation.topViewController valueForKey:@"group"] isEqual:destination]) {
                     visitedRoles++;
+                    if ([role isEqual:@"collect"]) {
+                        UITableViewController *editor=(id)navigation.topViewController;
+                        NSIndexPath *scalePath=HGMenuPath(editor,@"layout.collect.scale");
+                        UITableViewCell *cell=scalePath ? [editor tableView:editor.tableView cellForRowAtIndexPath:scalePath] : nil;
+                        UISlider *slider=(id)Find(cell,@"layout.collect.scale");
+                        double previous=HGAppearanceNumber(@"layout.collect.scale");
+                        [slider sendActionsForControlEvents:UIControlEventTouchDown];
+                        slider.value=41;
+                        [slider sendActionsForControlEvents:UIControlEventValueChanged];
+                        Check([slider.accessibilityValue isEqual:@"41%"] && HGAppearanceNumber(@"layout.collect.scale")==previous,
+                            @"dragging previews the exact percentage without refreshing playback");
+                        [slider sendActionsForControlEvents:UIControlEventTouchUpInside];
+                        UIStepper *stepper=[cell valueForKey:@"stepper"];
+                        stepper.value++;
+                        [stepper sendActionsForControlEvents:UIControlEventValueChanged];
+                        Check(slider.value==42 && [slider.accessibilityValue isEqual:@"42%"],@"one step advances from 41% to 42%");
+                        NSIndexPath *copy=HGMenuPath(editor,@"@role.copyRightSize");
+                        if (copy) [editor tableView:editor.tableView didSelectRowAtIndexPath:copy];
+                        double chosen=HGAppearanceNumber(@"layout.collect.scale");
+                        BOOL shared=copy && chosen!=1;
+                        for (NSString *r in @[@"avatar",@"comment",@"like",@"share",@"more"])
+                            shared &= HGAppearanceNumber([NSString stringWithFormat:@"layout.%@.scale",r])==chosen;
+                        Check(shared,@"applying a single size updates every right-hand control");
+                        [editor dismissViewControllerAnimated:NO completion:nil];
+                    }
                     [navigation popViewControllerAnimated:NO];
                     [window layoutIfNeeded];
                 } else rolesRouted = NO;
@@ -569,14 +594,14 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         playerRows+=count;
         for (NSInteger r=0; r<count; r++) {
             UITableViewCell *cell=[playerPage tableView:playerPage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:r inSection:section]];
-            if ([cell.accessoryView isKindOfClass:UISlider.class]) noInlineRoleSliders=NO;
+            if ([cell isKindOfClass:NSClassFromString(@"HGAPercentCell")]) noInlineRoleSliders=NO;
         }
     }
     NSIndexPath *swipeSetting=HGMenuPath(playerPage,@"player.disableEpisodeSwipe");
     UITableViewCell *swipeCell=swipeSetting ? [playerPage tableView:playerPage.tableView cellForRowAtIndexPath:swipeSetting] : nil;
     NSIndexPath *rankSetting=HGMenuPath(playerPage,@"player.hide.followRank");
     NSIndexPath *seriesSetting=HGMenuPath(playerPage,@"player.hide.seriesBadge");
-    Check(playerPage.tableView.numberOfSections==5 && playerRows==11+(NSInteger)HGAppearanceRoles().count &&
+    Check(playerPage.tableView.numberOfSections==5 && playerRows==12+(NSInteger)HGAppearanceRoles().count &&
         rankSetting && seriesSetting && rankSetting.section==1 && seriesSetting.section==1 &&
         noInlineRoleSliders && swipeSetting && swipeSetting.section==0 && [swipeCell.accessoryView isKindOfClass:UISwitch.class],
         @"playback settings include the episode swipe switch and per-control subpages");
@@ -587,12 +612,14 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         NSIndexPath *path = HGMenuPath(rolePage,key);
         if (!path) continue;
         UITableViewCell *cell = [rolePage tableView:rolePage.tableView cellForRowAtIndexPath:path];
-        UISlider *slider = (UISlider *)cell.accessoryView;
+        cell.frame=CGRectMake(0,0,340,110);
+        [cell layoutIfNeeded];
+        UISlider *slider = (id)Find(cell,key);
         if ([slider isKindOfClass:UISlider.class] && slider.minimumValue==1 && slider.maximumValue==100 &&
-            !slider.continuous && [cell.detailTextLabel.text containsString:@"%"]) pctSliders++;
+            slider.continuous && CGRectGetWidth(slider.bounds)>250 && [slider.accessibilityValue containsString:@"%"]) pctSliders++;
     }
     Check(rolePage.tableView.numberOfSections==3 && pctSliders==3 && HGMenuPath(rolePage,@"@role.reset.avatar"),
-        @"each control editor separates visibility, three commit-on-release sliders and reset");
+        @"each control editor provides full-width sliders, visible percentages and reset");
     UISearchController *search=page.navigationItem.searchController;search.searchBar.text=@"layout.like";
     [search.searchResultsUpdater updateSearchResultsForSearchController:search];
     Check([page.tableView.dataSource tableView:page.tableView numberOfRowsInSection:0]==4,@"appearance search resolves stable per-control keys");

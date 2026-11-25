@@ -55,14 +55,115 @@ static double HGAValueFromPercent(NSDictionary *def,NSInteger pct) {
     } else {
         raw=lo+((pct-1.0)/99.0)*(hi-lo);
     }
-    double rounded=(hi-lo<=5.0) ? round(raw*100.0)/100.0 : round(raw);
-    return MAX(lo,MIN(hi,rounded));
+    return MAX(lo,MIN(hi,raw));
 }
 
 static NSString *HGAPercentDetailText(NSDictionary *def,NSInteger pct) {
     NSInteger defaultPct=HGAPercentFromValue(def,[def[@"default"] doubleValue]);
     if(pct==defaultPct)return [NSString stringWithFormat:@"%ld%%（默认）",(long)pct];
     return [NSString stringWithFormat:@"%ld%%",(long)pct];
+}
+
+@interface HGAPercentCell : UITableViewCell
+@property(nonatomic,strong) UISlider *slider;
+@property(nonatomic,strong) UIStepper *stepper;
+@property(nonatomic,strong) UILabel *valueLabel;
+@property(nonatomic,copy) NSDictionary *definition;
+@property(nonatomic,copy) void (^savePercent)(NSInteger);
+@property(nonatomic) BOOL adjusting;
+- (instancetype)initWithDefinition:(NSDictionary *)definition title:(NSString *)title;
+@end
+
+@implementation HGAPercentCell
+- (instancetype)initWithDefinition:(NSDictionary *)definition title:(NSString *)title {
+    if ((self=[super initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil])) {
+        _definition=definition;
+        NSString *key=definition[@"key"];
+        self.accessibilityIdentifier=[@"honggo.appearance.setting." stringByAppendingString:key];
+        self.selectionStyle=UITableViewCellSelectionStyleNone;
+        self.isAccessibilityElement=NO;
+        UILabel *heading=[UILabel new];
+        heading.font=[UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+        heading.adjustsFontForContentSizeCategory=YES;
+        heading.text=title;
+        heading.numberOfLines=0;
+        _valueLabel=[UILabel new];
+        _valueLabel.font=[UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+        _valueLabel.adjustsFontForContentSizeCategory=YES;
+        _valueLabel.textColor=UIColor.secondaryLabelColor;
+        _valueLabel.numberOfLines=0;
+        _valueLabel.isAccessibilityElement=NO;
+        UIStackView *labels=[[UIStackView alloc] initWithArrangedSubviews:@[heading,_valueLabel]];
+        labels.axis=UILayoutConstraintAxisVertical;
+        _stepper=[UIStepper new];
+        _stepper.minimumValue=1;
+        _stepper.maximumValue=100;
+        _stepper.stepValue=1;
+        _stepper.accessibilityLabel=[title stringByAppendingString:@"，微调"];
+        [_stepper addTarget:self action:@selector(step:) forControlEvents:UIControlEventValueChanged];
+        UIStackView *top=[[UIStackView alloc] initWithArrangedSubviews:@[labels,_stepper]];
+        top.alignment=UIStackViewAlignmentCenter;
+        top.spacing=8;
+        _slider=[UISlider new];
+        _slider.minimumValue=1;
+        _slider.maximumValue=100;
+        _slider.continuous=YES;
+        _slider.accessibilityIdentifier=key;
+        _slider.accessibilityLabel=title;
+        [_slider.heightAnchor constraintGreaterThanOrEqualToConstant:44].active=YES;
+        [_slider addTarget:self action:@selector(beginAdjustment) forControlEvents:UIControlEventTouchDown];
+        [_slider addTarget:self action:@selector(preview:) forControlEvents:UIControlEventValueChanged];
+        [_slider addTarget:self action:@selector(commit) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside];
+        [_slider addTarget:self action:@selector(reloadValue) forControlEvents:UIControlEventTouchCancel];
+        UIStackView *body=[[UIStackView alloc] initWithArrangedSubviews:@[top,_slider]];
+        body.axis=UILayoutConstraintAxisVertical;
+        body.translatesAutoresizingMaskIntoConstraints=NO;
+        [self.contentView addSubview:body];
+        UILayoutGuide *margins=self.contentView.layoutMarginsGuide;
+        [NSLayoutConstraint activateConstraints:@[
+            [body.leadingAnchor constraintEqualToAnchor:margins.leadingAnchor],
+            [body.trailingAnchor constraintEqualToAnchor:margins.trailingAnchor],
+            [body.topAnchor constraintEqualToAnchor:margins.topAnchor],
+            [body.bottomAnchor constraintEqualToAnchor:margins.bottomAnchor]
+        ]];
+        [self reloadValue];
+    }
+    return self;
+}
+- (void)displayPercent:(NSInteger)value {
+    self.stepper.value=value;
+    self.valueLabel.text=HGAPercentDetailText(self.definition,value);
+    self.stepper.accessibilityValue=self.valueLabel.text;
+    self.slider.accessibilityValue=self.valueLabel.text;
+}
+- (void)reloadValue {
+    self.adjusting=NO;
+    NSInteger value=HGAPercentFromValue(self.definition,HGAppearanceNumber(self.definition[@"key"]));
+    self.slider.value=(float)value;
+    [self displayPercent:value];
+}
+- (void)commit {
+    NSInteger pct=lround(self.slider.value);
+    if (self.savePercent && pct!=HGAPercentFromValue(self.definition,HGAppearanceNumber(self.definition[@"key"])))
+        self.savePercent(pct);
+    [self reloadValue];
+}
+- (void)beginAdjustment {
+    self.adjusting=YES;
+}
+- (void)preview:(UISlider *)slider {
+    [self displayPercent:lround(slider.value)];
+    // VoiceOver and keyboard increments have no touch-up event.
+    if (!self.adjusting && !slider.isTracking) [self commit];
+}
+- (void)step:(UIStepper *)stepper {
+    self.slider.value=(float)stepper.value;
+    [self commit];
+}
+@end
+
+static NSArray<NSString *> *HGARightButtonRoles(void) {
+    return @[@"avatar",@"collect",@"comment",@"like",@"share",@"more"];
 }
 
 static NSString *HGARoleSummary(NSString *role) {
@@ -248,7 +349,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     } else if([self.group isEqual:@"player"]) {
         section(@"播放与材质");
         HGAAddDefs(rows,@[@"player.fullscreen",@"player.disableEpisodeSwipe",@"player.separateProgress",
-            @"player.rightGlass",@"player.actionStyle",@"player.collectGlyph",@"player.material",@"player.episodeGlass",@"player.controlsGlass"]);
+            @"player.rightGlass",@"player.actionStyle",@"player.collectGlyph",@"player.material",@"player.episodeGlass",@"player.episodeDockWidth",@"player.controlsGlass"]);
         section(@"剧集信息按钮");
         HGAAddDefs(rows,@[@"player.hide.followRank",@"player.hide.seriesBadge"]);
         NSArray *roles = HGAppearanceRoles(), *roleTitles = HGAppearanceRoleTitles();
@@ -270,6 +371,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             [prefix stringByAppendingString:@".scale"]
         ]);
         section(@"");
+        if ([HGARightButtonRoles() containsObject:role])
+            [rows addObject:HGATool(@"@role.copyRightSize",@"将此大小应用到全部右侧按钮")];
         [rows addObject:HGATool([@"@role.reset." stringByAppendingString:role],@"恢复此项默认")];
     } else if([self.group isEqual:@"panels"]) {
         section(@"评论区");
@@ -314,13 +417,19 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *row=self.sections[path.section][path.row];NSString *kind=row[@"kind"],*key=row[@"key"];
-    UITableViewCell *cell=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
     NSString *title = row[@"title"];
     if ([self.group hasPrefix:@"role."]) {
         NSString *label = @{@"hidden": @"隐藏此控件", @"x": @"水平偏移", @"y": @"垂直偏移",
             @"scale": @"大小"}[key.pathExtension];
         if (label) title = label;
     }
+    if ([kind isEqual:@"number"]) {
+        HGAPercentCell *cell=[[HGAPercentCell alloc] initWithDefinition:row title:title];
+        __weak typeof(self) weakSelf=self;
+        cell.savePercent=^(NSInteger pct){ [weakSelf save:key value:@(HGAValueFromPercent(row,pct))]; };
+        return cell;
+    }
+    UITableViewCell *cell=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
     cell.textLabel.text=title;cell.textLabel.numberOfLines=0;cell.detailTextLabel.numberOfLines=0;
     cell.textLabel.font=[UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     cell.detailTextLabel.font=[UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
@@ -338,16 +447,6 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             cell.detailTextLabel.text=@"关闭后，打开评论区时视频留在原位。";
         if([key isEqual:@"mine.show.theme"])
             cell.detailTextLabel.text=@"新版个人页在创建时读取此项，重新打开红果后生效。";
-    }else if([kind isEqual:@"number"]) {
-        UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(0,0,136,44)];
-        slider.minimumValue=1;slider.maximumValue=100;
-        slider.continuous = NO; // Apply the appearance refresh once when the user releases the slider.
-        NSInteger pct=HGAPercentFromValue(row,HGAppearanceNumber(key));
-        slider.value=(float)pct;slider.accessibilityIdentifier=key;slider.accessibilityLabel=row[@"title"];
-        [slider addTarget:self action:@selector(slider:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView=slider;
-        cell.detailTextLabel.text=HGAPercentDetailText(row,pct);
-        cell.selectionStyle=UITableViewCellSelectionStyleNone;
     }else if([kind isEqual:@"subpage"]) {
         cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;
         NSString *detail=row[@"detail"];
@@ -385,19 +484,6 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 - (void)toggle:(UISwitch *)toggle {
     NSString *key=toggle.accessibilityIdentifier;[self save:key value:@(toggle.on)];toggle.on=HGAppearanceFlag(key);
 }
-- (void)slider:(UISlider *)slider {
-    NSString *key=slider.accessibilityIdentifier;
-    NSDictionary *def=HGACatalogDef(key);
-    if(!def)return;
-    NSInteger pct=MAX(1,MIN(100,(NSInteger)llround(slider.value)));
-    slider.value=(float)pct;
-    double raw=HGAValueFromPercent(def,pct);
-    [self save:key value:@(raw)];
-    NSInteger actualPct=HGAPercentFromValue(def,HGAppearanceNumber(key));
-    slider.value=(float)actualPct;
-    UIView *node=slider;while(node && ![node isKindOfClass:UITableViewCell.class])node=node.superview;
-    ((UITableViewCell *)node).detailTextLabel.text=HGAPercentDetailText(def,actualPct);
-}
 - (void)presentSheet:(UIAlertController *)sheet {
     sheet.popoverPresentationController.sourceView=self.view;
     sheet.popoverPresentationController.sourceRect=CGRectMake(CGRectGetMidX(self.view.bounds),CGRectGetMidY(self.view.bounds),1,1);
@@ -419,6 +505,20 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     NSString *key=row[@"key"],*kind=row[@"kind"];
     if([key isEqual:@"@community"]){HGShowCommunity(self);return;}
     if([key hasPrefix:@"@group."]){HGOpenAppearance(self,[key substringFromIndex:7]);return;}
+    if([key isEqual:@"@role.copyRightSize"]) {
+        NSString *source=[NSString stringWithFormat:@"layout.%@.scale",self.group.pathExtension];
+        NSNumber *value=@(HGAppearanceNumber(source));
+        NSMutableDictionary *sizes=[NSMutableDictionary dictionary];
+        for (NSString *role in HGARightButtonRoles())
+            sizes[[NSString stringWithFormat:@"layout.%@.scale",role]]=value;
+        NSError *error=nil;
+        if (HGAppearanceApply(sizes,&error)) {
+            NSDictionary *definition=HGACatalogDef(source);
+            NSInteger pct=HGAPercentFromValue(definition,value.doubleValue);
+            [self message:@"已统一右侧按钮大小" detail:HGAPercentDetailText(definition,pct)];
+        } else [self message:@"设置未更改" detail:error.localizedDescription];
+        return;
+    }
     if([key hasPrefix:@"@role.reset."]) {
         NSString *role=[key substringFromIndex:12];
         NSString *prefix=[@"layout." stringByAppendingString:role];

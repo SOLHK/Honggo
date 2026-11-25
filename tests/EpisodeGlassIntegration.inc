@@ -57,6 +57,21 @@ static void RunEpisodeGlassChecks(UIView *root) {
     for(NSUInteger i=0;i<5;i++)Layout(wideEntry);
     Check(CGRectEqualToRect(wideEntry.frame,insetWideFrame) && [wideWrapper.backgroundColor isEqual:UIColor.clearColor],
         @"episode margin is stable across layouts and leaves no original full-width backing");
+    UIView *capsule=Find(root.window,@"honggo.appearance.dock.capsule");
+    id savedWidth=HGAppearanceValue(@"dock.width");
+    HGAppearanceSet(@"player.episodeDockWidth",@YES,nil);
+    for(NSNumber *ratio in @[@0.84,@0.97]) {
+        HGAppearanceSet(@"dock.width",ratio,nil);
+        Layout(wideEntry);
+        CGRect entryRect=[wideEntry convertRect:wideGlass.frame toView:root.window];
+        CGRect dockRect=[capsule convertRect:capsule.bounds toView:root.window];
+        Check(capsule && fabs(CGRectGetMinX(entryRect)-CGRectGetMinX(dockRect))<0.5 &&
+            fabs(CGRectGetMaxX(entryRect)-CGRectGetMaxX(dockRect))<0.5 &&
+            wideEntry.bounds.size.height==44,@"the episode glass follows both edges of the mounted Dock capsule");
+    }
+    HGAppearanceApply(@{@"player.episodeDockWidth":@NO,@"dock.width":savedWidth},nil);
+    Layout(wideEntry);
+    Check(CGRectEqualToRect(wideEntry.frame,insetWideFrame),@"turning off width sync restores the entry's own margins");
     HGAppearanceSet(@"player.episodeGlass",@NO,nil);
     Check(CGRectEqualToRect(wideEntry.frame,nativeWideFrame) && [wideWrapper.backgroundColor isEqual:UIColor.grayColor],
         @"disabling episode glass restores the authored full-width entry and backing");

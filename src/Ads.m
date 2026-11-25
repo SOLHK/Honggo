@@ -283,7 +283,10 @@ static void HGAdDecision(id object, SEL selector, BOOL result) {
     }
 }
 
+#include "SidebarGame.inc"
+
 void HGInstallAds(void) {
+    HGInstallSidebarLists();
     BOOL enabled[HGFeatureCount] = {NO};
     for (HGFeature feature = HGSplash; feature < HGFeatureCount; feature++) {
         enabled[feature] = HGIsEnabled(feature);
@@ -293,6 +296,15 @@ void HGInstallAds(void) {
     NSUInteger selected = 0;
     for (NSUInteger index = 0; index < sizeof(HGGates) / sizeof(HGGates[0]); index++) {
         const HGGate *gate = &HGGates[index];
+        // Keep the older gate on hosts without the corresponding list getter.
+        if (gate->feature==HGSidebarGameCenter) {
+            BOOL handlesList=NO;
+            for (NSUInteger j=0; j<sizeof(HGSidebarLists)/sizeof(*HGSidebarLists); j++) {
+                const HGSidebarList *list=&HGSidebarLists[j];
+                if (list->component && list->installed && !strcmp(list->owner,gate->className)) {handlesList=YES;break;}
+            }
+            if (handlesList) continue;
+        }
         NSString *identifier = [NSString stringWithFormat:@"hook.ads.%@.%s.%s",
             gate->classMethod ? @"class" : @"instance", gate->className, gate->selector];
         if (!enabled[gate->feature]) {

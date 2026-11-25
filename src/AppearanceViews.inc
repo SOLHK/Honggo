@@ -546,6 +546,7 @@ void HGAppearanceProcessView(UIView *view) {
     }@finally {
         @try {
             HGAUpdateBottomLayoutForView(view);
+            HGAApplyCleanView(view);
         }
         @finally {HGAApplying=NO;}
     }

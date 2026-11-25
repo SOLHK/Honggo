@@ -539,6 +539,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     CGRect left=[header.sideBar convertRect:header.sideBar.bounds toView:header];
     CGRect right=[search.searchButtonSlotView convertRect:search.searchButtonSlotView.bounds toView:header];
     Check(headerGlass && sidebarGlass && searchGlassTop &&
+        CGRectGetHeight(sidebarGlass.frame)==38 && CGRectGetHeight(headerGlass.frame)==38 &&
         fabs(CGRectGetWidth(sidebarGlass.frame)-CGRectGetHeight(sidebarGlass.frame))<0.5 &&
         fabs(CGRectGetWidth(searchGlassTop.frame)-CGRectGetHeight(searchGlassTop.frame))<0.5 &&
         CGRectGetMinX(headerGlass.frame)>=CGRectGetMaxX(sidebarGlass.frame)+7.5 &&
@@ -817,6 +818,11 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             Layout(rail);
             UIVisualEffect *effect=rail.effect;
             UITabBar *tabs=(id)Find(group,@"honggo.appearance.header.systemTabs");
+            NSArray<UIButton *> *channelTitles=[group valueForKey:@"buttons"];
+            UIButton *firstTitle=channelTitles.firstObject;
+            Check(channelTitles.count==2 && firstTitle.titleLabel.font.pointSize==16 &&
+                CGRectGetWidth(group.bounds)==96 && firstTitle.superview.superview==group,
+                @"two short channel titles occupy a centered compact rail and render at 16 points");
             if (@available(iOS 27.0,*)) {
                 CFTimeInterval deadline=CACurrentMediaTime()+0.5;
                 while(tabs.hidden && CACurrentMediaTime()<deadline) {
@@ -853,8 +859,10 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sample.fixtureState=UIGestureRecognizerStateChanged;
                     sample.fixtureTravel=CGPointMake(-pageWidth*0.25,0);
                     [channelPaging page:sample];
-                    Check(tabs.hidden && !rail.superview.hidden && !lens.hidden && !refraction.hidden,
-                        @"a swipe on the page has a single continuous channel preview");
+                    Check(tabs.hidden && !rail.superview.hidden && !lens.hidden && !refraction.hidden &&
+                        firstTitle==[[group valueForKey:@"buttons"] firstObject] && !firstTitle.superview.hidden &&
+                        firstTitle.titleLabel.font.pointSize==16 && firstTitle.superview.userInteractionEnabled,
+                        @"a page swipe keeps the same title labels and point size over the moving lens");
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
                     [channelPaging page:sample];
                     CGPoint center=CGPointMake(CGRectGetWidth(group.bounds)*0.75,CGRectGetMidY(group.bounds));
@@ -898,7 +906,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                         sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.25,CGRectGetMidY(group.bounds));
                         [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
                         Check(refraction.superview==lens && !refraction.hidden && !rail.hidden && [rail.superview.subviews indexOfObject:rail]<[rail.superview.subviews indexOfObject:lens] &&
-                            [rail.superview.subviews indexOfObject:lens]<[rail.superview.subviews indexOfObject:buttons[0].superview] && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
+                            [group.subviews indexOfObject:rail.superview]<[group.subviews indexOfObject:buttons[0].superview] && [refraction.effect isKindOfClass:UIGlassEffect.class] &&
                             CGRectGetHeight(lens.frame)>restingHeight && channels.nativeSelections==before,
                             @"touch-down lifts the native refraction on the selected tab before the host selection changes");
                         sample.fixtureState=UIGestureRecognizerStateCancelled;

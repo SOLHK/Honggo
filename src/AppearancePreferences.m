@@ -102,6 +102,8 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         [a addObject:HGADef(@"gestures.doubleTapComments",@"gestures",@"双击短剧画面打开评论区",@"bool",@NO,
             @{@"keywords":@"双击评论 双击打开评论"})];
         [a addObject:HGADef(@"player.episodeGlass",@"player",@"全集入口玻璃",@"bool",@YES,nil)];
+        [a addObject:HGADef(@"player.episodeDockWidth",@"player",@"全集入口与 Dock 等宽",@"bool",@NO,
+            @{@"keywords":@"观看完整短剧 观看完整剧集 合集 液态玻璃 底栏 长度 宽度"})];
         [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];
         flag(@"player.hide.followRank",@"player",@"隐藏追更榜按钮");
         flag(@"player.hide.seriesBadge",@"player",@"隐藏系列剧按钮");

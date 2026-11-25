@@ -69,12 +69,17 @@ BOOL HGIsEnabled(HGFeature feature) {
     }
 }
 
+NSString *const HGSidebarGameChanged = @"Honggo.sidebarGameChanged";
+
 BOOL HGSetEnabled(HGFeature feature, BOOL enabled) {
     NSString *key = HGPreferenceKey(feature);
     if (!key) return NO;
+    BOOL refresh=NO;
     @synchronized (HGPreferenceLock()) {
+        if (feature==HGSidebarGameCenter) refresh=[NSUserDefaults.standardUserDefaults boolForKey:key]!=enabled;
         [NSUserDefaults.standardUserDefaults setBool:enabled forKey:key];
     }
+    if (refresh) [NSNotificationCenter.defaultCenter postNotificationName:HGSidebarGameChanged object:nil];
     return YES;
 }
 
@@ -170,13 +175,17 @@ BOOL HGPreferencesApply(NSDictionary<NSString *, NSNumber *> *features, NSError 
     if (error) *error = nil;
     NSDictionary<NSString *, NSNumber *> *validated = HGValidatedFeatureValues(features, error);
     if (!validated) return NO;
+    BOOL refresh=NO;
     @synchronized (HGPreferenceLock()) {
         for (NSString *identifier in validated) {
             HGFeature feature = HGFeatureForIdentifier(identifier);
+            if (feature==HGSidebarGameCenter)
+                refresh=HGIsEnabled(feature)!=validated[identifier].boolValue;
             [NSUserDefaults.standardUserDefaults setBool:validated[identifier].boolValue
                 forKey:HGPreferenceKey(feature)];
         }
     }
+    if (refresh) [NSNotificationCenter.defaultCenter postNotificationName:HGSidebarGameChanged object:nil];
     return YES;
 }
 
@@ -195,9 +204,12 @@ NSUInteger HGPreferencesChangeCount(NSDictionary<NSString *, NSNumber *> *featur
 }
 
 void HGPreferencesReset(void) {
+    BOOL refresh;
     @synchronized (HGPreferenceLock()) {
+        refresh=HGIsEnabled(HGSidebarGameCenter);
         for (HGFeature feature = 0; feature < HGFeatureCount; feature++) {
             [NSUserDefaults.standardUserDefaults setBool:NO forKey:HGPreferenceKey(feature)];
         }
     }
+    if (refresh) [NSNotificationCenter.defaultCenter postNotificationName:HGSidebarGameChanged object:nil];
 }

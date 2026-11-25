@@ -4,6 +4,8 @@
 @interface HGAEpisodeInsetState : NSObject
 @property(nonatomic) CGRect sourceBounds;
 @property(nonatomic) CGRect appliedBounds;
+@property(nonatomic) CGFloat sourceCenterX;
+@property(nonatomic) CGFloat appliedCenterX;
 @property(nonatomic,weak) UIView *parent;
 @end
 @implementation HGAEpisodeInsetState @end
@@ -13,6 +15,9 @@ static void HGARestoreEpisodeInset(UIView *entry) {
     if(!state)return;
     BOOL changed=NO;
     if(CGRectEqualToRect(entry.bounds,state.appliedBounds)){entry.bounds=state.sourceBounds;changed=YES;}
+    if(state.sourceCenterX!=state.appliedCenterX && entry.center.x==state.appliedCenterX) {
+        entry.center=CGPointMake(state.sourceCenterX,entry.center.y);changed=YES;
+    }
     objc_setAssociatedObject(entry,&HGAEpisodeInsetKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if(changed)[entry setNeedsLayout];
 }
@@ -20,11 +25,15 @@ static void HGAApplyEpisodeInset(UIView *entry,BOOL enabled) {
     HGAEpisodeInsetState *state=objc_getAssociatedObject(entry,&HGAEpisodeInsetKey);
     if(state && state.parent!=entry.superview){HGARestoreEpisodeInset(entry);state=nil;}
     CGRect source=state && CGRectEqualToRect(entry.bounds,state.appliedBounds) ? state.sourceBounds : entry.bounds;
+    CGFloat center=state && entry.center.x==state.appliedCenterX ? state.sourceCenterX : entry.center.x;
     CGFloat width=source.size.width;
+    UIWindow *window=entry.window;
+    CGRect dock=enabled && HGAppearanceFlag(@"player.episodeDockWidth") ? HGAExpandedCapsuleInWindow(window) : CGRectNull;
+    BOOL match=!CGRectIsNull(dock) && !CGRectIsEmpty(dock);
     // Only the edge-to-edge distribution entry needs outer breathing room.
     // Change its layout width, not its transform, so native text/icons keep
     // their proportions and the host recalculates truncation and arrow position.
-    if(!enabled || !entry.window || !CGAffineTransformIsIdentity(entry.transform) ||
+    if(!enabled || !entry.window || (!match && !CGAffineTransformIsIdentity(entry.transform)) ||
         entry.window.bounds.size.width>=entry.window.bounds.size.height ||
         width<entry.window.bounds.size.width*0.88 || width>entry.window.bounds.size.width+1 || source.size.height>80) {
         HGARestoreEpisodeInset(entry);return;
@@ -32,8 +41,21 @@ static void HGAApplyEpisodeInset(UIView *entry,BOOL enabled) {
     if(!state){state=[HGAEpisodeInsetState new];objc_setAssociatedObject(entry,&HGAEpisodeInsetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     state.sourceBounds=source;state.parent=entry.superview;
     CGFloat inset=round(MAX(12,width*0.09));
-    CGRect bounds=source;bounds.size.width-=inset*2;state.appliedBounds=bounds;
+    CGRect bounds=source;bounds.size.width-=inset*2;
+    CGFloat targetCenter=center;
+    if(match) {
+        // Width is measured in the entry's coordinates so a user scale still
+        // produces the requested visible length. Carry the capsule offset
+        // relative to the window center so an incoming cell stays on its page.
+        bounds.size.width=CGRectGetWidth([entry convertRect:dock fromView:window]);
+        CGPoint screenCenter=CGPointMake(CGRectGetMidX(window.bounds),CGRectGetMidY(dock));
+        CGPoint dockCenter=CGPointMake(CGRectGetMidX(dock),screenCenter.y);
+        targetCenter+=[entry.superview convertPoint:dockCenter fromView:window].x-
+            [entry.superview convertPoint:screenCenter fromView:window].x;
+    }
+    state.appliedBounds=bounds;state.sourceCenterX=center;state.appliedCenterX=targetCenter;
     if(!CGRectEqualToRect(entry.bounds,bounds)){entry.bounds=bounds;[entry setNeedsLayout];}
+    if(entry.center.x!=targetCenter)entry.center=CGPointMake(targetCenter,entry.center.y);
 }
 static CGRect HGAEpisodeGlassFrame(UIView *entry) {
     CGRect frame=entry.bounds;
@@ -94,16 +116,20 @@ static void HGAApplyEpisodeSurface(HGAEpisodeSurfaceState *state,CGFloat radius,
     if(!view.clipsToBounds)view.clipsToBounds=YES;
 }
 static BOOL HGAEpisodeSameSurface(UIView *candidate,UIView *entry) {
-    if(!candidate || !CGAffineTransformIsIdentity(candidate.transform) ||
-        !CGAffineTransformIsIdentity(entry.transform))return NO;
-    CGRect rect=[candidate convertRect:candidate.bounds toView:entry];
+    if(!candidate || !CGAffineTransformIsIdentity(candidate.transform))return NO;
     HGAEpisodeInsetState *inset=objc_getAssociatedObject(entry,&HGAEpisodeInsetKey);
+    if(candidate==entry.superview && inset &&
+        CGSizeEqualToSize(candidate.bounds.size,inset.sourceBounds.size) &&
+        fabs(CGRectGetMidX(candidate.bounds)-inset.sourceCenterX)<0.5 &&
+        fabs(CGRectGetMidY(candidate.bounds)-entry.center.y)<0.5)return YES;
+    if(!inset && !CGAffineTransformIsIdentity(entry.transform))return NO;
+    CGRect rect=[candidate convertRect:candidate.bounds toView:entry];
     if(inset && fabs(rect.size.width-inset.sourceBounds.size.width)<0.5 &&
         fabs(rect.origin.y-entry.bounds.origin.y)<0.5 && fabs(rect.size.height-entry.bounds.size.height)<0.5) {
         CGFloat margin=(inset.sourceBounds.size.width-entry.bounds.size.width)/2;
         // The verified single-child wrapper retains native width. A native
         // content child may still be waiting for its next width layout pass.
-        if(fabs(rect.origin.x-entry.bounds.origin.x+margin)<0.5 ||
+        if(fabs(rect.origin.x-entry.bounds.origin.x+margin+inset.appliedCenterX-inset.sourceCenterX)<0.5 ||
             fabs(rect.origin.x-entry.bounds.origin.x)<0.5)return YES;
     }
     return fabs(rect.origin.x-entry.bounds.origin.x)<0.5 &&

@@ -11,6 +11,10 @@ static char HGADockThemeFixtureKey;
 @implementation SSTabBar (HGADockThemeFixture)
 - (HGADockThemeFixture *)appearanceStyle { return objc_getAssociatedObject(self,&HGADockThemeFixtureKey); }
 @end
+static NSUInteger HGFixtureDockImpacts;
+@implementation SSTabBarController (HGADockFeedbackFixture)
+- (void)impactFeedback { HGFixtureDockImpacts++; }
+@end
 
 typedef struct {
     NSUInteger blue;
@@ -709,7 +713,7 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     CGRect roomy=frame;roomy.size.height=84;roomy.origin.y=host.view.bounds.size.height-84;
     host.customTabBar.frame=roomy;host.selectedIndex=0;
     HGAppearanceApply(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.material":@"regular",
-        @"dock.content":@"icon",@"dock.radius":@29,@"dock.height":@58,@"dock.extra":@YES,@"dock.action":@"search",
+        @"dock.content":@"both",@"dock.haptics":@YES,@"dock.radius":@29,@"dock.height":@58,@"dock.extra":@YES,@"dock.action":@"search",
         @"dock.hide.home":@NO,@"dock.hide.theater":@NO,@"dock.hide.store":@YES,@"dock.hide.mine":@YES},nil);
     HGAppearanceLayoutDock(host.customTabBar,host);Layout(host.customTabBar);
     CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
@@ -728,12 +732,17 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         if(managed) {
             if(@available(iOS 26.0,*)) {
                 UITab *tab=[managed tabForIdentifier:@"theater"];
-                Check(tab!=nil,@"the managed UIKit Dock owns real UITab objects");
+                Check(tab.title.length==0 && [tab.accessibilityLabel isEqual:@"剧场"] && tab.image.CGImage &&
+                    tab.image.renderingMode==UIImageRenderingModeAlwaysOriginal,
+                    @"managed tab keeps the caption and symbol in one face and exposes its spoken title");
                 [managed.delegate tabBarController:managed didSelectTab:tab previousTab:managed.selectedTab];
             }
         }else {
             UITabBarItem *tab=native.items.lastObject;
             Check(native.items.count==2 && tab.tag==1,@"the standalone UIKit Dock owns its mapped UITabBarItems");
+            Check(tab.title.length==0 && [tab.accessibilityLabel isEqual:@"剧场"] && tab.image.CGImage &&
+                tab.selectedImage.CGImage && tab.selectedImage.renderingMode==UIImageRenderingModeAlwaysOriginal,
+                @"standalone selection cannot omit or recolor the independently drawn caption");
             [native.delegate tabBar:native didSelectItem:tab];
         }
         Check(host.nativeTaps==taps+1 && host.selectedIndex==1,@"a UIKit selection forwards exactly one mapped host action");
@@ -747,6 +756,18 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         Check(!carrier && !manual.hidden && Find(capsule,@"honggo.appearance.material"),
             @"a provider without a reachable floating platter leaves only the compatibility Dock mounted");
     }
+    NSUInteger impacts=HGFixtureDockImpacts;
+    [host impactFeedback];
+    HGAppearanceSet(@"dock.haptics",@NO,nil);
+    HGAppearanceLayoutDock(host.customTabBar,host);
+    [host impactFeedback];
+    Check(![dock valueForKey:@"systemTabBar"] && HGFixtureDockImpacts==impacts+1,
+        @"turning feedback off removes UIKit selection haptics and suppresses the mapped host impact");
+    UIButton *theater=(id)Find(dock,@"honggo.appearance.tab.theater");
+    NSUInteger taps=host.nativeTaps;
+    [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
+    Check([theater.configuration.title isEqual:@"剧场"] && !theater.hidden && host.selectedIndex==1 && host.nativeTaps==taps+1,
+        @"quiet navigation preserves both the caption and the original tab action");
     host.selectedIndex=savedIndex;host.customTabBar.frame=frame;
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
 }
@@ -802,6 +823,17 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"reference-width dock uses symmetric margins and a twelve-point accessory gap");
     BOOL reduceTransparency=UIAccessibilityIsReduceTransparencyEnabled();
     BOOL increasedContrast=dock.traitCollection.accessibilityContrast==UIAccessibilityContrastHigh;
+    if(!reduceTransparency) {
+        Layout(capsuleMaterial);
+        UIColor *regular=capsuleMaterial.contentView.backgroundColor;
+        HGAppearanceSet(@"dock.material",@"clear",nil);
+        Layout(capsuleMaterial);
+        UIColor *clear=capsuleMaterial.contentView.backgroundColor;
+        Check([regular isEqual:[UIColor colorWithWhite:0 alpha:0.16]] && [clear isEqual:[UIColor colorWithWhite:0 alpha:0.06]],
+            @"dark video uses a lighter shade for clear glass and keeps both foregrounds outside the shade");
+        HGAppearanceSet(@"dock.material",@"regular",nil);
+        Layout(capsuleMaterial);
+    }
     CGFloat selectionAlpha=reduceTransparency || increasedContrast ? 0.18 : 0.09;
     Check(selection && !selection.hidden && !selection.userInteractionEnabled &&
         HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection) &&

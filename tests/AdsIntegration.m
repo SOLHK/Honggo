@@ -12,11 +12,14 @@ static NSUInteger nativeGameInitializations;
 
 @interface SSVideoSeriesFeedSideBarViewController : UIViewController
 @property(nonatomic, strong) id gameEntranceData;
+@property(nonatomic, copy) NSArray *cellList;
+@property(nonatomic, copy) NSArray *functionModelList;
 @end
 @implementation SSVideoSeriesFeedSideBarViewController
 @end
 
 @interface SSVideoSeriesFeedSideBarV725ViewController : UIViewController
+@property(nonatomic, copy) NSArray *cellList;
 - (BOOL)showsGameSection;
 @end
 @implementation SSVideoSeriesFeedSideBarV725ViewController
@@ -25,9 +28,18 @@ static NSUInteger nativeGameInitializations;
 
 @interface SSMyUser621SideBarViewController : UIViewController
 @property(nonatomic, copy) NSArray *componentsLayout;
+@property(nonatomic, copy) NSArray *models;
+@property(nonatomic, copy) NSArray *functionEntryTitles;
+@property(nonatomic, copy) NSArray *functionEntryIcons;
+@property(nonatomic, copy) NSArray *functionEntryDarkIcons;
 @end
 @implementation SSMyUser621SideBarViewController
 @end
+
+@interface SSVideoSeriesFeedSideBarFunctionItemModel : NSObject
+@property(nonatomic,copy) NSString *titleString;
+@end
+@implementation SSVideoSeriesFeedSideBarFunctionItemModel @end
 
 @interface SSBizVideoScanShoppingService : NSObject
 @property(nonatomic) BOOL shareEnabled;
@@ -466,6 +478,13 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     SSMyUser621SideBarViewController *profile = [SSMyUser621SideBarViewController new];
     NSString *game = @"SSMyUser621SideBarGameContainerCell";
     NSArray *layout = @[@"messages", @"history", game, @"functions"];
+    NSArray *feedLayout=@[@"history",@"kSSVideoSeriesFeedSideBarGameCenterCell",@"functions"];
+    NSArray *modernLayout=@[@"kSSVideoSeriesFeedSideBarGameCenterV725Cell",@"distribution"];
+    SSVideoSeriesFeedSideBarFunctionItemModel *shortcut=[SSVideoSeriesFeedSideBarFunctionItemModel new];
+    shortcut.titleString=@"游戏中心";
+    SSVideoSeriesFeedSideBarFunctionItemModel *other=[SSVideoSeriesFeedSideBarFunctionItemModel new];
+    other.titleString=@"我的预约";
+    legacy.cellList=feedLayout;modern.cellList=modernLayout;legacy.functionModelList=@[shortcut,other];
     legacy.gameEntranceData = game;
     profile.componentsLayout = layout;
     [self check:legacy.gameEntranceData == game && [modern showsGameSection] &&
@@ -473,17 +492,43 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
         name:@"the default sidebar preference preserves all host Game Center sections"];
 
     HGSetEnabled(HGSidebarGameCenter, YES);
-    HGInstallAds();
-    HGInstallAds();
-    legacy.gameEntranceData = game;
-    profile.componentsLayout = layout;
-    [self check:legacy.gameEntranceData == nil && ![modern showsGameSection]
-        name:@"both video drawers use native omission when the sidebar preference is enabled"];
+    [self check:[legacy.cellList isEqual:@[@"history",@"functions"]] &&
+        [modern.cellList isEqual:@[@"distribution"]] && [legacy.functionModelList isEqual:@[other]]
+        name:@"a live toggle filters previously cached game cards and the named shortcut without reinstalling"];
     [self check:[profile.componentsLayout isEqualToArray:@[@"messages", @"history", @"functions"]] &&
         [layout containsObject:game]
         name:@"the profile drawer removes the exact game component without reordering other sections or changing the source"];
     [self check:[[games createFeedPageDataModelWithCellViewData:@"game-legacy" listVCContext:nil] isEqual:@"game-legacy"]
         name:@"the sidebar preference does not change feed game models"];
+    HGSetEnabled(HGSidebarGameCenter, NO);
+    [self check:[legacy.cellList isEqual:feedLayout] && [modern.cellList isEqual:modernLayout] &&
+        [profile.componentsLayout isEqual:layout] && [legacy.functionModelList isEqual:@[shortcut,other]]
+        name:@"turning the switch off restores the original sidebar ordering in all three drawers"];
+}
+- (void)checkProfileShortcutColumns {
+    SSMyUser621SideBarViewController *profile=[SSMyUser621SideBarViewController new];
+    SSVideoSeriesFeedSideBarFunctionItemModel *game=[SSVideoSeriesFeedSideBarFunctionItemModel new];
+    SSVideoSeriesFeedSideBarFunctionItemModel *order=[SSVideoSeriesFeedSideBarFunctionItemModel new];
+    game.titleString=@"游戏中心";
+    order.titleString=@"订单";
+    NSArray *models=@[order,game,order,game], *titles=@[@"游戏中心",@"我的预约",@"买过的剧"];
+    profile.models=models;
+    profile.functionEntryTitles=titles;
+    profile.functionEntryIcons=@[@"a",@"b",@"c",@"d"];
+    profile.functionEntryDarkIcons=@[@"A",@"B"];
+    HGSetEnabled(HGSidebarGameCenter,YES);
+    [self check:[profile.models isEqual:@[game,order]] &&
+        [profile.functionEntryTitles isEqual:@[@"我的预约",@"买过的剧"]] &&
+        [profile.functionEntryIcons isEqual:@[@"b",@"c"]] && [profile.functionEntryDarkIcons isEqual:@[@"B"]]
+        name:@"621 measures and binds the same two shortcuts using the displayed server title or model fallback"];
+    profile.models=@[game]; profile.functionEntryTitles=@[@""];
+    [self check:profile.models.count==0 && profile.functionEntryTitles.count==0
+        name:@"621 omits the last shortcut when its empty title falls back to Game Center"];
+    HGSetEnabled(HGSidebarGameCenter,NO);
+    [self check:[profile.models isEqual:@[game]] && [profile.functionEntryTitles isEqual:@[@""]] &&
+        [profile.functionEntryIcons isEqual:@[@"a",@"b",@"c",@"d"]] &&
+        [profile.functionEntryDarkIcons isEqual:@[@"A",@"B"]]
+        name:@"621 restores original columns after data is replaced while the switch is on"];
 }
 - (void)checkScreenshotShopping {
     SSBizVideoScanShoppingService *shopping = [SSBizVideoScanShoppingService new];
@@ -912,6 +957,7 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     IMP originalNaturalInsert = method_getImplementation(naturalInsert);
     HGInstallAds();
     [self checkSidebarGameCenterWithGames:games];
+    [self checkProfileShortcutColumns];
     [self checkScreenshotShopping];
     [self checkNaturalAdInsertionEnabled:NO original:originalNaturalInsert];
     [self checkGameBindingHidden:NO];

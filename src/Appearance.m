@@ -57,6 +57,7 @@ static void HGARefreshBackdropAfterScroll(id scroll) {
         HGScheduleFeedLayoutRefresh(scroll);
 }
 static CGRect HGADockRectInView(UIView *coordinateView);
+static CGRect HGAExpandedCapsuleInWindow(UIWindow *window);
 
 UIVisualEffect *HGAppearanceMaterial(NSString *style) {
     if (UIAccessibilityIsReduceTransparencyEnabled() || [style isEqual:@"solid"]) return nil;
@@ -347,7 +348,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 return;
             }
             ((void(*)(id,SEL,BOOL))original)(object,selector,value);
-            if (scrubClipping) {
+            if(controller && selector==@selector(viewDidDisappear:)) {
+                for(UIWindow *window in HGACleanPages.keyEnumerator.allObjects)
+                    if([HGACleanPages objectForKey:window].page==[object viewIfLoaded])HGAEndCleanPlayback(window);
+            } else if (scrubClipping) {
                 // Ending a seek reclips the control's feed ancestors. Reapply
                 // the active dock extension after the original clipping pass.
                 if(value)HGRefreshVideoBackdropForPlayer(object);
@@ -381,6 +385,8 @@ static void HGAInstallNativeShareRoute(void) {
 }
 void HGAppearanceRefresh(void) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();}); return; }
+    if(HGACleanPages.count && !HGAppearanceFlag(@"gestures.pinchClean"))
+        for(UIWindow *window in HGACleanPages.keyEnumerator.allObjects)HGAEndCleanPlayback(window);
     HGARefreshAssets();
     HGARefreshMinePublishVisibility();
     // A zero-height shortcut owner may no longer have a visible cell to
@@ -434,6 +440,7 @@ void HGInstallAppearance(void) {
         [classes addObjectsFromArray:HGAActionPanelSurfaces()];
         [classes addObjectsFromArray:HGABottomControlClasses()];
         [classes addObjectsFromArray:HGAPlayerControlClasses()];
+        [classes addObjectsFromArray:HGACleanControlClasses()];
         [classes addObjectsFromArray:HGALandscapeChromeClasses()];
         [classes addObject:@"FQVTransitionPlayerTopContentView"];
         [classes addObject:@"FQVShortVideoVPlayerSingleSeriesControlView"];
@@ -616,11 +623,14 @@ void HGInstallAppearance(void) {
         Class playbackController=NSClassFromString(@"FQVShortVideoListViewController");
         if([playbackController isSubclassOfClass:UIViewController.class]) {
             HGAHook(playbackController,@selector(viewDidAppear:),"v20@0:8B16",YES);
+            HGAHook(playbackController,@selector(viewDidDisappear:),"v20@0:8B16",YES);
             HGAHook(playbackController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
         }
         Class detailController=NSClassFromString(@"SSShortVideoDetailViewController");
-        if([detailController isSubclassOfClass:UIViewController.class])
+        if([detailController isSubclassOfClass:UIViewController.class]) {
+            HGAHook(detailController,@selector(viewDidDisappear:),"v20@0:8B16",YES);
             HGAHook(detailController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
+        }
         if ([dockController isSubclassOfClass:UIViewController.class])
             HGAHook(dockController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
         HGAInstallLandscapeLoadFailureDiagnostic();

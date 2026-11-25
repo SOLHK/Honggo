@@ -16,13 +16,122 @@ static UIView *HGAPlayerCommentAction(UIView *view,Class commentClass) {
 }
 
 static BOOL HGAPlayerIsSeries(UIView *player) {
-    if([player isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerOutterMultiSeriesControlView")] ||
+    // The unqualified inner-series HUD is also a base of PUGC profile
+    // controls. Match that concrete class; ask other subclasses for the model.
+    if(player.class==objc_lookUpClass("FQVShortVideoVPlayerMultiSeriesControlView") ||
+       [player isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerOutterMultiSeriesControlView")] ||
        [player isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerSingleSeriesControlView")] ||
        [player isKindOfClass:objc_lookUpClass("FQVShortVideoDerivativeVideoControlView")])return YES;
     id model=HGReadObjectGetter(player,"videoDataModel");
     BOOL series=NO;
     return (HGABoolGetter(model,@"isSeriesType",&series) && series) ||
         (HGABoolGetter(model,@"isEpisodeModel",&series) && series);
+}
+
+// The host recycles the gesture HUD on vertical paging. Own this mode on
+// its list page, and suppress only playback chrome mounted on that page.
+@interface HGACleanPlayback : NSObject
+@property(nonatomic,weak) UIView *page;
+@property(nonatomic,strong) NSMapTable<UIView *,NSNumber *> *targets;
+@end
+@implementation HGACleanPlayback @end
+static NSMapTable<UIWindow *,HGACleanPlayback *> *HGACleanPages;
+static NSHashTable *HGAPlayerNavigations;
+static UIView *HGAPlayerDetailNavigationTitle(UIView *bar);
+static NSString * const HGACleanOpacity = @"honggo.clean.opacity";
+
+static void HGACleanCover(HGACleanPlayback *state,UIView *target) {
+    if(!state || !target)return;
+    if(![state.targets objectForKey:target])
+        [state.targets setObject:@(target.userInteractionEnabled) forKey:target];
+    if(![target.layer animationForKey:HGACleanOpacity]) {
+        // Hold the presentation at zero. Native alpha/hidden changes (including
+        // updates made during cell reuse) remain intact when the cover is lifted.
+        CABasicAnimation *cover=[CABasicAnimation animationWithKeyPath:@"opacity"];
+        cover.fromValue=@0;cover.toValue=@0;cover.duration=0.001;
+        cover.fillMode=kCAFillModeBoth;cover.removedOnCompletion=NO;
+        [target.layer addAnimation:cover forKey:HGACleanOpacity];
+    }
+    if(target.userInteractionEnabled)target.userInteractionEnabled=NO;
+}
+static void HGACleanRestore(HGACleanPlayback *state,UIView *target) {
+    NSNumber *interaction=[state.targets objectForKey:target];
+    if(!interaction)return;
+    [target.layer removeAnimationForKey:HGACleanOpacity];
+    target.userInteractionEnabled=interaction.boolValue;
+    [state.targets removeObjectForKey:target];
+}
+static void HGAEndCleanPlayback(UIWindow *window) {
+    HGACleanPlayback *state=[HGACleanPages objectForKey:window];
+    for(UIView *target in state.targets.keyEnumerator.allObjects)HGACleanRestore(state,target);
+    if(window)[HGACleanPages removeObjectForKey:window];
+}
+static NSArray<NSString *> *HGACleanControlClasses(void) {
+    static NSArray *names;
+    static dispatch_once_t once;
+    dispatch_once(&once,^{ names=@[@"SSShortVideoRightInteractionView",@"SSShortVideoAboveLeftContainerView",
+        @"SSShortVideoSingleSeriesInfoLeftContainerView",@"FQCShortVideoDanmakuContainerView",
+        @"FQVShortVideoGradientLayerView",@"FQVShortVideoProgressFloatView"]; });
+    return names;
+}
+static void HGAApplyCleanView(UIView *view) {
+    if(!HGACleanPages.count)return;
+    HGACleanPlayback *state=view.window ? [HGACleanPages objectForKey:view.window] : nil;
+    BOOL inside=state.page && [view isDescendantOfView:state.page];
+    BOOL bar=[view isKindOfClass:objc_lookUpClass("SSTabBar")] ||
+        [view isKindOfClass:objc_lookUpClass("SSVideoSeriesFeedHeaderView")];
+    UIView *barPage=bar ? HGAOwner(view).viewIfLoaded : nil;
+    BOOL shared=barPage && state.page && [state.page isDescendantOfView:barPage];
+    if(!inside && !shared) {
+        for(HGACleanPlayback *old in HGACleanPages.objectEnumerator)HGACleanRestore(old,view);
+        return;
+    }
+    if([view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerControlView")]) {
+        // Inspect installed controls; several host getters create views on read.
+        const char *slots[]={"_fullscreenBtn","_playBtn","_cancelCleanScreenView","_cleanScreenModeRightInteractionView"};
+        for(NSUInteger i=0;i<sizeof(slots)/sizeof(slots[0]);i++) {
+            Ivar ivar=class_getInstanceVariable(object_getClass(view),slots[i]);
+            id child=ivar && ivar_getTypeEncoding(ivar)[0]=='@' ? object_getIvar(view,ivar) : nil;
+            if([child isKindOfClass:UIView.class] && [child isDescendantOfView:view])HGACleanCover(state,child);
+        }
+        return;
+    }
+    NSString *role=HGARole(view);
+    // The full-screen "info" owner also contains loading / payment surfaces.
+    // Its metadata column and action rail are independently addressable.
+    BOOL metadata=role && (![role isEqual:@"info"] || [NSStringFromClass(view.class) hasSuffix:@"LeftContainerView"]);
+    if(bar || metadata || [HGACleanControlClasses() containsObject:NSStringFromClass(view.class)] ||
+       [view isKindOfClass:objc_lookUpClass("FQVShortVideoPlayerBottomView")] ||
+       [view isKindOfClass:objc_lookUpClass("FQVShortVideoControlCleanSwitchView")] ||
+       [view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerEpisodeInfoView")])
+        HGACleanCover(state,view);
+}
+static void HGAApplyCleanNavigation(id component) {
+    if(!HGACleanPages.count)return;
+    UIView *bar=HGReadObjectGetter(component,"navBar");
+    if(![bar isKindOfClass:UIView.class] || !bar.window)return;
+    HGACleanPlayback *state=[HGACleanPages objectForKey:bar.window];
+    if(state.page && [bar isDescendantOfView:state.page]) {
+        HGACleanCover(state,bar);
+        HGACleanCover(state,HGAPlayerDetailNavigationTitle(bar));
+    }
+}
+static void HGABeginCleanPlayback(UIView *player) {
+    UIWindow *window=player.window;
+    if(!window)return;
+    UIViewController *owner=HGAOwner(player);
+    for(UIViewController *vc=owner;vc;vc=vc.parentViewController)
+        if([vc isKindOfClass:objc_lookUpClass("FQVShortVideoListViewController")]){owner=vc;break;}
+    UIView *page=owner.viewIfLoaded;
+    if(!page)return;
+    if(!HGACleanPages)HGACleanPages=[NSMapTable weakToStrongObjectsMapTable];
+    HGAEndCleanPlayback(window);
+    HGACleanPlayback *state=[HGACleanPlayback new];
+    state.page=page;state.targets=[NSMapTable weakToStrongObjectsMapTable];
+    [HGACleanPages setObject:state forKey:window];
+    for(UIView *node in HGAManaged.allObjects)if(node.window==window)HGAApplyCleanView(node);
+    for(UIView *node in HGADescendants(player,300))HGAApplyCleanView(node);
+    for(id component in HGAPlayerNavigations.allObjects)HGAApplyCleanNavigation(component);
 }
 
 static BOOL HGAPlayerGestureSurface(UIView *player,UIView *hit) {
@@ -52,22 +161,33 @@ static BOOL HGAPlayerGestureSurface(UIView *player,UIView *hit) {
     return cls ? HGAPlayerCommentAction(self.player,cls) : nil;
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
-    return HGAPlayerIsSeries(self.player) && HGAPlayerGestureSurface(self.player,touch.view);
+    UIView *page=[HGACleanPages objectForKey:self.player.window].page;
+    BOOL canRestore=gesture==self.pinch && page && [self.player isDescendantOfView:page];
+    return (canRestore || HGAPlayerIsSeries(self.player)) && HGAPlayerGestureSurface(self.player,touch.view);
 }
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
-    if(gesture==self.doubleTap)return HGAppearanceFlag(@"gestures.doubleTapComments") && [self commentAction];
-    BOOL clean=NO;
-    Method change=class_getInstanceMethod(object_getClass(self.player),sel_registerName("enterCleanMode:"));
-    return HGAppearanceFlag(@"gestures.pinchClean") && change && !strcmp(method_getTypeEncoding(change),"B20@0:8B16") &&
-        HGABoolGetter(self.player,@"isCleanMode",&clean);
+    if(gesture==self.doubleTap) {
+        UIView *page=[HGACleanPages objectForKey:self.player.window].page;
+        return HGAppearanceFlag(@"gestures.doubleTapComments") && !(page && [self.player isDescendantOfView:page]) &&
+            [self commentAction];
+    }
+    return HGAppearanceFlag(@"gestures.pinchClean");
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)other {
     // The native getters construct recognizers on access. Inspect the installed
     // ivars instead. Native single-tap playback still fires if the second tap never arrives.
+    if(gesture==self.pinch) {
+        if(![other isKindOfClass:UIPinchGestureRecognizer.class] || !other.view)return NO;
+        if([other.view isDescendantOfView:self.player])return YES;
+        for(UIView *node=self.player.superview;node;node=node.superview) {
+            if([node isKindOfClass:objc_lookUpClass("FQVShortVideoPlayerCellView")])
+                return [self.player isDescendantOfView:other.view] && [other.view isDescendantOfView:node];
+        }
+        return NO;
+    }
     if(other.view!=self.player)return NO;
-    const char *slots[2]={gesture==self.doubleTap ? "_doubleTapGesture" : "_pinch","_singleTapGesture"};
-    NSUInteger count=gesture==self.doubleTap ? 2 : 1;
-    for(NSUInteger i=0;i<count;i++) {
+    const char *slots[2]={"_doubleTapGesture","_singleTapGesture"};
+    for(NSUInteger i=0;i<2;i++) {
         Ivar ivar=class_getInstanceVariable(object_getClass(self.player),slots[i]);
         if(ivar && ivar_getTypeEncoding(ivar)[0]=='@' && object_getIvar(self.player,ivar)==other)return YES;
     }
@@ -77,11 +197,25 @@ static BOOL HGAPlayerGestureSurface(UIView *player,UIView *hit) {
     if(gesture.state==UIGestureRecognizerStateBegan)self.changedCleanMode=NO;
     if(self.changedCleanMode || (gesture.state!=UIGestureRecognizerStateBegan &&
         gesture.state!=UIGestureRecognizerStateChanged && gesture.state!=UIGestureRecognizerStateEnded))return;
-    BOOL clean=NO;
-    if(!HGABoolGetter(self.player,@"isCleanMode",&clean))return;
-    if((!clean && gesture.scale>=1.15) || (clean && gesture.scale<=0.85)) {
+    UIView *page=[HGACleanPages objectForKey:self.player.window].page;
+    BOOL clean=page && [self.player isDescendantOfView:page];
+    if(!clean && gesture.scale>=1.15) {
         self.changedCleanMode=YES;
-        ((BOOL(*)(id,SEL,BOOL))objc_msgSend)(self.player,sel_registerName("enterCleanMode:"),!clean);
+        HGABeginCleanPlayback(self.player);
+    }else if(gesture.scale<=0.85) {
+        // Native clean mode can also have been selected from the playback menu.
+        BOOL nativeClean=NO;
+        SEL change=sel_registerName("enterCleanMode:");
+        Method method=class_getInstanceMethod(object_getClass(self.player),change);
+        if(HGABoolGetter(self.player,@"isCleanMode",&nativeClean) && nativeClean && method &&
+            !strcmp(method_getTypeEncoding(method),"B20@0:8B16")) {
+            ((BOOL(*)(id,SEL,BOOL))objc_msgSend)(self.player,change,NO);
+            self.changedCleanMode=YES;
+        }
+        if(clean) {
+            HGAEndCleanPlayback(self.player.window);
+            self.changedCleanMode=YES;
+        }
     }
 }
 - (void)tapped:(UITapGestureRecognizer *)gesture {

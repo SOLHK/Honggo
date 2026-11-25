@@ -4,6 +4,7 @@
 // Keep entries in release order, including locally distributed test builds.
 static NSArray<NSArray<NSString *> *> *HGReleaseNotes(void) {
     return @[
+        @[@"1.5.2beta18", @"调整底栏的选中颜色、图文、玻璃与触感。顶部频道统一字号并缩小胶囊。双指清屏可跨集保持，侧栏游戏中心按开关过滤。新增全集入口与 Dock 等宽、滑杆数值微调和右侧按钮尺寸同步。"],
         @[@"1.5.2beta17", @"找剧页顶部按钮按屏幕像素对齐，统一圆形按钮的宽高。"],
         @[@"1.5.2beta16", @"改进连续切换频道和回弹时再次按住顶部按钮的响应。"],
         @[@"1.5.2beta15", @"顶部频道使用与底栏相同的系统拖动与选中效果。调整播放底边和选集分组背景。追更榜和系列剧入口使用玻璃按钮，可分别隐藏。"],
