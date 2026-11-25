@@ -110,6 +110,8 @@ static void CheckEvents(NSURL *root) {
     HGLog(@"privacy.fixture", @{@"cookie": @"diagnostic-private-cookie", @"手机号": @13800138000,
         @"accountId": @495202, @"reason": @"https://example.test/private", @"selector": @"safeAction:"});
     HGLog(@"navigation.dock", @{@"tab": @"home", @"phase": @"enter", @"mode": @"glass"});
+    HGLog(@"appearance.dock-renderer", @{@"mode": @"uikit-tabbar", @"material": @"factory-glass",
+        @"requestedMaterial": @"clear", @"platter": @"UIKit._UITabBarItemPlatterView", @"interfaceStyle": @"light"});
     NSURL *immutable = nil;
     NSDictionary *report = Export(HGDiagnosticScopeAll, nil, &immutable);
     NSArray *sessions = report[@"sessions"];
@@ -120,6 +122,10 @@ static void CheckEvents(NSURL *root) {
     Check(Event(report, @"nil.fields") && Event(report, @"startup.stage"), @"startup stages and nil payloads use the same journal");
     Check([Event(report, @"navigation.dock")[@"fields"][@"mode"] isEqual:@"glass"],
         @"the Dock interaction mode survives journal filtering and export");
+    NSDictionary *dock = Event(report, @"appearance.dock-renderer")[@"fields"];
+    Check([dock[@"material"] isEqual:@"factory-glass"] && [dock[@"requestedMaterial"] isEqual:@"clear"] &&
+        [dock[@"platter"] isEqual:@"UIKit._UITabBarItemPlatterView"] && [dock[@"interfaceStyle"] isEqual:@"light"],
+        @"the export preserves the effective Dock theme, provider and both material values");
     Check([sessions.lastObject objectForKey:@"device"] && [sessions.lastObject objectForKey:@"appVersion"] &&
         [sessions.lastObject objectForKey:@"pluginVersion"], @"current session contains environment metadata");
     NSData *saved = [NSData dataWithContentsOfURL:immutable];

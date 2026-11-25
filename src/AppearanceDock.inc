@@ -313,8 +313,24 @@ static UIUserInterfaceStyle HGADockColorStyle(id value,UITraitCollection *traits
     return UIUserInterfaceStyleUnspecified;
 }
 static UIUserInterfaceStyle HGADockPageStyle(UIViewController *controller,UIView *bar,NSInteger selected) {
-    // The host can retain catalogue foreground colors while returning to playback.
-    if(selected==0)return UIUserInterfaceStyleDark;
+    if(selected==0) {
+        // Playback's white controls and black video backing stay the same in both app themes.
+        static id themeManager;
+        if(!themeManager) {
+            Protocol *adapter=objc_getProtocol("SSAdaptiveUIColorProtocol");
+            id center=adapter ? HGReadObjectGetter(objc_lookUpClass("HTSServiceCenter"),"defaultCenter") : nil;
+            SEL getter=sel_registerName("getProtocolService:");
+            Method method=center ? class_getInstanceMethod(object_getClass(center),getter) : NULL;
+            if(method && !strcmp(method_getTypeEncoding(method),"@24@0:8@16"))
+                themeManager=((id (*)(id,SEL,Protocol *))objc_msgSend)(center,getter,adapter);
+        }
+        BOOL dark;
+        if(HGABoolGetter(themeManager,@"isCurrentDarkMode",&dark))
+            return dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+        UIUserInterfaceStyle appStyle=controller.viewIfLoaded.traitCollection.userInterfaceStyle;
+        if(appStyle==UIUserInterfaceStyleUnspecified)appStyle=bar.window.traitCollection.userInterfaceStyle;
+        return appStyle!=UIUserInterfaceStyleUnspecified ? appStyle : bar.traitCollection.userInterfaceStyle;
+    }
     id appearance=HGReadObjectGetter(bar,"appearanceStyle");
     UIUserInterfaceStyle style=HGADockColorStyle(HGReadObjectGetter(appearance,"selectedImageColor"),bar.traitCollection,YES);
     if(style==UIUserInterfaceStyleUnspecified)
@@ -823,11 +839,14 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 - (void)recordDockRenderer:(NSString *)mode reason:(NSString *)reason material:(NSString *)material {
     NSString *requested=HGAppearanceString(@"dock.material");
     NSString *provider=self.systemPlatter ? NSStringFromClass(self.systemPlatter.class) : @"";
-    NSArray *record=@[mode,reason,material,requested,provider];
+    UIUserInterfaceStyle style=self.capsule.overrideUserInterfaceStyle;
+    if(style==UIUserInterfaceStyleUnspecified)style=self.capsule.traitCollection.userInterfaceStyle;
+    NSString *interfaceStyle=style==UIUserInterfaceStyleLight ? @"light" : (style==UIUserInterfaceStyleDark ? @"dark" : @"unspecified");
+    NSArray *record=@[mode,reason,material,requested,provider,interfaceStyle];
     if([self.systemRendererRecord isEqualToArray:record])return;
     self.systemRendererRecord=record;
     HGLog(@"appearance.dock-renderer",@{@"mode":mode,@"reason":reason,@"material":material,
-        @"requestedMaterial":requested,@"platter":provider});
+        @"requestedMaterial":requested,@"platter":provider,@"interfaceStyle":interfaceStyle});
 }
 
 - (BOOL)fitSystemDockInCapsule:(CGRect)requested itemCount:(NSUInteger)count {
@@ -964,6 +983,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(!carrier.userInteractionEnabled)carrier.userInteractionEnabled=YES;
         if(carrier.overrideUserInterfaceStyle!=self.capsule.overrideUserInterfaceStyle)
             carrier.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
+        if(self.systemTabBar!=carrier && self.systemTabBar.overrideUserInterfaceStyle!=self.capsule.overrideUserInterfaceStyle)
+            self.systemTabBar.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
         BOOL rebuild=[self syncSystemItems:keys content:content iconSize:size];
         [self syncSystemSelection:selected force:rebuild];
         BOOL geometryChanged=!CGRectEqualToRect(self.systemProbeFrame,requested) ||
@@ -1107,7 +1128,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     CGFloat radius=MIN(height/2,HGAppearanceNumber(@"dock.radius"));
     BOOL translucent=![style isEqual:@"solid"];
     NSInteger selected=HGASelectedTab(self.hostController);
-    UIUserInterfaceStyle surfaceStyle=(flat || translucent) ?
+    UIUserInterfaceStyle surfaceStyle=(selected==0 || flat || translucent) ?
         HGADockPageStyle(self.hostController,self.hostBar,selected) : UIUserInterfaceStyleUnspecified;
     BOOL light=translucent && surfaceStyle==UIUserInterfaceStyleLight;
     BOOL styleChangedAny=NO;
@@ -1146,6 +1167,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         }
     }
     if(nativePreview && (!systemEligible || haptics || !CGRectEqualToRect(self.systemProbeFrame,expanded) ||
+        styleChangedAny ||
         ![self.systemItemSignature.firstObject isEqual:visible] || ![self.systemPlatter isDescendantOfView:self.systemTabBar])) {
         self.dockTouchButton=nil;
         [self clearSelectionDrag];

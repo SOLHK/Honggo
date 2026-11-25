@@ -462,6 +462,36 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             beforeSeam.valid && afterSeam.valid && fabs(beforeSeam.red-afterSeam.red)<0.06,
             @"the old HUD gradient no longer darkens the portrait or exposes a seam at the original tray edge");
 
+        [feed setContentOffset:CGPointMake(0,feedHeight+60) animated:NO];Layout(feed);
+        HGBackdropVideoCell *wideNeighbor=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:2 inSection:0]];
+        wideNeighbor.videoHeight=width*9/16;Layout(wideNeighbor);Layout(wideNeighbor.renderer);
+        wideNeighbor.canvas.backgroundColor=[UIColor colorWithWhite:0.10 alpha:1];
+        CGFloat pictureArrival=(feedHeight-wideNeighbor.videoHeight)/2-90;
+        BOOL stableCoverage=wideNeighbor!=nil && pictureArrival>100;
+        CGFloat offsets[]={60,90,pictureArrival-7,pictureArrival+7,pictureArrival-7,60};
+        for (NSUInteger i=0;i<sizeof(offsets)/sizeof(*offsets);i++) {
+            CGFloat offset=offsets[i];
+            [feed setContentOffset:CGPointMake(0,feedHeight+offset) animated:NO];Layout(feed);
+            [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+            CGFloat shift=offset<=90 ? offset : (offset<pictureArrival ? pictureArrival-offset : 0);
+            CATransform3D placement=cell.renderer.layer.sublayerTransform;
+            CGRect picture=[cell.metal.layer convertRect:cell.metal.layer.bounds toLayer:window.layer];
+            stableCoverage &= fabs(placement.m11-fit.m11)<0.001 && fabs(placement.m22-fit.m22)<0.001 &&
+                fabs(placement.m42-fit.m42-shift)<0.75 && !feed.clipsToBounds &&
+                (shift>0 ? (cell.layer.zPosition==1 && wideNeighbor.layer.zPosition==0) :
+                    (cell.layer.zPosition==0 && wideNeighbor.layer.zPosition==1)) &&
+                (offset>90 || CGRectGetMaxY(picture)>=height-0.75) &&
+                CATransform3DIsIdentity(wideNeighbor.renderer.layer.sublayerTransform) &&
+                CGRectEqualToRect(cell.renderer.frame,portraitFrame) && CGRectEqualToRect(hud.frame,cell.canvas.bounds);
+        }
+        Check(stableCoverage,
+            @"dragging past a wide neighbor's empty top preserves portrait pixels behind the Dock and hands off without a jump");
+        wideNeighbor.videoHeight=0;Layout(wideNeighbor);Layout(wideNeighbor.renderer);
+        [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        Check(CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit) && wideNeighbor.layer.zPosition==0,
+            @"cancelling the gesture restores the settled portrait placement");
+
         // Move towards the previous episode without resizing either picture.
         [feed setContentOffset:CGPointMake(0,feedHeight-40) animated:NO];Layout(feed);
         cell.metal.bounds=(CGRect){CGPointZero,CGSizeMake(width,height+36)};

@@ -805,6 +805,9 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     if(!HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled())return;
     NSDictionary *saved=HGAppearanceValues();
     NSUInteger savedIndex=host.selectedIndex;
+    UIUserInterfaceStyle savedStyle=host.overrideUserInterfaceStyle;
+    host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
+    if(@available(iOS 17.0,*))[host.view updateTraitsIfNeeded];
     CGRect frame=host.customTabBar.frame;
     CGRect roomy=frame;roomy.size.height=84;roomy.origin.y=host.view.bounds.size.height-84;
     host.customTabBar.frame=roomy;host.selectedIndex=0;
@@ -825,6 +828,17 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
             !Find(capsule,@"honggo.appearance.material") && manual.hidden && native.layer.speed==1 &&
             fabs(carrier.transform.a-carrier.transform.d)<0.001,
             @"the mounted UIKit floating Dock owns both selection and visible tab controls");
+        NSArray *lightFaces=[dock valueForKey:@"systemItemSignature"];
+        Check(native.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight &&
+            [native.tintColor isEqual:[UIColor.labelColor resolvedColorWithTraitCollection:native.traitCollection]],
+            @"light playback reaches the real UIKit platter and its rasterized tab faces");
+        host.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
+        if(@available(iOS 17.0,*))[host.view updateTraitsIfNeeded];
+        HGAppearanceLayoutDock(host.customTabBar,host);Layout(native);
+        Check([dock valueForKey:@"systemTabBar"]==native && native.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
+            [native.tintColor isEqual:[UIColor.labelColor resolvedColorWithTraitCollection:native.traitCollection]] &&
+            ![lightFaces isEqual:[dock valueForKey:@"systemItemSignature"]],
+            @"switching appearance recolors the same native Dock and invalidates its composite glyphs and captions");
         Method material=class_getInstanceMethod(dock.class,sel_registerName("applySystemMaterial:"));
         IMP apply=method_setImplementation(material,(IMP)HGAFixtureReadOnlyMaterial);
         @try {
@@ -867,6 +881,9 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     UITabBar *touchBar=[dock valueForKey:@"systemTabBar"];
     [host impactFeedback];
     HGAppearanceSet(@"dock.haptics",@NO,nil);
+    host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
+    if(@available(iOS 17.0,*))[host.view updateTraitsIfNeeded];
+    host.selectedIndex=0;
     HGAppearanceLayoutDock(host.customTabBar,host);
     [host impactFeedback];
     UITabBar *quietBar=[dock valueForKey:@"systemTabBar"];
@@ -885,6 +902,9 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         [quietDock beginDockTouchAtPoint:point];[quietDock moveDockTouchToPoint:first];
         UIVisualEffectView *moving=(id)Find(dock,@"honggo.appearance.dock.quiet-lens");
         if(moving) {
+            Check(quietBar.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight &&
+                moving.overrideUserInterfaceStyle==UIUserInterfaceStyleLight && HGADockFullGlass(moving),
+                @"the quiet drag lens uses real glass with the same light appearance as the native tab bar");
             CGPoint mid=CGPointMake((first.x+point.x)/2,first.y);
             [quietDock moveDockTouchToPoint:mid];CGFloat before=CGRectGetMidX(moving.frame);
             [quietDock moveDockTouchToPoint:CGPointMake(mid.x+4,mid.y)];
@@ -910,7 +930,7 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         Check([home accessibilityActivate] && host.selectedIndex==0 && host.nativeTaps==taps+2,
             @"VoiceOver can activate a quiet native slot with one host selection");
     }
-    host.selectedIndex=savedIndex;host.customTabBar.frame=frame;
+    host.overrideUserInterfaceStyle=savedStyle;host.selectedIndex=savedIndex;host.customTabBar.frame=frame;
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
 }
 
@@ -923,6 +943,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     UIUserInterfaceStyle savedStyle=host.overrideUserInterfaceStyle;
     UIColor *savedTint=host.view.tintColor;
     host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
+    if(@available(iOS 17.0,*))[host.view updateTraitsIfNeeded];
     host.view.tintColor=UIColor.systemBlueColor;
     host.selectedIndex=0;
     HGADockThemeFixture *theme=[HGADockThemeFixture new];
@@ -949,6 +970,13 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     UIVisualEffectView *extraMaterial=(id)Find(extraSurface,@"honggo.appearance.material");
     BOOL nativeGlass=HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled();
     UIVisualEffectView *capsuleMaterial=(id)Find(capsule,@"honggo.appearance.material");
+    Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight &&
+        extraSurface.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight &&
+        HGADockGlyphMatches(home,NO) && HGADockGlyphMatches(theater,NO) && HGADockGlyphMatches(extra,NO),
+        @"a light app keeps light glass and dark Dock glyphs on video despite the host's white playback controls");
+    host.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
+    if(@available(iOS 17.0,*))[host.view updateTraitsIfNeeded];
+    HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
     CGRect extraInDock=[extra convertRect:extra.bounds toView:dock];
     Check([extraMaterial isKindOfClass:UIVisualEffectView.class] && extra.superview==extraMaterial.contentView &&
         home.superview==capsule && theater.superview==capsule && selection.superview==capsule &&
@@ -985,8 +1013,8 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         fabs(CGRectGetMinX(selection.frame)-1)<0.01 && fabs(selection.bounds.size.width-(home.bounds.size.width-2))<0.01 && home.bounds.size.width>=44,
         @"the resting selection fills the first tab up to a one-point seam around the edge");
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
-        host.overrideUserInterfaceStyle==UIUserInterfaceStyleLight,
-        @"video dock keeps dark glass without changing the host light theme");
+        extraSurface.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark,
+        @"playback switches both glass surfaces in place when the app changes to dark");
     Check(!home.configuration,
         @"dock owns selection appearance instead of inheriting UIKit accent selection");
     HGADockPixelCounts normal=HGADockPixels(home),accessory=HGADockPixels(extra);

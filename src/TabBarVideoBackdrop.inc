@@ -233,6 +233,34 @@ static UIView *HGVideoBackdropPlayer(UIView *canvas) {
     return nil;
 }
 
+static CGFloat HGVideoBackdropFirstPictureY(UIView *canvas, UIView *feed) {
+    UIView *player=HGVideoBackdropPlayer(canvas);
+    CGFloat pictureTop=CGFLOAT_MAX;
+    if (!player || player.hidden || player.alpha<=0.01) return pictureTop;
+    for (UIView *view in player.subviews) {
+        if (![view isKindOfClass:objc_lookUpClass("TTPlayerView")] ||
+            view.hidden || view.alpha<=0.01 || CGRectIsEmpty(view.bounds)) continue;
+        pictureTop=MIN(pictureTop,CGRectGetMinY([view convertRect:view.bounds toView:feed]));
+    }
+    UIImageView *cover=(id)HGView(player,"coverImageView");
+    if (![cover isKindOfClass:UIImageView.class] || !cover.image || cover.hidden || cover.alpha<=0.01) return pictureTop;
+    CGRect picture=cover.bounds;
+    if (cover.contentMode==UIViewContentModeScaleAspectFit) {
+        CGSize size=cover.image.size;
+        if (size.width<=0 || size.height<=0) return pictureTop;
+        CGFloat scale=MIN(picture.size.width / size.width,picture.size.height / size.height);
+        picture=CGRectInset(picture,(picture.size.width-size.width*scale)/2,(picture.size.height-size.height*scale)/2);
+    }
+    return CGRectIsEmpty(picture) ? pictureTop : MIN(pictureTop,CGRectGetMinY([cover convertRect:picture toView:feed]));
+}
+
+static CGFloat HGVideoBackdropDragCoverage(CGFloat advance, CGFloat reserve, CGFloat pictureDistance, BOOL reachedEnd) {
+    if (advance<=0 || reserve<=0.75) return 0;
+    // Release the compensation as the next picture approaches so the old
+    // video is already at its native position when its neighbor draws in front.
+    return reachedEnd ? advance : MIN(MIN(advance,reserve),MAX(0,pictureDistance));
+}
+
 static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect viewport) {
     Class controlsClass = NSClassFromString(@"FQVShortVideoVPlayerControlView");
     Class gradientClass = NSClassFromString(@"FQVShortVideoGradientLayerView");
@@ -553,25 +581,35 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     CGFloat top=CGRectGetMinY(feed.bounds)+0.75;
     UICollectionViewCell *topCell=HGVideoBackdropCellAtY(feed,top,&topFrame);
     NSMutableSet *active=[NSMutableSet set];
-    BOOL topPortrait=NO;
-    if (topCell && topCell!=cell && fabs(topFrame.size.height-feed.bounds.size.height)<=0.75) {
-        UIView *topCanvas=HGVideoBackdropCanvas(topCell,feed,top);
-        CGRect full=topCanvas.bounds;
-        full.size.height+=extra;
-        topPortrait=[self fillPortraitInCanvas:topCanvas viewport:topCanvas.bounds full:full boundary:feed active:active];
-    }
     CGRect full=canvas.bounds;
     full.size.height+=extra;
     BOOL portrait=cell && fabs(cellFrame.size.height-feed.bounds.size.height)<=0.75 &&
         [self fillPortraitInCanvas:canvas viewport:canvas.bounds full:full boundary:feed active:active];
+    BOOL topPortrait=NO, keepUpperPicture=NO;
+    if (topCell && topCell!=cell && fabs(topFrame.size.height-feed.bounds.size.height)<=0.75) {
+        UIView *topCanvas=HGVideoBackdropCanvas(topCell,feed,top);
+        CGRect topFull=topCanvas.bounds;
+        topFull.size.height+=extra;
+        CGFloat advance=CGRectGetMinY(feed.bounds)-CGRectGetMinY(topFrame);
+        // A neighbor's empty letterbox can arrive at the native paging edge
+        // well before any of its picture. Keep real pixels behind the Dock
+        // during that handoff, with a translation only and the settled zoom.
+        BOOL reachedEnd=!cell && CGRectGetMaxY(topFrame)>=feed.contentSize.height-0.75;
+        CGFloat physicalBottom=CGRectGetMaxY(feed.bounds)+extra;
+        CGFloat shift=portrait ? 0 : HGVideoBackdropDragCoverage(advance,extra,
+            HGVideoBackdropFirstPictureY(canvas,feed)-physicalBottom,reachedEnd);
+        topFull.origin.y+=shift;
+        topPortrait=[self fillPortraitInCanvas:topCanvas viewport:topCanvas.bounds full:topFull boundary:feed active:active];
+        keepUpperPicture=topPortrait && shift>0;
+    }
     [self restorePortraitExcept:active];
-    UIColor *matte=!portrait && extra>0.75 ? HGVideoBackdropMatte(canvas) : nil;
+    UIColor *matte=!portrait && !keepUpperPicture && extra>0.75 ? HGVideoBackdropMatte(canvas) : nil;
     [self updateUnderlay:[self pagingMatteForCanvas:canvas frame:cellFrame color:matte]];
 
-    BOOL overflows=extra>0.75 && (portrait || (cell && HGVideoBackdropCrossesBottom(feed,cellFrame)));
-    // At rest the next prefetched cell can still be attached immediately
-    // below the feed. Paint the page meeting the visible edge in front of it.
-    [self bringPortraitForward:overflows && (portrait || topPortrait) ? cell : nil];
+    BOOL overflows=extra>0.75 && (portrait || keepUpperPicture || (cell && HGVideoBackdropCrossesBottom(feed,cellFrame)));
+    // A prefetched neighbor must not cover live pixels until its own picture
+    // reaches the screen. This only orders siblings within the feed.
+    [self bringPortraitForward:keepUpperPicture ? topCell : (overflows && (portrait || topPortrait) ? cell : nil)];
     if (overflows || matte) [self updateCornerImages:feed.superview.subviews frame:feed.frame];
     else [self restoreCornerImages];
     if (!overflows) {

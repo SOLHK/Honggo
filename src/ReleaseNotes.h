@@ -4,6 +4,7 @@
 // Keep entries in release order, including locally distributed test builds.
 static NSArray<NSArray<NSString *> *> *HGReleaseNotes(void) {
     return @[
+        @[@"1.5.2beta24", @"修正换集下滑时底栏后的整块黑区。Dock 液态玻璃、选中态和文字统一跟随浅色或深色外观。"],
         @[@"1.5.2beta23", @"竖屏短剧恢复默认等比铺满，画面延续到状态栏和播放底栏后方。新增播放时自动清屏，暂停显示控件，继续播放后收起。"],
         @[@"1.5.2beta22", @"保留系统 Dock 的液态玻璃托盘和动画，改善顶部频道的按压与拖动效果。竖屏视频等比适配，保留画面边缘的片内字幕和标识。"],
         @[@"1.5.2beta21", @"顶栏、右侧按钮、弹幕、全集入口和 Dock 统一采用完整的 UIKit 液态玻璃表面，并保留普通与清透选项。剧场搜索与快捷入口使用无额外底色的系统玻璃。"],
