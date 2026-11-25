@@ -156,7 +156,11 @@ static void HGAApplyFinderMaterial(UIView *target,CGRect frame,BOOL shortcut) {
     }
     BOOL dark=target.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
     BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
-    HGAInstallGlassInRect(target,HGAFinderMaterial(),frame,MIN(CGRectGetHeight(frame)/2,24),0);
+    CGFloat radius=CGRectGetHeight(frame)/2;
+    HGAInstallGlassInRect(target,HGAFinderMaterial(),frame,shortcut ? MIN(radius,24) : radius,0);
+    HGAAppearanceMaterial *glass=HGAState(target,NO).glass;
+    glass.untintedGlass=YES;
+    glass.interactiveGlass=YES;
     UIColor *tint=shortcut && !reduced ? [UIColor colorWithWhite:dark ? 0.95 : 0.18 alpha:dark ? 0.13 : 0.09] :
         [UIColor colorWithWhite:reduced ? (dark ? 0.25 : 0.91) : (dark ? 0.11 : 0.95)
             alpha:reduced ? 1 : (dark ? 0.18 : 0.07)];
@@ -180,20 +184,7 @@ static CGRect HGAFinderSearchSurface(UIView *target,CGRect frame) {
 }
 
 static void HGAApplyFinderSearchMaterial(UIView *target,CGRect frame) {
-    frame=HGAFinderSearchSurface(target,frame);
-    if (CGRectIsEmpty(frame)) { HGARemoveGlass(target); return; }
-    if (@available(iOS 26.0,*)) {
-        if (HGAFinderControlReady(target) && HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() && !CGRectIsEmpty(frame)) {
-            HGAInstallGlassInRect(target,HGAFinderMaterial(),frame,CGRectGetHeight(frame)/2,0);
-            HGAAppearanceMaterial *glass=HGAState(target,NO).glass;
-            if (![glass.cornerConfiguration isEqual:UICornerConfiguration.capsuleConfiguration])
-                glass.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
-            glass.clipsToBounds=NO;
-            HGASetGlassOverlay(target,UIColor.clearColor);
-            return;
-        }
-    }
-    HGAApplyFinderMaterial(target,frame,NO);
+    HGAApplyFinderMaterial(target,HGAFinderSearchSurface(target,frame),NO);
 }
 
 @interface HGAPageChromeIcon : NSObject

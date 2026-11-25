@@ -573,9 +573,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         UIView *searchHit=[header hitTest:CGPointMake(CGRectGetMidX(searchButton.frame),CGRectGetMidY(searchButton.frame)) withEvent:nil];
         UIView *cornerHit=[header hitTest:CGPointMake(CGRectGetMinX(menu.frame)+1,CGRectGetMinY(menu.frame)+1) withEvent:nil];
         BOOL nativeTools=[menu isKindOfClass:UIButton.class] && [searchButton isKindOfClass:UIButton.class];
-        BOOL clearTools=HGTestOpenGlass(header) && !HGFlatTopStyle();
-        Check(nativeTools && (clearTools ? (Find(menu,@"honggo.appearance.material") && Find(searchButton,@"honggo.appearance.material")) :
-            (menu.configuration && searchButton.configuration)) &&
+        Check(nativeTools &&
             (menuHit==menu || [menuHit isDescendantOfView:menu]) &&
             (searchHit==searchButton || [searchHit isDescendantOfView:searchButton]) &&
             cornerHit!=menu && ![cornerHit isDescendantOfView:menu] &&
@@ -583,6 +581,27 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             !header.sideBar.hidden && !search.searchButtonSlotView.hidden &&
             header.sideBar.accessibilityElementsHidden && search.searchButtonSlotView.accessibilityElementsHidden,
             @"the native glass buttons receive touches in their circles and leave the original glyphs visible above");
+        if (nativeTools && !UIAccessibilityIsReduceTransparencyEnabled()) {
+            NSString *savedStyle=HGAppearanceString(@"player.headerStyle");
+            NSString *savedMaterial=HGAppearanceString(@"player.material");
+            BOOL oneSurface=YES;
+            for (NSString *style in @[@"regular",@"clear",@"blur",@"regular"]) {
+                HGAppearanceApply(@{@"player.headerStyle":@"glass",@"player.material":style},nil);
+                Layout(header);
+                for (UIButton *tool in @[menu,searchButton]) {
+                    UIVisualEffectView *backdrop=(id)Find(tool,material);
+                    Layout(backdrop);
+                    oneSurface &= tool.superview==header && tool.maskView==nil;
+                    if ([style isEqual:@"blur"])
+                        oneSurface &= tool.configuration==nil && [backdrop.effect isKindOfClass:UIBlurEffect.class];
+                    else
+                        oneSurface &= tool.configuration && tool.configuration.cornerStyle==UIButtonConfigurationCornerStyleCapsule &&
+                            !backdrop && tool.enabled;
+                }
+            }
+            Check(oneSurface,@"menu and search each have one native glass button, and switching to classic blur uses its own backdrop");
+            HGAppearanceApply(@{@"player.headerStyle":savedStyle,@"player.material":savedMaterial},nil);
+        }
         if (nativeTools) {
             [menu sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
             [searchButton sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
@@ -837,9 +856,11 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 buttons[0].buttonType==UIButtonTypeCustom && buttons[1].buttonType==UIButtonTypeCustom &&
                 !buttons[0].configuration && !buttons[1].configuration;
             Check(native && !segments.window && categoryList.hidden && rail.superview==lens.superview && [rail isDescendantOfView:group] &&
-                CGRectEqualToRect(rail.frame,group.bounds) && [effect isKindOfClass:UIGlassEffect.class] &&
+                CGRectEqualToRect(rail.frame,group.bounds) && HGTestFullGlassEffect(rail) && !rail.userInteractionEnabled &&
+                HGTestFullGlassEffect(refraction) && CGRectEqualToRect(refraction.frame,lens.bounds) &&
+                [group.subviews indexOfObject:rail.superview]<[group.subviews indexOfObject:firstTitle.superview] &&
                 !lens.hidden && [rail.superview.subviews indexOfObjectIdenticalTo:rail]<[rail.superview.subviews indexOfObjectIdenticalTo:lens],
-                @"the glass channels use one continuous native rail beneath the shared selection and labels");
+                @"the unmasked native rail and selection have clear capsule surfaces beneath the channel titles");
             if (native) {
                 NSUInteger before=channels.nativeSelections;
                 if (!UIAccessibilityIsReduceMotionEnabled()) {
@@ -1086,6 +1107,11 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         CGRectEqualToRect(finder.imageSearchContainer.frame,nativeRecognition) &&
         finder.normalImageSearchView.separatorView.hidden,
         @"finder search and recognition have separate glass with a seven-point gap and an independent round AI control");
+    if(HGTestOpenGlass(finder.view)) {
+        Layout(searchGlass);Layout(recognitionGlass);Layout(assistantGlass);
+        Check(HGTestFullGlassEffect(searchGlass) && HGTestFullGlassEffect((id)recognitionGlass) &&
+            HGTestFullGlassEffect((id)assistantGlass),@"finder controls use full untinted native glass surfaces");
+    }
     UIImageView *aiGlyph=(id)Find(finder.aiSearchEntranceView,@"honggo.appearance.finder.ai");
     UIColor *light=[camera.tintColor resolvedColorWithTraitCollection:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
     UIColor *dark=[aiGlyph.tintColor resolvedColorWithTraitCollection:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark]];

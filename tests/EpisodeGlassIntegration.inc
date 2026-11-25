@@ -51,7 +51,7 @@ static void RunEpisodeGlassChecks(UIView *root) {
         @"edge-to-edge episode entry gains side margins through native layout width without scaling text");
     UIView *wideGlass=Find(wideEntry,@"honggo.appearance.material");
     Check(fabs(wideEntry.bounds.size.width-screenWidth*HGADockDefaultWidth)<0.01 && wideEntry.bounds.size.height==44 &&
-        wideGlass.bounds.size.height==36 && fabs(wideGlass.layer.cornerRadius-18)<0.01,
+        wideGlass.bounds.size.height==36 && HGTestMaterialRadius(wideGlass,18),
         @"the watching entry has a compact glass capsule inside its native-height hit target");
     CGRect insetWideFrame=wideEntry.frame;
     for(NSUInteger i=0;i<5;i++)Layout(wideEntry);
@@ -99,7 +99,7 @@ static void RunEpisodeGlassChecks(UIView *root) {
         UIView *material=Find(entry,@"honggo.appearance.material");
         Check(entry.clipsToBounds && wrapper.clipsToBounds && content.clipsToBounds &&
             fabs(entry.layer.cornerRadius-22)<0.01 && fabs(wrapper.layer.cornerRadius-22)<0.01 &&
-            fabs(material.layer.cornerRadius-22)<0.01,
+            HGTestMaterialRadius(material,22),
             @"episode glass clips the native wrapper and content to the same capsule");
         Check([wrapper.backgroundColor isEqual:UIColor.clearColor] &&
             [content.backgroundColor isEqual:UIColor.clearColor] &&

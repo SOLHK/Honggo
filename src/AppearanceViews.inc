@@ -1,56 +1,18 @@
 // Scoped appearance operations. Values are restored only while they are still
 // owned by Honggo; a later host/third-party update becomes the new baseline.
-@interface HGAGlassRimMask : UIView
-@property(nonatomic) CGFloat shapeRadius;
-@end
-@implementation HGAGlassRimMask
-+ (Class)layerClass { return CAShapeLayer.class; }
-@end
-
-static BOOL HGAClearGlassCenter(NSString *style,UIView *view) {
+static BOOL HGAUsesNativeGlass(NSString *style) {
     return ([style isEqual:@"regular"] || [style isEqual:@"clear"]) && HGNativeGlassConfigured() &&
-        !UIAccessibilityIsReduceTransparencyEnabled() && view.traitCollection.accessibilityContrast!=UIAccessibilityContrastHigh;
+        !UIAccessibilityIsReduceTransparencyEnabled();
 }
-static char HGAGlassRimKey;
-static BOOL HGAUpdateGlassRim(UIVisualEffectView *effect,BOOL clearCenter) {
-    if(!effect)return NO;
-    // UIKit copies an effect's mask to its private backing views. Cache the
-    // supplied geometry and replace the mask only when its shape changes.
-    HGAGlassRimMask *old=objc_getAssociatedObject(effect,&HGAGlassRimKey);
-    if(!clearCenter) {
-        if(!old)return NO;
-        effect.maskView=nil;
-        objc_setAssociatedObject(effect,&HGAGlassRimKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        return YES;
-    }
-    CGRect bounds=effect.bounds;
-    if(CGRectIsEmpty(bounds))return NO;
-    CGFloat half=MIN(bounds.size.width,bounds.size.height)/2;
-    CGFloat radius=effect.layer.cornerRadius>0 ? MIN(effect.layer.cornerRadius,half) : half;
-    if(CGRectEqualToRect(old.frame,bounds) && old.shapeRadius==radius)return NO;
-    // Even clear UIKit glass brightens a flat video matte. Sample the native
-    // optical effect at the outline and leave the entire center to the video.
-    CGFloat edge=MIN(half,MAX(1.5,MIN(3,half*0.12)));
-    HGAGlassRimMask *mask=[[HGAGlassRimMask alloc] initWithFrame:bounds];
-    mask.shapeRadius=radius;
-    mask.opaque=NO;
-    mask.backgroundColor=UIColor.clearColor;
-    UIBezierPath *path=[UIBezierPath bezierPathWithRoundedRect:mask.bounds cornerRadius:radius];
-    [path appendPath:[UIBezierPath bezierPathWithRoundedRect:CGRectInset(mask.bounds,edge,edge)
-                                                cornerRadius:MAX(0,radius-edge)]];
-    CAShapeLayer *shape=(CAShapeLayer *)mask.layer;
-    shape.fillColor=UIColor.blackColor.CGColor;shape.fillRule=kCAFillRuleEvenOdd;shape.path=path.CGPath;
-    effect.maskView=mask;
-    objc_setAssociatedObject(effect,&HGAGlassRimKey,mask,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return old==nil;
-}
+
 @interface HGAAppearanceMaterial : UIVisualEffectView
 @property(nonatomic,copy) NSString *style;
 @property(nonatomic,copy) NSString *materialSignature;
 @property(nonatomic) CGFloat overlayOpacity;
 @property(nonatomic,strong) UIColor *overlayColor;
 @property(nonatomic) BOOL interactiveGlass;
-@property(nonatomic) BOOL clearCenter;
+@property(nonatomic) BOOL untintedGlass;
+@property(nonatomic) CGFloat materialCornerRadius;
 @property(nonatomic,strong) CALayer *gaussianBackdrop;
 - (void)requestMaterialRefresh;
 @end
@@ -72,9 +34,14 @@ static CALayer *HGACreateGaussianBackdrop(void) {
 }
 
 @implementation HGAAppearanceMaterial
-- (void)setClearCenter:(BOOL)clearCenter {
-    if(_clearCenter==clearCenter)return;
-    _clearCenter=clearCenter;self.materialSignature=nil;[self setNeedsLayout];
+- (void)setMaterialCornerRadius:(CGFloat)radius {
+    if(fabs(_materialCornerRadius-radius)<0.001)return;
+    _materialCornerRadius=radius;
+    [self setNeedsLayout];
+}
+- (void)setUntintedGlass:(BOOL)untintedGlass {
+    if(_untintedGlass==untintedGlass)return;
+    _untintedGlass=untintedGlass;self.materialSignature=nil;[self setNeedsLayout];
 }
 - (void)setOverlayColor:(UIColor *)color {
     if(_overlayColor==color || [_overlayColor isEqual:color])return;
@@ -95,9 +62,9 @@ static CALayer *HGACreateGaussianBackdrop(void) {
     if(self.window)[self setNeedsLayout];
 }
 - (NSString *)currentMaterialSignature {
-    return [NSString stringWithFormat:@"%@/%d/%d/%ld/%d/%.3f",self.style,
+    return [NSString stringWithFormat:@"%@/%d/%d/%ld/%d/%.3f/%d",self.style,
         HGNativeGlassConfigured(),self.interactiveGlass,(long)self.traitCollection.userInterfaceStyle,
-        UIAccessibilityIsReduceTransparencyEnabled(),self.overlayOpacity];
+        UIAccessibilityIsReduceTransparencyEnabled(),self.overlayOpacity,self.untintedGlass];
 }
 - (void)requestMaterialRefresh {
     if(![[self currentMaterialSignature] isEqual:self.materialSignature])[self setNeedsLayout];
@@ -105,8 +72,19 @@ static CALayer *HGACreateGaussianBackdrop(void) {
 - (void)layoutSubviews {
     [super layoutSubviews];
     if(!self.window || CGRectIsEmpty(self.bounds))return;
-    BOOL open=self.clearCenter && HGAClearGlassCenter(self.style,self);
-    if(HGAUpdateGlassRim(self,open))self.materialSignature=nil;
+    BOOL native=self.untintedGlass && HGAUsesNativeGlass(self.style);
+    if (@available(iOS 26.0,*)) {
+        if(self.untintedGlass) {
+            CGFloat radius=self.materialCornerRadius;
+            UICornerConfiguration *corners=nil;
+            if(native)corners=radius<=0 || radius>=MIN(self.bounds.size.width,self.bounds.size.height)*0.5-0.5 ?
+                UICornerConfiguration.capsuleConfiguration :
+                [UICornerConfiguration configurationWithUniformRadius:[UICornerRadius fixedRadius:radius]];
+            if(self.cornerConfiguration!=corners && ![self.cornerConfiguration isEqual:corners])
+                self.cornerConfiguration=corners;
+            if(self.clipsToBounds==native)self.clipsToBounds=!native;
+        }
+    }
     if (self.gaussianBackdrop && !CGRectEqualToRect(self.gaussianBackdrop.frame,self.bounds))
         self.gaussianBackdrop.frame=self.bounds;
     NSString *signature=[self currentMaterialSignature];
@@ -125,7 +103,7 @@ static CALayer *HGACreateGaussianBackdrop(void) {
         self.gaussianBackdrop=nil;
     }
     UIVisualEffect *effect=self.gaussianBackdrop ? nil : HGAppearanceMaterial(gaussian ? @"blur" : self.style);
-    UIColor *color=open ? UIColor.clearColor : self.overlayColor ?: [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
+    UIColor *color=native ? UIColor.clearColor : self.overlayColor ?: [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:
         effect ? self.overlayOpacity : 1];
     if(@available(iOS 26.0,*)) {
         if(self.interactiveGlass && [effect isKindOfClass:UIGlassEffect.class])
@@ -148,6 +126,8 @@ static CALayer *HGACreateGaussianBackdrop(void) {
 @property(nonatomic,strong) UIColor *background;
 @property(nonatomic) BOOL clearsBackground;
 @property(nonatomic,strong) HGAAppearanceMaterial *glass;
+@property(nonatomic,strong) UIButton *glassButton;
+@property(nonatomic,copy) NSString *glassButtonStyle;
 @end
 @implementation HGAViewState @end
 static char HGAViewStateKey;
@@ -221,12 +201,16 @@ static void HGARemoveGlass(UIView *view) {
     HGAViewState *state=HGAState(view,NO);
     if(!state)return;
     [state.glass removeFromSuperview];state.glass=nil;
+    [state.glassButton removeFromSuperview];state.glassButton=nil;state.glassButtonStyle=nil;
     HGASetGlassHostBackground(view,NO);
 }
 static void HGAInstallGlassInRect(UIView *view,NSString *style,CGRect frame,CGFloat radius,CGFloat opacity) {
     if(!view.window || CGRectIsEmpty(frame)){HGARemoveGlass(view);return;}
     HGAViewState *state=HGAState(view,YES);
     HGASetGlassHostBackground(view,YES);
+    if(state.glassButton) {
+        [state.glassButton removeFromSuperview];state.glassButton=nil;state.glassButtonStyle=nil;
+    }
     if(!state.glass) {
         state.glass=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
         state.glass.accessibilityIdentifier=@"honggo.appearance.material";
@@ -241,6 +225,7 @@ static void HGAInstallGlassInRect(UIView *view,NSString *style,CGRect frame,CGFl
     }
     if(!CGRectEqualToRect(glass.frame,frame))glass.frame=frame;
     CGFloat corner=MIN(radius,MIN(frame.size.width,frame.size.height)/2);
+    glass.materialCornerRadius=corner;
     if(fabs(glass.layer.cornerRadius-corner)>0.001)glass.layer.cornerRadius=corner;
     UIViewAutoresizing mask=CGRectEqualToRect(frame,view.bounds) ?
         UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight : UIViewAutoresizingNone;
@@ -262,7 +247,39 @@ static void HGAInstallFlatPlaybackButton(UIView *view,CGRect frame) {
     // The solid glyph keeps its contrast as the video beneath it changes.
     HGASetGlassOverlay(view,[UIColor colorWithWhite:0.16 alpha:UIAccessibilityIsReduceTransparencyEnabled() ? 1 : 0.74]);
 }
-static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius,BOOL clearCenter) {
+static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius) {
+    if(!view.window || CGRectIsEmpty(frame)){HGARemoveGlass(view);return;}
+    if (@available(iOS 26.0,*)) {
+        if(HGAUsesNativeGlass(style)) {
+            HGAViewState *state=HGAState(view,YES);
+            HGASetGlassHostBackground(view,YES);
+            if(state.glass){[state.glass removeFromSuperview];state.glass=nil;}
+            // UIKit owns the complete surface. Native host views retain the
+            // label, icon, accessibility element and original action.
+            UIButton *glass=state.glassButton;
+            if(!glass) {
+                glass=[[UIButton alloc] initWithFrame:frame];
+                glass.accessibilityIdentifier=@"honggo.appearance.material";
+                glass.accessibilityElementsHidden=YES;
+                glass.isAccessibilityElement=NO;
+                glass.userInteractionEnabled=NO;
+                glass.opaque=NO;
+                glass.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
+                glass.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
+                state.glassButton=glass;
+            }
+            if(![state.glassButtonStyle isEqual:style]) {
+                glass.configuration=[style isEqual:@"clear"] ?
+                    UIButtonConfiguration.clearGlassButtonConfiguration : UIButtonConfiguration.glassButtonConfiguration;
+                state.glassButtonStyle=style;
+            }
+            [CATransaction begin];[CATransaction setDisableActions:YES];
+            if(!CGRectEqualToRect(glass.frame,frame))glass.frame=frame;
+            if(glass.superview!=view)[view insertSubview:glass atIndex:0];
+            [CATransaction commit];
+            return;
+        }
+    }
     HGAInstallGlassInRect(view,style,frame,radius,0);
     HGAAppearanceMaterial *glass=HGAState(view,NO).glass;
     BOOL solid=[style isEqual:@"solid"];
@@ -272,7 +289,6 @@ static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CG
         glass.overrideUserInterfaceStyle=desired;
         if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];
     }
-    glass.clearCenter=clearCenter;
     UIColor *color=solid ? UIColor.secondarySystemBackgroundColor : [UIColor colorWithWhite:0.10 alpha:1];
     CGFloat opacity=solid || UIAccessibilityIsReduceTransparencyEnabled() ? 1 : 0.12;
     glass.overlayColor=[color colorWithAlphaComponent:opacity];
@@ -677,7 +693,7 @@ void HGAppearanceProcessView(UIView *view) {
                 if([dockStyle isEqual:@"regular"] || [dockStyle isEqual:@"clear"])style=dockStyle;
             }
             if(flat)HGAInstallFlatPlaybackButton(view,glassFrame);
-            else HGAInstallPlaybackGlass(view,style,glassFrame,radius,episode);
+            else HGAInstallPlaybackGlass(view,style,glassFrame,radius);
         }
         else HGARemoveGlass(view);
         HGAApplyTypography(view);

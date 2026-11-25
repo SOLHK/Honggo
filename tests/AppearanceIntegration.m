@@ -200,18 +200,35 @@ static BOOL ImageContentEqual(UIImage *actual,UIImage *expected) {
 }
 static void Layout(UIView *view){[view setNeedsLayout];[view layoutIfNeeded];}
 static BOOL HGTestOpenGlass(UIView *view) {
-    return HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
-        view.traitCollection.accessibilityContrast!=UIAccessibilityContrastHigh;
+    return HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled();
 }
-static BOOL HGTestGlassRim(UIVisualEffectView *effect) {
-    UIView *mask=effect.maskView;
-    if(![mask.layer isKindOfClass:CAShapeLayer.class] || ![effect.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")])return NO;
-    CAShapeLayer *shape=(id)mask.layer;
-    CGPoint middle=CGPointMake(CGRectGetMidX(mask.bounds),CGRectGetMidY(mask.bounds));
-    return shape.path && [shape.fillRule isEqual:kCAFillRuleEvenOdd] &&
-        !CGPathContainsPoint(shape.path,NULL,middle,true) &&
-        CGPathContainsPoint(shape.path,NULL,CGPointMake(CGRectGetMinX(mask.bounds)+0.75,middle.y),true) &&
-        (!effect.contentView.backgroundColor || CGColorGetAlpha(effect.contentView.backgroundColor.CGColor)==0);
+static BOOL HGTestFullGlassEffect(UIVisualEffectView *surface) {
+    if (@available(iOS 26.0,*)) {
+        if(![surface isKindOfClass:UIVisualEffectView.class])return NO;
+        UIGlassEffect *effect=[surface.effect isKindOfClass:UIGlassEffect.class] ? (id)surface.effect : nil;
+        return effect && !effect.tintColor && surface.cornerConfiguration && surface.alpha==1 &&
+            !surface.maskView && !surface.layer.mask && !surface.clipsToBounds &&
+            (!surface.contentView.backgroundColor || CGColorGetAlpha(surface.contentView.backgroundColor.CGColor)==0);
+    }
+    return NO;
+}
+static BOOL HGTestNativeGlassButton(UIView *surface) {
+    if (@available(iOS 26.0,*)) {
+        if(![surface isKindOfClass:UIButton.class])return NO;
+        UIButton *button=(id)surface;
+        return button.configuration &&
+            [button.cornerConfiguration isEqual:UICornerConfiguration.capsuleConfiguration] &&
+            !button.userInteractionEnabled && button.accessibilityElementsHidden && !button.isAccessibilityElement &&
+            !button.maskView && !button.layer.mask && button.alpha==1;
+    }
+    return NO;
+}
+static BOOL HGTestMaterialRadius(UIView *view, CGFloat radius) {
+    if (@available(iOS 26.0,*))
+        if([view isKindOfClass:UIButton.class])
+            return [view.cornerConfiguration isEqual:UICornerConfiguration.capsuleConfiguration] &&
+                fabs(MIN(view.bounds.size.width,view.bounds.size.height)/2-radius)<0.01;
+    return view && fabs(view.layer.cornerRadius-radius)<0.01;
 }
 static void (*HGOriginalMaterialSetEffect)(id,SEL,UIVisualEffect *);
 static char HGMaterialEffectCountKey;
@@ -604,28 +621,37 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     SSShortVideoBottomDistributionView *episodes=[[SSShortVideoBottomDistributionView alloc] initWithFrame:CGRectMake(20,220,280,44)];[root addSubview:episodes];Layout(episodes);
     Check(Find(episodes,@"honggo.appearance.material")!=nil,@"episode entry glass is active");
     BOOL reducedTransparency=UIAccessibilityIsReduceTransparencyEnabled();
-    UIColor *chromeColor=[UIColor colorWithWhite:0.10 alpha:reducedTransparency?1:0.12];
     Class expectedEffect=HGNativeGlassConfigured() ? NSClassFromString(@"UIGlassEffect") : UIBlurEffect.class;
     // Exercise the custom-radius glass path independently of UIKit's capsule.
     HGAppearanceSet(@"dock.radius",@21,nil);
-    HGAppearanceApply(@{@"player.headerStyle":@"glass",@"player.actionStyle":@"glass"},nil);
+    HGAppearanceApply(@{@"player.headerStyle":@"glass",@"player.actionStyle":@"glass",@"player.material":@"regular",
+        @"dock.material":@"regular"},nil);
     HGAppearanceLayoutDock(self.host.customTabBar,self.host);
     UIView *capsule=Find(self.host.customTabBar,@"honggo.appearance.dock.capsule");
     BOOL matchingGlass=YES;
     for(UIView *chrome in @[like,header,episodes]) {
-        UIVisualEffectView *material=(id)Find(chrome,@"honggo.appearance.material");
+        UIView *material=Find(chrome,@"honggo.appearance.material");
         Layout(material);
-        BOOL correctEffect=reducedTransparency ? material.effect==nil : [material.effect isKindOfClass:expectedEffect];
-        matchingGlass &= material.alpha==1 && correctEffect && material.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
-            ((chrome!=like && HGTestOpenGlass(chrome)) ? HGTestGlassRim(material) : [material.contentView.backgroundColor isEqual:chromeColor]);
+        if(HGTestOpenGlass(chrome))
+            matchingGlass &= chrome==header ? HGTestFullGlassEffect((id)material) : HGTestNativeGlassButton(material);
+        else {
+            UIVisualEffectView *fallback=(id)material;
+            matchingGlass &= [fallback isKindOfClass:UIVisualEffectView.class] &&
+                (reducedTransparency ? !fallback.effect : [fallback.effect isKindOfClass:expectedEffect]);
+        }
     }
-    Check(matchingGlass,@"header and episode entry leave the video visible beneath their glass, with the action and accessibility fills preserved");
+    Check(matchingGlass,@"the channel rail uses full native glass and the action and episode entry use native glass buttons");
+    UIView *episodeMaterial=Find(episodes,@"honggo.appearance.material");
+    HGAppearanceSet(@"player.material",@"clear",nil);Layout(episodes);
+    if(HGTestOpenGlass(episodes))Check(Find(episodes,@"honggo.appearance.material")==episodeMaterial &&
+        HGTestNativeGlassButton(episodeMaterial),@"changing playback glass material updates one native button in place");
+    HGAppearanceSet(@"player.material",@"regular",nil);
     HGAppearanceApply(@{@"player.headerStyle":@"flat",@"player.actionStyle":actionStyle},nil);
     UIVisualEffectView *dockMaterial=(id)Find(capsule,@"honggo.appearance.material");
     Layout(dockMaterial);
-    Check(dockMaterial.alpha==1 && (HGTestOpenGlass(capsule) ? HGTestGlassRim(dockMaterial) : !dockMaterial.maskView) &&
+    Check(dockMaterial.alpha==1 && (HGTestOpenGlass(capsule) ? HGTestFullGlassEffect(dockMaterial) : !dockMaterial.maskView) &&
         (reducedTransparency ? !dockMaterial.effect : [dockMaterial.effect isKindOfClass:expectedEffect]),
-        @"playback Dock preserves the native rim at full opacity with a clear center");
+        @"a custom-size playback Dock uses the full native glass surface");
     Check(!Find(capsule,@"honggo.appearance.dock.diffuser") && Count(capsule,@"honggo.appearance.material")==1,
         @"dock uses one native glass layer instead of stacking tinted system materials");
     UIVisualEffect *existingEffect=dockMaterial.effect;

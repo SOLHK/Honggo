@@ -34,9 +34,11 @@ API_AVAILABLE(ios(26.0))
         _rail=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
         BOOL flat=[material isEqual:@"flat"];
         _rail.style=flat ? @"solid" : material;
-        _rail.clearCenter=!flat;
+        _rail.untintedGlass=!flat;
+        _rail.interactiveGlass=!flat;
         _rail.overlayColor=flat ? UIColor.tertiarySystemFillColor : UIColor.clearColor;
-        _rail.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
+        _rail.layer.cornerCurve=kCACornerCurveContinuous;
+        _rail.clipsToBounds=YES;
         _rail.accessibilityIdentifier=@"honggo.appearance.header.channelRail";
         _rail.accessibilityElementsHidden=YES;
         _rail.userInteractionEnabled=NO;
@@ -63,6 +65,12 @@ API_AVAILABLE(ios(26.0))
         _buttons=[buttons copy];
     }
     return self;
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGFloat radius=CGRectGetHeight(self.rail.bounds)/2;
+    self.rail.materialCornerRadius=radius;
+    if (self.rail.layer.cornerRadius!=radius) self.rail.layer.cornerRadius=radius;
 }
 - (void)applySelection:(BOOL)selected toButton:(UIButton *)button {
     button.selected=selected;
@@ -222,9 +230,9 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         if (self.glassSelection) {
             HGAAppearanceMaterial *refraction=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
             refraction.style=@"clear";
-            refraction.clearCenter=YES;
+            refraction.untintedGlass=YES;
             refraction.interactiveGlass=YES;
-            refraction.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
+            refraction.layer.cornerCurve=kCACornerCurveContinuous;
             refraction.overlayColor=UIColor.clearColor;
             refraction.accessibilityIdentifier=@"honggo.appearance.header.refraction";
             refraction.accessibilityElementsHidden=YES;
@@ -249,6 +257,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     if (lens.layer.cornerRadius!=radius) lens.layer.cornerRadius=radius;
     if (self.channelRefraction && !CGRectEqualToRect(self.channelRefraction.frame,lens.bounds))
         self.channelRefraction.frame=lens.bounds;
+    self.channelRefraction.materialCornerRadius=radius;
     if(self.channelRefraction.window && !self.channelRefraction.effect)[self.channelRefraction layoutIfNeeded];
 }
 - (void)liftTitle:(UILabel *)title {
@@ -1081,12 +1090,12 @@ static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state)
     HGASetChannelLayout(categories,HGAMakeChannelLayout(categories,collection,titles,mask));
 }
 
-static void HGAConfigureHeaderCircleGlass(HGAAppearanceMaterial *glass,UIView *header,
-    CGRect frame,NSString *style) {
+static void HGAStyleHeaderBackdrop(HGAAppearanceMaterial *glass,NSString *style) {
     BOOL flat=[style isEqual:@"flat"];
     NSString *material=flat ? @"solid" : style;
     BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
-    glass.clearCenter=!flat;
+    glass.untintedGlass=!flat;
+    if(flat)glass.clipsToBounds=YES;
     if(![glass.style isEqual:material]) {
         glass.style=material;
         glass.materialSignature=nil;
@@ -1097,19 +1106,8 @@ static void HGAConfigureHeaderCircleGlass(HGAAppearanceMaterial *glass,UIView *h
         glass.overrideUserInterfaceStyle=desired;
         if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];
     }
-    // Keep interactiveGlass NO on non-interactive backdrop surfaces so iOS 26/27
-    // does not attach pointer/touch glass gesture handling beneath host controls.
-    glass.interactiveGlass=NO;
-    if(!CGRectEqualToRect(glass.frame,frame))glass.frame=frame;
-    CGFloat radius=MIN(CGRectGetWidth(frame),CGRectGetHeight(frame))*0.5;
-    if(fabs(glass.layer.cornerRadius-radius)>0.01)glass.layer.cornerRadius=radius;
-    glass.layer.cornerCurve=kCACornerCurveContinuous;
-    glass.clipsToBounds=YES;
-    glass.userInteractionEnabled=NO;
-    glass.accessibilityElementsHidden=YES;
-    glass.overlayColor=flat && !reduced ? UIColor.tertiarySystemFillColor :
+    glass.overlayColor=flat ? (reduced ? UIColor.darkGrayColor : UIColor.tertiarySystemFillColor) :
         [UIColor colorWithWhite:0.10 alpha:reduced ? 1 : 0.12];
-    if(glass.superview!=header)[header insertSubview:glass atIndex:0];
     [glass requestMaterialRefresh];
 }
 
@@ -1146,19 +1144,21 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
             button.layer.zPosition=-1;
             [button addTarget:state action:@selector(activateTool:) forControlEvents:UIControlEventPrimaryActionTriggered];
         }
-        BOOL open=HGAClearGlassCenter(style,header);
-        BOOL backdrop=open || [style isEqual:@"blur"];
-        NSString *configurationStyle=open ? @"untinted" : style;
+        BOOL backdrop=!flat && !HGAUsesNativeGlass(style);
+        NSString *configurationStyle=backdrop ? @"backdrop" : style;
         if (![button.glassStyle isEqual:configurationStyle]) {
             button.glassStyle=configurationStyle;
-            UIButtonConfiguration *configuration=UIButtonConfiguration.filledButtonConfiguration;
-            configuration.baseBackgroundColor=UIColor.tertiarySystemFillColor;
-            if (@available(iOS 26.0,*)) {
-                if (!flat) configuration=[style isEqual:@"clear"] ?
+            UIButtonConfiguration *configuration=nil;
+            if (flat) {
+                configuration=UIButtonConfiguration.filledButtonConfiguration;
+                configuration.baseBackgroundColor=UIColor.tertiarySystemFillColor;
+            } else if (@available(iOS 26.0,*)) {
+                if (!backdrop) configuration=[style isEqual:@"clear"] ?
                     UIButtonConfiguration.clearGlassButtonConfiguration : UIButtonConfiguration.glassButtonConfiguration;
             }
             configuration.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
-            button.configuration=backdrop ? nil : configuration;
+            button.configuration=configuration;
+            if (@available(iOS 26.0,*)) button.cornerConfiguration=backdrop ? nil : UICornerConfiguration.capsuleConfiguration;
         }
         button.source=source;
         button.accessibilityLabel=source.accessibilityLabel ?: (sidebar ? @"菜单" : @"搜索");
@@ -1172,7 +1172,7 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
                 break;
             }
         }
-        if(backdrop)HGAInstallPlaybackGlass(button,style,button.bounds,CGRectGetHeight(frame)/2,YES);
+        if(backdrop)HGAInstallPlaybackGlass(button,style,button.bounds,CGRectGetHeight(frame)/2);
         else HGARemoveGlass(button);
     } else {
         HGARemoveHeaderToolButton(button);
@@ -1180,7 +1180,12 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
     }
     if (active && !button) {
         if(!glass)glass=HGAMakeHeaderCircleGlass(identifier);
-        HGAConfigureHeaderCircleGlass(glass,header,frame,style);
+        if(!CGRectEqualToRect(glass.frame,frame))glass.frame=frame;
+        CGFloat radius=CGRectGetHeight(frame)/2;
+        glass.materialCornerRadius=radius;
+        if(glass.layer.cornerRadius!=radius)glass.layer.cornerRadius=radius;
+        if(glass.superview!=header)[header insertSubview:glass atIndex:0];
+        HGAStyleHeaderBackdrop(glass,style);
     } else {
         [glass removeFromSuperview];
         glass=nil;
@@ -1510,14 +1515,11 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
                 [material.glass removeFromSuperview];
                 material.glass=nil;
                 HGASetGlassHostBackground(header,YES);
-            } else if ([style isEqual:@"flat"]) {
-                // A scrollable or unrecognized host channel strip keeps its own
-                // cells and gestures. Put only the neutral track beneath it.
-                HGAInstallGlassInRect(header,@"solid",centerFrame,side*0.5,0);
-                HGAState(header,NO).glass.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
-                HGASetGlassOverlay(header,UIAccessibilityIsReduceTransparencyEnabled() ?
-                    UIColor.darkGrayColor : UIColor.tertiarySystemFillColor);
-            } else HGAInstallPlaybackGlass(header,style,centerFrame,side*0.5,YES);
+            } else {
+                // A scrolling or unrecognized strip owns its original titles and touches.
+                HGAInstallGlassInRect(header,[style isEqual:@"flat"] ? @"solid" : style,centerFrame,side*0.5,0);
+                HGAStyleHeaderBackdrop(HGAState(header,NO).glass,style);
+            }
             return;
         }
     }
