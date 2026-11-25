@@ -145,8 +145,6 @@ static UIUserInterfaceStyle HGAVideoPageStyle(UIViewController *controller,UIVie
 @property(nonatomic,strong) UIColor *background;
 @property(nonatomic) BOOL clearsBackground;
 @property(nonatomic,strong) HGAAppearanceMaterial *glass;
-@property(nonatomic,strong) UIButton *glassButton;
-@property(nonatomic,copy) NSString *glassButtonStyle;
 @end
 @implementation HGAViewState @end
 static char HGAViewStateKey;
@@ -220,16 +218,12 @@ static void HGARemoveGlass(UIView *view) {
     HGAViewState *state=HGAState(view,NO);
     if(!state)return;
     [state.glass removeFromSuperview];state.glass=nil;
-    [state.glassButton removeFromSuperview];state.glassButton=nil;state.glassButtonStyle=nil;
     HGASetGlassHostBackground(view,NO);
 }
 static void HGAInstallGlassInRect(UIView *view,NSString *style,CGRect frame,CGFloat radius,CGFloat opacity) {
     if(!view.window || CGRectIsEmpty(frame)){HGARemoveGlass(view);return;}
     HGAViewState *state=HGAState(view,YES);
     HGASetGlassHostBackground(view,YES);
-    if(state.glassButton) {
-        [state.glassButton removeFromSuperview];state.glassButton=nil;state.glassButtonStyle=nil;
-    }
     if(!state.glass) {
         state.glass=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
         state.glass.accessibilityIdentifier=@"honggo.appearance.material";
@@ -266,51 +260,21 @@ static void HGAInstallFlatPlaybackButton(UIView *view,CGRect frame) {
     // The solid glyph keeps its contrast as the video beneath it changes.
     HGASetGlassOverlay(view,[UIColor colorWithWhite:0.16 alpha:UIAccessibilityIsReduceTransparencyEnabled() ? 1 : 0.74]);
 }
-static void HGAInstallPlaybackGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius) {
-    if(!view.window || CGRectIsEmpty(frame)){HGARemoveGlass(view);return;}
-    if (@available(iOS 26.0,*)) {
-        if(HGAUsesNativeGlass(style)) {
-            HGAViewState *state=HGAState(view,YES);
-            HGASetGlassHostBackground(view,YES);
-            if(state.glass){[state.glass removeFromSuperview];state.glass=nil;}
-            // UIKit owns the complete surface. Native host views retain the
-            // label, icon, accessibility element and original action.
-            UIButton *glass=state.glassButton;
-            if(!glass) {
-                glass=[[UIButton alloc] initWithFrame:frame];
-                glass.accessibilityIdentifier=@"honggo.appearance.material";
-                glass.accessibilityElementsHidden=YES;
-                glass.isAccessibilityElement=NO;
-                glass.userInteractionEnabled=NO;
-                glass.opaque=NO;
-                glass.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
-                glass.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
-                state.glassButton=glass;
-            }
-            if(![state.glassButtonStyle isEqual:style]) {
-                glass.configuration=[style isEqual:@"clear"] ?
-                    UIButtonConfiguration.clearGlassButtonConfiguration : UIButtonConfiguration.glassButtonConfiguration;
-                state.glassButtonStyle=style;
-            }
-            [CATransaction begin];[CATransaction setDisableActions:YES];
-            if(!CGRectEqualToRect(glass.frame,frame))glass.frame=frame;
-            if(glass.superview!=view)[view insertSubview:glass atIndex:0];
-            [CATransaction commit];
-            return;
-        }
-    }
+static void HGAConfigureButtonGlass(HGAAppearanceMaterial *glass,UIView *view,NSString *style) {
+    BOOL liquid=[style isEqual:@"clear"] || [style isEqual:@"regular"];
+    glass.untintedGlass=liquid;
+    if(!liquid) glass.clipsToBounds=YES;
+    glass.interactiveGlass=liquid;
+    UIUserInterfaceStyle appearance=HGAVideoPageStyle(nil,view);
+    if(glass.overrideUserInterfaceStyle!=appearance)glass.overrideUserInterfaceStyle=appearance;
+    glass.overlayColor=(UIAccessibilityIsReduceTransparencyEnabled() || [style isEqual:@"solid"]) ?
+        UIColor.secondarySystemBackgroundColor : UIColor.clearColor;
+    [glass requestMaterialRefresh];
+}
+static void HGAInstallButtonGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius) {
     HGAInstallGlassInRect(view,style,frame,radius,0);
     HGAAppearanceMaterial *glass=HGAState(view,NO).glass;
-    BOOL solid=[style isEqual:@"solid"];
-    // Match the playback chrome while leaving host content traits alone.
-    UIUserInterfaceStyle desired=solid ? UIUserInterfaceStyleUnspecified : UIUserInterfaceStyleDark;
-    if(glass.overrideUserInterfaceStyle!=desired) {
-        glass.overrideUserInterfaceStyle=desired;
-        if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];
-    }
-    UIColor *color=solid ? UIColor.secondarySystemBackgroundColor : [UIColor colorWithWhite:0.10 alpha:1];
-    CGFloat opacity=solid || UIAccessibilityIsReduceTransparencyEnabled() ? 1 : 0.12;
-    glass.overlayColor=[color colorWithAlphaComponent:opacity];
+    if(glass)HGAConfigureButtonGlass(glass,view,style);
 }
 static NSDictionary<NSString *,NSString *> *HGAViewRoles(void) {
     static NSDictionary *roles;static dispatch_once_t once;
@@ -705,14 +669,10 @@ void HGAppearanceProcessView(UIView *view) {
                 glassFrame=CGRectMake(x,y,side,side);
                 radius=side/2;
             }
-            NSString *style=action ? HGALiquidPlayerMaterial() : HGAppearanceString(@"player.material");
-            BOOL compactEpisode=episode && !CGRectEqualToRect(episodeFrame,view.bounds);
-            if(compactEpisode && ![style isEqual:@"blur"] && HGAppearanceDockEnabled()) {
-                NSString *dockStyle=HGAppearanceString(@"dock.material");
-                if([dockStyle isEqual:@"regular"] || [dockStyle isEqual:@"clear"])style=dockStyle;
-            }
+            NSString *style=action ? HGALiquidButtonMaterial() : HGAppearanceString(@"player.material");
+            if(episode && HGAUsesNativeGlass(style))style=HGALiquidButtonMaterial();
             if(flat)HGAInstallFlatPlaybackButton(view,glassFrame);
-            else HGAInstallPlaybackGlass(view,style,glassFrame,radius);
+            else HGAInstallButtonGlass(view,style,glassFrame,radius);
         }
         else HGARemoveGlass(view);
         HGAApplyTypography(view);
@@ -743,4 +703,20 @@ void HGAppearanceProcessController(UIViewController *controller) {
         else if([kind isEqual:@"episode-page"])HGARefreshEpisodePage(controller);
         else if(kind){HGAApplyActionSheet(controller.view,kind);HGAApplyTypography(controller.view);}
     }@finally {HGAApplying=NO;}
+}
+// The feed already supplies this episode's count before the separate comment
+// request completes. Both native request strategies can display a placeholder
+// in the meantime. Use the owner's formatter without changing its request/model.
+static void HGAPrimeRightCommentCount(id manager) {
+    if(HGReadObjectGetter(manager,"countModel"))return;
+    id data=HGReadObjectGetter(HGReadObjectGetter(manager,"model"),"videoData");
+    SEL getter=sel_registerName("commentCount"),paint=sel_registerName("refreshUIWithCommentCount:");
+    Method countMethod=class_getInstanceMethod(object_getClass(data),getter);
+    Method paintMethod=class_getInstanceMethod(object_getClass(manager),paint);
+    if(!countMethod || strcmp(method_getTypeEncoding(countMethod),"q16@0:8") ||
+       !paintMethod || strcmp(method_getTypeEncoding(paintMethod),"v24@0:8q16"))return;
+    NSInteger count=((NSInteger(*)(id,SEL))objc_msgSend)(data,getter);
+    BOOL supported=NO;
+    if(count>0 && HGABoolGetter(manager,@"supportComment",&supported) && supported)
+        ((void(*)(id,SEL,NSInteger))objc_msgSend)(manager,paint,count);
 }

@@ -77,9 +77,6 @@ static void HGAApplyEpisodeCollectInk(UIView *root,BOOL enabled) {
     if(state.icon.image!=state.appliedImage)state.icon.image=state.appliedImage;
 }
 static char HGAEpisodeLayerPaintKey;
-static NSString *HGALiquidPlayerMaterial(void) {
-    return [HGAppearanceString(@"player.material") isEqual:@"clear"] ? @"clear" : @"regular";
-}
 static CGRect HGAPlayerDetailEntryFrame(UIView *view,BOOL disc) {
     CGRect bounds=view.bounds;
     CGRect visible=[view convertRect:bounds toView:view.window];
@@ -112,8 +109,15 @@ static void HGAPlayerControlGlass(UIView *target,BOOL sheet,BOOL episodeEntry) {
         if(paint && CGColorGetAlpha(paint)>0 && (!background || !CGColorEqualToColor(paint,background.CGColor)))
             objc_setAssociatedObject(target,&HGAEpisodeLayerPaintKey,[UIColor colorWithCGColor:paint],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    if(sheet) HGAInstallGlass(target,HGAppearanceString(@"panels.material"),radius,0.04);
-    else HGAInstallPlaybackGlass(target,HGAppearanceString(@"player.material"),frame,radius);
+    if(sheet) {
+        NSString *panelStyle=HGAppearanceString(@"panels.material");
+        if([target isKindOfClass:UIControl.class] ||
+           [target.superview isKindOfClass:objc_lookUpClass("SSShortVideoEpisodePanelCollectView")]) {
+            NSString *style=([panelStyle isEqual:@"regular"] || [panelStyle isEqual:@"clear"]) ?
+                HGALiquidButtonMaterial() : panelStyle;
+            HGAInstallButtonGlass(target,style,frame,radius);
+        } else HGAInstallGlass(target,panelStyle,radius,0.04);
+    } else HGAInstallButtonGlass(target,HGAppearanceString(@"player.material"),frame,radius);
     if(episodeEntry && target.layer.backgroundColor && CGColorGetAlpha(target.layer.backgroundColor)>0)
         target.layer.backgroundColor=nil;
 }
@@ -215,7 +219,7 @@ static void HGAApplyPlaybackButton(UIView *root) {
         MIN(64,MAX(44,MAX(CGRectGetWidth(glyph),CGRectGetHeight(glyph))+8)));
     CGRect frame=CGRectMake(CGRectGetMidX(glyph)-side/2,CGRectGetMidY(glyph)-side/2,side,side);
     if(HGFlatPlayerStyle())HGAInstallFlatPlaybackButton(button,frame);
-    else HGAInstallPlaybackGlass(button,HGALiquidPlayerMaterial(),frame,side/2);
+    else HGAInstallButtonGlass(button,HGALiquidButtonMaterial(),frame,side/2);
 }
 #include "AppearancePlayerBadges.inc"
 static void HGAApplyPlayerControls(UIView *root) {
@@ -278,7 +282,7 @@ static void HGAApplyPlayerControls(UIView *root) {
         HGARegisterView(root);
         if(!enabled || CGRectIsEmpty(root.bounds)){HGARemoveGlass(root);return;}
         CGRect frame=HGAPlayerDetailEntryFrame(root,YES);
-        HGAInstallPlaybackGlass(root,HGALiquidPlayerMaterial(),frame,frame.size.width/2);
+        HGAInstallButtonGlass(root,HGALiquidButtonMaterial(),frame,frame.size.width/2);
         return;
     }
     if([root isKindOfClass:NSClassFromString(@"FQVShortVideoPlayerBottomView")]) {
@@ -421,7 +425,7 @@ static void HGAApplyPlayerNavigation(id component) {
             if(CGRectIsNull(content[i]))continue;
             CGFloat width=MAX(height,CGRectGetWidth(content[i])+14);
             CGRect pill=CGRectMake(CGRectGetMidX(content[i])-width/2,centerY-height/2,width,height);
-            HGAInstallPlaybackGlass(target,style,[bar convertRect:pill toView:target],height/2);
+            HGAInstallButtonGlass(target,style,[bar convertRect:pill toView:target],height/2);
             [targets addObject:target];
         }
         HGAPlayerChromeTargets(component,targets,nil);

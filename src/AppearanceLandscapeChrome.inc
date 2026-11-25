@@ -60,7 +60,6 @@ static void HGAPlaceLandscapeSurface(UIView *target,CGRect frame,BOOL inside,HGA
         state.glass.userInteractionEnabled=NO;
         state.glass.clipsToBounds=YES;
         state.glass.layer.cornerCurve=kCACornerCurveContinuous;
-        state.glass.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
         state.glass.opaque=NO;
         if(@available(iOS 26.0,*))state.glass.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
     }
@@ -76,9 +75,9 @@ static void HGAPlaceLandscapeSurface(UIView *target,CGRect frame,BOOL inside,HGA
     }
     if(!CGRectEqualToRect(glass.frame,frame))glass.frame=frame;
     CGFloat cornerRadius=MIN(frame.size.width,frame.size.height)/2;
+    glass.materialCornerRadius=cornerRadius;
     if(glass.layer.cornerRadius!=cornerRadius)glass.layer.cornerRadius=cornerRadius;
-    BOOL opaque=[style isEqual:@"solid"] || UIAccessibilityIsReduceTransparencyEnabled();
-    glass.overlayColor=[UIColor colorWithWhite:0.10 alpha:opaque ? 1 : 0.12];
+    HGAConfigureButtonGlass(glass,target,style);
     if(inside) {
         // Keep the glass with controls that have separate foreground views so
         // it follows their native hide and scale animations.

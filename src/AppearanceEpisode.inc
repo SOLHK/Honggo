@@ -1,5 +1,35 @@
 #import "DockSelectionGeometry.h"
 
+static NSInteger (*HGAOriginalPortraitFinishAction)(id,SEL,id);
+static BOOL (*HGAOriginalLandscapeInflowBlocked)(id,SEL,id);
+
+static NSInteger HGAPortraitFinishAction(id component,SEL cmd,id model) {
+    NSInteger action=HGAOriginalPortraitFinishAction(component,cmd,model);
+    // Eggplant 7.4.5.33, cellView:playFinishWithError:model: jump table.
+    // 4 opens the series, 6 opens it at the next episode, 2 replays in place.
+    if ((action==4 || action==6) && HGAppearanceFlag(@"player.disableAutoEnterSeries")) return 2;
+    return action;
+}
+
+static BOOL HGALandscapeInflowBlocked(id source,SEL cmd,id model) {
+    return HGAppearanceFlag(@"player.disableAutoEnterSeries") || HGAOriginalLandscapeInflowBlocked(source,cmd,model);
+}
+
+static void HGAInstallAutoEnterSeriesPolicy(void) {
+    if (![[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] isEqual:@"7.4.5.33"]) return;
+    Class portrait=objc_lookUpClass("FQVShortVideoListVCPlayComponent");
+    if (portrait && !HGAOriginalPortraitFinishAction)
+        HGAOriginalPortraitFinishAction=(void *)HGInstallVerifiedHook(portrait,
+            sel_registerName("finishActionTypeAtCurrentTimeWithVideoDataModel:"),"q24@0:8@16",
+            (IMP)HGAPortraitFinishAction,@"appearance");
+    // Landscape uses a separate native policy for automatic outer-to-inner playback.
+    Class landscape=objc_lookUpClass("SSShortVideoLandscapeSessionDataSource");
+    if (landscape && !HGAOriginalLandscapeInflowBlocked)
+        HGAOriginalLandscapeInflowBlocked=(void *)HGInstallVerifiedHook(landscape,
+            sel_registerName("isAutoInflowBlockedForVideoDataModel:"),"B24@0:8@16",
+            (IMP)HGALandscapeInflowBlocked,@"appearance");
+}
+
 // The episode entry has a native content view inside an insert wrapper. A
 // rounded material alone leaves their rectangular fills visible at its corners.
 // Decorate only this observed component; preserve native control proportions.
@@ -78,6 +108,9 @@ static CGRect HGAEpisodeGlassFrame(UIView *entry) {
 @property(nonatomic) CACornerMask corners;
 @property(nonatomic) BOOL clips;
 @property(nonatomic) BOOL rounded;
+@property(nonatomic) BOOL resizedContent;
+@property(nonatomic) CGFloat sourceWidth;
+@property(nonatomic) CGFloat appliedWidth;
 @end
 @implementation HGAEpisodeSurfaceState @end
 static char HGAEpisodeSurfacesKey;
@@ -85,9 +118,17 @@ static char HGAEpisodeWrapperKey;
 static const CACornerMask HGAEpisodeAllCorners = kCALayerMinXMinYCorner |
     kCALayerMaxXMinYCorner | kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner;
 
+static void HGARestoreEpisodeContentWidth(HGAEpisodeSurfaceState *state) {
+    UIView *view=state.view;
+    if(state.resizedContent && CGRectGetWidth(view.frame)==state.appliedWidth) {
+        CGRect frame=view.frame;frame.size.width=state.sourceWidth;view.frame=frame;
+    }
+    state.resizedContent=NO;
+}
 static void HGARestoreEpisodeSurface(HGAEpisodeSurfaceState *state) {
     UIView *view=state.view;
     if(!view)return;
+    HGARestoreEpisodeContentWidth(state);
     if(state.clearsBackground && [view.backgroundColor isEqual:UIColor.clearColor])
         view.backgroundColor=state.background;
     if(state.rounded) {
@@ -155,13 +196,22 @@ static void HGAApplyEpisodeCorners(UIView *entry,BOOL enabled,CGFloat radius) {
     if(!enabled)HGARestoreEpisodeInset(entry);
     NSArray<HGAEpisodeSurfaceState *> *previous=objc_getAssociatedObject(entry,&HGAEpisodeSurfacesKey);
     NSMutableArray<UIView *> *surfaces=[NSMutableArray array];
-    UIView *shade=nil;
+    UIView *shade=nil,*content=nil;
+    HGAEpisodeInsetState *inset=objc_getAssociatedObject(entry,&HGAEpisodeInsetKey);
     if(enabled && entry.window && !CGRectIsEmpty(entry.bounds)) {
         [surfaces addObject:entry];
-        UIView *content=HGAViewGetter(entry,"defaultContentView",entry);
-        if(content.superview==entry && [content isKindOfClass:NSClassFromString(@"SSShortVideoDistributionContentView")]) {
-            // The host inserts this 15%-white paint-only UIView at index zero
-            // above the content view's own black background.
+        for(UIView *child in entry.subviews) {
+            if([child isKindOfClass:objc_lookUpClass("SSShortVideoDistributionContentBaseView")] ||
+                [child isKindOfClass:objc_lookUpClass("SSShortVideoDistributionContentView")]) {
+                content=child;break;
+            }
+        }
+        // Eggplant repaints this separate backing when it renders a new model.
+        // Its fill and sibling order vary across distribution presentations.
+        UIView *backing=HGAViewGetter(entry,"subBackgroundView",entry);
+        if(backing!=entry && object_getClass(backing)==UIView.class && !backing.subviews.count)
+            shade=backing;
+        if(content && !shade) {
             UIView *paint=content.subviews.firstObject;
             CGFloat white=0,alpha=0;
             if(object_getClass(paint)==UIView.class &&
@@ -171,11 +221,12 @@ static void HGAApplyEpisodeCorners(UIView *entry,BOOL enabled,CGFloat radius) {
                 for(HGAEpisodeSurfaceState *state in previous)
                     if(state.view==paint && state.clearsBackground && !state.rounded){shade=paint;break;}
             }
-            if(shade)[surfaces addObject:shade];
         }
+        if(shade)[surfaces addObject:shade];
+        if(content)[surfaces addObject:content];
         for(UIView *child in HGADescendants(entry,32)) {
             NSString *name=NSStringFromClass(child.class);
-            if(child!=entry && ([name isEqual:@"SSShortVideoDistributionContentView"] ||
+            if(child!=entry && child!=content && ([name isEqual:@"SSShortVideoDistributionContentView"] ||
                 [name isEqual:@"SSShortVideoBottomDistributionTextView"]) &&
                 HGAEpisodeSameSurface(child,entry))[surfaces addObject:child];
         }
@@ -197,6 +248,18 @@ static void HGAApplyEpisodeCorners(UIView *entry,BOOL enabled,CGFloat radius) {
         HGAEpisodeSurfaceState *state=nil;
         for(HGAEpisodeSurfaceState *candidate in previous)if(candidate.view==view){state=candidate;break;}
         if(!state){state=[HGAEpisodeSurfaceState new];state.view=view;state.owner=entry;}
+        if(view==content && inset && CGAffineTransformIsIdentity(content.transform)) {
+            // The host can reapply a 440pt-wide content frame under a 297pt
+            // entry. Size its native layout (including the trailing arrow)
+            // against the same width as the glass and keep the 44pt hit target.
+            CGRect frame=content.frame;
+            CGFloat width=CGRectGetWidth(frame),target=CGRectGetWidth(entry.bounds);
+            if(fabs(CGRectGetMinX(frame)-CGRectGetMinX(entry.bounds))<0.5 && width!=target) {
+                if(!state.resizedContent || width!=state.appliedWidth)state.sourceWidth=width;
+                state.resizedContent=YES;state.appliedWidth=target;
+                frame.size.width=target;content.frame=frame;
+            }
+        } else if(state.resizedContent)HGARestoreEpisodeContentWidth(state);
         HGAApplyEpisodeSurface(state,radius,view!=entry,view!=shade);
         if(view==entry.superview)
             objc_setAssociatedObject(view,&HGAEpisodeWrapperKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);

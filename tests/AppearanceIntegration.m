@@ -65,12 +65,14 @@
 @implementation SSVideoSeriesFeedHeaderView @end
 @interface SSShortVideoBottomDistributionView : UIView
 @property(nonatomic,strong) UIView *defaultContentView;
+@property(nonatomic,strong) UIView *subBackgroundView;
 - (void)renderWithModel:(NSDictionary *)model;
 @end
 @implementation SSShortVideoBottomDistributionView
 - (void)renderWithModel:(NSDictionary *)model {
     self.defaultContentView.backgroundColor=model[@"background"];
-    self.defaultContentView.subviews.firstObject.backgroundColor=model[@"shade"];
+    UIView *paint=self.subBackgroundView ?: self.defaultContentView.subviews.firstObject;
+    paint.backgroundColor=model[@"shade"];
 }
 @end
 @interface SSShortVideoOutterSeriesInfoView : UIView @end
@@ -117,6 +119,26 @@
 @property(nonatomic) NSInteger commentCount;
 @end
 @implementation HGTestCommentOpenParam @end
+@interface HGTestRailCommentModel : NSObject
+@property(nonatomic,strong) HGTestCommentOpenParam *videoData;
+@end
+@implementation HGTestRailCommentModel @end
+@interface SSShortVideoRightInteractionCommentViewManager : NSObject
+@property(nonatomic,strong) HGTestRailCommentModel *model;
+@property(nonatomic,strong) NSNumber *countModel;
+@property(nonatomic) BOOL supportComment;
+@property(nonatomic) NSInteger displayedCount;
+- (void)updateModelWithVideoDataModel:(HGTestRailCommentModel *)model;
+- (void)refreshUIWithCommentCount:(NSInteger)count;
+- (void)updateCommentData;
+- (void)updateCommentDataByCommonRequest;
+@end
+@implementation SSShortVideoRightInteractionCommentViewManager
+- (void)updateModelWithVideoDataModel:(HGTestRailCommentModel *)model { self.model=model; }
+- (void)refreshUIWithCommentCount:(NSInteger)count { self.displayedCount=count; }
+- (void)updateCommentData { self.displayedCount=self.countModel ? self.countModel.integerValue : -1; }
+- (void)updateCommentDataByCommonRequest { self.displayedCount=self.countModel ? self.countModel.integerValue : -1; }
+@end
 @interface HGTestCommentTab : NSObject
 @property(nonatomic) NSUInteger type;
 @property(nonatomic,copy) NSString *countText;
@@ -212,16 +234,10 @@ static BOOL HGTestFullGlassEffect(UIVisualEffectView *surface) {
     }
     return NO;
 }
-static BOOL HGTestNativeGlassButton(UIView *surface) {
-    if (@available(iOS 26.0,*)) {
-        if(![surface isKindOfClass:UIButton.class])return NO;
-        UIButton *button=(id)surface;
-        return button.configuration &&
-            [button.cornerConfiguration isEqual:UICornerConfiguration.capsuleConfiguration] &&
-            !button.userInteractionEnabled && button.accessibilityElementsHidden && !button.isAccessibilityElement &&
-            !button.maskView && !button.layer.mask && button.alpha==1;
-    }
-    return NO;
+static BOOL HGTestButtonGlass(UIView *surface) {
+    return HGTestFullGlassEffect((id)surface) && !surface.userInteractionEnabled &&
+        surface.accessibilityElementsHidden && !surface.isAccessibilityElement &&
+        [[surface valueForKey:@"style"] isEqual:HGALiquidButtonMaterial()];
 }
 static BOOL HGTestMaterialRadius(UIView *view, CGFloat radius) {
     if (@available(iOS 26.0,*))
@@ -533,6 +549,20 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         @"the current episode opening count seeds only its own first-render tab");
     [episodeComments updateCount:76];[countPanel setupTabItems];
     Check([episodeComments.countText isEqual:@"76"],@"a newer native count retains priority over the opening parameter");
+    SSShortVideoRightInteractionCommentViewManager *commentManager=[SSShortVideoRightInteractionCommentViewManager new];
+    HGTestRailCommentModel *railModel=[HGTestRailCommentModel new];
+    railModel.videoData=[HGTestCommentOpenParam new];
+    railModel.videoData.commentCount=74;commentManager.supportComment=YES;
+    [commentManager updateModelWithVideoDataModel:railModel];BOOL primed=commentManager.displayedCount==74;
+    [commentManager updateCommentData];primed &= commentManager.displayedCount==74;
+    [commentManager updateCommentDataByCommonRequest];primed &= commentManager.displayedCount==74;
+    Check(primed,@"the right comment button displays this episode's known count at binding and during both native request paths");
+    commentManager.countModel=@0;[commentManager updateCommentData];
+    Check(commentManager.displayedCount==0,@"a real response of zero supersedes a positive feed count");
+    commentManager.countModel=nil;railModel.videoData.commentCount=0;[commentManager updateCommentData];
+    Check(commentManager.displayedCount==-1,@"a missing feed count preserves the native pending state");
+    railModel.videoData.commentCount=33;commentManager.supportComment=NO;[commentManager updateCommentDataByCommonRequest];
+    Check(commentManager.displayedCount==-1,@"unavailable comments are not populated");
     SSShortVideoRightInteractionCommentView *commentAction=[[SSShortVideoRightInteractionCommentView alloc] initWithFrame:CGRectMake(45,210,46,62)];
     [root addSubview:commentAction];
     commentAction.countLabel.text=@"74";
@@ -660,7 +690,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         UIView *material=Find(chrome,@"honggo.appearance.material");
         Layout(material);
         if(HGTestOpenGlass(chrome))
-            matchingGlass &= chrome==header ? HGTestFullGlassEffect((id)material) : HGTestNativeGlassButton(material);
+            matchingGlass &= chrome==header ? HGTestFullGlassEffect((id)material) : HGTestButtonGlass(material);
         else {
             UIVisualEffectView *fallback=(id)material;
             matchingGlass &= [fallback isKindOfClass:UIVisualEffectView.class] &&
@@ -671,7 +701,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     UIView *episodeMaterial=Find(episodes,@"honggo.appearance.material");
     HGAppearanceSet(@"player.material",@"clear",nil);Layout(episodes);
     if(HGTestOpenGlass(episodes))Check(Find(episodes,@"honggo.appearance.material")==episodeMaterial &&
-        HGTestNativeGlassButton(episodeMaterial),@"changing playback glass material updates one native button in place");
+        HGTestButtonGlass(episodeMaterial),@"changing playback glass material updates one native button in place");
     HGAppearanceSet(@"player.material",@"regular",nil);
     HGAppearanceApply(@{@"player.headerStyle":@"flat",@"player.actionStyle":actionStyle},nil);
     UIVisualEffectView *dockMaterial=(id)Find(capsule,@"honggo.appearance.material");
@@ -692,6 +722,7 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     RunPlayerChromeChecks(self.host);
     RunPlayerGestureChecks(self.host.view);
     RunPlaybackQualityChecks();
+    RunAutoEnterSeriesChecks();
     RunEpisodeMediaChecks();
     RunCommentMovementChecks();
     RunLandscapeChromeChecks(self.host);

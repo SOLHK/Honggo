@@ -395,6 +395,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"我的快捷入口");
         HGAAddDefs(rows,@[@"mine.hide.shortcut.row",@"mine.hide.shortcut.store",@"mine.hide.shortcut.messages",
             @"mine.hide.shortcut.games",@"mine.hide.shortcut.updates",@"mine.hide.shortcut.more"]);
+        section(@"右侧菜单");
+        HGAAddDefs(rows,[HGMineDrawerEntries() valueForKey:@"key"]);
     } else if([self.group isEqual:@"gestures"]) {
         HGAAddDefs(rows,@[@"gestures.cleanWhilePlaying",@"gestures.pinchClean",@"gestures.doubleTapComments"]);
     } else if([self.group isEqual:@"chrome.finder.hide"]) {
@@ -435,6 +437,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"内容过滤");
         HGAAddDefs(rows,@[@"video.blockedKeywords"]);
         section(@"全集入口");
+        HGAAddDefs(rows,@[@"player.disableAutoEnterSeries"]);
         HGAAddDefs(rows,@[@"player.episodeGlass",@"player.episodeDockWidth",@"player.separateProgress"]);
         [rows addObject:HGARoleEntry(@"episodes")];
         section(@"剧集信息");
@@ -528,6 +531,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         cell.accessoryView=toggle;
         if([key isEqual:@"player.fullscreen"])
             cell.detailTextLabel.text=@"横屏播放宽画幅视频时铺满。竖屏短剧已默认等比铺满。";
+        if([key isEqual:@"player.disableAutoEnterSeries"])
+            cell.detailTextLabel.text=@"推荐视频播完后留在当前页面，仍可手动点「观看完整短剧」。";
         if([key isEqual:@"gestures.cleanWhilePlaying"])
             cell.detailTextLabel.text=@"播放时隐藏控件，点按画面暂停后显示，继续播放时再次隐藏。";
         if([key isEqual:@"player.hideAIFictionNotice"])

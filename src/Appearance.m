@@ -217,6 +217,18 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             @try {((void(*)(id,SEL,id))original)(manager,selector,shareView);}
             @finally {HGAInsideFeedShareTap=wasInside;}
         });
+    } else if ([className isEqual:@"SSShortVideoRightInteractionCommentViewManager"]) {
+        if(selector==sel_registerName("updateModelWithVideoDataModel:")) {
+            replacement=imp_implementationWithBlock(^(id manager,id model) {
+                ((void(*)(id,SEL,id))original)(manager,selector,model);
+                HGAPrimeRightCommentCount(manager);
+            });
+        } else {
+            replacement=imp_implementationWithBlock(^(id manager) {
+                ((void(*)(id,SEL))original)(manager,selector);
+                HGAPrimeRightCommentCount(manager);
+            });
+        }
     } else if ([className isEqual:@"FQCShortVideoCommentPanelViewController"] && selector==sel_registerName("setupTabItems")) {
         replacement=imp_implementationWithBlock(^(id panel) {
             ((void(*)(id,SEL))original)(panel,selector);
@@ -450,6 +462,7 @@ void HGAppearanceRefresh(void) {
     HGARefreshCleanPlayback();
     HGARefreshAssets();
     HGARefreshMinePublishVisibility();
+    for(id depend in HGAMineDrawerOwners.allObjects)HGAApplyMineDrawerPreferences(depend);
     // A zero-height shortcut owner may no longer have a visible cell to
     // invalidate itself when a switch is turned back on.
     HGARefreshFinderRowLayout();
@@ -471,6 +484,7 @@ void HGInstallAppearance(void) {
     @synchronized(NSClassFromString(@"HGSettingsController")) {
         if (!HGAHooks) HGAHooks=[NSMutableDictionary dictionary];
         HGAInstallEpisodeMedia();
+        HGAInstallAutoEnterSeriesPolicy();
         HGAInstallHeaderLayoutAdapters();
         Class infoView=objc_lookUpClass("FQVShortVideoBaseInfoView");
         if(infoView)HGAHook(infoView,sel_registerName("setLeftContainer:"),"v24@0:8@16",NO);
@@ -490,6 +504,12 @@ void HGInstallAppearance(void) {
         HGAInstallHomeEpisodeSwipeGate();
         HGAInstallNativeShareRoute();
         HGAInstallRightHitArea();
+        Class commentRail=objc_lookUpClass("SSShortVideoRightInteractionCommentViewManager");
+        if(commentRail) {
+            HGAHook(commentRail,sel_registerName("updateModelWithVideoDataModel:"),"v24@0:8@16",NO);
+            HGAHook(commentRail,sel_registerName("updateCommentData"),"v16@0:8",NO);
+            HGAHook(commentRail,sel_registerName("updateCommentDataByCommonRequest"),"v16@0:8",NO);
+        }
         Class commentPanel=objc_lookUpClass("FQCShortVideoCommentPanelViewController");
         if (class_getInstanceMethod(commentPanel,sel_registerName("setupTabItems")))
             HGAHook(commentPanel,sel_registerName("setupTabItems"),"v16@0:8",YES);

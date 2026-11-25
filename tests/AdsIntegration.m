@@ -849,10 +849,10 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
         SSNaturalAdData *data = games[index];
         BOOL result = [manager tryInsertDataToSaaS:data];
         BOOL correct = enabled ?
-            (!result && data.parseCalls == 1 && data.isGameContent && manager.originalCalls == 0 && manager.lastArgument == nil) :
+            (!result && data.parseCalls == 0 && manager.originalCalls == 0 && manager.lastArgument == nil) :
             (result && data.parseCalls == 0 && !data.isGameContent && manager.originalCalls == index + 1 && manager.lastArgument == data);
         [self check:correct name:[NSString stringWithFormat:@"%@ %@ insertion %@", enabled ? @"enabled" : @"disabled", channels[index],
-            enabled ? @"classifies lazily and declines before the original" : @"preserves the exact original argument without classification"]];
+            enabled ? @"declines sponsored content before parsing or insertion" : @"preserves the exact original argument without classification"]];
     }
     if (!enabled) return;
 
@@ -862,21 +862,21 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     [self check:[manager tryInsertDataToSaaS:mandatory] && manager.originalCalls == 1 &&
         manager.lastArgument == mandatory && mandatory.parseCalls == 0 && !mandatory.isGameContent
         name:@"positive force-watch time preserves the original argument and bypasses optional-game parsing"];
-    SSNaturalAdData *ordinary = [SSNaturalAdData new];
-    [self check:[manager tryInsertDataToSaaS:ordinary] && manager.originalCalls == 2 &&
-        manager.lastArgument == ordinary && ordinary.parseCalls == 1 && !ordinary.isGameContent
-        name:@"a classified non-game payload reaches the original unchanged"];
+    SSNaturalAdData *commercial = [SSNaturalAdData new];
+    [self check:![manager tryInsertDataToSaaS:commercial] && manager.originalCalls == 1 &&
+        manager.lastArgument == mandatory && commercial.parseCalls == 0
+        name:@"a skippable non-game commercial is declined before its feed page is allocated"];
     NSObject *unknown = [NSObject new];
-    [self check:[manager tryInsertDataToSaaS:unknown] && manager.originalCalls == 3 && manager.lastArgument == unknown
+    [self check:[manager tryInsertDataToSaaS:unknown] && manager.originalCalls == 2 && manager.lastArgument == unknown
         name:@"an unknown payload without classification methods reaches the original unchanged"];
     HGUnexpectedNaturalAdData *subclass = [HGUnexpectedNaturalAdData new];
-    [self check:[manager tryInsertDataToSaaS:subclass] && manager.originalCalls == 4 &&
+    [self check:[manager tryInsertDataToSaaS:subclass] && manager.originalCalls == 3 &&
         manager.lastArgument == subclass && subclass.parseCalls == 0 && !subclass.isGameContent
         name:@"an unexpected subclass bypasses its parser and retains the original path"];
-    SSNaturalAdData *refused = [SSNaturalAdData new];
+    NSObject *refused = [NSObject new];
     manager.originalResult = NO;
-    [self check:![manager tryInsertDataToSaaS:refused] && manager.originalCalls == 5 &&
-        manager.lastArgument == refused && refused.parseCalls == 1
+    [self check:![manager tryInsertDataToSaaS:refused] && manager.originalCalls == 4 &&
+        manager.lastArgument == refused
         name:@"the original insertion refusal is preserved for ordinary content"];
 
     HGInstallAds();
@@ -885,13 +885,13 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
         name:@"repeated installation retains the same natural insertion hook"];
     SSNaturalAdData *repeatGame = [SSNaturalAdData new];
     repeatGame.gameAfterParsing = YES;
-    [self check:![manager tryInsertDataToSaaS:repeatGame] && repeatGame.parseCalls == 1 &&
-        repeatGame.isGameContent && manager.originalCalls == 5 && manager.lastArgument == refused
+    [self check:![manager tryInsertDataToSaaS:repeatGame] && repeatGame.parseCalls == 0 &&
+        manager.originalCalls == 4 && manager.lastArgument == refused
         name:@"optional-game classification still declines after repeated installation"];
     manager.originalResult = YES;
-    SSNaturalAdData *repeatOrdinary = [SSNaturalAdData new];
-    [self check:[manager tryInsertDataToSaaS:repeatOrdinary] && manager.originalCalls == 6 &&
-        manager.lastArgument == repeatOrdinary && repeatOrdinary.parseCalls == 1
+    NSObject *repeatOrdinary = [NSObject new];
+    [self check:[manager tryInsertDataToSaaS:repeatOrdinary] && manager.originalCalls == 5 &&
+        manager.lastArgument == repeatOrdinary
         name:@"ordinary insertion reaches its original exactly once after reinstallation without recursion"];
 }
 - (void)checkGameBindingHidden:(BOOL)hidden {
@@ -995,12 +995,13 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
     SSNaturalAdManager *manager = [SSNaturalAdManager new];
     manager.originalResult = YES;
     SSNaturalAdData *ordinary = [SSNaturalAdData new];
+    ordinary.forceWatchTime=1;
     [self check:[manager tryInsertDataToSaaS:ordinary] && manager.originalCalls == 1 &&
-        manager.lastArgument == ordinary && ordinary.parseCalls == 1 && foreignNaturalInsertions == 1
+        manager.lastArgument == ordinary && ordinary.parseCalls == 0 && foreignNaturalInsertions == 1
         name:@"a later natural interposer reaches the wrapper and host once without recursion"];
     SSNaturalAdData *game = [SSNaturalAdData new];
     game.gameAfterParsing = YES;
-    [self check:![manager tryInsertDataToSaaS:game] && game.parseCalls == 1 &&
+    [self check:![manager tryInsertDataToSaaS:game] && game.parseCalls == 0 &&
         manager.originalCalls == 1 && manager.lastArgument == ordinary && foreignNaturalInsertions == 2
         name:@"natural promotion rejection survives a later forwarding interposer"];
 
@@ -1031,8 +1032,9 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
         method_getImplementation(initializerMethod) == initializer && method_getImplementation(patchMethod) == patch
         name:@"removing the later interposers retains the original forwarding wrappers"];
     SSNaturalAdData *restored = [SSNaturalAdData new];
+    restored.forceWatchTime=1;
     [self check:[manager tryInsertDataToSaaS:restored] && manager.originalCalls == 2 &&
-        manager.lastArgument == restored && restored.parseCalls == 1 && foreignNaturalInsertions == 2
+        manager.lastArgument == restored && restored.parseCalls == 0 && foreignNaturalInsertions == 2
         name:@"natural forwarding still reaches the host once after interposer removal"];
 }
 - (void)checkDisplayedGamesWithDisabledModel:(SSShortVideoFeedDirectGameContentModel *)disabled {
@@ -1151,6 +1153,9 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
         prepared.isInShortVideoHomePage=YES;
         preserved &= [queue insertModel:prepared videoIndex:7 isAfter:YES]==2 &&
             [queue insertModel:prepared videoDataModelUUID:8]==2 && !queue.accepted;
+        SSNaturalAdData *commercial=[SSNaturalAdData new];
+        preserved &= [queue insertModel:commercial videoIndex:7 isAfter:YES]==2 &&
+            [queue insertModel:commercial videoDataModelUUID:8]==2 && !queue.accepted;
         prepared.isInShortVideoHomePage=NO;
         preserved &= [queue insertModel:prepared videoIndex:7 isAfter:YES]==7 &&
             [queue insertModel:@"ordinary drama" videoDataModelUUID:8]==8 && queue.accepted==2;

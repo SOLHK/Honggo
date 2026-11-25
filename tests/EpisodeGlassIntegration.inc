@@ -42,12 +42,22 @@ static void RunEpisodeGlassChecks(UIView *root) {
     wideWrapper.backgroundColor=UIColor.grayColor;
     SSShortVideoBottomDistributionView *wideEntry=[[SSShortVideoBottomDistributionView alloc] initWithFrame:wideWrapper.bounds];
     SSShortVideoDistributionContentView *wideContent=[[SSShortVideoDistributionContentView alloc] initWithFrame:wideEntry.bounds];
-    wideContent.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    // Device capture: the direct content retains the authored 440pt width.
+    wideContent.autoresizingMask=UIViewAutoresizingNone;
+    UIButton *trailing=[UIButton buttonWithType:UIButtonTypeCustom];
+    trailing.frame=CGRectMake(screenWidth-32,0,32,44);trailing.autoresizingMask=UIViewAutoresizingFlexibleLeftMargin;
+    [wideContent addSubview:trailing];
+    UIView *wideBacking=[[UIView alloc] initWithFrame:wideContent.bounds];
+    wideBacking.userInteractionEnabled=NO;wideBacking.backgroundColor=UIColor.blackColor;
+    [wideContent addSubview:wideBacking];wideEntry.subBackgroundView=wideBacking;
+    wideEntry.defaultContentView=wideContent;
     CGRect nativeWideFrame=wideEntry.frame;
     [wideEntry addSubview:wideContent];[wideWrapper addSubview:wideEntry];[root addSubview:wideWrapper];
     Layout(wideEntry);
     Check(CGRectGetMinX(wideEntry.frame)>=12 && CGRectGetMaxX(wideEntry.frame)<=screenWidth-12 &&
-        CGRectEqualToRect(wideContent.bounds,wideEntry.bounds) && CGAffineTransformIsIdentity(wideEntry.transform),
+        CGRectEqualToRect(wideContent.bounds,wideEntry.bounds) && CGAffineTransformIsIdentity(wideEntry.transform) &&
+        CGRectGetMaxX(trailing.frame)==CGRectGetWidth(wideEntry.bounds) &&
+        [wideBacking.backgroundColor isEqual:UIColor.clearColor],
         @"edge-to-edge episode entry gains side margins through native layout width without scaling text");
     UIView *wideGlass=Find(wideEntry,@"honggo.appearance.material");
     Check(fabs(wideEntry.bounds.size.width-screenWidth*HGADockDefaultWidth)<0.01 && wideEntry.bounds.size.height==44 &&
@@ -67,14 +77,22 @@ static void RunEpisodeGlassChecks(UIView *root) {
         CGRect dockRect=[capsule convertRect:capsule.bounds toView:root.window];
         Check(capsule && fabs(CGRectGetMinX(entryRect)-CGRectGetMinX(dockRect))<0.5 &&
             fabs(CGRectGetMaxX(entryRect)-CGRectGetMaxX(dockRect))<0.5 &&
-            wideEntry.bounds.size.height==44,@"the episode glass follows both edges of the mounted Dock capsule");
+            CGRectGetWidth(wideContent.bounds)==CGRectGetWidth(wideGlass.bounds) &&
+            wideEntry.bounds.size.height==44,@"the episode glass and native content follow both edges of the mounted Dock capsule");
     }
     HGAppearanceApply(@{@"player.episodeDockWidth":@NO,@"dock.width":@0.55},nil);
     Layout(wideEntry);
     Check(CGRectEqualToRect(wideEntry.frame,insetWideFrame),@"a shortened Dock leaves the fixed four-tab reference width centered when sync is off");
     HGAppearanceSet(@"dock.width",savedWidth,nil);
+    wideContent.frame=nativeWideFrame;
+    [wideEntry renderWithModel:@{@"background":UIColor.darkGrayColor,@"shade":UIColor.brownColor}];
+    Check(CGRectEqualToRect(wideContent.bounds,wideEntry.bounds) &&
+        [wideContent.backgroundColor isEqual:UIColor.clearColor] && [wideBacking.backgroundColor isEqual:UIColor.clearColor] &&
+        [wideEntry hitTest:trailing.center withEvent:nil]==trailing,
+        @"new-model native repaint removes the separate full-width backing and keeps the arrow hit target inside the glass");
     HGAppearanceSet(@"player.episodeGlass",@NO,nil);
-    Check(CGRectEqualToRect(wideEntry.frame,nativeWideFrame) && [wideWrapper.backgroundColor isEqual:UIColor.grayColor],
+    Check(CGRectEqualToRect(wideEntry.frame,nativeWideFrame) && CGRectEqualToRect(wideContent.frame,nativeWideFrame) &&
+        [wideBacking.backgroundColor isEqual:UIColor.brownColor] && [wideWrapper.backgroundColor isEqual:UIColor.grayColor],
         @"disabling episode glass restores the authored full-width entry and backing");
     [wideWrapper removeFromSuperview];HGAppearanceSet(@"player.episodeGlass",@YES,nil);
     CGRect frame=CGRectMake(0,0,300,44);

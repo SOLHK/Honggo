@@ -400,10 +400,15 @@ static id HGACopyMineSidebarFixture(id self,SEL cmd,signed char visible,signed c
 }
 @end
 @interface SSMinePageKMPDepend : NSObject
+@property(nonatomic,strong) NSMutableDictionary *controllerHandle;
+- (void)attachControllerHandle:(NSMutableDictionary *)handle;
+- (void)setSidebarItemVisibleForCellType:(NSInteger)type visible:(BOOL)visible;
 - (void)notifyFunctionDataChanged;
 - (void)notifySidebarEntryStateChanged;
 @end
 @implementation SSMinePageKMPDepend
+- (void)attachControllerHandle:(NSMutableDictionary *)handle { self.controllerHandle=handle; }
+- (void)setSidebarItemVisibleForCellType:(NSInteger)type visible:(BOOL)visible { self.controllerHandle[@(type)]=@(visible); }
 - (void)notifyFunctionDataChanged {}
 - (void)notifySidebarEntryStateChanged {}
 @end
@@ -596,7 +601,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                         oneSurface &= tool.configuration==nil && [backdrop.effect isKindOfClass:UIBlurEffect.class];
                     else {
                         oneSurface &= !tool.configuration && HGTestFullGlassEffect(backdrop) &&
-                            [[backdrop valueForKey:@"style"] isEqual:@"clear"] && tool.enabled &&
+                            [[backdrop valueForKey:@"style"] isEqual:HGALiquidButtonMaterial()] && tool.enabled &&
                             backdrop.traitCollection.userInterfaceStyle==header.window.traitCollection.userInterfaceStyle;
                         if([backdrop isKindOfClass:NSClassFromString(@"HGAHeaderTouchGlass")])
                             oneSurface &= [backdrop valueForKey:@"channelControl"]==tool;
@@ -898,7 +903,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 !buttons[0].configuration && !buttons[1].configuration;
             Check(native && !segments.window && categoryList.hidden && rail.superview==lens.superview && [rail isDescendantOfView:group] &&
                 CGRectEqualToRect(rail.frame,group.bounds) && HGTestFullGlassEffect(rail) &&
-                [[rail valueForKey:@"style"] isEqual:@"clear"] && !rail.userInteractionEnabled &&
+                [[rail valueForKey:@"style"] isEqual:HGALiquidButtonMaterial()] && !rail.userInteractionEnabled &&
                 refraction.hidden && ![(UIGlassEffect *)effect isInteractive] &&
                 CGColorGetAlpha(lens.backgroundColor.CGColor)>0 && CGRectEqualToRect(refraction.frame,lens.bounds) &&
                 [group.subviews indexOfObject:rail.superview]<[group.subviews indexOfObject:firstTitle.superview] &&
@@ -1455,6 +1460,29 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
     Check(!Find(nativeMine.view,material),@"Mine's title-bar materials restore together with the appearance switch");
     nativeMine.minePageKMPDepend=[SSMinePageKMPDepend new];
+    SSMinePageKMPDepend *drawer=nativeMine.minePageKMPDepend;
+    [drawer attachControllerHandle:[NSMutableDictionary dictionary]];
+    BOOL drawerItemsIndependent=drawer.controllerHandle.count==0 && HGMineDrawerEntries().count==12;
+    for(NSDictionary *entry in HGMineDrawerEntries()) {
+        HGAppearanceSet(entry[@"key"],@YES,nil);
+        [drawer attachControllerHandle:[NSMutableDictionary dictionary]];
+        drawerItemsIndependent &= drawer.controllerHandle.count==[entry[@"types"] count];
+        for(NSNumber *type in entry[@"types"])
+            drawerItemsIndependent &= [drawer.controllerHandle[type] isEqual:@NO];
+        HGAppearanceSet(entry[@"key"],@NO,nil);
+    }
+    Check(drawerItemsIndependent,@"each of the twelve profile drawer switches independently hides only its own native rows on mount");
+    HGAppearanceSet(@"mine.drawer.scan",@YES,nil);
+    [drawer setSidebarItemVisibleForCellType:129 visible:YES];
+    [drawer setSidebarItemVisibleForCellType:999 visible:YES];
+    Check([drawer.controllerHandle[@129] isEqual:@NO] && [drawer.controllerHandle[@999] isEqual:@YES],
+          @"host refresh cannot re-show a hidden scanner or remove an unrelated action");
+    [drawer setSidebarItemVisibleForCellType:129 visible:NO];
+    HGAppearanceSet(@"mine.drawer.scan",@NO,nil);
+    Check([drawer.controllerHandle[@129] isEqual:@NO],@"restoring the scanner preserves the host's own hidden state");
+    [drawer setSidebarItemVisibleForCellType:129 visible:YES];
+    Check([drawer.controllerHandle[@129] isEqual:@YES],@"host can show the scanner again after its switch is cleared");
+    [drawer attachControllerHandle:nil];
     nativeMine.sidebarSnapshot=[HGAMineSidebarSnapshotFixture new];
     nativeMine.sidebarSnapshot.isVisible=1;nativeMine.sidebarSnapshot.showRedDot=1;
     BOOL originalMaster=HGAppearanceEnabled();
@@ -1545,6 +1573,11 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         mineSearchGlass.frame.size.height==30 && mineSearchGlass.frame.size.width==30 &&
         Find(filter,material) && filter.backgroundView.hidden && Find(edit,material) &&
         Find(all,material) && Find(watched,material) && Find(unwatched,material);
+    for (UIView *target in @[mine.searchBtn, filter, edit, all, watched, unwatched]) {
+        UIView *surface=Find(target,material);
+        Layout(surface);
+        if(HGTestOpenGlass(target)) history &= HGTestButtonGlass(surface);
+    }
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
     Check(history && !Find(mine,material) && !filter.backgroundView.hidden,
         @"Mine chrome follows native history controls and replaces and restores the filter background image");

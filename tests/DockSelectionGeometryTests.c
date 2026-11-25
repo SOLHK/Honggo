@@ -22,10 +22,14 @@ int main(void) {
                 for (unsigned i = 0; i < count; i++) {
                     double center = (i + 0.5) * slot;
                     HGADockSelectionBounds rest = HGADockSelectionBoundsForState(center,width,height,slot,false);
-                    near(rest.x, i * slot + 1);
-                    near(rest.x + rest.width, (i + 1) * slot - 1);
-                    near(rest.y, 1);
-                    near(rest.y + rest.height, height - 1);
+                    double inset = height * 4.0 / 62.0;
+                    near(rest.y, inset);
+                    near(rest.y + rest.height, height - inset);
+                    if (i == 0) near(rest.x, inset);
+                    if (i + 1 == count) near(rest.x + rest.width, width - inset);
+                    if (i > 0 && i + 1 < count) near(rest.x + rest.width / 2, center);
+                    assert(rest.x < center && rest.x + rest.width > center);
+                    if (count > 1) assert(rest.width >= slot && rest.width <= slot * 1.075 + 0.00001);
                     HGADockSelectionBounds held = HGADockSelectionBoundsForState(center,width,height,slot,true);
                     assert(held.width > rest.width && held.height > rest.height);
                     assert(held.y < 0 && held.y + held.height > height);

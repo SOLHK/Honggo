@@ -32,11 +32,38 @@
 @property(nonatomic) NSUInteger nativeDisplays;
 - (void)dataModelDidPlay:(id)model;
 - (void)cellView:(id)cell vPlayerReadyToDisplay:(id)event;
+- (NSInteger)finishActionTypeAtCurrentTimeWithVideoDataModel:(NSNumber *)model;
 @end
 @implementation FQVShortVideoListVCPlayComponent
 - (void)dataModelDidPlay:(id)model {self.nativePlays++;}
 - (void)cellView:(id)cell vPlayerReadyToDisplay:(id)event {self.nativeDisplays++;}
+- (NSInteger)finishActionTypeAtCurrentTimeWithVideoDataModel:(NSNumber *)model {return model.integerValue;}
 @end
+@interface SSShortVideoLandscapeSessionDataSource : NSObject
+- (BOOL)isAutoInflowBlockedForVideoDataModel:(NSNumber *)model;
+@end
+@implementation SSShortVideoLandscapeSessionDataSource
+- (BOOL)isAutoInflowBlockedForVideoDataModel:(NSNumber *)model {return model.boolValue;}
+@end
+static void RunAutoEnterSeriesChecks(void) {
+    NSString *key=@"player.disableAutoEnterSeries";
+    BOOL saved=HGAppearanceFlag(key);
+    FQVShortVideoListVCPlayComponent *portrait=[FQVShortVideoListVCPlayComponent new];
+    SSShortVideoLandscapeSessionDataSource *landscape=[SSShortVideoLandscapeSessionDataSource new];
+    for(NSNumber *enabled in @[@YES,@NO]) {
+        HGAppearanceSet(key,enabled,nil);
+        BOOL correct=YES;
+        for (NSInteger action=0;action<=7;action++) {
+            NSInteger expected=enabled.boolValue && (action==4 || action==6) ? 2 : action;
+            correct &= [portrait finishActionTypeAtCurrentTimeWithVideoDataModel:@(action)]==expected;
+        }
+        Check(correct && [landscape isAutoInflowBlockedForVideoDataModel:@NO]==enabled.boolValue &&
+            [landscape isAutoInflowBlockedForVideoDataModel:@YES],
+            enabled.boolValue ? @"automatic series routes stay on the current video in portrait and landscape" :
+            @"disabling the setting restores each native completion decision");
+    }
+    HGAppearanceSet(key,saved ? @YES : @NO,nil);
+}
 @interface HGAQualityCellFixture : NSObject
 @property(nonatomic,strong) id model;
 @end

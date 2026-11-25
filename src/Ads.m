@@ -49,18 +49,17 @@ static char HGDirectGameRemovalPending;
 
 @protocol HGNaturalAdData <NSObject>
 - (NSInteger)forceWatchTime;
-- (void)parseGameDict;
-- (BOOL)isGameContent;
 @end
 
+static BOOL HGIsSkippableNaturalAd(id<HGNaturalAdData> data) {
+    return data && object_getClass(data)==HGNaturalAdDataClass && data.forceWatchTime<1;
+}
+
 static BOOL HGNaturalAdInsert(id self, SEL cmd, id<HGNaturalAdData> data) {
-    if (data && object_getClass(data) == HGNaturalAdDataClass && data.forceWatchTime < 1) {
-        // The host classifies this payload lazily, before preparing its game views.
-        [data parseGameDict];
-        if (data.isGameContent) {
-            HGAdDecision(self, cmd, NO);
-            return NO;
-        }
+    // NaturalAdManager receives sponsored insertions, including non-game campaigns.
+    if (HGIsSkippableNaturalAd(data)) {
+        HGAdDecision(self, cmd, NO);
+        return NO;
     }
     HGNaturalAdInsertIMP original = (HGNaturalAdInsertIMP)atomic_load_explicit(
         &HGNaturalAdInsertHook.original, memory_order_acquire);
@@ -106,9 +105,7 @@ static BOOL HGAdMethodMatches(Class type, SEL selector, const char *expected) {
 
 static BOOL HGNaturalAdInsertSupported(void) {
     Class data = objc_lookUpClass("SSNaturalAdData");
-    if (!HGAdMethodMatches(data, @selector(forceWatchTime), "q16@0:8") ||
-        !HGAdMethodMatches(data, @selector(parseGameDict), "v16@0:8") ||
-        !HGAdMethodMatches(data, @selector(isGameContent), "B16@0:8")) return NO;
+    if (!HGAdMethodMatches(data, @selector(forceWatchTime), "q16@0:8")) return NO;
     HGNaturalAdDataClass = data;
     return YES;
 }
@@ -492,7 +489,8 @@ static void HGInstallHomepageAdModelFilter(void) {
         if (!HGAdMethodMatches(owner,sel,encodings[i])) continue;
         __block IMP original=class_getMethodImplementation(owner,sel);
         BOOL (^blocked)(id)=^BOOL(id model) {
-            return object_getClass(model)==adModel && ((BOOL(*)(id,SEL))objc_msgSend)(model,homepage);
+            return HGIsSkippableNaturalAd(model) ||
+                (object_getClass(model)==adModel && ((BOOL(*)(id,SEL))objc_msgSend)(model,homepage));
         };
         IMP hook=i ? imp_implementationWithBlock(^NSInteger(id target,id model,NSInteger index,BOOL after) {
             if (blocked(model)) return (NSInteger)2;

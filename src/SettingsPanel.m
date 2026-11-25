@@ -513,7 +513,8 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 56;
     UIButtonConfiguration *style;
-    if (@available(iOS 26.0,*)) style=[UIButtonConfiguration glassButtonConfiguration];
+    if (@available(iOS 26.0,*)) style=[HGALiquidButtonMaterial() isEqual:@"clear"] ?
+        UIButtonConfiguration.clearGlassButtonConfiguration : UIButtonConfiguration.glassButtonConfiguration;
     else style=[UIButtonConfiguration grayButtonConfiguration];
     style.buttonSize=UIButtonConfigurationSizeMedium;
     style.cornerStyle=UIButtonConfigurationCornerStyleCapsule;

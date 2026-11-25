@@ -78,11 +78,7 @@ static UIView *HGAHistoryFilter(UIView *toolbar) {
 static void HGAApplyPageChromeMaterial(UIView *target,CGRect frame,NSString *style) {
     if(HGAVisible(target) && !CGRectIsEmpty(frame)) {
         CGFloat radius=MIN(CGRectGetHeight(frame)/2,24);
-        BOOL dark=target.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-        BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
-        HGAInstallGlassInRect(target,style,frame,radius,0);
-        HGASetGlassOverlay(target,[UIColor colorWithWhite:reduced ? (dark ? 0.25 : 0.91) : (dark ? 0.85 : 0.45)
-            alpha:reduced ? 1 : (dark ? 0.12 : 0.16)]);
+        HGAInstallButtonGlass(target,style,frame,radius);
     } else if(target)HGARemoveGlass(target);
 }
 
@@ -139,10 +135,6 @@ static void HGAApplyPageChromeTargets(UIView *owner,NSArray<UIView *> *targets) 
     for(UIView *target in targets)HGAApplyPageChrome(target,YES);
 }
 
-static NSString *HGAFinderMaterial(void) {
-    return [HGAppearanceString(@"player.material") isEqual:@"clear"] ? @"clear" : @"regular";
-}
-
 static BOOL HGAFinderControlReady(UIView *view) {
     // The native page transition can hide or fade a parent while its search
     // row is already laid out. Keep its glass ready for the incoming page.
@@ -154,17 +146,8 @@ static void HGAApplyFinderMaterial(UIView *target,CGRect frame,BOOL shortcut) {
         HGARemoveGlass(target);
         return;
     }
-    BOOL dark=target.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-    BOOL reduced=UIAccessibilityIsReduceTransparencyEnabled();
     CGFloat radius=CGRectGetHeight(frame)/2;
-    HGAInstallGlassInRect(target,HGAFinderMaterial(),frame,shortcut ? MIN(radius,24) : radius,0);
-    HGAAppearanceMaterial *glass=HGAState(target,NO).glass;
-    glass.untintedGlass=YES;
-    glass.interactiveGlass=YES;
-    UIColor *tint=shortcut && !reduced ? [UIColor colorWithWhite:dark ? 0.95 : 0.18 alpha:dark ? 0.13 : 0.09] :
-        [UIColor colorWithWhite:reduced ? (dark ? 0.25 : 0.91) : (dark ? 0.11 : 0.95)
-            alpha:reduced ? 1 : (dark ? 0.18 : 0.07)];
-    HGASetGlassOverlay(target,tint);
+    HGAInstallButtonGlass(target,HGALiquidButtonMaterial(),frame,shortcut ? MIN(radius,24) : radius);
 }
 
 static CGRect HGAFinderSearchSurface(UIView *target,CGRect frame) {
@@ -231,7 +214,7 @@ static void HGAApplyPageChromeIcons(UIView *owner,NSArray<UIView *> *candidates)
     }
 }
 
-static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL selected,BOOL enabled) {
+static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL enabled) {
     if([target isKindOfClass:UICollectionViewCell.class])target=((UICollectionViewCell *)target).contentView;
     CGRect frame=enabled ? target.bounds : CGRectZero;
     if(enabled && !CGRectIsEmpty(frame)) {
@@ -242,11 +225,7 @@ static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL selected,BOOL e
         else if(width>=40)width-=4;
         frame=CGRectInset(frame,(frame.size.width-width)/2,(frame.size.height-height)/2);
     }
-    HGAApplyPageChromeMaterial(target,frame,HGAFinderMaterial());
-    if(enabled && !UIAccessibilityIsReduceTransparencyEnabled()) {
-        BOOL dark=target.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-        HGASetGlassOverlay(target,[UIColor colorWithWhite:dark ? 1 : 0.12 alpha:selected ? 0.23 : 0.12]);
-    }
+    HGAApplyPageChromeMaterial(target,frame,HGALiquidButtonMaterial());
 }
 
 static char HGAFinderMovedKey;
@@ -698,7 +677,67 @@ static id HGAMineFunctionSnapshot(id owner,SEL cmd) {
     }
 }
 
+// Compose owns the rows and their actions. Its visibility bridge accepts the
+// same stable cell types used for navigation, independent of display order.
+typedef void (*HGAMineDrawerVisibility)(id,SEL,NSInteger,BOOL);
+static HGAMineDrawerVisibility HGAMineDrawerSetVisible;
+static IMP HGAMineDrawerAttach;
+static NSHashTable *HGAMineDrawerOwners;
+static char HGAMineDrawerApplied, HGAMineDrawerHostFlags;
+
+static void HGAApplyMineDrawerPreferences(id depend) {
+    NSMutableSet *wanted=[NSMutableSet set];
+    NSDictionary *prefs=HGAppearanceValues();
+    for(NSDictionary *entry in HGMineDrawerEntries())
+        if([prefs[entry[@"key"]] boolValue])[wanted addObjectsFromArray:entry[@"types"]];
+    NSSet *applied=objc_getAssociatedObject(depend,&HGAMineDrawerApplied);
+    if(applied ? [wanted isEqualToSet:applied] : !wanted.count)return;
+    objc_setAssociatedObject(depend,&HGAMineDrawerApplied,wanted,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    NSDictionary *hostFlags=objc_getAssociatedObject(depend,&HGAMineDrawerHostFlags);
+    SEL setVisible=sel_registerName("setSidebarItemVisibleForCellType:visible:");
+    for(NSNumber *type in applied)
+        if(![wanted containsObject:type])
+            HGAMineDrawerSetVisible(depend,setVisible,type.integerValue,
+                hostFlags[type] ? [hostFlags[type] boolValue] : YES);
+    for(NSNumber *type in wanted)
+        if(![applied containsObject:type])HGAMineDrawerSetVisible(depend,setVisible,type.integerValue,NO);
+}
+
+static void HGAMineDrawerVisibilityRequested(id depend,SEL cmd,NSInteger type,BOOL visible) {
+    // Preserve the latest native decision, e.g. the scanner can be disabled
+    // by host configuration even while its Honggo switch is off.
+    NSMutableDictionary *host=objc_getAssociatedObject(depend,&HGAMineDrawerHostFlags);
+    if(!host) {
+        host=[NSMutableDictionary dictionary];
+        objc_setAssociatedObject(depend,&HGAMineDrawerHostFlags,host,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    host[@(type)]=@(visible);
+    NSSet *hidden=objc_getAssociatedObject(depend,&HGAMineDrawerApplied);
+    HGAMineDrawerSetVisible(depend,cmd,type,visible && ![hidden containsObject:@(type)]);
+}
+
+static void HGAMineDrawerHandleAttached(id depend,SEL cmd,id handle) {
+    id previous=HGReadObjectGetter(depend,"controllerHandle");
+    ((void (*)(id,SEL,id))HGAMineDrawerAttach)(depend,cmd,handle);
+    if(previous==handle)return;
+    objc_setAssociatedObject(depend,&HGAMineDrawerApplied,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(depend,&HGAMineDrawerHostFlags,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if(!handle){[HGAMineDrawerOwners removeObject:depend];return;}
+    [HGAMineDrawerOwners addObject:depend];
+    HGAApplyMineDrawerPreferences(depend);
+}
+
 static void HGAInstallMineShortcutHooks(void) {
+    Class depend=objc_lookUpClass("SSMinePageKMPDepend");
+    if(!HGAMineDrawerSetVisible)
+        HGAMineDrawerSetVisible=(HGAMineDrawerVisibility)HGInstallVerifiedHook(depend,
+            sel_registerName("setSidebarItemVisibleForCellType:visible:"),"v28@0:8q16B24",
+            (IMP)HGAMineDrawerVisibilityRequested,@"appearance");
+    if(HGAMineDrawerSetVisible && !HGAMineDrawerAttach) {
+        HGAMineDrawerOwners=[NSHashTable weakObjectsHashTable];
+        HGAMineDrawerAttach=HGInstallVerifiedHook(depend,sel_registerName("attachControllerHandle:"),
+            "v24@0:8@16",(IMP)HGAMineDrawerHandleAttached,@"appearance");
+    }
     if(!HGAOriginalMineSkinSwitch)
         HGAOriginalMineSkinSwitch=HGInstallVerifiedHook(objc_lookUpClass("SSMine737KMPViewController"),
             sel_registerName("shouldShowSkinSwitch"),"B16@0:8",(IMP)HGAMineShowsSkinSwitch,@"appearance");
@@ -1011,10 +1050,7 @@ static void HGAApplyChannelOrHistoryTitle(UIView *cell,BOOL enabled) {
         // filter entrance sharing its toolbar. The top Mine tabs lack it.
         history=HGAHistoryFilter(categories.superview.superview)!=nil;
     }
-    BOOL selected=NO;
-    if(history && !HGABoolGetter(HGReadObjectGetter(cell,"cellModel"),@"isSelected",&selected))
-        selected=[cell isKindOfClass:UICollectionViewCell.class] && ((UICollectionViewCell *)cell).selected;
-    HGAApplyHistoryGlass(cell,NO,selected,history);
+    HGAApplyHistoryGlass(cell,NO,history);
 }
 
 static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
@@ -1046,7 +1082,7 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
         UIView *search=HGAViewGetter(view,"searchBtn",view);
         BOOL mine=enabled && HGAppearanceFlag(@"player.mineGlass") && search;
         HGAUpdatePageChromeTargets(view,mine ? @[search] : nil);
-        HGAApplyHistoryGlass(search,YES,NO,mine);
+        HGAApplyHistoryGlass(search,YES,mine);
         UIImageView *icon=[search isKindOfClass:UIButton.class] ? ((UIButton *)search).imageView : nil;
         HGAApplyPageChromeIcons(view,mine && icon ? @[icon] : nil);
     } else if([view isKindOfClass:NSClassFromString(@"SSVideoFilterPanelEntranceView")]) {
@@ -1063,7 +1099,7 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
             }
         }
         HGAUpdatePageChromeTargets(view,targets);
-        for(UIView *target in targets)HGAApplyHistoryGlass(target,NO,NO,YES);
+        for(UIView *target in targets)HGAApplyHistoryGlass(target,NO,YES);
         UIView *icon=mine ? HGAViewGetter(view,"icon",view) : nil;
         HGAApplyPageChromeIcons(view,icon ? @[icon] : nil);
     } else if([view isKindOfClass:NSClassFromString(@"SSVideoDistributionGoldenPositionCell")]) {

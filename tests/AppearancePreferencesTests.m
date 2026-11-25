@@ -166,6 +166,15 @@ int main(void) {@autoreleasepool {
     Check(!HGAppearanceSet(@"layout.like.x",@(NAN),nil),@"NaN rejected");
     Check(!HGAppearanceSet(@"layout.like.scale",@(INFINITY),nil),@"infinity rejected");
     Check(!HGAppearanceSet(@"dock.material",@"unrecognized",nil),@"unknown material rejected");
+    HGAppearanceSet(@"dock.material",@"clear",nil);
+    Check([HGAppearanceString(@"player.material") isEqual:@"clear"] && [HGALiquidButtonMaterial() isEqual:@"clear"],
+        @"selecting Clear on the Dock updates liquid button material");
+    HGAppearanceSet(@"player.material",@"regular",nil);
+    Check([HGAppearanceString(@"dock.material") isEqual:@"regular"],@"changing liquid buttons updates the Dock");
+    HGAppearanceSet(@"player.material",@"blur",nil);
+    HGAppearanceSet(@"dock.material",@"clear",nil);
+    Check([HGAppearanceString(@"player.material") isEqual:@"blur"],@"an explicit traditional blur remains independent");
+    HGAppearanceApply(@{@"player.material":@"regular",@"dock.material":@"regular"},nil);
     Check(!HGAppearanceSearch(@"底栏配色").count && !HGAppearanceSearch(@"自定义动作图标").count &&
         !HGAppearanceSet(@"dock.tint",@"#123ABC",nil) && !HGAppearanceSet(@"icons.enabled",@YES,nil),
         @"retired tint and icon options are not searchable or writable");

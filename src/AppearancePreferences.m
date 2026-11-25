@@ -26,6 +26,28 @@ NSArray *HGAppearanceGroups(void) { return @[@"general",@"dock",@"chrome",@"mine
 NSArray *HGAppearanceGroupTitles(void) { return @[@"外观总开关",@"悬浮底栏 Dock",@"顶部导航与找剧",@"我的页面",@"播放布局与控件",@"播放手势",@"弹出面板",@"字体与字号",@"短剧"]; }
 NSArray *HGAppearanceRoles(void) { return @[@"avatar", @"collect", @"comment", @"like", @"share", @"more", @"channels", @"info", @"tags", @"progress", @"danmaku", @"episodes", @"notice"]; }
 NSArray *HGAppearanceRoleTitles(void) { return @[@"作者头像", @"收藏", @"评论", @"点赞", @"分享", @"更多", @"顶部频道", @"作者与剧集信息", @"分类标签", @"进度条", @"弹幕入口", @"观看全集入口", @"内容声明"]; }
+NSArray<NSDictionary *> *HGMineDrawerEntries(void) {
+    // 7.4.5.33 MyTabCellType wire values used by the Mine Compose sidebar.
+    static NSArray *entries;
+    static dispatch_once_t once;
+    dispatch_once(&once,^{
+        entries=@[
+            @{@"key":@"mine.drawer.friend",@"title":@"添加好友",@"types":@[@140]},
+            @{@"key":@"mine.drawer.share",@"title":@"分享主页",@"types":@[@146]},
+            @{@"key":@"mine.drawer.settings",@"title":@"设置",@"types":@[@128]},
+            @{@"key":@"mine.drawer.scan",@"title":@"扫一扫",@"types":@[@129]},
+            @{@"key":@"mine.drawer.creator",@"title":@"创作者中心",@"types":@[@117,@126]},
+            @{@"key":@"mine.drawer.preferences",@"title":@"看剧偏好",@"types":@[@130]},
+            @{@"key":@"mine.drawer.downloads",@"title":@"我的下载",@"types":@[@109]},
+            @{@"key":@"mine.drawer.comments",@"title":@"我的评论",@"types":@[@135]},
+            @{@"key":@"mine.drawer.wallet",@"title":@"我的钱包",@"types":@[@124]},
+            @{@"key":@"mine.drawer.member",@"title":@"会员中心",@"types":@[@114]},
+            @{@"key":@"mine.drawer.time",@"title":@"时间管理",@"types":@[@145]},
+            @{@"key":@"mine.drawer.feedback",@"title":@"用户反馈",@"types":@[@113]}
+        ];
+    });
+    return entries;
+}
 static NSDictionary *HGADef(NSString *key, NSString *group, NSString *title, NSString *kind, id value, NSDictionary *extra) {
     NSMutableDictionary *d = [@{@"key":key, @"group":group, @"title":title, @"kind":kind, @"default":value} mutableCopy];
     if (extra) [d addEntriesFromDictionary:extra]; return d.copy;
@@ -91,6 +113,9 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             flag([@"finder.hide.shortcut." stringByAppendingString:finderShortcuts[i]],@"chrome",
                 [@"隐藏" stringByAppendingString:finderShortcutNames[i]]);
         flag(@"mine.hide.shortcut.row",@"mine",@"隐藏整行快捷入口");
+        for(NSDictionary *entry in HGMineDrawerEntries())
+            [a addObject:HGADef(entry[@"key"],@"mine",[@"隐藏" stringByAppendingString:entry[@"title"]],
+                @"bool",@NO,@{@"keywords":@"我的页面 右侧菜单 侧边栏 抽屉"})];
         [a addObject:HGADef(@"mine.show.publish",@"mine",@"显示悬浮发布按钮",@"bool",@YES,
             @{@"keywords":@"我的 作品 写剧评 加号 ＋ 发布"})];
         [a addObject:HGADef(@"mine.show.theme",@"mine",@"显示日夜模式按钮",@"bool",@YES,
@@ -122,6 +147,7 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"player.highestQuality",@"player",@"默认使用最高可用清晰度");
         flag(@"player.hideNowPlayingIsland",@"player",@"前台播放时隐藏红果灵动岛播放信息");
         flag(@"player.disableEpisodeSwipe",@"player",@"关闭左滑进入全集");
+        flag(@"player.disableAutoEnterSeries",@"drama",@"关闭观看中自动进入全集");
         choice(@"player.separateProgress",@"player",@"合集与进度条分开布局",@[@"show",@"hide"],@[@"自动留出间距",@"原始布局"]);
         choice(@"player.material",@"player",@"播放控件材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）"]);
         NSArray *roles = HGAppearanceRoles(), *titles = HGAppearanceRoleTitles();
@@ -203,6 +229,14 @@ static id HGAValidatedValue(NSDictionary *definition,id value) {
     }
     return words.copy;
 }
+static void HGAUnifyLiquidMaterials(NSMutableDictionary *values,NSString *source) {
+    NSString *dock=values[@"dock.material"], *player=values[@"player.material"];
+    if (([dock isEqual:@"regular"] || [dock isEqual:@"clear"]) &&
+        ([player isEqual:@"regular"] || [player isEqual:@"clear"])) {
+        if ([source isEqual:@"player.material"]) values[@"dock.material"]=player;
+        else values[@"player.material"]=dock;
+    }
+}
 NSDictionary *HGAppearanceValues(void) {
     @synchronized(HGALock()) {
         if (HGACachedValues) return HGACachedValues;
@@ -261,6 +295,7 @@ NSDictionary *HGAppearanceValues(void) {
         NSMutableDictionary *values=[NSMutableDictionary dictionary];
         for(NSDictionary *def in HGAppearanceCatalog()) { id value=stored[def[@"key"]];
             values[def[@"key"]]=HGAValidatedValue(def,value) ?: def[@"default"]; }
+        HGAUnifyLiquidMaterials(values,stored[@"dock.material"] ? @"dock.material" : @"player.material");
         HGACachedValues=values.copy; return HGACachedValues;
     }
 }
@@ -271,6 +306,14 @@ id HGAppearanceValue(NSString *key) {
 BOOL HGAppearanceFlag(NSString *key){ return [HGAppearanceValue(key) boolValue]; }
 double HGAppearanceNumber(NSString *key){ return [HGAppearanceValue(key) doubleValue]; }
 NSString *HGAppearanceString(NSString *key){ id v=HGAppearanceValue(key); return [v isKindOfClass:NSString.class]?v:@""; }
+// Liquid buttons share the Dock's chosen optical material. A non-glass Dock
+// leaves the playback material in control of buttons that still use glass.
+NSString *HGALiquidButtonMaterial(void) {
+    NSString *dock=HGAppearanceString(@"dock.material");
+    if ([dock isEqual:@"regular"] || [dock isEqual:@"clear"]) return dock;
+    return [HGAppearanceString(@"player.material") isEqual:@"regular"] ? @"regular" : @"clear";
+}
+
 NSArray<NSString *> *HGVideoBlockedKeywords(void) { return HGAppearanceValue(@"video.blockedKeywords"); }
 BOOL HGFlatDockStyle(void) { return [HGAppearanceString(@"dock.style") isEqual:@"flat"]; }
 BOOL HGFlatTopStyle(void) { return [HGAppearanceString(@"player.headerStyle") isEqual:@"flat"]; }
@@ -294,6 +337,7 @@ BOOL HGAppearanceApply(NSDictionary *values,NSError **error) {
         keywordsChanged=snapshot[@"video.blockedKeywords"] &&
             ![current[@"video.blockedKeywords"] isEqual:snapshot[@"video.blockedKeywords"]];
         NSMutableDictionary *merged=[current mutableCopy]; [merged addEntriesFromDictionary:snapshot];
+        HGAUnifyLiquidMaterials(merged,snapshot[@"player.material"] && !snapshot[@"dock.material"] ? @"player.material" : @"dock.material");
         if ([merged[@"video.blockedKeywords"] count] && HGAConfigurationData(merged,nil).length>128*1024)
             return HGAError(error,@"关键词列表使配置超出 128 KiB 备份上限。请减少关键词后再保存。");
         if([merged[@"dock.hide.home"] boolValue] && [merged[@"dock.hide.theater"] boolValue] && [merged[@"dock.hide.store"] boolValue] && [merged[@"dock.hide.mine"] boolValue]) return HGAError(error,@"至少保留一个底栏导航项目。");

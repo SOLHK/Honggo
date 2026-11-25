@@ -57,8 +57,6 @@
 @property(nonatomic,strong) UIVisualEffectView *quietDragLens;
 @property(nonatomic,strong) NSMapTable<UIView *,UIView *> *quietSelectionSources;
 @property(nonatomic,weak) UIView *quietProvider;
-@property(nonatomic,strong) UIVisualEffectView *restingLens;
-@property(nonatomic,strong) UIVisualEffectView *extraRestingLens;
 @property(nonatomic) BOOL motionMaterialPresented;
 @property(nonatomic,weak) UIButton *pressedTab;
 @property(nonatomic) NSUInteger selectionGeneration;
@@ -200,6 +198,7 @@ static CGFloat HGAExpandedDockWidth(CGFloat width,CGFloat controlHeight,NSUInteg
 static NSArray *HGATabTitles(void){return @[@"首页",@"剧场",@"商城",@"我的"];}
 static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@"person"];}
 @interface HGADockTabButton : UIButton
+@property(nonatomic) CGFloat faceOffsetX;
 @end
 @implementation HGADockTabButton
 - (BOOL)accessibilityActivate {
@@ -221,7 +220,7 @@ static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@
         CGFloat scale=MIN(1,MIN(width/glyph.width,MAX(0,height-titleHeight-gap)/glyph.height));
         glyph=CGSizeMake(glyph.width*scale,glyph.height*scale);
     }
-    CGFloat x=CGRectGetMidX(bounds),top=CGRectGetMidY(bounds)-(glyph.height+gap+titleHeight)/2;
+    CGFloat x=CGRectGetMidX(bounds)+self.faceOffsetX,top=CGRectGetMidY(bounds)-(glyph.height+gap+titleHeight)/2;
     self.imageView.hidden=!image;
     self.imageView.bounds=(CGRect){CGPointZero,glyph};
     self.imageView.center=CGPointMake(x,top+glyph.height/2);
@@ -232,23 +231,6 @@ static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@
 @end
 static BOOL HGADockLiquidSelection(void) {
     return [HGAppearanceString(@"dock.selectionStyle") isEqual:@"glass"];
-}
-static UIVisualEffectView *HGADockRestingLens(UIVisualEffectView *lens,UIView *selection,CGRect frame,BOOL enabled) {
-    if(!enabled || CGRectIsNull(frame)) {
-        lens.effect=nil;[lens removeFromSuperview];return nil;
-    }
-    if(@available(iOS 26.0,*)) {
-        if(!lens) {
-            lens=[[UIVisualEffectView alloc] initWithEffect:nil];
-            lens.accessibilityIdentifier=@"honggo.appearance.dock.resting-lens";
-            lens.accessibilityElementsHidden=YES;lens.userInteractionEnabled=NO;
-            lens.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
-        }
-        if(!CGRectEqualToRect(lens.frame,frame))lens.frame=frame;
-        if(lens.superview!=selection.superview)[selection.superview insertSubview:lens aboveSubview:selection];
-        if(!lens.effect)lens.effect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
-    }
-    return lens;
 }
 static UIButton *HGADockButton(void) {
     UIButton *button=[UIButton buttonWithType:UIButtonTypeCustom];
@@ -901,9 +883,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     // width also stretches every symbol, corner and refracting lens.
     CGFloat renderedWidth=CGRectGetWidth(measured)*verticalScale;
     CGFloat difference=CGRectGetWidth(destination)-renderedWidth;
-    if(renderedWidth<count*44 || difference < -2)return NO;
-    if(difference>2 && fabs(HGAppearanceNumber(@"dock.width")-HGADockDefaultWidth)>0.00001)return NO;
-    destination=CGRectInset(destination,difference*0.5,0);
+    if(renderedWidth<count*44 || fabs(difference)>1.0/MAX(1,self.traitCollection.displayScale))return NO;
     CGRect bounds=carrier.bounds;
     carrier.transform=CGAffineTransformMakeScale(verticalScale,verticalScale);
     carrier.center=CGPointMake(CGRectGetMidX(destination)-(CGRectGetMidX(measured)-CGRectGetMidX(bounds))*verticalScale,
@@ -991,8 +971,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     selected:(NSInteger)selected style:(NSString *)style requestedFrame:(CGRect)requested {
     // A failed mount is cached for this geometry and tab configuration, so a
     // legacy UIKit provider is not recreated on every host layout callback.
-    BOOL requireClear=selected==0 && [style isEqual:@"clear"];
-    NSArray *probe=@[keys,content,style,@(requireClear),[NSValue valueWithCGSize:self.bounds.size],
+    BOOL requireClear=[style isEqual:@"clear"];
+    NSArray *probe=@[keys,content,style,[NSValue valueWithCGSize:self.bounds.size],
         [NSValue valueWithCGSize:requested.size],[NSValue valueWithNonretainedObject:self.window],
         [NSValue valueWithNonretainedObject:self.hostBar.superview]];
     if([self.failedSystemProbe isEqualToArray:probe]) {
@@ -1053,7 +1033,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(active && requireClear && [material isEqual:@"factory-glass"]) {
         [self removeSystemDock];
         active=NO;material=style;
-        failure=@"Video uses native Clear glass in place of a read-only factory platter";
+        failure=@"Clear material requires a writable platter";
     }
     if(!active)self.failedSystemProbe=probe;
     NSString *mode=active ? (self.systemTabController?@"uikit-controller":@"uikit-tabbar") : @"compatibility";
@@ -1281,7 +1261,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.extra.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
     BOOL darkSurface=self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
     BOOL nativeSelection=liquidSelection && !reduced && HGNativeGlassConfigured();
-    UIColor *selectionBg=nativeSelection ? UIColor.clearColor : HGADockSelectionColor(self.capsule.traitCollection,flat || !liquidSelection);
+    // The native resting thumb is recessed into the rail. Refract only while tracking.
+    UIColor *selectionBg=nativeSelection ? UIColor.secondarySystemFillColor : HGADockSelectionColor(self.capsule.traitCollection,flat || !liquidSelection);
     UIColor *selectionEdge=[UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.23:0.11];
     self.selection.backgroundColor=selectionBg;
     self.selection.layer.borderWidth=liquidSelection && !nativeSelection ? 0.5 : 0;
@@ -1292,7 +1273,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     NSInteger flatIndex=UISegmentedControlNoSegment;
     CGFloat slotWidth=expanded.size.width/visible.count;
     for(NSString *key in self.buttons) {
-        UIButton *b=self.buttons[key];NSUInteger index=[HGATabIDs() indexOfObject:key];
+        HGADockTabButton *b=(id)self.buttons[key];NSUInteger index=[HGATabIDs() indexOfObject:key];
         if(b.superview!=self.capsule)[self.capsule addSubview:b];
         NSUInteger position=[visible indexOfObject:key];
         b.hidden=(useSystem && !self.quietSystemTouches) || position==NSNotFound;
@@ -1313,6 +1294,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
             continue;
         }
         b.frame=CGRectMake(position*slotWidth,0,slotWidth,height);
+        CGRect thumb=HGADockSelectionFrame(CGRectGetMidX(b.frame),expanded.size.width,height,slotWidth,NO);
+        b.faceOffsetX=flat ? 0 : CGRectGetMidX(thumb)-CGRectGetMidX(b.frame);
         UIColor *color=active ? UIColor.labelColor :
             (translucent ? [UIColor.labelColor colorWithAlphaComponent:unselectedOpacity] : UIColor.secondaryLabelColor);
         if(videoClear)color=active ? UIColor.whiteColor : [UIColor.whiteColor colorWithAlphaComponent:unselectedOpacity];
@@ -1337,7 +1320,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         }
         if(active) {
             flatIndex=(NSInteger)position;
-            selectedFrame=HGADockSelectionFrame(CGRectGetMidX(b.frame),expanded.size.width,height,slotWidth,NO);
+            selectedFrame=thumb;
         }
     }
     self.restingFlatIndex=flatIndex;
@@ -1352,9 +1335,6 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(useSystem) {
         [self.dragLens removeFromSuperview];self.dragLens=nil;
     }else [self prepareSelectionLens];
-    BOOL restingGlass=nativeSelection;
-    self.restingLens=HGADockRestingLens(self.restingLens,self.selection,selectedFrame,restingGlass && !useSystem);
-    self.restingLens.hidden=self.selectionDragging || self.pressedTab || self.selectionSettling;
     NSString *action=HGAppearanceString(@"dock.action");
     NSUInteger detachedIndex=[HGATabIDs() indexOfObject:action];
     UIControl *detachedSource=detachedIndex!=NSNotFound ? [self.targets objectForKey:action] : nil;
@@ -1375,7 +1355,9 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(extraTrack && extraTrack.selectedSegmentIndex!=detachedSegment)extraTrack.selectedSegmentIndex=detachedSegment;
     self.extraSelection.hidden=flat || !detachedSelected || self.extra.hidden;
     if(!self.extraSelection.hidden) {
-        CGRect inner=self.extra.bounds;
+        CGFloat side=CGRectGetHeight(self.extra.bounds);
+        CGFloat inset=HGADockRestingInset(side);
+        CGRect inner=CGRectInset(self.extra.bounds,inset,inset);
         self.extraSelection.frame=inner;
         self.extraSelection.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         self.extraSelection.layer.cornerRadius=MIN(inner.size.width,inner.size.height)/2;
@@ -1383,8 +1365,6 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.extraSelection.layer.borderWidth=liquidSelection && !nativeSelection ? 0.5 : 0;
         self.extraSelection.layer.borderColor=selectionEdge.CGColor;
     }
-    self.extraRestingLens=HGADockRestingLens(self.extraRestingLens,self.extraSelection,self.extraButton.frame,
-        restingGlass && detachedSelected && !self.extra.hidden);
     self.extraButton.selected=detachedSelected;
     self.extraButton.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[detachedIndex]);
     self.extraButton.accessibilityTraits=UIAccessibilityTraitButton | (detachedSelected?UIAccessibilityTraitSelected:0);
@@ -1571,7 +1551,6 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     [self.dragLens.layer removeAllAnimations];
     [self.selectionHighlight.layer removeAllAnimations];
     self.dragLens.hidden=YES;
-    self.restingLens.hidden=NO;
     self.selectionHighlight.alpha=0;
     self.motionGlyph.imageView.transform=CGAffineTransformIdentity;
     self.motionGlyph.titleLabel.transform=CGAffineTransformIdentity;
@@ -1604,7 +1583,6 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 }
 - (void)showSelectionMotionMaterial {
     if(!HGADockLiquidSelection())return;
-    self.restingLens.hidden=YES;
     if(!self.motionMaterialPresented)[self prepareSelectionLens];
     self.motionMaterialPresented=YES;
     if(self.dragLens)[self.capsule bringSubviewToFront:self.dragLens];
@@ -1642,7 +1620,6 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(![self placeQuietLensAtX:self.selectionDragX button:button])[self syncSystemSelection:button.tag force:NO];
         return;
     }
-    self.restingLens.hidden=YES;
     CGFloat position=CGRectGetMidX(button.frame);
     if(UIAccessibilityIsReduceMotionEnabled()) {
         [self positionDragSelection:position];
@@ -1713,7 +1690,6 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.pressedTab=nil;
     self.selectionDragging=YES;
     if(self.quietSystemTouches){[self positionDragSelection:position];return;}
-    self.restingLens.hidden=YES;
     [self.selection.layer removeAllAnimations];
     [self.dragLens.layer removeAllAnimations];
     [self animateMotionGlyph:nil];

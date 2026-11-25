@@ -539,7 +539,7 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
     [dock beginDockTouchAtPoint:start];
     if(!UIAccessibilityIsReduceMotionEnabled())
         Check(selection.bounds.size.height>resting+capsule.bounds.size.height*0.10 &&
-            selection.bounds.size.width>restingWidth*1.06 && CGRectGetMinY(selection.frame)<0 &&
+            selection.bounds.size.width>restingWidth && CGRectGetMinY(selection.frame)<0 &&
             selection.alpha==1 && highlight.alpha==1 && (HGDockVisibleSelectionLens(selection) ?
             CGAffineTransformIsIdentity(home.imageView.transform) : home.imageView.transform.a>1.10),
             @"same-tab press lifts the selection with native optics or the non-glass highlight fallback");
@@ -645,7 +645,8 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     [theater sendActionsForControlEvents:UIControlEventTouchDown];
     Layout(HGDockVisibleSelectionLens(selection));
     UIView *previewHighlight=Find(selection,@"honggo.appearance.dock.selection-highlight");
-    Check(CGRectGetMaxX(selection.frame)>=capsule.bounds.size.width-1 && host.nativeTaps==taps &&
+    CGFloat edgeAllowance=UIAccessibilityIsReduceMotionEnabled() ? capsule.bounds.size.height*4.0/62.0 : 1;
+    Check(CGRectGetMaxX(selection.frame)>=capsule.bounds.size.width-edgeAllowance-0.01 && host.nativeTaps==taps &&
         (UIAccessibilityIsReduceMotionEnabled() ||
          (previewHighlight.alpha==1 && (HGDockVisibleSelectionLens(selection) ?
           CGAffineTransformIsIdentity(theater.imageView.transform) : theater.imageView.transform.a>1.10))),
@@ -662,7 +663,8 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
         }
     }
     [theater sendActionsForControlEvents:UIControlEventTouchCancel];
-    Check(fabs(CGRectGetMidX(selection.frame)-homeX)<0.01 && host.nativeTaps==taps,
+    CGFloat homeFaceX=[home convertPoint:home.imageView.center toView:capsule].x;
+    Check(fabs(CGRectGetMidX(selection.frame)-homeFaceX)<0.01 && host.nativeTaps==taps,
         @"cancelling a press springs back without sending a navigation action");
     [theater sendActionsForControlEvents:UIControlEventTouchDown];
     [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
@@ -695,7 +697,7 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
     pan.fixtureState=UIGestureRecognizerStateCancelled;
     [dock dragSelection:pan];
     HGWaitForDockSelectionLensToSettle(selection);
-    Check(host.nativeTaps==taps && host.selectedIndex==0 && fabs(CGRectGetMidX(selection.frame)-homeX)<0.01 &&
+    Check(host.nativeTaps==taps && host.selectedIndex==0 && fabs(CGRectGetMidX(selection.frame)-homeFaceX)<0.01 &&
         !HGDockVisibleSelectionLens(selection),@"cancelled drag returns to the original tab and hides the lens");
 
     pan.fixtureLocation=CGPointMake(homeX,20);pan.fixtureState=UIGestureRecognizerStateBegan;
@@ -774,10 +776,11 @@ static void HGRunDockCaptionChecks(SSTabBarController *host) {
         }
         Check(items.count==(showStore?4:3) && HGADockDrawsEveryCaption(capsule,items),
             [NSString stringWithFormat:@"%@ quiet-mode tab captions contribute pixels to the visible Dock",@(items.count)]);
-        UIVisualEffectView *rest=(id)Find(capsule,@"honggo.appearance.dock.resting-lens");
+        UIView *rest=Find(capsule,@"honggo.appearance.dock.selection");
         BOOL nativeGlass=HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled();
-        Check((nativeGlass && !showStore) ? (!rest.hidden && [rest.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")]) : !rest,
-            @"quiet navigation mounts the selected glass at rest only for the glass style");
+        Check(rest && !rest.hidden && !Find(capsule,@"honggo.appearance.dock.resting-lens") &&
+            (showStore || !nativeGlass || [rest.backgroundColor isEqual:UIColor.secondarySystemFillColor]),
+            @"quiet navigation has one recessed resting thumb with no second refracting surface");
         if(showStore) {
             UIButton *last=items.lastObject;
             NSUInteger taps=host.nativeTaps;
@@ -797,14 +800,15 @@ static void HGRunDockCaptionChecks(SSTabBarController *host) {
     HGAppearanceApply(@{@"dock.extra":@YES,@"dock.action":@"mine", @"dock.selectionStyle":@"glass"},nil);
     HGAppearanceLayoutDock(host.customTabBar,host);
     UIButton *extra=(id)Find(host.customTabBar,@"honggo.appearance.dock.extra");
-    UIVisualEffectView *lens=(id)Find(extra.superview,@"honggo.appearance.dock.resting-lens");
+    UIView *thumb=Find(extra.superview,@"honggo.appearance.dock.extra.selection");
     if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled())
-        Check(extra.selected && !lens.hidden && [lens.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")] &&
-            CGRectEqualToRect(lens.frame,extra.frame),@"the detached selected tab carries the same resting lens on its own circle");
+        Check(extra.selected && thumb && !thumb.hidden && [thumb.backgroundColor isEqual:UIColor.secondarySystemFillColor] &&
+            CGRectContainsRect(extra.frame,thumb.frame) && CGRectGetHeight(thumb.frame)<CGRectGetHeight(extra.frame),
+            @"the detached selected tab carries the same inset resting thumb on its own circle");
     HGAppearanceSet(@"dock.selectionStyle",@"plain",nil);
     HGAppearanceLayoutDock(host.customTabBar,host);
     Check(extra.selected && !Find(extra.superview,@"honggo.appearance.dock.resting-lens"),
-        @"plain selection removes the detached circle lens while keeping the current tab selected");
+        @"plain selection keeps the detached tab current without a second glass surface");
     host.selectedIndex=previous;
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
 }
@@ -957,10 +961,20 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
             Check(![dock valueForKey:@"systemTabBar"] && !manual.hidden && HGADockFullGlass(clear) &&
                 clear.traitCollection.userInterfaceStyle==UIUserInterfaceStyleLight && HGADockGlyphMatches((UIButton *)manual,YES),
                 @"a read-only video platter gives way to one untinted Clear Dock with readable playback controls");
-            host.selectedIndex=1;HGAppearanceLayoutDock(host.customTabBar,host);
-            CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);HGAppearanceLayoutDock(host.customTabBar,host);
-            Check([dock valueForKey:@"systemTabBar"] && !Find(capsule,@"honggo.appearance.material"),
-                @"the catalogue recovers the native item platter after playback used its own Clear surface");
+            for (NSNumber *hideStore in @[@NO,@YES]) {
+                HGAppearanceSet(@"dock.hide.store",hideStore,nil);
+                host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);
+                CGRect homeFrame=capsule.frame;
+                for (NSNumber *index in @[@1,@3,@0]) {
+                    host.selectedIndex=index.unsignedIntegerValue;HGAppearanceLayoutDock(host.customTabBar,host);
+                    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);HGAppearanceLayoutDock(host.customTabBar,host);
+                    UIView *thumb=Find(capsule,@"honggo.appearance.dock.selection");
+                    Check(![dock valueForKey:@"systemTabBar"] && CGRectEqualToRect(homeFrame,capsule.frame) &&
+                        !thumb.hidden && [thumb.backgroundColor isEqual:UIColor.secondarySystemFillColor] &&
+                        HGADockFullGlass((id)Find(capsule,@"honggo.appearance.material")),
+                        @"home, theatre and profile retain the configured Clear rail width and resting thumb");
+                }
+            }
         } @finally {
             method_setImplementation(material,apply);
         }
@@ -1041,12 +1055,13 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     }
     CGFloat selectionAlpha=reduceTransparency || increasedContrast ? 0.18 : 0.09;
     Check(selection && !selection.hidden && !selection.userInteractionEnabled &&
-        (nativeGlass ? [selection.backgroundColor isEqual:UIColor.clearColor] && HGADockFullGlass(capsuleMaterial) :
+        (nativeGlass ? [selection.backgroundColor isEqual:UIColor.secondarySystemFillColor] && HGADockFullGlass(capsuleMaterial) :
          !capsuleMaterial.maskView && [selection.backgroundColor isEqual:[UIColor colorWithWhite:1 alpha:selectionAlpha]]),
-        @"resting selection uses native material over a transparent base and preserves the accessible fallback");
-    Check(fabs(selection.bounds.size.height-(capsule.bounds.size.height-2))<0.01 &&
-        fabs(CGRectGetMinX(selection.frame)-1)<0.01 && fabs(selection.bounds.size.width-(home.bounds.size.width-2))<0.01 && home.bounds.size.width>=44,
-        @"the resting selection fills the first tab up to a one-point seam around the edge");
+        @"resting selection uses a recessed fill over a single glass rail and preserves the accessible fallback");
+    CGFloat restingInset=capsule.bounds.size.height*4.0/62.0;
+    Check(fabs(selection.bounds.size.height-(capsule.bounds.size.height-2*restingInset))<0.01 &&
+        fabs(CGRectGetMinX(selection.frame)-restingInset)<0.01 && home.bounds.size.width>=44,
+        @"the first resting selection has the reference platter inset and keeps the full tab hit zone");
     Check(capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
         extraSurface.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark,
         @"playback switches both glass surfaces in place when the app changes to dark");
@@ -1066,13 +1081,14 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
         @"R15 default icons fit the thicker dock and equally sized independent action");
     home.highlighted=YES;[home setNeedsUpdateConfiguration];Layout(home);
     HGADockPixelCounts pressed=HGADockPixels(home);
-    Check(pressed.blue==0 && (nativeGlass ? [selection.backgroundColor isEqual:UIColor.clearColor] : HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection)),
+    Check(pressed.blue==0 && (nativeGlass ? [selection.backgroundColor isEqual:UIColor.secondarySystemFillColor] : HGADockNeutralTranslucent(selection.backgroundColor,selection.traitCollection)),
         @"pressed selection stays neutral after a UIKit configuration update");
     home.highlighted=NO;
     Check(HGASaveDockPreview(host,dock),@"controlled UIKit dock preview renders to PNG for visual review");
     host.selectedIndex=1;HGAppearanceLayoutDock(host.customTabBar,host);Layout(dock);
+    Layout(theater);
     Check(!home.selected && theater.selected &&
-        fabs(CGRectGetMidX(selection.frame)-CGRectGetMidX(theater.frame))<0.01 &&
+        fabs(CGRectGetMidX(selection.frame)-[theater convertPoint:theater.imageView.center toView:capsule].x)<0.01 &&
         (nativeGlass ? HGADockFullGlass(capsuleMaterial) : !capsuleMaterial.maskView),
         @"selection follows the host's selected tab over one continuous material");
     HGADockPixelCounts switched=HGADockPixels(theater);

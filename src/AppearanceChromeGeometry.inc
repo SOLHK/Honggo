@@ -67,6 +67,10 @@ API_AVAILABLE(ios(26.0))
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
+    if(self.window && ![self.rail.style isEqual:@"solid"]) {
+        UIUserInterfaceStyle appearance=HGAVideoPageStyle(nil,self);
+        if(self.rail.overrideUserInterfaceStyle!=appearance)self.rail.overrideUserInterfaceStyle=appearance;
+    }
     CGFloat radius=CGRectGetHeight(self.rail.bounds)/2;
     self.rail.materialCornerRadius=radius;
     if (self.rail.layer.cornerRadius!=radius) self.rail.layer.cornerRadius=radius;
@@ -1236,7 +1240,7 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
             circle.interactiveGlass=YES;
             HGAStyleHeaderBackdrop(circle,style);
         }
-        else if(!flat && !glyphOnly)HGAInstallPlaybackGlass(button,style,button.bounds,CGRectGetHeight(frame)/2);
+        else if(!flat && !glyphOnly)HGAInstallButtonGlass(button,style,button.bounds,CGRectGetHeight(frame)/2);
         else HGARemoveGlass(button);
     } else {
         HGARemoveHeaderToolButton(button);
@@ -1507,7 +1511,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
         objc_setAssociatedObject(header,&HGAHeaderInsetKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     if(HGFlatTopStyle())style=@"flat";
-    else if(HGAUsesNativeGlass(style))style=@"clear"; // Single transparent rail over video, like the playback reference.
+    else if(HGAUsesNativeGlass(style))style=HGALiquidButtonMaterial();
     BOOL glassSelection=HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
         [HGAppearanceString(@"player.headerSelectionStyle") isEqual:@"glass"];
     BOOL tracksChannels=state.channelControl && [state.channelStyle isEqual:style] &&

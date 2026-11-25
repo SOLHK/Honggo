@@ -4,6 +4,7 @@
 // Keep entries in release order, including locally distributed test builds.
 static NSArray<NSArray<NSString *> *> *HGReleaseNotes(void) {
     return @[
+        @[@"1.5.2beta30", @"统一各页面 Dock 尺寸、选中胶囊和液态玻璃按钮材质。我的侧栏支持逐项隐藏，播放时可关闭自动进入全集。修正全集栏多出的底边，补拦可划走的原生广告，并在剧集已有计数时立即显示右侧评论数。"],
         @[@"1.5.2beta29", @"首页菜单、搜索和 Dock 保留本轮修复。设置导航栏使用相同尺寸的容器承载版本和完成按钮。"],
         @[@"1.5.2beta28", @"保留首页菜单和清透 Dock 修复，统一设置首页版本与完成按钮的宽度。"],
         @[@"1.5.2beta27", @"修复首页左上角菜单缺失，调整播放页搜索按钮和底栏在浅色模式下的显示。"],

@@ -153,7 +153,7 @@ static void RunDanmakuChromeChecks(UIView *root) {
     UIView *compactGlass=Find(entrance.clickView,@"honggo.appearance.material");
     Layout(compactGlass);
     Check(!Find(entrance.capsuleView,@"honggo.appearance.material") &&
-        compactGlass.superview==entrance.clickView && (!HGTestOpenGlass(entrance) || HGTestNativeGlassButton(compactGlass)) &&
+        compactGlass.superview==entrance.clickView && (!HGTestOpenGlass(entrance) || HGTestButtonGlass(compactGlass)) &&
         HGAActionPixelAlpha(entrance.legacyImage,5,10)>240 &&
         HGAActionPixelAlpha(foreground,5,10)==0 && HGAActionPixelAlpha(foreground,16,16)>240,
         @"compact danmaku targets the visible button and replaces only its known baked dark plate");
@@ -167,7 +167,7 @@ static void RunDanmakuChromeChecks(UIView *root) {
     HGAppearanceProcessView(entrance);
     UIView *combinedGlass=Find(entrance.capsuleView,@"honggo.appearance.material");
     Layout(combinedGlass);
-    Check(combinedGlass && (!HGTestOpenGlass(entrance) || HGTestNativeGlassButton(combinedGlass)) &&
+    Check(combinedGlass && (!HGTestOpenGlass(entrance) || HGTestButtonGlass(combinedGlass)) &&
         !Find(entrance.clickView,@"honggo.appearance.material") && entrance.iconView.image==combined,
         @"combined danmaku moves glass to the capsule and keeps its native state image");
 
@@ -300,7 +300,7 @@ static void RunPlayerBadgeChecks(UIView *host) {
     glass=Find(badge,@"honggo.appearance.material");
     Layout(glass);
     NSString *savedMaterial=HGAppearanceString(@"player.material");
-    if(HGTestOpenGlass(badge) && ![savedMaterial isEqual:@"blur"])Check(HGTestNativeGlassButton(glass) && badge.gradientBackgroundView.hidden,
+    if(HGTestOpenGlass(badge) && ![savedMaterial isEqual:@"blur"])Check(HGTestButtonGlass(glass) && badge.gradientBackgroundView.hidden,
         @"the series badge replaces its original gradient with a native glass button");
     HGAppearanceSet(@"player.material",@"blur",nil);[badge modelDidUpdate];
     UIVisualEffectView *blur=(id)Find(badge,@"honggo.appearance.material");Layout(blur);
@@ -389,7 +389,7 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     UIView *playGlass=Find(play,@"honggo.appearance.material");
     Layout(playGlass);
     Check(playGlass && !playGlass.userInteractionEnabled && (!HGTestOpenGlass(play) ||
-        HGTestNativeGlassButton(playGlass)),
+        HGTestButtonGlass(playGlass)),
         @"play receives its own liquid surface while other player controls use blur");
     HGAppearanceSet(@"player.actionStyle",@"flat",nil);
     play.selected=YES;
@@ -437,7 +437,7 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
         @"detail episode pill decorates the actual native entry and clears its layer paint after a model update");
     if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled()) {
         Layout(cleanGlass);Layout(episodeGlass);
-        Check(HGTestNativeGlassButton(cleanGlass) && [episodeGlass isKindOfClass:UIVisualEffectView.class] &&
+        Check(HGTestButtonGlass(cleanGlass) && [episodeGlass isKindOfClass:UIVisualEffectView.class] &&
             [[(UIVisualEffectView *)episodeGlass effect] isKindOfClass:UIBlurEffect.class],
             @"the clean control uses native glass and the episode entry respects selected classic blur");
     }
