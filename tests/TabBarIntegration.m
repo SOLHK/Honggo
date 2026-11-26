@@ -1,3 +1,4 @@
+#import "AppearancePreferences.h"
 // Actual UIKit behavior under a controlled SSTabBar host. This is not the Hongguo IPA.
 #import "Honggo.h"
 #import <CoreFoundation/CoreFoundation.h>
@@ -824,7 +825,8 @@ static UIImage *HGWhiteImage(void) {
             name:@"startup preference is process-local and preserves unrelated arguments"];
     }
     [NSUserDefaults.standardUserDefaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
-    [NSUserDefaults.standardUserDefaults setBool:!self.glassDisabled forKey:@"HongguoGlass.glass"];
+    // This suite exercises the native tab renderer, including historical negative controls.
+    HGAppearanceApply(@{@"enabled":self.glassDisabled ? @NO : @YES, @"dock.enabled":@NO}, nil);
     [UIView setAnimationsEnabled:NO];
     if (self.nativeReferenceOnly) {
         // The compatibility-NO comparison uses only Apple's native effects.

@@ -1,4 +1,5 @@
 #import "Honggo.h"
+#import "AppearancePreferences.h"
 #import "RuntimeSupport.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
@@ -6,7 +7,7 @@
 #include <string.h>
 
 static char HGControlKey, HGControlBusyKey;
-static NSHashTable<UIView *> *HGStyledControls;
+static NSHashTable<UIView *> *HGKnownControls;
 
 @interface HGControlGlass : UIVisualEffectView
 @property(nonatomic, weak) UIView *host;
@@ -105,6 +106,10 @@ void HGStyleControl(UIView *control) {
     if (objc_getAssociatedObject(control, &HGControlBusyKey)) return;
     objc_setAssociatedObject(control, &HGControlBusyKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     @try {
+        if (control.window) {
+            if (!HGKnownControls) HGKnownControls = [NSHashTable weakObjectsHashTable];
+            [HGKnownControls addObject:control];
+        } else [HGKnownControls removeObject:control];
         BOOL eligible = HGIsEnabled(HGGlassControls) && HGNativeGlassConfigured() && control.window &&
             !control.hidden && control.alpha >= 0.999 &&
             control.bounds.size.width >= 20 && control.bounds.size.height >= 20 &&
@@ -127,8 +132,6 @@ void HGStyleControl(UIView *control) {
             if ([corners respondsToSelector:factory] && [glass respondsToSelector:setter])
                 ((void (*)(id, SEL, id))objc_msgSend)(glass, setter, ((id (*)(id, SEL))objc_msgSend)(corners, factory));
             objc_setAssociatedObject(control, &HGControlKey, glass, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            if (!HGStyledControls) HGStyledControls = [NSHashTable weakObjectsHashTable];
-            [HGStyledControls addObject:control];
             if ([control isKindOfClass:UIControl.class])
                 [(UIControl *)control addTarget:glass action:@selector(touched:) forControlEvents:UIControlEventTouchDown];
             HGLog(@"control.glass", @{@"class": NSStringFromClass(control.class),
@@ -207,6 +210,18 @@ static void HGRefreshControls(id owner, NSArray<NSString *> *getters) {
     }
 }
 void HGInstallControls(void) {
+    static dispatch_once_t observe;
+    dispatch_once(&observe, ^{
+        __block BOOL previous=HGAppearanceEnabled();
+        [NSNotificationCenter.defaultCenter addObserverForName:HGAppearanceDidChangeNotification object:nil
+            queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+                BOOL enabled=HGAppearanceEnabled();
+                if (previous==enabled) return;
+                previous=enabled;
+                if (enabled) HGPrepareNativeGlass();
+                for (UIView *control in HGKnownControls.allObjects) HGStyleControl(control);
+            }];
+    });
     static NSMutableDictionary<NSString *, NSValue *> *replacements;
     if (!replacements) replacements = [NSMutableDictionary dictionary];
     NSUInteger installed = 0, available = 0;
@@ -297,9 +312,10 @@ NSDictionary *HGInterfaceSnapshot(void) {
         }
     }
     NSMutableArray *surfaces = [NSMutableArray array];
-    for (UIView *view in HGStyledControls.allObjects) {
+    for (UIView *view in HGKnownControls.allObjects) {
         if (surfaces.count >= 100) break;
         HGControlGlass *glass = objc_getAssociatedObject(view, &HGControlKey);
+        if (!glass) continue;
         [surfaces addObject:@{@"class": NSStringFromClass(view.class), @"attached": @(glass.attached),
             @"inWindow": @((BOOL)(view.window != nil)), @"opaque": @(view.opaque),
             @"backgroundAlpha": @(view.backgroundColor ? CGColorGetAlpha(view.backgroundColor.CGColor) : 0),

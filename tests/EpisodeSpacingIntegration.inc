@@ -20,8 +20,15 @@
 @end
 @interface FQVShortVideoProgressView : UIControl
 @property(nonatomic,strong) UIView *progressBarBackgroundView;
+- (void)updateProgressViewWithActivatedState:(NSUInteger)state;
 @end
-@implementation FQVShortVideoProgressView @end
+@implementation FQVShortVideoProgressView
+- (void)updateProgressViewWithActivatedState:(NSUInteger)state {
+    // The native repaint reads the owner's frame width on every activation.
+    self.progressBarBackgroundView.frame=CGRectMake(16,state==1 ? 19 : 21,
+        CGRectGetWidth(self.frame)-32,state==1 ? 4 : 2);
+}
+@end
 @interface SSShortVideoDerivateInfoView : UIView @end
 @implementation SSShortVideoDerivateInfoView @end
 // This independent class is the exact HUD identity in the user's R14 scene.
@@ -79,6 +86,18 @@ static void RunInnerEpisodeSpacingChecks(UIView *root) {
         @"detail playback keeps an eight-point gap above the native rail without moving the comment entry");
     control.progressContainer=progress;control.insertAboveProgressView=wrapper;
     progress.progressBarBackgroundView=track;
+    for(NSNumber *state in @[@1,@2,@1,@2,@1,@2]) {
+        wrapper.frame=entryFrame;progress.frame=progressFrame;
+        [progress updateProgressViewWithActivatedState:state.unsignedIntegerValue];
+        CGRect ink=[track.layer convertRect:track.layer.bounds toLayer:control.layer];
+        CGRect cap=[entry convertRect:entry.bounds toView:control];
+        Check(CGRectEqualToRect(progress.frame,progressFrame) && CGRectGetWidth(track.frame)==408 &&
+            fabs(CGRectGetMinX(ink)-CGRectGetMinX(cap))<0.01 && fabs(CGRectGetMaxX(ink)-CGRectGetMaxX(cap))<0.01 &&
+            fabs(CGRectGetMinY(ink)-CGRectGetMaxY(wrapper.frame)-8)<0.01 &&
+            CGRectEqualToRect(comment.frame,commentFrame) &&
+            [control hitTest:CGPointMake(CGRectGetMidX(ink),CGRectGetMidY(ink)) withEvent:nil]==progress,
+            @"press and release repaints keep the native 440pt touch strip, both capsule endpoints and the eight-point gap");
+    }
     [wrapper addSubview:[UIView new]];
     SSShortVideoBottomDistributionView *inactive=[[SSShortVideoBottomDistributionView alloc] initWithFrame:entry.frame];
     [wrapper addSubview:inactive];inactive.hidden=YES;
@@ -86,18 +105,24 @@ static void RunInnerEpisodeSpacingChecks(UIView *root) {
     HGAppearanceApply(@{@"layout.progress.x":@18,@"layout.progress.scale":@1.2},nil);
     HGAppearanceProcessView(progress);
     CGRect capsule=[entry convertRect:entry.bounds toView:control];
-    CGRect fitted=[track convertRect:track.bounds toView:control];
+    CGRect fitted=[track.layer convertRect:track.layer.bounds toLayer:control.layer];
     Check(fabs(CGRectGetMinX(fitted)-CGRectGetMinX(capsule))<0.01 &&
         fabs(CGRectGetMaxX(fitted)-CGRectGetMaxX(capsule))<0.01 &&
         fabs(CGRectGetHeight(fitted)-1.2*CGRectGetHeight(track.bounds))<0.01 &&
         [progress pointInside:[progress convertPoint:CGPointMake(CGRectGetMaxX(fitted)-1,CGRectGetMidY(fitted)) fromView:control] withEvent:nil],
         @"capsule controls both seekable endpoints despite saved X/scale, decorative siblings and an inactive second episode; vertical scale is preserved");
     entry.hidden=YES;HGAppearanceProcessView(progress);
-    Check(fabs(progress.transform.a-1.2)<0.001 && fabs(progress.transform.tx-18)<0.001,
+    Check(fabs(progress.transform.a-1.2)<0.001 && fabs(progress.transform.tx-18)<0.001 &&
+        CATransform3DIsIdentity(progress.layer.sublayerTransform),
         @"with no visible capsule the saved progress width and horizontal offset take effect again");
     HGAppearanceApply(@{@"layout.progress.x":savedX,@"layout.progress.scale":savedScale},nil);
     HGAppearanceProcessView(progress);
     entry.hidden=NO;
+    HGAppearanceProcessView(progress);
+    [progress removeFromSuperview];
+    Check(CATransform3DIsIdentity(progress.layer.sublayerTransform) && CGRectEqualToRect(progress.frame,progressFrame),
+        @"reparenting the native progress view clears the old episode's drawing width before reuse");
+    [control addSubview:progress];
     [control removeFromSuperview];
     Check(CGRectEqualToRect(wrapper.frame,entryFrame) && CGRectEqualToRect(progress.frame,progressFrame),
         @"leaving the detail HUD restores its original capsule position");

@@ -338,13 +338,19 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         @"我的页面",@"评论区",@"外观",@"广告与推广",@"导出与备份",@"诊断日志",@"作者与频道"]]
         name:@"the home lists eleven feature destinations in one section"];
 
-    // Verify Level-2 and Level-3 subpages expose all 18 switches, diagnostics, backup, and channel.
+    // Verify the visible feature switches, diagnostics, backup and channel routes.
     Class subpageClass = NSClassFromString(@"HGSettingsSubpageController");
     NSIndexPath *logsPath=[NSIndexPath indexPathForRow:9 inSection:0];
     UITableViewCell *logsEntry=[settings tableView:settings.tableView cellForRowAtIndexPath:logsPath];
     [self check:[logsEntry.textLabel.text isEqual:@"诊断日志"] && HGEnhancedDiagnostics()
         name:@"the settings homepage exposes diagnostics directly"];
 
+    UITableViewController *appearancePage=[(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [appearancePage setValue:@"appearance" forKey:@"pageID"];
+    [appearancePage loadViewIfNeeded];
+    [self check:[[appearancePage valueForKey:@"rows"] count]==3 &&
+        [[[[appearancePage valueForKey:@"rows"] firstObject] objectForKey:@"group"] isEqual:@"general"]
+        name:@"appearance offers one master destination alongside fonts and panel material"];
     UITableViewController *backupPage = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [backupPage setValue:@"backup" forKey:@"pageID"];
     [backupPage setValue:settings forKey:@"rootSettings"];
@@ -364,7 +370,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         @"welfareGuide", @"survey", @"glassControls", @"sidebarGameCenter", @"screenshotShopping"];
     NSMutableSet<NSNumber *> *seenFeatures = [NSMutableSet set];
     BOOL saved = YES;
-    for (NSString *pid in @[@"base", @"ads.startup", @"ads.playback", @"ads.popups", @"ads.misc"]) {
+    for (NSString *pid in @[@"ads.startup", @"ads.playback", @"ads.popups", @"ads.misc"]) {
         UITableViewController *sub = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
         [sub setValue:pid forKey:@"pageID"];
         [sub setValue:settings forKey:@"rootSettings"];
@@ -376,7 +382,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
             NSUInteger index = (NSUInteger)toggle.tag;
             [seenFeatures addObject:@(index)];
             BOOL desired = index % 2 == 0;
-            BOOL initialOn=index!=HGGlass && index!=HGGlassControls;
+            BOOL initialOn=YES;
             saved = saved && [toggle isKindOfClass:UISwitch.class] && toggle.on==initialOn && index < HGFeatureCount;
             toggle.on = desired;
             [toggle sendActionsForControlEvents:UIControlEventValueChanged];
@@ -385,11 +391,11 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
                 HGIsEnabled((HGFeature)index) == desired;
         }
     }
-    [self check:seenFeatures.count == HGFeatureCount && HGFeatureCount == 18
-        name:@"level-2 and level-3 subpages preserve all 18 feature switches without omission"];
+    [self check:seenFeatures.count == HGFeatureCount-2 && ![seenFeatures containsObject:@(HGGlass)] && ![seenFeatures containsObject:@(HGGlassControls)]
+        name:@"the ad categories expose all sixteen blocking functions and omit the retired glass switches"];
     [self check:saved name:@"switch events across subpages write the existing preference keys"];
     BOOL restored = YES;
-    for (NSString *pid in @[@"base", @"ads.startup", @"ads.playback", @"ads.popups", @"ads.misc"]) {
+    for (NSString *pid in @[@"ads.startup", @"ads.playback", @"ads.popups", @"ads.misc"]) {
         UITableViewController *reopened = [(UITableViewController *)[subpageClass alloc] initWithStyle:UITableViewStyleInsetGrouped];
         [reopened setValue:pid forKey:@"pageID"];
         [reopened setValue:settings forKey:@"rootSettings"];
@@ -672,8 +678,16 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         name:@"unified configuration backup exports and restores both feature switches and full appearance settings"];
     NSData *legacyPrefData = HGPreferencesExport(nil);
     NSDictionary *parsedLegacy = HGConfigurationBackupParse(legacyPrefData, &backupErr);
-    [self check:parsedLegacy[@"features"] != nil && parsedLegacy[@"appearance"] == nil && backupErr == nil
+    [self check:parsedLegacy[@"features"] != nil && [parsedLegacy[@"appearance"][@"enabled"] isEqual:@YES] && backupErr == nil
         name:@"configuration restore remains backward-compatible with v1 feature-only backups"];
+    NSDictionary *mixed=@{@"features":@{@"glass":@YES,@"glassControls":@NO},@"appearance":@{@"enabled":@NO,@"dock.enabled":@NO}};
+    HGAppearanceApply(@{@"enabled":@NO,@"dock.enabled":@NO},nil);
+    [self check:HGConfigurationBackupChangeCount(mixed)==2 && HGConfigurationBackupApply(mixed,nil) &&
+        HGAppearanceEnabled() && HGAppearanceFlag(@"dock.enabled") && HGConfigurationBackupChangeCount(mixed)==0
+        name:@"a mixed old backup migrates native glass into a single master and enables its working Dock"];
+    [self check:!parsedFull[@"features"][@"glass"] && !parsedFull[@"features"][@"glassControls"] &&
+        HGConfigurationBackupApply(@{@"appearance":@{@"enabled":@YES,@"dock.enabled":@NO}},nil) && !HGAppearanceFlag(@"dock.enabled")
+        name:@"new backups preserve an explicit custom Dock opt-out independently of the master"];
     HGPreferencesApply(savedFeatures, nil);
     HGAppearanceApply(savedAppearance, nil);
     [self check:[HGCommunityURLString() isEqual:@"https://t.me/Naloiafeed"]
@@ -712,7 +726,7 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     UISwitch *screenshot = (UISwitch *)screenshotRow.accessoryView;
     [self check:[settings.tableView numberOfRowsInSection:0] == 1 && screenshot.tag == HGScreenshotShopping &&
         [screenshot.accessibilityIdentifier isEqual:@"hg.option.screenshotShopping"] &&
-        [screenshotRow.textLabel.text isEqual:@"隐藏截图识图找同款"]
+        [screenshotRow.textLabel.text isEqual:@"拦截截图识图找同款"]
         name:@"search finds the independent screenshot shopping switch"];
 
     [self filterSettings:settings text:@"直播 领券"];
@@ -728,9 +742,9 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         name:@"filtered row zero changes marketing without changing original row zero"];
 
     [self filterSettings:settings text:@"gLaSs cOnTrOlS"];
-    UISwitch *controls = (UISwitch *)[self settingsCell:settings section:0 row:0].accessoryView;
-    [self check:[settings.tableView numberOfRowsInSection:0] == 1 && controls.tag == HGGlassControls
-        name:@"English aliases match case-insensitively across multiple terms"];
+    [self check:[settings.tableView numberOfRowsInSection:0] == 0 && [settings.tableView numberOfRowsInSection:4] == 1 &&
+        [[self settingsCell:settings section:4 row:0].accessibilityIdentifier isEqual:@"honggo.appearance.setting.enabled"]
+        name:@"old English glass aliases find only the unified appearance master"];
 
     [self filterSettings:settings text:@"日志"];
     [self check:[settings.tableView numberOfRowsInSection:1] == 2 &&

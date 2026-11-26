@@ -269,11 +269,15 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     CGRect moreRect=[moreGlass convertRect:moreGlass.bounds toView:navigation];
     CGRect inputRect=[inputGlass convertRect:inputGlass.bounds toView:interactions];
     Check(inputGlass.superview==interactions.danmakuInputView && nativeInputPaint.hidden && !placeholder.hidden &&
-        CGRectEqualToRect(interactions.danmakuInputView.frame,originalInputFrame) &&
-        CGRectGetMinX(inputRect)-CGRectGetMaxX(switchGlass.frame)>=4 &&
-        CGRectGetMinX(moreRect)-CGRectGetMaxX(shareGlass.frame)>=4,
+        CGRectEqualToRect(interactions.danmakuInputView.frame,CGRectOffset(originalInputFrame,0,-2)) &&
+        CGRectGetMinX(inputRect)-CGRectGetMaxX(switchGlass.frame)>=9.9 &&
+        CGRectGetMinX(moreRect)-CGRectGetMaxX(shareGlass.frame)>=9.9,
         @"the share and more circles and the danmaku switch and input retain a gap within native hit geometry");
     BOOL equalCircles=HGALandscapeFixtureIsCircle(switchGlass) && HGALandscapeFixtureIsCircle(shareGlass);
+    UIView *lockGlass=Find(controls.screenLockBtn,identifier), *lightGlass=Find(brightness,identifier);
+    CGRect lockRect=[lockGlass convertRect:lockGlass.bounds toView:controls], lightRect=[lightGlass convertRect:lightGlass.bounds toView:controls];
+    Check(CGRectGetMinY(lightRect)-CGRectGetMaxY(lockRect)>=13 && fabs(CGRectGetMidX(lightRect)-CGRectGetMidX(lockRect))<2,
+        @"the lock and brightness controls form a spaced column");
     for(UIView *button in @[interactions.likeBtnView,interactions.commentBtnView,interactions.starBtnView,
         info.moreBtn,controls.screenLockBtn,volume,brightness])
         equalCircles &= HGALandscapeFixtureIsCircle(Find(button,identifier));

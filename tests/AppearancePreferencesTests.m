@@ -103,6 +103,18 @@ static void CheckHeaderLiquidSelectionMigration(void) {
         @"choosing plain top channel selection after migration survives reload");
 }
 int main(void) {@autoreleasepool {
+    NSUserDefaults *defaultsStore=NSUserDefaults.standardUserDefaults;
+    for (NSString *legacy in @[@"HongguoGlass.glass",@"HongguoGlass.glassControls"]) {
+        [defaultsStore setBool:YES forKey:legacy];
+        SeedR14Appearance(@{@"enabled":@NO,@"dock.enabled":@NO,@"dock.height":@66});
+        BOOL wasDock=[legacy isEqual:@"HongguoGlass.glass"];
+        Check(HGAppearanceEnabled() && HGAppearanceFlag(@"dock.enabled")==wasDock &&
+            HGAppearanceNumber(@"dock.height")==66 && ![defaultsStore objectForKey:legacy],
+            @"either historical glass switch promotes the master and preserves unrelated appearance settings");
+        HGAppearanceSet(@"enabled",@NO,nil);
+        [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:defaultsStore];
+        Check(!HGAppearanceEnabled(),@"turning the migrated master off survives a fresh preference load");
+    }
     CheckR15GeometryMigration();
     CheckR20GeometryMigration();
     CheckBalancedDockMigration();
@@ -110,9 +122,10 @@ int main(void) {@autoreleasepool {
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];
-    NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.finderSearch",@"player.finderRecognition",@"player.finderAI",@"player.mineGlass",@"player.episodeGlass",
+    NSMutableSet *onWhenEnabled=[NSMutableSet setWithArray:@[@"dock.enabled",@"player.finderGlass",@"player.finderSearch",@"player.finderRecognition",@"player.finderAI",@"player.mineGlass",@"player.episodeGlass",
         @"player.controlsGlass",@"player.commentMovesVideo",@"panels.episodes",@"panels.commentFloatingBar",
         @"panels.commentDetachedInput",@"mine.show.publish",@"mine.show.theme"]];
+    [onWhenEnabled addObjectsFromArray:[HGHostSettingsEntries() valueForKey:@"key"]];
     BOOL unique=YES,defaults=YES;
     for(NSDictionary *entry in HGAppearanceCatalog()) {
         unique &= ![keys containsObject:entry[@"key"]];[keys addObject:entry[@"key"]];
@@ -120,7 +133,7 @@ int main(void) {@autoreleasepool {
             defaults &= HGAppearanceFlag(entry[@"key"])==[onWhenEnabled containsObject:entry[@"key"]];
     }
     Check(unique && keys.count>100,@"every visual option has one stable key");
-    Check(defaults && [onWhenEnabled isSubsetOfSet:keys] && !HGAppearanceEnabled() && !HGAppearanceNeedsGlass(),
+    Check(defaults && [onWhenEnabled isSubsetOfSet:keys] && !HGAppearanceEnabled(),
         @"appearance remains opt-in with the new scoped defaults ready under its master switch");
     Check([HGAppearanceSearch(@"双指清屏").firstObject[@"key"] isEqual:@"gestures.pinchClean"] &&
         [HGAppearanceSearch(@"双击评论").firstObject[@"key"] isEqual:@"gestures.doubleTapComments"],
@@ -250,10 +263,10 @@ int main(void) {@autoreleasepool {
         @"values":@{@"dock.height":@54,@"dock.normal":@"#001122",@"icons.preset":@"outline",@"icons.collect.normal.symbol":@"bookmark.fill"}};
     NSDictionary *importedIcons=HGAppearanceParse([NSJSONSerialization dataWithJSONObject:legacyIcons options:0 error:nil],nil);
     Check([importedIcons isEqual:@{@"dock.height":@54}],@"old backups discard the retired entries and retain valid settings");
-    Check(HGAppearanceNeedsGlass(),@"startup knows the visual preset requests glass");
+    Check(HGAppearanceEnabled(),@"startup knows the visual preset requests glass");
     Check(HGAppearanceApply(HGAppearancePreset(@"focus"),nil) && HGAppearanceFlag(@"dock.autoCollapse") && HGAppearanceFlag(@"layout.tags.hidden"),@"focus preset supplies collapse and clean layout");
     HGAppearanceReset();
-    Check(!HGAppearanceEnabled() && !HGAppearanceNeedsGlass() && !HGVideoBlockedKeywords().count,
+    Check(!HGAppearanceEnabled() && !HGVideoBlockedKeywords().count,
         @"reset restores the appearance and empty video filter defaults");
     Check([[NSUserDefaults.standardUserDefaults stringForKey:@"host.fixture"] isEqual:@"preserve"],@"reset preserves unrelated host settings");
     NSLog(@"Appearance preferences: %lu checks, %lu failures",(unsigned long)checks,(unsigned long)failures);

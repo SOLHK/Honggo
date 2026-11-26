@@ -45,9 +45,11 @@
 @interface SSShortVideoRightInteractionCollectView : HGAActionFixture
 @property(nonatomic) BOOL isCollected;
 @property(nonatomic) BOOL playedStockStar;
+- (void)starBtnClicked;
 - (void)refreshUIWithModel:(id)model animated:(BOOL)animated;
 @end
 @implementation SSShortVideoRightInteractionCollectView
+- (void)starBtnClicked {self.taps++;self.isCollected=!self.isCollected;}
 - (void)refreshUIWithModel:(id)model animated:(BOOL)animated { self.playedStockStar=animated; }
 @end
 @interface SSShortVideoRightInteractionCommentView : HGAActionFixture
@@ -402,6 +404,17 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     HGAppearanceSet(@"gestures.pinchClean",@(wasEnabled),nil);
     [navigation popToViewController:parent animated:NO];
     [window layoutIfNeeded];
+    HGOpenAppearance(parent,@"setting.player.fullscreenEntry");
+    UIViewController *choiceDestination=navigation.topViewController;
+    NSDate *choiceDeadline=[NSDate dateWithTimeIntervalSinceNow:1.5];
+    while (!choiceDestination.presentedViewController && choiceDeadline.timeIntervalSinceNow>0)
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    UIAlertController *searchChoice=(id)choiceDestination.presentedViewController;
+    Check([searchChoice isKindOfClass:UIAlertController.class] && [searchChoice.title isEqual:@"全屏观看入口"] &&
+        searchChoice.actions.count==4,@"selecting an enum search result opens its options with one tap");
+    [choiceDestination dismissViewControllerAnimated:NO completion:nil];
+    [navigation popToViewController:parent animated:NO];
+    [window layoutIfNeeded];
     BOOL savedMasterBeforeSubpage=HGAppearanceEnabled();
     BOOL savedHideLive=HGAppearanceFlag(@"layout.channels.hide.live");
     HGAppearanceApply(@{@"enabled":@NO,@"layout.channels.hide.live":@NO},nil);
@@ -410,9 +423,19 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     [chromeSubpage loadViewIfNeeded];
     [window layoutIfNeeded];
     NSIndexPath *hideLivePath=chromeSubpage!=parent ? HGMenuPath(chromeSubpage,@"layout.channels.hide.live") : nil;
+    UITableViewCell *showLiveCell=hideLivePath ? [chromeSubpage tableView:chromeSubpage.tableView cellForRowAtIndexPath:hideLivePath] : nil;
+    Check([showLiveCell.textLabel.text isEqual:@"显示顶部真人剧"] && [(UISwitch *)showLiveCell.accessoryView isOn],
+        @"a visible channel displays its visibility switch as on");
     if(hideLivePath)[chromeSubpage tableView:chromeSubpage.tableView didSelectRowAtIndexPath:hideLivePath];
     Check(chromeSubpage!=parent && hideLivePath && HGAppearanceFlag(@"layout.channels.hide.live") && HGAppearanceEnabled(),
         @"toggling a category subpage option while appearance master is off automatically enables appearance so changes take effect immediately");
+    if (hideLivePath) {
+        UISwitch *showLive=(UISwitch *)[chromeSubpage tableView:chromeSubpage.tableView cellForRowAtIndexPath:hideLivePath].accessoryView;
+        Check(!showLive.on,@"tapping the visibility row off hides the channel using the old preference key");
+        showLive.on=YES;
+        [showLive sendActionsForControlEvents:UIControlEventValueChanged];
+        Check(showLive.on && !HGAppearanceFlag(@"layout.channels.hide.live"),@"switching visibility on restores the channel");
+    }
     HGAppearanceApply(@{@"enabled":@(savedMasterBeforeSubpage),@"layout.channels.hide.live":@(savedHideLive)},nil);
     [navigation popToViewController:parent animated:NO];
     [window layoutIfNeeded];
@@ -551,6 +574,13 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
                 [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             choiceOpened = [detail.presentedViewController isKindOfClass:UIAlertController.class] &&
                 [detail.presentedViewController.title isEqual:@"合集与进度条分开布局"];
+            if (choiceOpened) {
+                UIAlertController *sheet=(id)detail.presentedViewController;
+                NSString *current=HGAppearanceString(@"player.separateProgress");
+                NSString *checked=[current isEqual:@"show"] ? @"✓ 自动留出间距" : @"✓ 原始布局";
+                choiceOpened=sheet.actions.count==3 && [[sheet.actions valueForKey:@"title"] containsObject:checked] &&
+                    sheet.actions.lastObject.style==UIAlertActionStyleCancel;
+            }
             [detail dismissViewControllerAnimated:NO completion:nil];
         }
         [navigation popToViewController:home animated:NO];
@@ -720,11 +750,18 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     for (NSString *style in @[@"glass",@"flat"]) {
         HGAppearanceSet(@"player.actionStyle",style,nil);Layout(collect);
         collect.isCollected=NO;Layout(collect);
-        Check(collect.iconImageView.image.isSymbolImage && [collect.iconImageView.tintColor isEqual:UIColor.whiteColor],
-            @"the alternate favorite uses a white symbol when unselected");
-        collect.isCollected=YES;Layout(collect);
-        Check(collect.iconImageView.image.isSymbolImage && [collect.iconImageView.tintColor isEqual:UIColor.systemYellowColor],
-            @"the alternate favorite follows the native selected state in either button style");
+        UIImage *outline=collect.iconImageView.image;
+        Check(HGAActionPixelAlpha(outline,19,20)==0 && [collect.iconImageView.tintColor isEqual:UIColor.whiteColor],
+            @"the alternate favorite has transparent centers when unselected");
+        NSUInteger taps=collect.taps;
+        [collect starBtnClicked];Layout(collect);
+        Check(collect.taps==taps+1 && HGAActionPixelAlpha(collect.iconImageView.image,19,20)>240 &&
+            [collect.iconImageView.tintColor isEqual:UIColor.systemBlueColor] &&
+            (UIAccessibilityIsReduceMotionEnabled() || [collect.iconImageView.layer animationForKey:@"honggo.collect.pulse"]),
+            @"a native favorite tap fills the constellation blue and animates once");
+        [collect starBtnClicked];Layout(collect);
+        Check(collect.iconImageView.image==outline && ![collect.iconImageView.layer animationForKey:@"honggo.collect.pulse"],
+            @"removing a favorite restores its outline and stops the previous pulse");
     }
     HGAppearanceApply(@{@"player.actionStyle":actionStyle,@"player.collectGlyph":@"star"},nil);
     [collect refreshUIWithModel:nil animated:YES];

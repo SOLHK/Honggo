@@ -151,6 +151,7 @@ UIColor *HGOriginalTabTitleColor(UILabel *label) {
 @property(nonatomic) BOOL clips;
 @property(nonatomic) BOOL unclipped;
 - (void)clearFill;
+- (void)restoreFill;
 - (void)hideBackground;
 - (void)restore;
 @end
@@ -169,12 +170,17 @@ UIColor *HGOriginalTabTitleColor(UILabel *label) {
     self.hid = YES;
     if (!view.hidden) view.hidden = YES;
 }
-- (void)restore {
+- (void)restoreFill {
     UIView *view = self.view;
     if (self.cleared) {
+        self.cleared=NO;
         if (HGClear(view.backgroundColor)) view.backgroundColor = self.color;
         if (!view.opaque) view.opaque = self.opaque;
     }
+}
+- (void)restore {
+    UIView *view = self.view;
+    [self restoreFill];
     if (self.hid && view.hidden) view.hidden = self.hidden;
     if (self.removedEffect && [view isKindOfClass:UIVisualEffectView.class] &&
             !((UIVisualEffectView *)view).effect) ((UIVisualEffectView *)view).effect = self.effect;
@@ -1018,19 +1024,25 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
             // The custom capsule needs the same host-surface cleanup as the
             // original glass bar. The old early return restored a full-screen
             // host mask and left list content ending abruptly above the dock.
-            self.glass.effect = nil;
-            self.glass.hidden = YES;
-            [self.glass removeFromSuperview];
             HGAppearanceLayoutDock(bar, self.controller);
-            BOOL attached = NO;
+            UIView *attached = nil;
             for (UIView *child in bar.subviews)
-                if ([child.accessibilityIdentifier isEqual:@"honggo.appearance.dock"] && !child.hidden) attached = YES;
-            if (attached) [self refreshViewports];
-            else {
-                [self.videoBackdrop refreshFeed];
-                [self restoreTabSurfaces];
+                if ([child.accessibilityIdentifier isEqual:@"honggo.appearance.dock"]) { attached=child; break; }
+            if (attached) {
+                if (barRecord.cleared) {
+                    [barRecord restoreFill];
+                    HGAppearanceReclaimDockChrome(bar);
+                }
+                self.glass.hidden=YES;
+                if (self.glass.superview) [self.glass removeFromSuperview];
+                if (attached.hidden) [self.videoBackdrop refreshFeed];
+                else [self refreshViewports];
+                return;
             }
-            return;
+            // A text-only bar may mount labels before its tab actions. Retain
+            // host navigation while mounting a real material beneath its items.
+            if (!HGTabBarGlassActive()) { [self restoreTabSurfaces]; return; }
+            [[self surface:bar] clearFill];
         }
         [self prepareGlass:frame content:content];
         [self refreshViewports];
@@ -1500,9 +1512,9 @@ BOOL HGInstallTabBar(void) {
                 HGTabBarGlassActive();
                 for (UIView *bar in HGMountedTabBars.allObjects) {
                     if (!bar.window) continue;
-                    HGTabState *state = objc_getAssociatedObject(bar, &HGStateKey);
-                    if (state.controller) HGRefreshTabBar(state.controller);
-                    else HGRefreshBar(bar);
+                    // The first responder controller can be a child page with no
+                    // customTabBar getter. This is the actual mounted SSTabBar.
+                    HGRefreshBar(bar);
                 }
             };
             [NSNotificationCenter.defaultCenter addObserverForName:HGAppearanceDidChangeNotification

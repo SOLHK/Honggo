@@ -206,6 +206,7 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
 @property(nonatomic) BOOL geometry;
 @property(nonatomic) BOOL transferring;
 @property(nonatomic) BOOL matchesEpisodeRail;
+@property(nonatomic) CGAffineTransform railDrawingTransform;
 @property(nonatomic,weak) UIView *geometrySuperview;
 @property(nonatomic,weak) id<UIViewControllerTransitionCoordinator> transition;
 @property(nonatomic) BOOL sourceHidden;
@@ -568,11 +569,20 @@ static BOOL HGAHasRoleAncestor(UIView *view,NSString *role) {
 @property(nonatomic) UIViewContentMode contentMode;
 @property(nonatomic) UIViewContentMode appliedContentMode;
 @property(nonatomic) BOOL ownsContentMode;
+@property(nonatomic,weak) id sparkleTapModel;
+@property(nonatomic) BOOL awaitingSparkle;
+@property(nonatomic) BOOL hasSparkleAnimation;
 @end
 @implementation HGAIconState @end
 static char HGAIconKey;
+static NSString *const HGASparklePulse=@"honggo.collect.pulse";
+static NSString *const HGASparkleFill=@"honggo.collect.fill";
 static void HGARestoreIcon(UIView *root) {
     HGAIconState *s=objc_getAssociatedObject(root,&HGAIconKey);
+    if(s.hasSparkleAnimation) {
+        [s.imageView.layer removeAnimationForKey:HGASparklePulse];
+        [s.imageView.layer removeAnimationForKey:HGASparkleFill];
+    }
     HGARestoreGeometry(s.imageView);
     BOOL ownedImage=s.imageView.image==s.applied || [s.imageView.image isEqual:s.applied];
     if(s.appliedTint && [s.imageView.tintColor isEqual:s.appliedTint])s.imageView.tintColor=s.tint;
@@ -631,6 +641,34 @@ static void HGAInstallRightHitArea(void) {
             "B40@0:8{CGPoint=dd}16@32",(IMP)HGARightPointInside,@"appearance");
 }
 
+// Both states share the exact three outlines; only the ink and fill change.
+static UIImage *HGASparkleImage(BOOL filled) {
+    static UIImage *images[2];
+    static dispatch_once_t once;
+    dispatch_once(&once,^{
+        UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(32,32)];
+        for (int variant=0;variant<2;variant++) {
+            images[variant]=[[renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+                [UIColor.whiteColor setFill]; [UIColor.whiteColor setStroke];
+                const CGFloat stars[][3]={{18.9,19.7,9.4},{7.2,10.4,4.6},{17.8,4.8,2.7}};
+                for (NSUInteger i=0;i<3;i++) {
+                    CGFloat x=stars[i][0],y=stars[i][1],s=stars[i][2],k=s*.18;
+                    UIBezierPath *p=[UIBezierPath bezierPath];
+                    [p moveToPoint:CGPointMake(x,y-s)];
+                    [p addQuadCurveToPoint:CGPointMake(x+s,y) controlPoint:CGPointMake(x+k,y-k)];
+                    [p addQuadCurveToPoint:CGPointMake(x,y+s) controlPoint:CGPointMake(x+k,y+k)];
+                    [p addQuadCurveToPoint:CGPointMake(x-s,y) controlPoint:CGPointMake(x-k,y+k)];
+                    [p addQuadCurveToPoint:CGPointMake(x,y-s) controlPoint:CGPointMake(x-k,y-k)];
+                    [p closePath]; p.lineWidth=i==0 ? 1.85 : 1.35; p.lineJoinStyle=kCGLineJoinRound;
+                    if (variant) [p fill];
+                    [p stroke];
+                }
+            }] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+        }
+    });
+    return images[filled ? 1 : 0];
+}
+
 static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat,BOOL sparkles) {
     if(![@[@"like",@"collect",@"comment",@"share"] containsObject:role])return;
     if(!HGAppearanceEnabled() || (!flat && !sparkles) || !root.window) {HGARestoreIcon(root);return;}
@@ -651,13 +689,37 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat,BOOL sparkles) {
     CGFloat requested=MIN(28 * 0.94,HGAActionGlassDiameter(root)*0.64);
     BOOL heart=flat && [role isEqual:@"like"];
     if (!icon || (heart && requested<=0)) { HGARestoreIcon(root); return; }
-    UIImage *image=sparkles ? [[UIImage systemImageNamed:@"sparkles"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]
+    UIImage *image=sparkles ? HGASparkleImage(selected)
         : HGAFlatActionImage(role,selected,heart ? requested : 32);
     if(!image){HGARestoreIcon(root);return;}
     if(!state){state=[HGAIconState new];state.imageView=icon;state.source=icon.image;state.tint=icon.tintColor;
         objc_setAssociatedObject(root,&HGAIconKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     else if(icon.image!=state.applied && ![icon.image isEqual:state.applied])state.source=icon.image;
-    UIColor *color=HGAActionIconColor(role,selected);
+    BOOL pulse=NO;
+    id model=(state.awaitingSparkle || state.hasSparkleAnimation) ? HGReadObjectGetter(root,"model") : nil;
+    if (state.awaitingSparkle) {
+        if (!sparkles || model!=state.sparkleTapModel || selected) {
+            pulse=sparkles && selected && model==state.sparkleTapModel;
+            state.awaitingSparkle=NO;
+        }
+    }
+    if (state.hasSparkleAnimation && (!sparkles || !selected || model!=state.sparkleTapModel)) {
+        [icon.layer removeAnimationForKey:HGASparklePulse];
+        [icon.layer removeAnimationForKey:HGASparkleFill];
+        state.sparkleTapModel=nil;
+        state.hasSparkleAnimation=NO;
+    }
+    UIColor *color=sparkles && selected ? UIColor.systemBlueColor : HGAActionIconColor(role,selected);
+    if (pulse && !UIAccessibilityIsReduceMotionEnabled()) {
+        state.hasSparkleAnimation=YES;
+        CATransition *fill=[CATransition animation]; fill.type=kCATransitionFade; fill.duration=.16;
+        [icon.layer addAnimation:fill forKey:HGASparkleFill];
+        CGFloat scale=hypot(icon.transform.a,icon.transform.b);
+        CAKeyframeAnimation *pop=[CAKeyframeAnimation animationWithKeyPath:@"transform.scale"];
+        pop.values=@[@(scale*.86),@(scale*1.15),@(scale)];
+        pop.keyTimes=@[@0,@.45,@1]; pop.duration=.32;
+        [icon.layer addAnimation:pop forKey:HGASparklePulse];
+    }
     if(!state.appliedTint || ![icon.tintColor isEqual:state.appliedTint])state.tint=icon.tintColor;
     state.appliedTint=color;
     if(![icon.tintColor isEqual:color])icon.tintColor=color;

@@ -326,6 +326,61 @@ static void HGRunDockRestoreReentryChecks(SSTabBarController *host) {
     HGAppearanceApply(saved,nil);Layout(host.customTabBar);
 }
 
+static void HGRunLateDockActionChecks(SSTabBarController *host) {
+    NSDictionary *saved=HGAppearanceValues();
+    HGAppearanceApply(@{@"enabled":@NO,@"dock.enabled":@YES,@"dock.style":@"glass",
+        @"dock.extra":@NO,@"dock.hide.home":@NO,@"dock.hide.theater":@NO,
+        @"dock.hide.store":@NO,@"dock.hide.mine":@NO},nil);
+    SSTabBarController *fixture=[SSTabBarController new];
+    [host addChildViewController:fixture];
+    fixture.view.frame=host.view.bounds;
+    SSTabBar *bar=fixture.customTabBar;
+    bar.frame=CGRectMake(0,CGRectGetHeight(fixture.view.bounds)-84,402,84);
+    bar.contentView.frame=bar.bounds;
+    NSArray<UIControl *> *items=bar.contentView.subviews.copy;
+    for (NSUInteger i=0;i<items.count;i++) {
+        items[i].frame=CGRectMake(402.0*i/4,0,402.0/4,84);
+        items[i].subviews.firstObject.frame=items[i].bounds;
+    }
+    UIControl *last=items.lastObject;
+    [last removeTarget:fixture action:@selector(nativeTap:) forControlEvents:UIControlEventTouchUpInside];
+    UIColor *fill=UIColor.systemOrangeColor;
+    bar.backgroundColor=fill;
+    bar.opaque=YES;
+    [host.view addSubview:fixture.view];
+    [fixture didMoveToParentViewController:host];
+    Layout(bar);
+    // Enable while already mounted. Do not request layout before inspecting the result.
+    HGAppearanceSet(@"enabled",@YES,nil);
+    UIVisualEffectView *fallback=(id)Find(bar,@"honggo.tabbar.glass");
+    Check(items.count==4 && !Find(bar,@"honggo.appearance.dock") && fallback.superview==bar &&
+        fallback.effect && !fallback.hidden && !fallback.userInteractionEnabled && !bar.contentView.hidden &&
+        [bar.subviews indexOfObject:fallback]<[bar.subviews indexOfObject:bar.contentView],
+        @"enabling appearance while the fourth text tab is unbound mounts a material below the live native tabs");
+    UIControl *third=items[2];
+    CGPoint point=[third convertPoint:CGPointMake(CGRectGetMidX(third.bounds),CGRectGetMidY(third.bounds)) toView:bar];
+    UIView *hit=[bar hitTest:point withEvent:nil];
+    if (hit==third) [third sendActionsForControlEvents:UIControlEventTouchUpInside];
+    Check(hit==third && fixture.nativeTaps==1 && fixture.selectedIndex==2,
+        @"the fallback passes the native text tab hit and its original action through exactly once");
+    [last addTarget:fixture action:@selector(nativeTap:) forControlEvents:UIControlEventTouchUpInside];
+    Layout(bar);
+    UIView *dock=Find(bar,@"honggo.appearance.dock");
+    UIControl *mine=(id)Find(dock,@"honggo.appearance.tab.mine");
+    [mine sendActionsForControlEvents:UIControlEventTouchUpInside];
+    Check(dock.superview==bar && bar.contentView.hidden && !fallback.superview &&
+        !Find(bar,@"honggo.tabbar.glass") && fixture.nativeTaps==2 && fixture.selectedIndex==3,
+        @"binding the fourth action upgrades to one custom Dock on host layout and forwards that action once");
+    HGAppearanceSet(@"enabled",@NO,nil);
+    Check(!bar.contentView.hidden && !Find(bar,@"honggo.appearance.dock") && !Find(bar,@"honggo.tabbar.glass") &&
+        [bar.backgroundColor isEqual:fill] && bar.opaque && [bar hitTest:point withEvent:nil]==third,
+        @"disabling the master immediately restores native color, opacity and navigation after renderer handoff");
+    [fixture willMoveToParentViewController:nil];
+    [fixture.view removeFromSuperview];
+    [fixture removeFromParentViewController];
+    HGAppearanceApply(saved,nil);
+}
+
 static void HGRunDockSurfaceChecks(SSTabBarController *host) {
     NSDictionary *saved=HGAppearanceValues();
     SSTabBar *bar=host.customTabBar;
@@ -1002,6 +1057,7 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
 }
 
 static void HGRunDockAppearanceChecks(SSTabBarController *host) {
+    HGRunLateDockActionChecks(host);
     HGRunDockRestoreReentryChecks(host);
     HGRunDockSurfaceChecks(host);
     NSDictionary *saved=HGAppearanceValues();

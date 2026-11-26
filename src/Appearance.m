@@ -193,6 +193,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL playComponent=[className isEqual:@"FQVShortVideoListVCPlayComponent"];
     BOOL scrubClipping=[className isEqual:@"FQVShortVideoVPlayerControlView"] &&
         selector==sel_registerName("handleOutterFeedClipBounds:");
+    BOOL progressStyle=[className isEqual:@"FQVShortVideoProgressView"] &&
+        selector==sel_registerName("updateProgressViewWithActivatedState:");
     BOOL episode=[HGAViewRoles()[className] isEqual:@"episodes"];
     BOOL episodeWrapper=[className isEqual:@"FQVShortVideoBaseInsertView"];
     BOOL bottomParticipant=episodeWrapper || [HGABottomControlClasses() containsObject:className] ||
@@ -239,6 +241,15 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             HGARecordCellPlaybackStart(cell);
             ((void(*)(id,SEL,NSInteger))original)(cell,selector,reason);
             HGAStartAutomaticCleanForCell(cell,NO);
+        });
+    } else if (progressStyle && !strcmp(encoding,"v24@0:8Q16")) {
+        replacement=imp_implementationWithBlock(^(UIView *progress,NSUInteger state) {
+            ((void(*)(id,SEL,NSUInteger))original)(progress,selector,state);
+            if(!HGAApplying && NSThread.isMainThread && progress.window && !HGFeedSidebarOwnsLayout(progress.window)) {
+                HGAApplying=YES;
+                @try {HGAUpdateFeedProgressWidth(progress);HGAUpdateBottomLayoutForView(progress);}
+                @finally {HGAApplying=NO;}
+            }
         });
     } else if (playbackStateChanged && !strcmp(encoding,"v24@0:8q16")) {
         replacement=imp_implementationWithBlock(^(UIView *hud,NSInteger state) {
@@ -287,6 +298,17 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         replacement=imp_implementationWithBlock(^(UIView *hud,CGRect frame) {
             ((void(*)(id,SEL,CGRect))original)(hud,selector,frame);
             if(hud.window && !HGAApplying)HGRefreshVideoBackdropForPlayer(hud);
+        });
+    } else if ([className isEqual:@"SSShortVideoRightInteractionCollectView"] && selector==sel_registerName("starBtnClicked") && !strcmp(encoding,"v16@0:8")) {
+        replacement=imp_implementationWithBlock(^(UIView *button) {
+            HGAIconState *s=objc_getAssociatedObject(button,&HGAIconKey);
+            BOOL selected=NO;
+            if(s && HGAppearanceEnabled() && [HGAppearanceString(@"player.collectGlyph") isEqual:@"sparkles"] &&
+               HGABoolGetter(button,@"isCollected",&selected)) {
+                s.awaitingSparkle=!selected;
+                s.sparkleTapModel=HGReadObjectGetter(button,"model");
+            }
+            ((void(*)(id,SEL))original)(button,selector);
         });
     } else if (!strcmp(encoding,"v16@0:8")) {
         BOOL refreshFeedParts=(selector==sel_registerName("updateStyleVisibility") &&
@@ -387,6 +409,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 }
                 if(guarded && (episodeMove || (episodeRender && !wasApplying)))HGAApplyEpisodeCorners(object,NO,0);
                 if(guarded && episodeWrapper && bottomMove)HGAEpisodeWrapperWillMove(object);
+                if(guarded && bottomMove && [className isEqual:@"FQVShortVideoProgressView"])HGARestoreFeedRailDrawing(object);
                 if(guarded && (episodeMove || bottomMove))HGARestoreBottomLayoutForView(object);
                 if(guarded && modelChange) {
                     HGARecordCellPlaybackStart(object);
@@ -716,9 +739,15 @@ void HGInstallAppearance(void) {
             if([name isEqual:@"FQVShortVideoVPlayerControlView"]) {
                 HGAHook(cls,sel_registerName("setPlayerViewFrame:"),"v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",NO);
                 HGAHook(cls,sel_registerName("handleOutterFeedClipBounds:"),"v20@0:8B16",NO);
+                for(NSString *phase in @[@"beginFastPlay",@"endFastPlay",@"cancelFastPlay"]) {
+                    SEL phaseSelector=NSSelectorFromString(phase);
+                    if(class_getInstanceMethod(cls,phaseSelector))HGAHook(cls,phaseSelector,"v16@0:8",NO);
+                }
                 if(class_getInstanceMethod(cls,sel_registerName("playerPlaybackStateDidChanged:")))
                     HGAHook(cls,sel_registerName("playerPlaybackStateDidChanged:"),"v24@0:8q16",NO);
             }
+            if([name isEqual:@"FQVShortVideoProgressView"] && class_getInstanceMethod(cls,sel_registerName("updateProgressViewWithActivatedState:")))
+                HGAHook(cls,sel_registerName("updateProgressViewWithActivatedState:"),"v24@0:8Q16",NO);
             if([name isEqual:@"FQVShortVideoVPlayerOutterMultiSeriesControlView"] ||
                 [name isEqual:@"FQVShortVideoDerivativeVideoControlView"] ||
                 [name isEqual:@"FQVShortVideoVPlayerSingleSeriesControlView"]) {
@@ -830,6 +859,8 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,@selector(didMoveToSuperview),"v16@0:8",NO);
             }
             if ([name hasPrefix:@"SSShortVideoRightInteraction"]) {
+                if([name isEqual:@"SSShortVideoRightInteractionCollectView"] && class_getInstanceMethod(cls,sel_registerName("starBtnClicked")))
+                    HGAHook(cls,sel_registerName("starBtnClicked"),"v16@0:8",NO);
                 NSArray *names=@[@"setModel:",@"refreshUIWithModel:",@"refreshUIWithModel:animated:",@"setIsCollected:"];
                 const char *types[]={"v24@0:8@16","v24@0:8@16","v28@0:8@16B24","v20@0:8B16"};
                 for(NSUInteger i=0;i<names.count;i++) {

@@ -10,10 +10,10 @@ static BOOL HGStartupGlassOverride;
 void HGPrepareNativeGlass(void) {
     // Called from the version-checked constructor, before any UIKit work.
     // UIKit caches this preference during startup. Keep it process-local so
-    // disabling both glass switches (or removing this dylib) restores the
+    // disabling appearance customization (or removing this dylib) restores the
     // host's own configuration on the next launch without preference cleanup.
     if (HGStartupGlassOverride || NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 ||
-        (!HGIsEnabled(HGGlass) && !HGIsEnabled(HGGlassControls) && !HGAppearanceNeedsGlass())) return;
+        !HGAppearanceEnabled()) return;
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSMutableDictionary *arguments = [[defaults volatileDomainForName:NSArgumentDomain] mutableCopy];
     if (!arguments) arguments = [NSMutableDictionary dictionary];

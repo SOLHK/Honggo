@@ -32,7 +32,8 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root) {
     void (^check)(BOOL, NSString *) = ^(BOOL pass, NSString *name) {
         [results addObject:@{@"passed": @(pass), @"name": name}];
     };
-    [NSUserDefaults.standardUserDefaults setBool:YES forKey:@"HongguoGlass.glassControls"];
+    BOOL saved=HGIsEnabled(HGGlassControls);
+    HGSetEnabled(HGGlassControls, YES);
     IMP before = class_getMethodImplementation(UIButton.class, @selector(layoutSubviews));
     HGInstallControls();
     check(before == class_getMethodImplementation(UIButton.class, @selector(layoutSubviews)), @"control styling does not hook UIKit button globally");
@@ -80,7 +81,8 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root) {
     [root addSubview:menu];
     check(CGColorGetAlpha(menu.backgroundColor.CGColor) < 0.001,
         @"returning settings menu clears restored host fill before another layout");
-    [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"HongguoGlass.glassControls"];
+    HGSetEnabled(HGGlassControls, NO);
+    check(glass.superview == nil, @"the master immediately removes glass from a mounted control before another layout");
     menu.highlighted = YES;
     check([menu.backgroundColor isEqual:UIColor.tertiarySystemFillColor],
         @"disabled glass preserves the menu highlight fill");
@@ -90,6 +92,9 @@ NSArray<NSDictionary *> *HGRunControlTests(UIView *root) {
     [menu removeFromSuperview];
     [owner layoutSubviews];
     check(glass.superview == nil && [button.backgroundColor isEqual:UIColor.redColor], @"disabling custom glass restores host button fill");
+    HGSetEnabled(HGGlassControls, YES);
+    check(glass.superview == button, @"enabling the master immediately restores glass on the same mounted button");
+    HGSetEnabled(HGGlassControls, saved);
     [owner removeFromSuperview];
     return results;
 }

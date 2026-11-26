@@ -46,6 +46,11 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
 @end
 @implementation HGAActionSheetPlate @end
 
+@protocol HGASheetPortal <NSObject>
+@property(nonatomic,weak) UIView *sourceView;
+@property(nonatomic) BOOL hidesSourceView, matchesPosition, matchesTransform, matchesAlpha;
+@end
+
 // A single material behind the sheet's native controls and content.
 @interface HGAActionSheetState : NSObject
 @property(nonatomic,weak) UIView *surface;
@@ -58,6 +63,9 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
 @property(nonatomic,strong) NSMapTable<UILabel *,HGAActionSheetPlate *> *labels;
 @property(nonatomic,weak) UIView *dimmer;
 @property(nonatomic,weak) UIView *episodePreview;
+@property(nonatomic,strong) UIView *videoBackdrop;
+@property(nonatomic,strong) UIView<HGASheetPortal> *videoPortal;
+@property(nonatomic,weak) UIView *videoSource;
 @property(nonatomic) CGFloat previewOffset;
 @property(nonatomic,strong) UIColor *dimmerPaint;
 @property(nonatomic,strong) UIColor *overlay;
@@ -76,6 +84,94 @@ static BOOL HGAWindowHasActionSheet(UIWindow *window) {
 @end
 @implementation HGAActionSheetState @end
 static char HGAActionSheetKey;
+
+static UIView *HGASheetTransition(UIView *surface) {
+    Class type=objc_lookUpClass("FQVTransitionView");
+    for(UIView *ancestor=surface.superview;ancestor;ancestor=ancestor.superview)
+        if([ancestor isKindOfClass:type])return ancestor;
+    return nil;
+}
+
+static void HGARemoveSheetVideo(HGAActionSheetState *state) {
+    state.videoPortal.sourceView=nil;
+    [state.videoBackdrop removeFromSuperview];
+    state.videoBackdrop=nil;state.videoPortal=nil;state.videoSource=nil;
+}
+
+static void HGAUpdateSheetVideo(HGAActionSheetState *state,HGAAppearanceMaterial *glass,CGFloat radius,CGFloat opacity) {
+    UIView *surface=state.surface;
+    UIView *transition=HGASheetTransition(surface);
+    UIView *top=HGAViewGetter(transition,"topContentView",transition);
+    UIView *container=HGAViewGetter(top,"playerContainerView",top);
+    // The child of this container is an invisible geometry placeholder. The
+    // transition moves the real renderer in its original player hierarchy.
+    UIView *real=HGReadObjectGetter(container,"realPlayerView");
+    UIView *source=nil;
+    if([real isKindOfClass:UIView.class] && real.window==surface.window && HGAVisible(real)) {
+        if([real isKindOfClass:objc_lookUpClass("TTMetalView")])source=real;
+        for(UIView *view in HGADescendants(real,32)) {
+            if([view isKindOfClass:objc_lookUpClass("TTPlayerView")] && HGAVisible(view)) {
+                source=view;
+                for(UIView *picture in view.subviews)
+                    if([picture isKindOfClass:objc_lookUpClass("TTMetalView")] && HGAVisible(picture)){source=picture;break;}
+                break;
+            }
+        }
+    }
+    if(!source || !glass) {HGARemoveSheetVideo(state);return;}
+    if(!state.videoBackdrop || state.videoSource!=source) {
+        HGARemoveSheetVideo(state);
+        Class portalType=objc_lookUpClass("_UIPortalView");
+        BOOL available=[portalType isSubclassOfClass:UIView.class];
+        for(NSString *name in @[@"setSourceView:",@"setHidesSourceView:",@"setMatchesPosition:",
+                                 @"setMatchesTransform:",@"setMatchesAlpha:"]) {
+            Method method=class_getInstanceMethod(portalType,NSSelectorFromString(name));
+            const char *encoding=[name isEqual:@"setSourceView:"] ? "v24@0:8@16" : "v20@0:8B16";
+            if(!method || strcmp(method_getTypeEncoding(method),encoding)){available=NO;break;}
+        }
+        UIView *picture=nil;
+        if(available) {
+            UIView<HGASheetPortal> *portal=[[portalType alloc] initWithFrame:source.bounds];
+            portal.hidesSourceView=NO;portal.matchesPosition=NO;portal.matchesTransform=NO;portal.matchesAlpha=NO;
+            portal.sourceView=source;state.videoPortal=portal;picture=portal;
+        }
+        if(!picture) {
+            // Use the mounted player's own artwork if UIKit lacks its live mirror.
+            UIView *player=source;
+            while(player && ![player isKindOfClass:objc_lookUpClass("FQVPlayer")])player=player.superview;
+            UIImageView *cover=(id)HGAViewGetter(player,"coverImageView",player);
+            if(![cover isKindOfClass:UIImageView.class] || !cover.image)return;
+            picture=[[UIImageView alloc] initWithImage:cover.image];
+        }
+        UIView *backdrop=[[UIView alloc] initWithFrame:surface.bounds];
+        backdrop.accessibilityIdentifier=@"honggo.appearance.sheet.video";
+        backdrop.accessibilityElementsHidden=YES;backdrop.userInteractionEnabled=NO;
+        backdrop.clipsToBounds=YES;backdrop.layer.cornerCurve=kCACornerCurveContinuous;
+        backdrop.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        [backdrop addSubview:picture];[surface insertSubview:backdrop belowSubview:glass];
+        state.videoSource=source;state.videoBackdrop=backdrop;
+    }
+    UIView *backdrop=state.videoBackdrop;
+    UIView *picture=backdrop.subviews.firstObject;
+    if(!CGRectEqualToRect(backdrop.frame,surface.bounds))backdrop.frame=surface.bounds;
+    if(fabs(backdrop.layer.cornerRadius-radius)>0.01)backdrop.layer.cornerRadius=radius;
+    BOOL dark=surface.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    UIColor *matte=dark ? UIColor.blackColor : UIColor.whiteColor;
+    if(![backdrop.backgroundColor isEqual:matte])backdrop.backgroundColor=matte;
+    // Tint the sampled picture, keeping the glass effect itself untinted.
+    CGFloat alpha=1.0-MAX(0.22,opacity);
+    if(fabs(picture.alpha-alpha)>0.001)picture.alpha=alpha;
+    CGSize size=state.videoPortal ? source.bounds.size : [(UIImageView *)picture image].size;
+    if(size.width>0 && size.height>0) {
+        CGFloat scale=MAX(backdrop.bounds.size.width/size.width,backdrop.bounds.size.height/size.height);
+        CGRect bounds=(CGRect){CGPointZero,size};
+        CGPoint center=CGPointMake(CGRectGetMidX(backdrop.bounds),CGRectGetMidY(backdrop.bounds));
+        CGAffineTransform transform=CGAffineTransformMakeScale(scale,scale);
+        if(!CGRectEqualToRect(picture.bounds,bounds))picture.bounds=bounds;
+        if(!CGPointEqualToPoint(picture.center,center))picture.center=center;
+        if(!CGAffineTransformEqualToTransform(picture.transform,transform))picture.transform=transform;
+    }
+}
 
 static void HGARestoreSheetDimmer(HGAActionSheetState *state) {
     if([state.dimmer.backgroundColor isEqual:UIColor.clearColor])state.dimmer.backgroundColor=state.dimmerPaint;
@@ -114,6 +210,7 @@ static void HGAAlignEpisodePreview(HGAActionSheetState *state,UIView *top) {
 static void HGARestoreSheetPresentation(UIView *root) {
     HGAActionSheetState *state=objc_getAssociatedObject(root,&HGAActionSheetKey);
     HGARestoreSheetDimmer(state);
+    HGARemoveSheetVideo(state);
     HGAAlignEpisodePreview(state,nil);
 }
 
@@ -184,7 +281,7 @@ static void HGARestoreSheetLabel(HGAActionSheetState *state,UILabel *label) {
 }
 
 static BOOL HGASheetUsesConvertedInk(HGAActionSheetState *state) {
-    return state && (state.nativeClear ||
+    return state && (state.nativeClear || state.videoBackdrop ||
         state.surface.overrideUserInterfaceStyle==UIUserInterfaceStyleDark ||
         state.surface.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark);
 }
@@ -271,9 +368,8 @@ static void HGARestoreSheetPlate(HGAActionSheetState *state, CALayer *layer) {
     [state.plates removeObjectForKey:layer];
 }
 
-static void HGAApplySheetPlate(HGAActionSheetState *state, UIView *view, BOOL selected) {
-    if(!view)return;
-    CALayer *layer=view.layer;
+static void HGAApplySheetLayer(HGAActionSheetState *state, UIView *view,CALayer *layer, BOOL selected) {
+    if(!layer)return;
     if(!selected){HGARestoreSheetPlate(state,layer);return;}
     HGAActionSheetPlate *plate=[state.plates objectForKey:layer];
     CGColorRef current=layer.backgroundColor;
@@ -286,9 +382,12 @@ static void HGAApplySheetPlate(HGAActionSheetState *state, UIView *view, BOOL se
         [state.plates setObject:plate forKey:layer];
     }
     if(!owned)plate.source=[UIColor colorWithCGColor:current];
-    BOOL dark=view.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    BOOL dark=state.surface.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
     plate.applied=[UIColor colorWithWhite:dark ? 1 : 0 alpha:dark ? 0.22 : 0.13];
     if(!CGColorEqualToColor(current,plate.applied.CGColor))layer.backgroundColor=plate.applied.CGColor;
+}
+static void HGAApplySheetPlate(HGAActionSheetState *state,UIView *view,BOOL selected) {
+    HGAApplySheetLayer(state,view,view.layer,selected);
 }
 
 static void HGAClearSheetCover(HGAActionSheetState *state,UIView *view) {
@@ -427,9 +526,7 @@ static void HGARestoreSheetOptics(HGAActionSheetState *state) {
 
 static void HGAApplySheetAppearanceStyle(HGAActionSheetState *state,BOOL clear) {
     UIView *surface=state.surface;
-    UIView *transition=surface.superview;
-    Class type=objc_lookUpClass("FQVTransitionView");
-    while(transition && ![transition isKindOfClass:type])transition=transition.superview;
+    UIView *transition=HGASheetTransition(surface);
 
     BOOL hostDark=NO;
     BOOL hasHostTheme=HGAHostExplicitDarkMode(surface,&hostDark);
@@ -475,9 +572,7 @@ static void HGAApplySheetOptics(HGAActionSheetState *state) {
     HGARestoreSheetRounding(state);
     // The glass owns its optical shape. A host mask can belong to a transition.
     if(!surface.layer.mask && surface.clipsToBounds){state.unclipped=YES;surface.clipsToBounds=NO;}
-    UIView *transition=surface.superview;
-    Class type=objc_lookUpClass("FQVTransitionView");
-    while(transition && ![transition isKindOfClass:type])transition=transition.superview;
+    UIView *transition=HGASheetTransition(surface);
     if(!transition)return;
 
     // The verified transition getter identifies the visual scrim. Keep its
@@ -498,6 +593,7 @@ static void HGARestoreActionSheet(UIView *root) {
     if(!state)return;
     UIView *surface=state.surface;
     [state.dockMount removeFromSuperview];
+    HGARemoveSheetVideo(state);
     HGAAlignEpisodePreview(state,nil);
     HGARemoveGlass(surface);
     HGARestoreSheetOptics(state);
@@ -1026,7 +1122,15 @@ static void HGAUpdateCommentSurface(UIView *surfaceView) {
 static BOOL HGAApplySettingsPanelPart(HGAActionSheetState *state, UIView *view) {
     if([view isKindOfClass:objc_lookUpClass("FQVShortVideoSettingsOptionView")]) {
         BOOL selected=NO;
-        if(HGABoolGetter(view,@"isSelected",&selected))HGAApplySheetPlate(state,view,selected);
+        if(HGABoolGetter(view,@"isSelected",&selected)) {
+            HGAApplySheetPlate(state,view,selected);
+            // The quality chip also mounts a white shadow plate underneath
+            // its title. Do not invoke shadowLayer, which creates it lazily.
+            Ivar field=class_getInstanceVariable(view.class,"_shadowLayer");
+            const char *type=field ? ivar_getTypeEncoding(field) : NULL;
+            CALayer *shadow=type && !strcmp(type,"@\"CALayer\"") ? object_getIvar(view,field) : nil;
+            if(shadow.superlayer)HGAApplySheetLayer(state,view,shadow,selected);
+        }
         return YES;
     }
     if([view isKindOfClass:objc_lookUpClass("FQVShortVideoSettingsSwitchOptionView")]) {
@@ -1105,6 +1209,10 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
     BOOL reduceTransparency=UIAccessibilityIsReduceTransparencyEnabled();
     CGFloat opacity=reduceTransparency?1:HGAppearanceNumber(@"panels.opacity");
     NSString *material=HGAppearanceString(@"panels.material");
+    if(share) {
+        NSString *choice=HGAppearanceString(longPress ? @"panels.longpressMaterial" : @"panels.shareMaterial");
+        if(![choice isEqual:@"inherit"])material=choice;
+    }
     NSString *commentMaterial=comment ? HGAppearanceString(@"panels.commentMaterial") : nil;
     BOOL frosted=[commentMaterial isEqual:@"frosted"];
     if (comment && ![commentMaterial isEqual:@"inherit"])
@@ -1115,7 +1223,12 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
         HGARestoreSheetOptics(state);
     }
     state.nativeClear=clear;
-    HGAApplySheetAppearanceStyle(state,clear);
+    HGAApplySheetAppearanceStyle(state,clear || (share && !reduceTransparency));
+    NSString *renderStyle=clear && !frosted && !share ? @"clear" : material;
+    HGAInstallGlass(surface,renderStyle,clear?0:radius,opacity);
+    HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
+    if(share && !reduceTransparency)HGAUpdateSheetVideo(state,glass,radius,opacity);
+    else if(state.videoBackdrop)HGARemoveSheetVideo(state);
     BOOL convertsInk=HGASheetUsesConvertedInk(state);
     if(!convertsInk) {
         for(UILabel *label in state.labels.keyEnumerator.allObjects)HGARestoreSheetLabel(state,label);
@@ -1124,16 +1237,13 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
             HGARestoreShareInk(entry);[state.shareCells removeObject:entry];
         }
     }
-    NSString *renderStyle=clear && !frosted ? @"clear" : material;
-    HGAInstallGlass(surface,renderStyle,clear?0:radius,opacity);
-    HGAAppearanceMaterial *glass=HGAState(surface,NO).glass;
     if(!state.overlay || state.overlayOpacity!=opacity) {
         state.overlayOpacity=opacity;
         state.overlay=(comment || episodes) ? [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
             return [UIColor colorWithWhite:(traits.userInterfaceStyle==UIUserInterfaceStyleDark ? 0.08 : 1.0) alpha:opacity];
         }] : HGAActionSheetColor(opacity);
     }
-    glass.overlayColor=clear?UIColor.clearColor:state.overlay;
+    glass.overlayColor=clear || state.videoBackdrop ? UIColor.clearColor : state.overlay;
     glass.clipsToBounds=!clear;
     [glass requestMaterialRefresh];
     if(clear) {

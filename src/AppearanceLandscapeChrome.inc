@@ -24,7 +24,7 @@ static NSArray<NSString *> *HGALandscapeChromeClasses(void) {
 }
 
 static const CGFloat HGALandscapeButtonDiameter = 44;
-static const CGFloat HGALandscapeGap = 4;
+static const CGFloat HGALandscapeGap = 10;
 
 // The host wins normal hit testing. The HUD can explicitly return this button
 // for the extra rim of a nontracking playback option outside its native bounds.
@@ -45,6 +45,9 @@ static const CGFloat HGALandscapeGap = 4;
 @property(nonatomic,weak) UILabel *positionedLabel;
 @property(nonatomic) CGRect hostLabelFrame;
 @property(nonatomic) CGRect appliedLabelFrame;
+@property(nonatomic) BOOL positionedTarget;
+@property(nonatomic) CGPoint hostCenter;
+@property(nonatomic) CGPoint appliedCenter;
 @property(nonatomic,strong) UIColor *sourceBackground;
 @property(nonatomic,weak) UIView *coveredPaint;
 @property(nonatomic,weak) UILabel *counter;
@@ -87,7 +90,7 @@ static UIView *HGALandscapeHit(UIView *hud,SEL cmd,CGPoint point,UIEvent *event)
 }
 
 // A model/title refresh may replace the label or lay it out again while enabled.
-static void HGALandscapePositionLabel(HGALandscapeSurface *state, UILabel *label, CGFloat minX, CGFloat maxX) {
+static void HGALandscapePositionLabel(HGALandscapeSurface *state, UILabel *label, CGFloat minX, CGFloat maxX,CGFloat dy) {
     UILabel *previous = state.positionedLabel;
     if (previous && previous != label && CGRectEqualToRect(previous.frame, state.appliedLabelFrame))
         previous.frame = state.hostLabelFrame;
@@ -96,10 +99,24 @@ static void HGALandscapePositionLabel(HGALandscapeSurface *state, UILabel *label
         state.hostLabelFrame = label.frame;
     CGRect adjusted = state.hostLabelFrame;
     adjusted.origin.x = MAX(CGRectGetMinX(adjusted), minX);
+    adjusted.origin.y += dy;
     adjusted.size.width = MIN(adjusted.size.width, MAX(0, maxX - adjusted.origin.x));
     state.positionedLabel = label;
     state.appliedLabelFrame = adjusted;
     if (!CGRectEqualToRect(label.frame, adjusted)) label.frame = adjusted;
+}
+
+// Host layout can rewrite just one axis (for example when the brightness
+// slider expands). Remember each native coordinate independently.
+static void HGALandscapeOffsetTarget(HGALandscapeSurface *state,UIView *target,CGFloat dx,CGFloat dy) {
+    CGPoint current=target.center, source=state.hostCenter;
+    if (!state.positionedTarget || current.x!=state.appliedCenter.x) source.x=current.x;
+    if (!state.positionedTarget || current.y!=state.appliedCenter.y) source.y=current.y;
+    CGPoint placed=CGPointMake(source.x+dx,source.y+dy);
+    state.hostCenter=source;
+    state.appliedCenter=placed;
+    state.positionedTarget=dx!=0 || dy!=0;
+    if (!CGPointEqualToPoint(placed,current)) target.center=placed;
 }
 
 static void HGARestoreLandscapeSurface(UIView *target,HGALandscapeSurface *state) {
@@ -110,7 +127,8 @@ static void HGARestoreLandscapeSurface(UIView *target,HGALandscapeSurface *state
     HGASetHidden(state.coveredPaint,NO);
     HGARestoreGeometry(state.counter);
     HGARestoreGeometry(state.counterIcon);
-    HGALandscapePositionLabel(state,nil,0,0);
+    HGALandscapePositionLabel(state,nil,0,0,0);
+    if(state.positionedTarget)HGALandscapeOffsetTarget(state,target,0,0);
     HGASetHidden(state.nativeOptionTitle,NO);
     [state.glass.press.view removeGestureRecognizer:state.glass.press];
     [state.glass removeFromSuperview];
@@ -359,6 +377,15 @@ static void HGALandscapeApplyView(UIView *root) {
     [CATransaction setDisableActions:YES];
     for(UIView *target in targets) {
         if(!target.superview)continue;
+        HGALandscapeSurface *state=[states objectForKey:target];
+        if(!state){state=[HGALandscapeSurface new];[states setObject:state forKey:target];}
+        if(target==back) HGALandscapeOffsetTarget(state,target,8,5);
+        else if([kind isEqual:@"FQVShortVideoLandscapeNavBar"]) HGALandscapeOffsetTarget(state,target,-5,5);
+        else if(info && target==HGAViewGetter(root,"moreBtn",root)) HGALandscapeOffsetTarget(state,target,5,5);
+        else if(control) HGALandscapeOffsetTarget(state,target,6,-6);
+        else if(adjustmentButton) HGALandscapeOffsetTarget(state,target,[kind isEqual:@"FQVLandscapeVolumeButton"] ? -6 : 6,4);
+        else if(inflow) HGALandscapeOffsetTarget(state,target,4,-3);
+        else if(biz || options) HGALandscapeOffsetTarget(state,target,0,-2);
         NSArray<UIView *> *counter=[counters objectForKey:target];
         BOOL inside=adjustment || target==input || counter || (target!=back && !target.clipsToBounds &&
             ![target isKindOfClass:UIImageView.class] && ![target isKindOfClass:UILabel.class]);
@@ -402,13 +429,11 @@ static void HGALandscapeApplyView(UIView *root) {
             if (biz && target!=input && frame.size.width<frame.size.height)
                 frame=CGRectInset(frame,0,(frame.size.height-frame.size.width)/2);
         }
-        HGALandscapeSurface *state=[states objectForKey:target];
         if(CGRectIsEmpty(frame)) {
             HGARestoreLandscapeSurface(target,state);
             [states removeObjectForKey:target];
             continue;
         }
-        if(!state){state=[HGALandscapeSurface new];[states setObject:state forKey:target];}
         if(target==input) {
             if(state.coveredPaint!=inputPaint)HGASetHidden(state.coveredPaint,NO);
             state.coveredPaint=inputPaint;
@@ -427,12 +452,12 @@ static void HGALandscapeApplyView(UIView *root) {
                     CGRect right=[nav convertRect:nav.bounds toView:title.superview];
                     if (CGRectGetMinX(right)>CGRectGetMaxX(arrow))edge=MIN(edge,CGRectGetMinX(right)-12);
                 }
-                HGALandscapePositionLabel(state,(UILabel *)title,CGRectGetMaxX(arrow)+12,edge);
+                HGALandscapePositionLabel(state,(UILabel *)title,CGRectGetMaxX(arrow)+14,edge,5);
             }
         } else if (target==input) {
             UILabel *placeholder=(id)HGAViewGetter(root,"danmakuInputLabel",input);
             if ([placeholder isKindOfClass:UILabel.class] && placeholder.superview==input)
-                HGALandscapePositionLabel(state,placeholder,CGRectGetMinX(frame)+10,CGRectGetMaxX(frame)-10);
+                HGALandscapePositionLabel(state,placeholder,CGRectGetMinX(frame)+10,CGRectGetMaxX(frame)-10,0);
         }
     }
     [CATransaction commit];

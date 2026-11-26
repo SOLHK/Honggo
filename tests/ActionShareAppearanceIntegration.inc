@@ -5,6 +5,14 @@
 @property(nonatomic,strong) UIView *topContentView;
 @end
 @implementation FQVTransitionView @end
+@interface HGASheetPlayerContainerFixture : UIView
+@property(nonatomic,weak) UIView *realPlayerView;
+@end
+@implementation HGASheetPlayerContainerFixture @end
+@interface HGASheetTopPreviewFixture : UIView
+@property(nonatomic,strong) UIView *playerContainerView;
+@end
+@implementation HGASheetTopPreviewFixture @end
 @interface SSShortVideoMorePanelShareHeaderView : UIView
 @property(nonatomic,strong) UICollectionView *collectionView;
 @end
@@ -39,6 +47,7 @@
 @end
 @interface FQVShortVideoSettingsOptionView : UIView
 @property(nonatomic,getter=isSelected,setter=setIsSelected:) BOOL selected;
+@property(nonatomic,strong) CALayer *shadowLayer;
 @end
 @implementation FQVShortVideoSettingsOptionView
 - (void)setIsSelected:(BOOL)value {
@@ -723,12 +732,15 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
                 @"an inset row's original theme refresh cannot restore its dark matte or dark text and arrows over clear glass");
         }
         FQVShortVideoSettingsOptionView *resolution=[[FQVShortVideoSettingsOptionView alloc] initWithFrame:CGRectMake(120,310,45,30)];
+        resolution.shadowLayer=[CALayer layer];
+        resolution.shadowLayer.backgroundColor=UIColor.whiteColor.CGColor;
+        [resolution.layer insertSublayer:resolution.shadowLayer atIndex:0];
         FQVShortVideoSettingsSwitchOptionView *speed=[[FQVShortVideoSettingsSwitchOptionView alloc] initWithFrame:CGRectMake(190,310,62,30)];
         speed.selectionBackgroundView=[[UIView alloc] initWithFrame:speed.bounds];[speed addSubview:speed.selectionBackgroundView];
         [panel.view addSubview:resolution];[panel.view addSubview:speed];
         [resolution setIsSelected:YES];speed.optionSelected=YES;
         Check(CGColorGetAlpha(resolution.layer.backgroundColor)<0.4 &&
-            CGColorGetAlpha(resolution.layer.backgroundColor)>0.05 &&
+            CGColorGetAlpha(resolution.layer.backgroundColor)>0.05 && CGColorGetAlpha(resolution.shadowLayer.backgroundColor)<0.4 &&
             CGColorGetAlpha(speed.selectionBackgroundView.layer.backgroundColor)<0.4 &&
             CGColorGetAlpha(speed.selectionBackgroundView.layer.backgroundColor)>0.05,
             @"native speed and quality selection use a translucent highlight without hard white tiles");
@@ -774,7 +786,33 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
         Check(HGAWriteModulePreview(panel.view,@"share-preview.png"),@"controlled UIKit longpress sheet preview renders to PNG for visual review");
         [previewBackdrop removeFromSuperview];drawing.hidden=NO;
         table.dataSource=nil;[table reloadData];
+        // Match the device's split hierarchy. The container's child is empty
+        // and the visible TT renderer stays mounted in its original hierarchy.
+        TTPlayerView *renderer=[[TTPlayerView alloc] initWithFrame:CGRectMake(24,60,386,225)];
+        [transition insertSubview:renderer atIndex:0];
+        HGASheetTopPreviewFixture *topPreview=[[HGASheetTopPreviewFixture alloc] initWithFrame:CGRectMake(0,0,440,287)];
+        HGASheetPlayerContainerFixture *container=[[HGASheetPlayerContainerFixture alloc] initWithFrame:renderer.frame];
+        [container addSubview:[[UIView alloc] initWithFrame:container.bounds]];
+        container.realPlayerView=renderer;topPreview.playerContainerView=container;[topPreview addSubview:container];
+        transition.topContentView=topPreview;[transition insertSubview:topPreview belowSubview:outsideTap];
+        [panel viewDidLayoutSubviews];
+        UIView *video=Find(panel.view,@"honggo.appearance.sheet.video");
+        if(!reduced) {
+            UIView *mirror=video.subviews.firstObject;
+            Check(video==panel.view.subviews.firstObject && video && panel.view.subviews[1]==base &&
+                [mirror valueForKey:@"sourceView"]==renderer.subviews.firstObject &&
+                CGRectContainsRect(CGRectInset(mirror.frame,-0.5,-0.5),video.bounds) &&
+                !video.userInteractionEnabled && !renderer.hidden && [transition hitTest:CGPointMake(100,80) withEvent:nil]==outsideTap,
+                @"the longpress glass samples an aspect-filled live renderer beneath the controls and leaves preview and dismissal intact");
+            HGAppearanceSet(@"panels.longpressMaterial",@"blur",nil);Layout(base);
+            Check([base.effect isKindOfClass:UIBlurEffect.class] && Find(panel.view,@"honggo.appearance.sheet.video")==video &&
+                [base.contentView.backgroundColor isEqual:UIColor.clearColor],
+                @"choosing blur for longpress retains the same current video without a solid fill");
+            HGAppearanceSet(@"panels.longpressMaterial",@"inherit",nil);
+        }
         HGAppearanceSet(@"panels.longpress",@NO,nil);
+        Check(!Find(panel.view,@"honggo.appearance.sheet.video") && !video.superview && !renderer.hidden,
+            @"disabling longpress unmounts its video mirror without changing the host renderer");
         Check(!dock.hidden,@"disabling longpress glass restores Dock visibility");
         Check([lateRow.backgroundColor isEqual:nativeRowColor] && [lateRow.contentView.backgroundColor isEqual:nativeRowColor],
             @"disabling longpress glass restores native function row colors");
@@ -824,6 +862,14 @@ static void RunActionShareAppearanceChecks(SSTabBarController *host) {
             @"verified native share panel receives the same material within its dismissible full-screen wrapper");
         if(nativeGlass)Check([nativeSharePanel.contentView.backgroundColor isEqual:UIColor.clearColor] &&
             [transition.bgView.backgroundColor isEqual:UIColor.clearColor],@"share also uses the untinted backdrop");
+        if(!reduced) {
+            UIView *shareVideo=Find(shareSheet,@"honggo.appearance.sheet.video");
+            HGAppearanceSet(@"panels.shareMaterial",@"blur",nil);Layout(nativeSharePanel);
+            Check(shareVideo && shareVideo.superview==shareSheet && shareSheet.subviews.firstObject==shareVideo &&
+                [nativeSharePanel.effect isKindOfClass:UIBlurEffect.class] && [HGAppearanceString(@"panels.longpressMaterial") isEqual:@"inherit"],
+                @"the short share sheet can choose its own blur with a real picture below its material");
+            HGAppearanceSet(@"panels.shareMaterial",@"inherit",nil);
+        }
         HGAppearanceSet(@"panels.share",@NO,nil);
         Check(!Find(shareSheet,@"honggo.appearance.material") && [shareSheet.backgroundColor isEqual:UIColor.whiteColor],
             @"standalone share control restores its native backing independently of longpress");

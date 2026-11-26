@@ -16,12 +16,6 @@ static BOOL HGSettingsMatches(NSString *text, NSString *query) {
     return YES;
 }
 
-static NSString *HGSettingsFeatureTitle(HGFeature feature) {
-    if (feature == HGGlass && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26)
-        return @"系统模糊底栏";
-    return HGFeatureTitle(feature);
-}
-
 static BOOL HGActivateSwitchRow(UITableView *table, NSIndexPath *path) {
     UIView *accessory = [table cellForRowAtIndexPath:path].accessoryView;
     if (![accessory isKindOfClass:UISwitch.class]) return NO;
@@ -282,15 +276,30 @@ NSData *HGConfigurationBackupExport(NSError **error) {
         HGBackupFailure(error, 1, @"无法整理当前功能与外观设置。");
         return nil;
     }
+    NSMutableDictionary *currentFeatures=features.mutableCopy;
+    [currentFeatures removeObjectsForKeys:@[@"glass",@"glassControls"]];
     NSDictionary *document = @{
         @"format": @"Honggo.backup",
         @"schema": @2,
         @"pluginVersion": HG_PLUGIN_VERSION,
-        @"features": features,
+        @"features": currentFeatures,
         @"appearance": appearance
     };
     return [NSJSONSerialization dataWithJSONObject:document
         options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:error];
+}
+
+static NSDictionary *HGMergeLegacyBackupGlass(NSDictionary *backup) {
+    NSDictionary *features=backup[@"features"];
+    if (![features isKindOfClass:NSDictionary.class] || (!features[@"glass"] && !features[@"glassControls"])) return backup;
+    if (backup[@"appearance"] && ![backup[@"appearance"] isKindOfClass:NSDictionary.class]) return backup;
+    NSMutableDictionary *appearance=[backup[@"appearance"] mutableCopy] ?: [NSMutableDictionary dictionary];
+    BOOL enabled=[appearance[@"enabled"] boolValue] || [features[@"glass"] boolValue] || [features[@"glassControls"] boolValue];
+    appearance[@"enabled"]=@(enabled);
+    if ([features[@"glass"] boolValue]) appearance[@"dock.enabled"]=@YES;
+    NSMutableDictionary *remaining=features.mutableCopy;
+    [remaining removeObjectsForKeys:@[@"glass",@"glassControls"]];
+    return remaining.count ? @{@"appearance":appearance, @"features":remaining} : @{@"appearance":appearance};
 }
 
 NSDictionary *HGConfigurationBackupParse(NSData *data, NSError **error) {
@@ -308,7 +317,7 @@ NSDictionary *HGConfigurationBackupParse(NSData *data, NSError **error) {
     NSString *format = root[@"format"];
     if ([format isEqual:@"Honggo.preferences"]) {
         NSDictionary *features = HGPreferencesParse(data, error);
-        return features ? @{@"features": features} : nil;
+        return features ? HGMergeLegacyBackupGlass(@{@"features": features}) : nil;
     }
     if ([format isEqual:@"Honggo.appearance"]) {
         NSDictionary *appearance = HGAppearanceParse(data, error);
@@ -366,11 +375,12 @@ NSDictionary *HGConfigurationBackupParse(NSData *data, NSError **error) {
         if (!validatedAppearance) return nil;
         result[@"appearance"] = validatedAppearance;
     }
-    return result.copy;
+    return HGMergeLegacyBackupGlass(result);
 }
 
 NSUInteger HGConfigurationBackupChangeCount(NSDictionary *backup) {
     if (![backup isKindOfClass:NSDictionary.class]) return 0;
+    backup=HGMergeLegacyBackupGlass(backup);
     NSUInteger changes = 0;
     NSDictionary *features = backup[@"features"];
     if ([features isKindOfClass:NSDictionary.class]) changes += HGPreferencesChangeCount(features);
@@ -418,10 +428,15 @@ BOOL HGConfigurationBackupApply(NSDictionary *backup, NSError **error) {
             return HGBackupFailure(error, 6, @"至少保留一个底栏导航项目。");
         appearance = parsedAppearance;
     }
+    if (features[@"glass"] || features[@"glassControls"]) {
+        NSMutableDictionary *validated=[@{@"features":features} mutableCopy];
+        if (appearance) validated[@"appearance"]=appearance;
+        NSDictionary *merged=HGMergeLegacyBackupGlass(validated);
+        features=merged[@"features"];
+        appearance=merged[@"appearance"];
+    }
     if (appearance && !HGAppearanceApply(appearance, error)) return NO;
     if (features && !HGPreferencesApply(features, error)) return NO;
-    if ((HGIsEnabled(HGGlass) || HGIsEnabled(HGGlassControls) || HGAppearanceNeedsGlass()))
-        HGPrepareNativeGlass();
     if (features)
         [NSNotificationCenter.defaultCenter postNotificationName:@"Honggo.FeaturePreferencesDidChange" object:nil];
     HGAppearanceRefresh();
@@ -500,10 +515,6 @@ BOOL HGConfigurationBackupApply(NSDictionary *backup, NSError **error) {
         [rows addObject:@{@"kind":@"appearance",@"group":@"general",@"title":@"外观总开关",@"id":@"honggo.settings.appearance.general"}];
         [rows addObject:@{@"kind":@"appearance",@"group":@"fonts",@"title":@"字体与字号",@"id":@"honggo.settings.appearance.fonts"}];
         [rows addObject:@{@"kind":@"appearance",@"group":@"panelMaterial",@"title":@"面板材质",@"id":@"honggo.settings.appearance.material"}];
-        [rows addObject:@{@"kind":@"subpage",@"page":@"base",@"title":@"系统玻璃与兼容",@"id":@"honggo.settings.appearance.base"}];
-    } else if ([pid isEqual:@"base"]) {
-        self.title = @"基础与兼容开关";
-        for (NSNumber *f in @[@(HGGlass), @(HGGlassControls)]) [rows addObject:@{@"kind": @"feature", @"feature": f}];
     } else if ([pid isEqual:@"backup"]) {
         self.title = @"导出与备份";
         [rows addObject:@{@"kind": @"action", @"section": @2, @"action": @0, @"title": @"导出功能配置", @"id": @"honggo.preferences.export"}];
@@ -523,12 +534,6 @@ BOOL HGConfigurationBackupApply(NSDictionary *backup, NSError **error) {
         return @"配置文件保存 Honggo 的全部功能开关、外观布局与屏蔽词设置（不含账号与日志）。恢复后界面外观立即生效；若更改了广告拦截开关，请完全退出红果后重开。";
     if ([pid isEqual:@"community"])
         return @"查看插件更新与测试版公告。只有点击打开或复制时才执行操作，不会自动加入频道。";
-    if ([pid isEqual:@"base"]) {
-        NSString *mode = HGNativeGlassConfigured() ?
-            @"本次启动已配置系统玻璃。关闭两个原有玻璃开关及外观定制并重启后，插件停止启用该配置。" :
-            @"iOS 26 及以上打开玻璃开关并重启后，会在启动时请求系统玻璃；旧系统底栏使用模糊材质。";
-        return [@"功能开关更改后请完全退出红果短剧，再重新打开。" stringByAppendingString:mode];
-    }
     if ([pid hasPrefix:@"ads."]) return @"功能开关更改后请完全退出红果短剧，再重新打开。";
     return nil;
 }
@@ -538,10 +543,8 @@ BOOL HGConfigurationBackupApply(NSDictionary *backup, NSError **error) {
     if ([kind isEqual:@"feature"]) {
         HGFeature feature = [row[@"feature"] unsignedIntegerValue];
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-        NSString *title = HGSettingsFeatureTitle(feature);
+        NSString *title = HGFeatureTitle(feature);
         cell.textLabel.text = title;
-        cell.detailTextLabel.text = feature == HGGlassControls && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 ?
-            @"需要 iOS 26 及以上" : nil;
         cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
         cell.detailTextLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
         cell.textLabel.adjustsFontForContentSizeCategory = YES;
@@ -859,7 +862,8 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
     }
     NSMutableArray *features = [NSMutableArray array], *diagnostics = [NSMutableArray array], *configuration = [NSMutableArray array];
     for (HGFeature feature = 0; feature < HGFeatureCount; feature++) {
-        NSString *text = [HGFeatureSearchText(feature) stringByAppendingFormat:@" %@", HGSettingsFeatureTitle(feature)];
+        if (feature==HGGlass || feature==HGGlassControls) continue;
+        NSString *text = HGFeatureSearchText(feature);
         if (HGSettingsMatches(text, trimmed)) [features addObject:@(feature)];
     }
     NSArray *configurationAliases = @[@"备份 导出 配置 backup export", @"备份 导入 恢复 配置 restore import"];
@@ -998,10 +1002,8 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
             cell.accessoryView = toggle;
         }
         HGFeature feature = self.visibleFeatures[indexPath.row].unsignedIntegerValue;
-        NSString *title = HGSettingsFeatureTitle(feature);
+        NSString *title = HGFeatureTitle(feature);
         cell.textLabel.text = title;
-        cell.detailTextLabel.text = feature == HGGlassControls && NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 ?
-            @"需要 iOS 26 及以上" : nil;
         UISwitch *toggle = (UISwitch *)cell.accessoryView;
         toggle.tag = (NSInteger)feature;
         toggle.accessibilityIdentifier = [@"hg.option." stringByAppendingString:HGFeatureIdentifier(feature)];
@@ -1032,13 +1034,7 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
     HGFeature feature = (HGFeature)toggle.tag;
     if (HGSetEnabled(feature, toggle.on)) {
         HGLog(@"settings.toggle", @{@"feature": HGFeatureIdentifier(feature), @"enabled": @(toggle.on)});
-        if ((feature == HGGlass || feature == HGGlassControls) && toggle.on)
-            HGPrepareNativeGlass();
-        if (feature == HGGlassControls && toggle.on)
-            HGInstallControls();
         [NSNotificationCenter.defaultCenter postNotificationName:@"Honggo.FeaturePreferencesDidChange" object:@(feature)];
-        if (feature == HGGlass || feature == HGGlassControls)
-            HGAppearanceRefresh();
     }
 }
 - (UIViewController *)activePresenter:(UIViewController *)preferred {

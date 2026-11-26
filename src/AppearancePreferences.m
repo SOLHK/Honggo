@@ -91,6 +91,8 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         NSMutableArray *a = [NSMutableArray array];
         void (^flag)(NSString *,NSString *,NSString *) = ^(NSString *key, NSString *group, NSString *title) {
             [a addObject:HGADef(key,group,title,@"bool",@NO,nil)]; };
+        void (^visibility)(NSString *,NSString *,NSString *) = ^(NSString *key, NSString *group, NSString *title) {
+            [a addObject:HGADef(key,group,title,@"bool",@NO,@{@"inverted":@YES})]; };
         void (^number)(NSString *,NSString *,NSString *,double,double,double) = ^(NSString *key, NSString *group, NSString *title, double value, double low, double high) {
             [a addObject:HGADef(key,group,title,@"number",@(value),@{@"min":@(low),@"max":@(high)})]; };
         void (^choice)(NSString *,NSString *,NSString *,NSArray *,NSArray *) = ^(NSString *key, NSString *group, NSString *title, NSArray *values, NSArray *titles) {
@@ -99,8 +101,9 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             [a addObject:HGADef(key,group,title,@"choice",initial,
                 @{@"choices":@[@"flat",@"glass"], @"labels":@[@"平面",@"液态玻璃"]})];
         };
-        flag(@"enabled",@"general",@"启用外观定制");
-        flag(@"dock.enabled",@"dock",@"使用可定制悬浮底栏");
+        [a addObject:HGADef(@"enabled",@"general",@"启用外观定制",@"bool",@NO,
+            @{@"keywords":@"系统玻璃与兼容 液态玻璃底栏 原生液态玻璃按钮 原生控件 glass controls tab bar"})];
+        [a addObject:HGADef(@"dock.enabled",@"dock",@"使用可定制悬浮底栏",@"bool",@YES,nil)];
         buttonStyle(@"dock.style",@"dock",@"底栏按钮风格",@"glass");
         choice(@"dock.selectionStyle",@"dock",@"底栏选中效果",@[@"glass",@"plain"],@[@"液态玻璃选中",@"普通选中"]);
         choice(@"dock.material",@"dock",@"底栏材质",@[@"regular",@"clear",@"blur",@"solid"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）",@"纯色"]);
@@ -119,16 +122,16 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         choice(@"dock.action",@"dock",@"独立按钮操作",@[@"settings",@"search",@"home",@"theater",@"store",@"mine"],@[@"Honggo 设置",@"搜索",@"首页",@"剧场",@"商城",@"我的"]);
         NSArray *tabIDs = @[@"home",@"theater",@"store",@"mine"];
         NSArray *tabNames = @[@"首页",@"剧场",@"商城",@"我的"];
-        for (NSUInteger i=0; i<tabIDs.count; i++) flag([@"dock.hide." stringByAppendingString:tabIDs[i]],@"dock",[@"隐藏" stringByAppendingString:tabNames[i]]);
+        for (NSUInteger i=0; i<tabIDs.count; i++) visibility([@"dock.hide." stringByAppendingString:tabIDs[i]],@"dock",[@"显示" stringByAppendingString:tabNames[i]]);
         flag(@"player.rightGlass",@"player",@"自定义播放动作按钮");
-        flag(@"player.hideFeedAvatarPhoto",@"player",@"隐藏作者头像图片");
-        flag(@"player.hideFeedFollow",@"player",@"隐藏头像上的关注按钮");
-        flag(@"player.hideFeedDanmakuToggle",@"player",@"隐藏弹幕开关按钮");
-        flag(@"player.hideFeedDanmakuPublish",@"player",@"隐藏发弹幕入口");
-        flag(@"player.hideFeedCollectCount",@"player",@"隐藏收藏数");
-        flag(@"player.hideFeedCommentCount",@"player",@"隐藏评论数");
-        flag(@"player.hideFeedLikeCount",@"player",@"隐藏点赞数");
-        flag(@"player.hideFeedShareCaption",@"player",@"隐藏分享按钮下方文字");
+        visibility(@"player.hideFeedAvatarPhoto",@"player",@"显示作者头像图片");
+        visibility(@"player.hideFeedFollow",@"player",@"显示头像上的关注按钮");
+        visibility(@"player.hideFeedDanmakuToggle",@"player",@"显示弹幕开关按钮");
+        visibility(@"player.hideFeedDanmakuPublish",@"player",@"显示发弹幕入口");
+        visibility(@"player.hideFeedCollectCount",@"player",@"显示收藏数");
+        visibility(@"player.hideFeedCommentCount",@"player",@"显示评论数");
+        visibility(@"player.hideFeedLikeCount",@"player",@"显示点赞数");
+        visibility(@"player.hideFeedShareCaption",@"player",@"显示分享按钮下方文字");
         buttonStyle(@"player.actionStyle",@"player",@"播放动作按钮风格",@"glass");
         choice(@"player.collectGlyph",@"player",@"收藏按钮图标",@[@"star",@"sparkles"],@[@"五角星",@"闪光星"]);
         flag(@"player.headerGlass",@"chrome",@"自定义顶部按钮");
@@ -137,34 +140,34 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         NSArray *channelIDs=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
         NSArray *channelNames=@[@"菜单",@"关注",@"漫剧",@"真人剧",@"推荐",@"搜索"];
         for(NSUInteger i=0;i<channelIDs.count;i++)
-            flag([@"layout.channels.hide." stringByAppendingString:channelIDs[i]],@"chrome",
-                [@"隐藏顶部" stringByAppendingString:channelNames[i]]);
-        [a addObject:HGADef(@"player.hideFollowRecommendUsers",@"chrome",@"隐藏关注页推荐用户卡片",@"bool",@NO,
-            @{@"keywords":@"关注 推荐其他精选用户 关注内容已刷完 精选用户 换一个"})];
+            visibility([@"layout.channels.hide." stringByAppendingString:channelIDs[i]],@"chrome",
+                [@"显示顶部" stringByAppendingString:channelNames[i]]);
+        [a addObject:HGADef(@"player.hideFollowRecommendUsers",@"chrome",@"显示关注页推荐用户卡片",@"bool",@NO,
+            @{@"inverted":@YES, @"keywords":@"关注 推荐其他精选用户 关注内容已刷完 精选用户 换一个"})];
         [a addObject:HGADef(@"player.finderGlass",@"chrome",@"找剧搜索与快捷入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.finderSearch",@"chrome",@"显示找剧搜索框",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.finderRecognition",@"chrome",@"显示识剧按钮",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.finderAI",@"chrome",@"显示找剧 AI 星形按钮",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.mineGlass",@"mine",@"我的页面控件玻璃",@"bool",@YES,nil)];
-        flag(@"finder.hide.category.row",@"chrome",@"隐藏整个找剧频道栏");
+        visibility(@"finder.hide.category.row",@"chrome",@"显示整个找剧频道栏");
         NSArray *finderTabs=@[@"dramas",@"live",@"community",@"comics",@"films",@"audio",@"novels",@"manga",@"long"];
         NSArray *finderNames=@[@"找剧",@"真人剧",@"社区",@"漫剧",@"电影",@"听书",@"小说",@"漫画",@"长视频"];
         for(NSUInteger i=0;i<finderTabs.count;i++)
-            flag([@"finder.hide.category." stringByAppendingString:finderTabs[i]],@"chrome",
-                [@"隐藏" stringByAppendingString:finderNames[i]]);
+            visibility([@"finder.hide.category." stringByAppendingString:finderTabs[i]],@"chrome",
+                [@"显示" stringByAppendingString:finderNames[i]]);
         NSArray *finderShortcuts=@[@"filter",@"ranking",@"new",@"reserve"];
         NSArray *finderShortcutNames=@[@"筛选",@"排行榜",@"新剧",@"预约"];
         for(NSUInteger i=0;i<finderShortcuts.count;i++)
-            flag([@"finder.hide.shortcut." stringByAppendingString:finderShortcuts[i]],@"chrome",
-                [@"隐藏" stringByAppendingString:finderShortcutNames[i]]);
-        flag(@"mine.hide.shortcut.row",@"mine",@"隐藏整行快捷入口");
+            visibility([@"finder.hide.shortcut." stringByAppendingString:finderShortcuts[i]],@"chrome",
+                [@"显示" stringByAppendingString:finderShortcutNames[i]]);
+        visibility(@"mine.hide.shortcut.row",@"mine",@"显示整行快捷入口");
         for (NSDictionary *entry in HGHostSettingsEntries()) {
             [a addObject:HGADef(entry[@"key"], @"mine", entry[@"title"], @"bool", @YES,
                 @{@"keywords":@"红果设置项 显示 隐藏"})];
         }
         for(NSDictionary *entry in HGMineDrawerEntries())
-            [a addObject:HGADef(entry[@"key"],@"mine",[@"隐藏" stringByAppendingString:entry[@"title"]],
-                @"bool",@NO,@{@"keywords":@"我的页面 右侧菜单 侧边栏 抽屉"})];
+            [a addObject:HGADef(entry[@"key"],@"mine",[@"显示" stringByAppendingString:entry[@"title"]],
+                @"bool",@NO,@{@"inverted":@YES, @"keywords":@"我的页面 右侧菜单 侧边栏 抽屉"})];
         [a addObject:HGADef(@"mine.show.publish",@"mine",@"显示悬浮发布按钮",@"bool",@YES,
             @{@"keywords":@"我的 作品 写剧评 加号 ＋ 发布"})];
         [a addObject:HGADef(@"mine.show.theme",@"mine",@"显示日夜模式按钮",@"bool",@YES,
@@ -172,8 +175,8 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         NSArray *mineShortcuts=@[@"store",@"messages",@"games",@"updates",@"more"];
         NSArray *mineShortcutNames=@[@"订单／商城",@"消息",@"游戏",@"追更",@"更多功能"];
         for(NSUInteger i=0;i<mineShortcuts.count;i++)
-            flag([@"mine.hide.shortcut." stringByAppendingString:mineShortcuts[i]],@"mine",
-                [@"隐藏" stringByAppendingString:mineShortcutNames[i]]);
+            visibility([@"mine.hide.shortcut." stringByAppendingString:mineShortcuts[i]],@"mine",
+                [@"显示" stringByAppendingString:mineShortcutNames[i]]);
         [a addObject:HGADef(@"gestures.pinchClean",@"gestures",@"双指展开清屏、收缩恢复",@"bool",@NO,
             @{@"keywords":@"双指清屏 捏合恢复 双指放大 双指缩小"})];
         [a addObject:HGADef(@"gestures.cleanWhilePlaying",@"gestures",@"播放时自动清屏",@"bool",@NO,
@@ -184,29 +187,29 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         [a addObject:HGADef(@"player.episodeDockWidth",@"player",@"全集入口与 Dock 等宽",@"bool",@NO,
             @{@"keywords":@"观看完整短剧 观看完整剧集 合集 液态玻璃 底栏 长度 宽度"})];
         [a addObject:HGADef(@"player.controlsGlass",@"player",@"返回、倍速、弹幕和全屏按钮玻璃",@"bool",@YES,nil)];
-        flag(@"player.hide.followRank",@"player",@"隐藏追更榜按钮");
-        flag(@"player.hide.seriesBadge",@"player",@"隐藏系列剧按钮");
-        flag(@"player.hideAIFictionNotice",@"player",@"隐藏 AI 剧情虚构提示");
+        visibility(@"player.hide.followRank",@"player",@"显示追更榜按钮");
+        visibility(@"player.hide.seriesBadge",@"player",@"显示系列剧按钮");
+        visibility(@"player.hideAIFictionNotice",@"player",@"显示 AI 剧情虚构提示");
         [a addObject:HGADef(@"video.blockedKeywords",@"drama",@"屏蔽视频关键词",@"keywordList",@[],
             @{@"keywords":@"视频过滤 屏蔽词 关键词屏蔽"})];
         [a addObject:HGADef(@"player.commentMovesVideo",@"panels",@"打开评论区时上移视频",@"bool",@YES,
             @{@"keywords":@"评论 画面 上移 评论区上移 视频上移"})];
         [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
-        flag(@"player.hideFeedAuthor",@"player",@"隐藏视频作者名称");
-        flag(@"player.hideFeedDescription",@"player",@"隐藏视频描述／剧集标题");
+        visibility(@"player.hideFeedAuthor",@"player",@"显示视频作者名称");
+        visibility(@"player.hideFeedDescription",@"player",@"显示视频描述／剧集标题");
         choice(@"player.fullscreenEntry",@"player",@"全屏观看入口",@[@"show",@"invisible",@"hide"],
             @[@"正常显示",@"隐藏外观，原位置可点",@"完全隐藏"]);
         flag(@"player.fullscreen",@"player",@"横屏铺满");
         flag(@"player.highestQuality",@"player",@"默认使用最高可用清晰度");
-        flag(@"player.hideNowPlayingIsland",@"player",@"前台播放时隐藏红果灵动岛播放信息");
-        flag(@"player.disableEpisodeSwipe",@"player",@"关闭左滑进入全集");
-        flag(@"player.disableAutoEnterSeries",@"drama",@"关闭观看中自动进入全集");
+        visibility(@"player.hideNowPlayingIsland",@"player",@"前台播放时显示红果灵动岛播放信息");
+        visibility(@"player.disableEpisodeSwipe",@"player",@"左滑进入全集");
+        visibility(@"player.disableAutoEnterSeries",@"drama",@"观看中自动进入全集");
         choice(@"player.separateProgress",@"player",@"合集与进度条分开布局",@[@"show",@"hide"],@[@"自动留出间距",@"原始布局"]);
         choice(@"player.material",@"player",@"播放控件材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）"]);
         NSArray *roles = HGAppearanceRoles(), *titles = HGAppearanceRoleTitles();
         for (NSUInteger i=0; i<roles.count; i++) {
             NSString *prefix = [@"layout." stringByAppendingString:roles[i]];
-            flag([prefix stringByAppendingString:@".hidden"],@"player",[@"隐藏" stringByAppendingString:titles[i]]);
+            visibility([prefix stringByAppendingString:@".hidden"],@"player",[@"显示" stringByAppendingString:titles[i]]);
             number([prefix stringByAppendingString:@".x"],@"player",[titles[i] stringByAppendingString:@" · 水平偏移"],0,-160,160);
             number([prefix stringByAppendingString:@".y"],@"player",[titles[i] stringByAppendingString:@" · 垂直偏移"],0,-240,240);
             number([prefix stringByAppendingString:@".scale"],@"player",[titles[i] stringByAppendingString:@" · 大小比例"],1,0.65,1.5);
@@ -217,6 +220,10 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         }
         choice(@"panels.commentMaterial",@"panels",@"评论区材质",@[@"inherit",@"clear",@"frosted",@"gaussian"],
             @[@"跟随面板材质",@"清透液态玻璃",@"模糊玻璃",@"高斯模糊"]);
+        NSArray *actionMaterials=@[@"inherit",@"regular",@"clear",@"blur"];
+        NSArray *actionMaterialNames=@[@"跟随面板材质",@"原生液态玻璃",@"清透液态玻璃",@"模糊玻璃"];
+        choice(@"panels.longpressMaterial",@"panels",@"长按／更多面板材质",actionMaterials,actionMaterialNames);
+        choice(@"panels.shareMaterial",@"panels",@"分享面板材质",actionMaterials,actionMaterialNames);
         [a addObject:HGADef(@"panels.commentFloatingBar",@"panels",@"评论区底部悬浮输入框",@"bool",@YES,
             @{@"keywords":@"评论 底部 发评论 悬浮 胶囊 液态玻璃 模糊玻璃"})];
         [a addObject:HGADef(@"panels.commentDetachedInput",@"panels",@"发评论弹出框分离悬浮",@"bool",@YES,
@@ -300,6 +307,20 @@ NSDictionary *HGAppearanceValues(void) {
     @synchronized(HGALock()) {
         if (HGACachedValues) return HGACachedValues;
         NSDictionary *stored=[NSUserDefaults.standardUserDefaults dictionaryForKey:HGAStore];
+        // Read old switches before UIKit requests its startup preference. Consume them
+        // after persisting the merged value so a later explicit off stays off.
+        NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
+        if ([defaults objectForKey:@"HongguoGlass.glass"] || [defaults objectForKey:@"HongguoGlass.glassControls"]) {
+            if ([defaults boolForKey:@"HongguoGlass.glass"] || [defaults boolForKey:@"HongguoGlass.glassControls"]) {
+                NSMutableDictionary *updated=stored.mutableCopy ?: [NSMutableDictionary dictionary];
+                updated[@"enabled"]=@YES;
+                if ([defaults boolForKey:@"HongguoGlass.glass"]) updated[@"dock.enabled"]=@YES;
+                [defaults setObject:updated forKey:HGAStore];
+                stored=updated;
+            }
+            [defaults removeObjectForKey:@"HongguoGlass.glass"];
+            [defaults removeObjectForKey:@"HongguoGlass.glassControls"];
+        }
         // Earlier presets persisted every default. Migrate their stock geometry
         // once so installing R15 actually changes the existing thin dock. Values
         // customized away from the old defaults remain the user's settings.
@@ -428,13 +449,6 @@ BOOL HGAppearanceApply(NSDictionary *values,NSError **error) {
 BOOL HGAppearanceSet(NSString *key,id value,NSError **error) { if(!key || !value)return HGAError(error,@"设置不能为空。"); return HGAppearanceApply(@{key:value},error); }
 void HGAppearanceReset(void) { NSMutableDictionary *d=[NSMutableDictionary dictionary]; for(NSDictionary *def in HGAppearanceCatalog()) d[def[@"key"]]=def[@"default"]; HGAppearanceApply(d,nil); }
 BOOL HGAppearanceEnabled(void){return HGAppearanceFlag(@"enabled");}
-BOOL HGAppearanceNeedsGlass(void) {
-    if(!HGAppearanceEnabled())return NO;
-    if(HGAppearanceFlag(@"player.finderGlass") || HGAppearanceFlag(@"player.mineGlass"))return YES;
-    for(NSString *key in @[@"dock.enabled",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.commentFloatingBar",@"panels.commentDetachedInput",@"panels.share",@"panels.longpress",@"panels.speed"])
-        if(HGAppearanceFlag(key))return YES;
-    return NO;
-}
 NSDictionary *HGAppearancePreset(NSString *name) {
     NSMutableDictionary *d=[NSMutableDictionary dictionary]; for(NSDictionary *def in HGAppearanceCatalog()) d[def[@"key"]]=def[@"default"];
     d[@"video.blockedKeywords"]=HGVideoBlockedKeywords();

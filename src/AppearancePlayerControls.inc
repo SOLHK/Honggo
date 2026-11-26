@@ -480,6 +480,12 @@ static void HGAApplyPlayerControls(UIView *root) {
         for(HGAActionSheetMount *mount in HGAMountedActionSheets) {
             HGAActionSheetState *state=objc_getAssociatedObject(mount.sheetRoot,&HGAActionSheetKey);
             if(state.episodePreview==root){HGAAlignEpisodePreview(state,root);break;}
+            UIView *transition=root.superview;
+            if(transition && HGASheetTransition(state.surface)==transition) {
+                NSString *kind=HGAPanelKind(HGAOwner(mount.sheetRoot));
+                if([kind isEqual:@"share"] || [kind isEqual:@"longpress"])
+                    HGAApplyActionSheet(mount.sheetRoot,kind);
+            }
         }
         return;
     }

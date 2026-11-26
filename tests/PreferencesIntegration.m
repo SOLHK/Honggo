@@ -61,6 +61,9 @@ int main(void) {
         HGSetEnabled(HGGlass, YES);
         HGSetEnabled(HGSplash, NO);
         HGSetEnabled(HGRedPacket, NO);
+        HGCheck(HGIsEnabled(HGGlassControls), @"the old glass API immediately enables the native-controls alias");
+        HGSetEnabled(HGGlassControls, NO);
+        HGCheck(!HGIsEnabled(HGGlass), @"both historical glass IDs follow the same master when disabled");
         HGSetEnabled(HGGlassControls, YES);
         HGCheck(HGIsEnabled(HGGlass) && HGIsEnabled(HGFeed) && !HGIsEnabled(HGSplash),
             @"known feature switches persist independently");
@@ -95,7 +98,7 @@ int main(void) {
             @"backup excludes host data, diagnostics consent and unknown namespace keys");
 
         HGPreferencesReset();
-        HGCheck(HGPreferencesChangeCount(saved) == 4,
+        HGCheck(HGPreferencesChangeCount(saved) == 3,
             @"restore preview counts only switches that will change");
         HGCheck(HGPreferencesApply(saved, &error) && error == nil &&
             [HGCurrentFeatures() isEqual:saved] && HGPreferencesChangeCount(saved) == 0,

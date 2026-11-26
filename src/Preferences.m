@@ -1,4 +1,5 @@
 #import "Preferences.h"
+#import "AppearancePreferences.h"
 #import "HonggoVersion.h"
 #import <CoreFoundation/CoreFoundation.h>
 #import <dispatch/dispatch.h>
@@ -15,23 +16,23 @@ typedef struct {
 
 static const HGFeatureDefinition HGFeatureDefinitions[HGFeatureCount] = {
     [HGGlass] = {@"glass", @"液态玻璃底栏", @"底部 导航 标签 浮动 模糊 tab bar", NO},
-    [HGSplash] = {@"splash", @"隐藏开屏广告", @"启动 splash", YES},
-    [HGTopView] = {@"topview", @"隐藏首页 TopView 广告", @"顶部 首页 top view", YES},
-    [HGFeed] = {@"feed", @"隐藏短剧广告、直播和小游戏插播", @"信息流 推荐 试玩 游戏 feed live", YES},
-    [HGComment] = {@"comment", @"隐藏短剧评论区广告", @"评论 comment", YES},
-    [HGPause] = {@"pause", @"隐藏暂停广告", @"暂停 pause", YES},
-    [HGPatch] = {@"patch", @"隐藏播放插播广告", @"贴片 中插 退出播放 patch", YES},
-    [HGEcommerce] = {@"commerce", @"隐藏启动电商推广", @"购物 电商 开机 commerce", YES},
-    [HGMarketing] = {@"marketing", @"隐藏商业与直播领券弹窗", @"推广 营销 直播 优惠券 弹窗 popup", YES},
-    [HGRedPacket] = {@"redPacket", @"隐藏福利红包弹窗", @"福利 奖励 红包 popup", YES},
-    [HGBookstoreAd] = {@"bookstoreAd", @"隐藏书城底部广告", @"书城 横幅 banner", YES},
-    [HGCouponPendant] = {@"couponPendant", @"隐藏领券悬浮挂件", @"优惠券 浮窗 pendant coupon", YES},
-    [HGMiniGamePendant] = {@"miniGamePendant", @"隐藏小游戏悬浮挂件", @"游戏 浮窗 pendant game", YES},
-    [HGWelfareGuide] = {@"welfareGuide", @"隐藏福利标签引导气泡", @"提示 福利 气泡 guide", YES},
-    [HGSurvey] = {@"survey", @"隐藏短剧满意度问卷", @"调查 评分 问卷 survey", YES},
+    [HGSplash] = {@"splash", @"拦截开屏广告", @"启动 splash", YES},
+    [HGTopView] = {@"topview", @"拦截首页 TopView 广告", @"顶部 首页 top view", YES},
+    [HGFeed] = {@"feed", @"拦截短剧广告、直播和小游戏插播", @"信息流 推荐 试玩 游戏 feed live", YES},
+    [HGComment] = {@"comment", @"拦截短剧评论区广告", @"评论 comment", YES},
+    [HGPause] = {@"pause", @"拦截暂停广告", @"暂停 pause", YES},
+    [HGPatch] = {@"patch", @"拦截播放插播广告", @"贴片 中插 退出播放 patch", YES},
+    [HGEcommerce] = {@"commerce", @"拦截启动电商推广", @"购物 电商 开机 commerce", YES},
+    [HGMarketing] = {@"marketing", @"拦截商业与直播领券弹窗", @"推广 营销 直播 优惠券 弹窗 popup", YES},
+    [HGRedPacket] = {@"redPacket", @"拦截福利红包弹窗", @"福利 奖励 红包 popup", YES},
+    [HGBookstoreAd] = {@"bookstoreAd", @"拦截书城底部广告", @"书城 横幅 banner", YES},
+    [HGCouponPendant] = {@"couponPendant", @"拦截领券悬浮挂件", @"优惠券 浮窗 pendant coupon", YES},
+    [HGMiniGamePendant] = {@"miniGamePendant", @"拦截小游戏悬浮挂件", @"游戏 浮窗 pendant game", YES},
+    [HGWelfareGuide] = {@"welfareGuide", @"拦截福利标签引导气泡", @"提示 福利 气泡 guide", YES},
+    [HGSurvey] = {@"survey", @"拦截短剧满意度问卷", @"调查 评分 问卷 survey", YES},
     [HGGlassControls] = {@"glassControls", @"原生液态玻璃按钮", @"按钮 控件 模糊 glass controls", NO},
-    [HGSidebarGameCenter] = {@"sidebarGameCenter", @"隐藏侧栏游戏中心", @"首页 左侧栏 小游戏 卡片 sidebar game center", YES},
-    [HGScreenshotShopping] = {@"screenshotShopping", @"隐藏截图识图找同款", @"截屏 推荐 卡片 悬浮 截图购物 screenshot shopping", YES},
+    [HGSidebarGameCenter] = {@"sidebarGameCenter", @"拦截侧栏游戏中心", @"首页 左侧栏 小游戏 卡片 sidebar game center", YES},
+    [HGScreenshotShopping] = {@"screenshotShopping", @"拦截截图识图找同款", @"截屏 推荐 卡片 悬浮 截图购物 screenshot shopping", YES},
 };
 
 static NSObject *HGPreferenceLock(void) {
@@ -69,6 +70,7 @@ NSString *HGPreferenceKey(HGFeature feature) {
 }
 
 BOOL HGIsEnabled(HGFeature feature) {
+    if (feature==HGGlass || feature==HGGlassControls) return HGAppearanceEnabled();
     NSString *key = HGPreferenceKey(feature);
     if (!key) return NO;
     @synchronized (HGPreferenceLock()) {
@@ -79,6 +81,7 @@ BOOL HGIsEnabled(HGFeature feature) {
 NSString *const HGSidebarGameChanged = @"Honggo.sidebarGameChanged";
 
 BOOL HGSetEnabled(HGFeature feature, BOOL enabled) {
+    if (feature==HGGlass || feature==HGGlassControls) return HGAppearanceSet(@"enabled", @(enabled), nil);
     NSString *key = HGPreferenceKey(feature);
     if (!key) return NO;
     BOOL refresh=NO;
@@ -137,7 +140,7 @@ NSData *HGPreferencesExport(NSError **error) {
     @synchronized (HGPreferenceLock()) {
         for (HGFeature feature = 0; feature < HGFeatureCount; feature++) {
             features[HGFeatureIdentifier(feature)] =
-                @([NSUserDefaults.standardUserDefaults boolForKey:HGPreferenceKey(feature)]);
+                @(HGIsEnabled(feature));
         }
     }
     NSDictionary *document = @{@"format": @"Honggo.preferences", @"schema": @1,
@@ -182,10 +185,16 @@ BOOL HGPreferencesApply(NSDictionary<NSString *, NSNumber *> *features, NSError 
     if (error) *error = nil;
     NSDictionary<NSString *, NSNumber *> *validated = HGValidatedFeatureValues(features, error);
     if (!validated) return NO;
+    if (validated[@"glass"] || validated[@"glassControls"]) {
+        BOOL enabled=validated[@"glass"].boolValue || validated[@"glassControls"].boolValue;
+        NSDictionary *appearance=validated[@"glass"].boolValue ? @{@"enabled":@YES, @"dock.enabled":@YES} : @{@"enabled":@(enabled)};
+        if (!HGAppearanceApply(appearance, error)) return NO;
+    }
     BOOL refresh=NO;
     @synchronized (HGPreferenceLock()) {
         for (NSString *identifier in validated) {
             HGFeature feature = HGFeatureForIdentifier(identifier);
+            if (feature==HGGlass || feature==HGGlassControls) continue;
             if (feature==HGSidebarGameCenter)
                 refresh=HGIsEnabled(feature)!=validated[identifier].boolValue;
             [NSUserDefaults.standardUserDefaults setBool:validated[identifier].boolValue
@@ -200,9 +209,13 @@ NSUInteger HGPreferencesChangeCount(NSDictionary<NSString *, NSNumber *> *featur
     NSDictionary<NSString *, NSNumber *> *validated = HGValidatedFeatureValues(features, nil);
     if (!validated) return 0;
     NSUInteger changes = 0;
+    if (validated[@"glass"].boolValue && !HGAppearanceFlag(@"dock.enabled")) changes++;
+    if (validated[@"glass"] || validated[@"glassControls"])
+        changes += HGAppearanceEnabled() != (validated[@"glass"].boolValue || validated[@"glassControls"].boolValue);
     @synchronized (HGPreferenceLock()) {
         for (NSString *identifier in validated) {
             HGFeature feature = HGFeatureForIdentifier(identifier);
+            if (feature==HGGlass || feature==HGGlassControls) continue;
             BOOL current = [NSUserDefaults.standardUserDefaults boolForKey:HGPreferenceKey(feature)];
             changes += current != validated[identifier].boolValue;
         }
@@ -211,6 +224,7 @@ NSUInteger HGPreferencesChangeCount(NSDictionary<NSString *, NSNumber *> *featur
 }
 
 void HGPreferencesReset(void) {
+    HGAppearanceSet(@"enabled", @NO, nil);
     BOOL refresh;
     @synchronized (HGPreferenceLock()) {
         BOOL sidebarBefore=HGIsEnabled(HGSidebarGameCenter);

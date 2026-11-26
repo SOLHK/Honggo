@@ -118,8 +118,28 @@ static BOOL HGABottomViewIsA(UIView *view,NSString *name) {
     Class cls=NSClassFromString(name);
     return cls && [view isKindOfClass:cls];
 }
-// Align the visible native scrubbing track. Its bounds and the time/position
-// space used by the host stay intact; UIKit inverts this same transform for touches.
+static void HGASetFeedRailDrawing(CALayer *layer,CATransform3D transform) {
+    if(CATransform3DEqualToTransform(layer.sublayerTransform,transform))return;
+    [CATransaction begin];[CATransaction setDisableActions:YES];
+    layer.sublayerTransform=transform;
+    [CATransaction commit];
+}
+static void HGARestoreFeedRailDrawing(UIView *progress) {
+    HGAViewState *state=HGAState(progress,NO);
+    if(!state.matchesEpisodeRail)return;
+    state.matchesEpisodeRail=NO;
+    CALayer *layer=progress.layer;
+    if(CATransform3DEqualToTransform(layer.sublayerTransform,CATransform3DMakeAffineTransform(state.railDrawingTransform)))
+        HGASetFeedRailDrawing(layer,CATransform3DIdentity);
+}
+static UIView *HGAFeedRailBackground(UIView *progress) {
+    UIView *rail=HGALazyControlSubview(progress,"_customizedProgressBarBackgroundView","customizedProgressBarBackgroundView");
+    if(!HGAVisible(rail))rail=HGALazyControlSubview(progress,"_progressBarBackgroundView","progressBarBackgroundView");
+    return rail.superview==progress && HGAVisible(rail) ? rail : nil;
+}
+// The host sizes the native rail from the progress owner's frame.width - 32
+// whenever a press changes its style. Fit its drawing subtree so that each
+// native layout and the HUD's pan recognizer still receive native coordinates.
 static void HGAUpdateFeedProgressWidth(UIView *view) {
     BOOL isProgress=[view isKindOfClass:objc_lookUpClass("FQVShortVideoProgressView")];
     UIView *control=HGABottomControlForView(view);
@@ -133,12 +153,14 @@ static void HGAUpdateFeedProgressWidth(UIView *view) {
     CGFloat x=enabled ? HGAppearanceNumber(@"layout.progress.x") : 0;
     CGFloat y=enabled ? HGAppearanceNumber(@"layout.progress.y") : 0;
     CGFloat scale=enabled ? HGAppearanceNumber(@"layout.progress.scale") : 1;
-    CGFloat scaleX=scale;
     HGAViewState *state=HGAState(progress,NO);
     CGAffineTransform base=(state.geometry && CGAffineTransformEqualToTransform(progress.transform,state.appliedTransform))
         ? state.sourceTransform : progress.transform;
-    BOOL match=NO;
-    if(enabled && progress.window.bounds.size.height>progress.window.bounds.size.width && base.a>0 && base.b==0 && base.c==0) {
+    CATransform3D drawing=progress.layer.sublayerTransform;
+    BOOL available=CATransform3DIsIdentity(drawing) || (state.matchesEpisodeRail &&
+        CATransform3DEqualToTransform(drawing,CATransform3DMakeAffineTransform(state.railDrawingTransform)));
+    if(enabled && available && progress.window.bounds.size.height>progress.window.bounds.size.width &&
+        base.a>0 && base.b==0 && base.c==0) {
         UIView *wrapper=HGALazyControlSubview(control,"_insertAboveProgressView","insertAboveProgressView");
         UIView *entry=nil;
         for(UIView *child in wrapper.subviews) {
@@ -146,32 +168,30 @@ static void HGAUpdateFeedProgressWidth(UIView *view) {
             if(entry){entry=nil;break;}
             entry=child;
         }
-        UIView *rail=HGALazyControlSubview(progress,"_customizedProgressBarBackgroundView","customizedProgressBarBackgroundView");
-        if(!HGAVisible(rail))rail=HGALazyControlSubview(progress,"_progressBarBackgroundView","progressBarBackgroundView");
-        if(entry && HGAVisible(rail)) {
-            CGRect capsule=[entry convertRect:HGAEpisodeGlassFrame(entry) toView:progress.superview];
-            CGRect track=[rail convertRect:rail.bounds toView:progress];
-            if(CGRectGetWidth(track)>1 && CGRectGetWidth(capsule)>1) {
-                match=YES;
-                // The visible capsule owns both endpoints, including when an older
-                // preset has its own progress X/scale. Keep its vertical scale.
-                scaleX=CGRectGetWidth(capsule)/(CGRectGetWidth(track)*base.a);
+        UIView *rail=HGAFeedRailBackground(progress);
+        if(entry && rail && CGRectGetWidth(rail.frame)>1) {
+            HGASetGeometryXY(progress,0,y,1,scale);
+            CGRect capsule=[entry convertRect:HGAEpisodeGlassFrame(entry) toView:progress];
+            if(CGRectGetWidth(capsule)>1) {
+                CGRect track=rail.frame;
+                CGFloat scaleX=CGRectGetWidth(capsule)/CGRectGetWidth(track);
                 CGFloat anchor=CGRectGetMinX(progress.bounds)+progress.layer.anchorPoint.x*CGRectGetWidth(progress.bounds);
-                x=CGRectGetMidX(capsule)-progress.layer.position.x-base.tx-(CGRectGetMidX(track)-anchor)*base.a*scaleX;
+                CGFloat shift=CGRectGetMidX(capsule)-anchor-(CGRectGetMidX(track)-anchor)*scaleX;
+                CGAffineTransform fit=CGAffineTransformMake(scaleX,0,0,1,shift,0);
+                state=HGAState(progress,YES);
+                state.matchesEpisodeRail=YES;state.railDrawingTransform=fit;
+                HGASetFeedRailDrawing(progress.layer,CATransform3DMakeAffineTransform(fit));
+                return;
             }
         }
     }
-    HGASetGeometryXY(progress,x,y,scaleX,scale);
-    HGAState(progress,NO).matchesEpisodeRail=match;
+    HGARestoreFeedRailDrawing(progress);
+    HGASetGeometry(progress,x,y,scale);
 }
 static BOOL HGABottomNativeCoordinates(UIView *view,UIView *control) {
     for(NSUInteger depth=0;view && depth<12;depth++,view=view.superview) {
         if(view==control)return YES;
-        if(!CGAffineTransformIsIdentity(view.transform)) {
-            HGAViewState *state=HGAState(view,NO);
-            if(!state.matchesEpisodeRail || !CGAffineTransformEqualToTransform(view.transform,state.appliedTransform) ||
-                !CGAffineTransformIsIdentity(state.sourceTransform))return NO;
-        }
+        if(!CGAffineTransformIsIdentity(view.transform))return NO;
     }
     return NO;
 }
@@ -348,6 +368,13 @@ static HGABottomRailResult HGABottomProgressRail(UIView *progress,UIView *contro
     // Scope this geometric reading to the verified native progress owner.
     // UIKit sliders expose a track rect; the host's custom rail is a broad,
     // thin view/layer inside that owner. Never resize or intercept either.
+    UIView *back=HGAFeedRailBackground(progress);
+    if(back && HGABottomTrackCandidate(back.frame,progress.bounds)) {
+        // The dot, fill and highlight can overlap a different row while the host
+        // animates a press. Only the background defines the visible rail's Y.
+        *result=[back convertRect:back.bounds toView:control];
+        return HGABottomRailMeasured;
+    }
     CGRect rail=CGRectNull;BOOL hiddenRail=NO;
     for(UIView *candidate in HGADescendants(progress,48)) {
         if(!HGABottomNativeCoordinates(candidate,progress))continue;
