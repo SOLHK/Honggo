@@ -20,6 +20,11 @@
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    // All fixture heights are explicit. Query actual row and section geometry
+    // after reloadData, including the rows that have just become invisible.
+    self.tableView.estimatedRowHeight = 0;
+    self.tableView.estimatedSectionHeaderHeight = 0;
+    self.tableView.estimatedSectionFooterHeight = 0;
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
     self.cellItemsArrs = @[@[@2, @3, @255], @[@0]];
@@ -211,6 +216,11 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     HGAppearanceApply(@{@"enabled":@YES, @"mine.settings.show.account":@NO, @"mine.settings.show.cache":@NO,
         @"mine.settings.show.privacyPolicy":@NO}, nil);
     [table layoutIfNeeded];
+    NSLog(@"[HonggoSettingsTests] hidden settings row heights %@ %@ %@, section header/footer %@ %@, delegate %@ %@, policy %@",
+        @([table rectForRowAtIndexPath:account].size.height), @([table rectForRowAtIndexPath:unknown].size.height),
+        @([table rectForRowAtIndexPath:cache].size.height), @([table rectForHeaderInSection:1].size.height),
+        @([table rectForFooterInSection:1].size.height), @([self.host tableView:table heightForRowAtIndexPath:account]),
+        @([self.host tableView:table heightForRowAtIndexPath:cache]), table.tableFooterView);
     [self check:[table rectForRowAtIndexPath:account].size.height == 0 &&
         [table rectForRowAtIndexPath:unknown].size.height == 50 && [table rectForRowAtIndexPath:cache].size.height == 0 &&
         [table rectForHeaderInSection:1].size.height < 1 && [table rectForFooterInSection:1].size.height < 1 &&

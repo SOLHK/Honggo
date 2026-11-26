@@ -417,12 +417,19 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     HGOpenAppearance(parent,@"setting.player.fullscreenEntry");
     UIViewController *choiceDestination=navigation.topViewController;
     NSDate *choiceDeadline=[NSDate dateWithTimeIntervalSinceNow:1.5];
-    while (!choiceDestination.presentedViewController && choiceDeadline.timeIntervalSinceNow>0)
+    while ((!choiceDestination.presentedViewController || choiceDestination.presentedViewController.isBeingPresented) &&
+           choiceDeadline.timeIntervalSinceNow>0)
         [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
     UIAlertController *searchChoice=(id)choiceDestination.presentedViewController;
     Check([searchChoice isKindOfClass:UIAlertController.class] && [searchChoice.title isEqual:@"全屏观看入口"] &&
         searchChoice.actions.count==4,@"selecting an enum search result opens its options with one tap");
-    [choiceDestination dismissViewControllerAnimated:NO completion:nil];
+    __block BOOL choiceDismissed=NO;
+    [searchChoice dismissViewControllerAnimated:NO completion:^{ choiceDismissed=YES; }];
+    NSDate *dismissDeadline=[NSDate dateWithTimeIntervalSinceNow:1.5];
+    while (searchChoice && !choiceDismissed && dismissDeadline.timeIntervalSinceNow>0)
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    Check(choiceDismissed && !choiceDestination.presentedViewController,
+        @"closing the search option sheet returns to its settings page before leaving the search result");
     [navigation popToViewController:parent animated:NO];
     [window layoutIfNeeded];
     BOOL savedMasterBeforeSubpage=HGAppearanceEnabled();

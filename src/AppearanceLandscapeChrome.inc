@@ -76,7 +76,8 @@ static UIView *HGALandscapeHit(UIView *hud,SEL cmd,CGPoint point,UIEvent *event)
         if(!CGRectContainsPoint(bounds,p))continue;
         CGFloat radius=MIN(bounds.size.width,bounds.size.height)/2;
         CGFloat cx=MAX(CGRectGetMinX(bounds)+radius,MIN(p.x,CGRectGetMaxX(bounds)-radius));
-        if(hypot(p.x-cx,p.y-CGRectGetMidY(bounds))>radius)continue;
+        CGFloat cy=MAX(CGRectGetMinY(bounds)+radius,MIN(p.y,CGRectGetMaxY(bounds)-radius));
+        if(hypot(p.x-cx,p.y-cy)>radius)continue;
         // Ask the original implementation who owns the control center. This
         // keeps a native long press, icon tap, and any covering overlay intact.
         CGPoint center=[target convertPoint:CGPointMake(CGRectGetMidX(target.bounds),CGRectGetMidY(target.bounds)) toView:hud];

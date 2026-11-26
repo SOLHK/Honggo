@@ -240,8 +240,15 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
     });
     return catalog;
 }
+static NSDictionary *HGADefinition(NSString *key);
 NSArray<NSDictionary *> *HGAppearanceSearch(NSString *query) {
-    NSArray *words=[query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSMutableArray<NSString *> *words=[NSMutableArray array];
+    for(NSString *word in [query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet])
+        if(word.length)[words addObject:word.lowercaseString];
+    // The retired glassControls switch now lives on the appearance master.
+    // Its full name takes priority over the words embedded in player.controlsGlass.
+    if([words isEqualToArray:@[@"glass",@"controls"]] || [words isEqualToArray:@[@"glasscontrols"]])
+        return @[HGADefinition(@"enabled")];
     NSArray *groups=HGAppearanceGroups(), *titles=HGAppearanceGroupTitles();
     NSMutableArray *matches=[NSMutableArray array];
     for(NSDictionary *entry in HGAppearanceCatalog()) {
@@ -251,7 +258,7 @@ NSArray<NSDictionary *> *HGAppearanceSearch(NSString *query) {
             index==NSNotFound ? @"" : titles[index],[entry[@"labels"] componentsJoinedByString:@" "] ?: @"",entry[@"keywords"] ?: @""];
         BOOL matched=YES;
         for(NSString *word in words) {
-            if(word.length && [description rangeOfString:word options:NSCaseInsensitiveSearch|NSDiacriticInsensitiveSearch|NSWidthInsensitiveSearch].location==NSNotFound) {
+            if([description rangeOfString:word options:NSCaseInsensitiveSearch|NSDiacriticInsensitiveSearch|NSWidthInsensitiveSearch].location==NSNotFound) {
                 matched=NO;
                 break;
             }

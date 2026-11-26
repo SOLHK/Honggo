@@ -135,6 +135,10 @@ int main(void) {@autoreleasepool {
     Check(unique && keys.count>100,@"every visual option has one stable key");
     Check(defaults && [onWhenEnabled isSubsetOfSet:keys] && !HGAppearanceEnabled(),
         @"appearance remains opt-in with the new scoped defaults ready under its master switch");
+    Check([[HGAppearanceSearch(@" GLAss  conTROLS ") valueForKey:@"key"] isEqual:@[@"enabled"]] &&
+        [[HGAppearanceSearch(@"glassControls") valueForKey:@"key"] isEqual:@[@"enabled"]] &&
+        [[HGAppearanceSearch(@"player.controlsGlass") valueForKey:@"key"] isEqual:@[@"player.controlsGlass"]],
+        @"legacy glass-control names open the unified master and the precise playback key still finds its own setting");
     Check([HGAppearanceSearch(@"双指清屏").firstObject[@"key"] isEqual:@"gestures.pinchClean"] &&
         [HGAppearanceSearch(@"双击评论").firstObject[@"key"] isEqual:@"gestures.doubleTapComments"],
         @"global search recognizes the commonly used gesture names");
