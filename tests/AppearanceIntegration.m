@@ -746,10 +746,18 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check(CGAffineTransformEqualToTransform(expected,like.transform),@"repeated layout does not compound scaling or offsets");
     HGAppearanceSet(@"layout.like.hidden",@YES,nil);Check(like.hidden,@"per-control hide takes effect");
     HGAppearanceSet(@"layout.like.hidden",@NO,nil);Check(!like.hidden,@"unhide restores original visibility");
+    FQVShortVideoPlayerCellView *fontCell=[[FQVShortVideoPlayerCellView alloc] initWithFrame:root.bounds];
+    HGTestFontReadLabel *fontProbe=[HGTestFontReadLabel new];
+    [fontCell addSubview:fontProbe];[root addSubview:fontCell];
     HGAppearanceApply(@{@"fonts.enabled":@YES,@"fonts.scale":@0.8},nil);Layout(like);
+    HGAppearanceProcessView(fontCell);
     Check(fabs(like.countLabel.font.pointSize-nativeFont.pointSize*0.8)<0.01,@"font scaling changes native labels");
     Layout(like);Layout(like);Check(fabs(like.countLabel.font.pointSize-nativeFont.pointSize*0.8)<0.01,@"font scaling is not multiplied on reuse");
     HGAppearanceSet(@"fonts.enabled",@NO,nil);Check([like.countLabel.font isEqual:nativeFont],@"disabling font overrides restores the native font");
+    fontProbe.fontReads=0;
+    HGAppearanceProcessView(fontCell);
+    Check(fontProbe.fontReads==0,@"after font restoration, ordinary player layouts stop inspecting label fonts");
+    [fontCell removeFromSuperview];
 
     SSShortVideoRightInteractionCollectView *collect=[[SSShortVideoRightInteractionCollectView alloc] initWithFrame:CGRectMake(90,140,54,65)];[root addSubview:collect];Layout(collect);
     collect.isCollected=YES;Check([collect.iconImageView.tintColor isEqual:UIColor.systemYellowColor],@"collection setter refreshes actual selected icon");

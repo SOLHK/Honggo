@@ -17,7 +17,73 @@
 @implementation SSShortVideoLandscapeSessionDataSource
 - (BOOL)isAutoInflowBlockedForVideoDataModel:(NSNumber *)model {return model.boolValue;}
 @end
+
+@interface HGPreviewSegmentFixture : NSObject
+@property(nonatomic) NSInteger vid;
+@end
+@implementation HGPreviewSegmentFixture @end
+@interface HGPreviewRouteFixture : NSObject
+@property(nonatomic,weak) id currentModel;
+@property(nonatomic,strong) HGPreviewSegmentFixture *segment;
+@property(nonatomic,copy) NSArray *videoList;
+@property(nonatomic,copy) NSString *vid;
+@end
+@implementation HGPreviewRouteFixture
+- (id)model { return self; }
+- (id)cellViewContext { return self; }
+- (id)listVCContext { return self; }
+- (id)seriesShortVideoModel { return self; }
+- (id)videoData { return self; }
+@end
+
+@interface SSClipVideoHighlightOpenSingleParams : NSObject
+@property(nonatomic,copy) NSString *vid;
+@property(nonatomic,strong) NSNumber *episodeIndexNumber;
+@property(nonatomic,strong) id insertHighlightModel;
+@end
+@implementation SSClipVideoHighlightOpenSingleParams @end
+@interface SSShortVideoRcmdHighlightVideoHandler : NSObject @end
+@implementation SSShortVideoRcmdHighlightVideoHandler
++ (id)identifyClipVideoHighlightWithVideoDataModel:(HGPreviewRouteFixture *)model identifyTimeType:(NSUInteger)mode {
+    return mode==1 ? model.segment : nil;
+}
++ (id)openSingleParamsWithVideoDataModel:(HGPreviewRouteFixture *)model nextEpisode:(BOOL)next {
+    SSClipVideoHighlightOpenSingleParams *params=[SSClipVideoHighlightOpenSingleParams new];
+    params.vid=@"101";params.episodeIndexNumber=@1;params.insertHighlightModel=model;
+    return params;
+}
+@end
+
+static void RunPreviewEpisodeChecks(void) {
+    BOOL saved=HGAppearanceEnabled();
+    HGAppearanceSet(@"enabled",@YES,nil);
+    HGPreviewRouteFixture *card=[HGPreviewRouteFixture new];
+    HGPreviewRouteFixture *episode=[HGPreviewRouteFixture new];
+    episode.vid=@"107";card.videoList=@[episode];card.currentModel=card;
+    card.segment=[HGPreviewSegmentFixture new];card.segment.vid=107;
+    SSClipVideoHighlightOpenSingleParams *(^open)(BOOL)=^(BOOL next) {
+        return (SSClipVideoHighlightOpenSingleParams *)[SSShortVideoRcmdHighlightVideoHandler
+            openSingleParamsWithVideoDataModel:card nextEpisode:next];
+    };
+    SSClipVideoHighlightOpenSingleParams *tap=open(NO);
+    Check([tap.vid isEqual:@"107"] && !tap.episodeIndexNumber && !tap.insertHighlightModel,
+        @"opening a mapped home preview selects its current segment's VID and releases conflicting history and inserted footage");
+    SSClipVideoHighlightOpenSingleParams *next=open(YES);
+    card.currentModel=episode;
+    SSClipVideoHighlightOpenSingleParams *reused=open(NO);
+    card.currentModel=card;card.segment.vid=999;
+    SSClipVideoHighlightOpenSingleParams *otherSeries=open(NO);
+    card.segment=nil;
+    SSClipVideoHighlightOpenSingleParams *noMapping=open(NO);
+    BOOL preserved=YES;
+    for (SSClipVideoHighlightOpenSingleParams *result in @[next,reused,otherSeries,noMapping])
+        preserved &= [result.vid isEqual:@"101"] && [result.episodeIndexNumber isEqual:@1] && result.insertHighlightModel==card;
+    Check(preserved,@"next episode, a reused player, a foreign VID and an unmapped edit all keep the host's original route");
+    HGAppearanceSet(@"enabled",@(saved),nil);
+}
+
 static void RunAutoEnterSeriesChecks(void) {
+    RunPreviewEpisodeChecks();
     NSString *key=@"player.disableAutoEnterSeries";
     BOOL saved=HGAppearanceFlag(key);
     FQVShortVideoListVCPlayComponent *portrait=[FQVShortVideoListVCPlayComponent new];

@@ -788,6 +788,7 @@ static void HGARestoreText(UIView *view) {
     if(s.richApplied && [HGAGetRichText(view) isEqual:s.richApplied]) HGAWriteRichText(view,s.richSource);
     else if(!s.richApplied && [HGAGetFont(view) isEqual:s.applied])HGAWriteFont(view,s.source);
     objc_setAssociatedObject(view,&HGATextKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [HGATexts removeObject:view];
 }
 static void HGAApplyTypography(UIView *root) {
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(@"fonts.enabled") && root.window;

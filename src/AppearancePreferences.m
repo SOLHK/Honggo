@@ -453,7 +453,8 @@ NSDictionary *HGAppearancePreset(NSString *name) {
     NSMutableDictionary *d=[NSMutableDictionary dictionary]; for(NSDictionary *def in HGAppearanceCatalog()) d[def[@"key"]]=def[@"default"];
     d[@"video.blockedKeywords"]=HGVideoBlockedKeywords();
     if([name isEqual:@"glass"] || [name isEqual:@"focus"]) {
-        for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"dock.haptics",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.commentFloatingBar",@"panels.commentDetachedInput",@"panels.share",@"panels.longpress",@"panels.speed"])d[key]=@YES;
+        d[@"dock.haptics"]=@(HGAppearanceFlag(@"dock.haptics"));
+        for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.commentFloatingBar",@"panels.commentDetachedInput",@"panels.share",@"panels.longpress",@"panels.speed"])d[key]=@YES;
         if([name isEqual:@"focus"]) {d[@"dock.collapse"]=@YES; d[@"dock.autoCollapse"]=@YES; for(NSString *role in @[@"avatar",@"tags",@"notice"])d[[NSString stringWithFormat:@"layout.%@.hidden",role]]=@YES; }
     }
     return d.copy;

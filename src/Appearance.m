@@ -626,7 +626,7 @@ void HGInstallAppearance(void) {
     @synchronized(NSClassFromString(@"HGSettingsController")) {
         if (!HGAHooks) HGAHooks=[NSMutableDictionary dictionary];
         HGAInstallEpisodeMedia();
-        HGAInstallAutoEnterSeriesPolicy();
+        HGAInstallSeriesNavigation();
         HGAInstallHeaderLayoutAdapters();
         Class leftInfo=objc_lookUpClass("FQVShortVideoBaseLeftContainerView");
         Class portraitHUD=objc_lookUpClass("FQVShortVideoVPlayerControlView");

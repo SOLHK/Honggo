@@ -145,6 +145,7 @@ API_AVAILABLE(ios(26.0))
 @property(nonatomic,copy) NSArray *observedTitles;
 @property(nonatomic) CGSize observedSize;
 @property(nonatomic,weak) UICollectionView *observedCollection;
+@property(nonatomic) BOOL observedChannelListReady;
 @property(nonatomic,strong) NSHashTable<UIView *> *visibleSideTools;
 @property(nonatomic) NSUInteger channelSelectionDepth;
 @property(nonatomic) BOOL ownsSideToolTransition;
@@ -871,6 +872,14 @@ static void HGAKeepCompactHeaderSideTools(UIView *header,HGAHeaderInsetState *st
     return other==self.pan.nativePan;
 }
 
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    // Each channel contains a vertical feed. Its scroll pan can recognize a
+    // horizontal drag first even when it cannot scroll along that axis.
+    UIScrollView *feed=(id)other.view;
+    return gesture==self.pan && [feed isKindOfClass:objc_lookUpClass("FQVCollectionView")] &&
+        other==feed.panGestureRecognizer && [feed isDescendantOfView:self.pan.view];
+}
+
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
     Class progress = objc_lookUpClass("FQVShortVideoProgressView");
     BOOL control=NO, episode=NO;
@@ -892,10 +901,22 @@ static void HGAKeepCompactHeaderSideTools(UIView *header,HGAHeaderInsetState *st
         HGAIsHomeChannel(categories);
 }
 
+- (NSInteger)nextVisibleChannelForTravel:(CGFloat)x {
+    UIView *categories=self.categories;
+    HGAHeaderChannelLayout *layout=objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
+    NSInteger index=((NSInteger (*)(id,SEL))objc_msgSend)(categories,sel_registerName("selectedIndex"));
+    if (!x || index<0 || index>=(NSInteger)layout.titles.count) return NSNotFound;
+    NSInteger step=x<0 ? 1 : -1;
+    if (categories.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft) step=-step;
+    for (NSInteger next=index+step; next>=0 && next<(NSInteger)layout.titles.count; next+=step)
+        if (!(layout.hiddenMask & (1UL << next))) return next;
+    return NSNotFound;
+}
+
 - (BOOL)gestureRecognizerShouldBegin:(UIPanGestureRecognizer *)gesture {
     if (![self isFiltering] || ((UIScrollView *)self.pan.view).isDecelerating) return NO;
-    CGPoint velocity = [gesture velocityInView:self.pan.view];
-    return fabs(velocity.x)>fabs(velocity.y);
+    CGPoint velocity=[gesture velocityInView:self.pan.view];
+    return fabs(velocity.x)>fabs(velocity.y) && [self nextVisibleChannelForTravel:velocity.x]!=NSNotFound;
 }
 
 - (void)page:(UIPanGestureRecognizer *)gesture {
@@ -912,33 +933,33 @@ static void HGAKeepCompactHeaderSideTools(UIView *header,HGAHeaderInsetState *st
 }
 - (void)commitPage:(UIPanGestureRecognizer *)gesture {
     UIView *categories=self.categories;
-    HGAHeaderChannelLayout *layout = objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
-    if (!layout || ![self isFiltering] || ((UIScrollView *)self.pan.view).isDecelerating) return;
+    if (![self isFiltering] || ((UIScrollView *)self.pan.view).isDecelerating) return;
     CGPoint travel = [gesture translationInView:self.pan.view];
     CGPoint velocity = [gesture velocityInView:self.pan.view];
     if (fabs(travel.x)<=fabs(travel.y) || (fabs(travel.x)<28 && fabs(velocity.x)<300)) return;
 
-    NSInteger index = ((NSInteger (*)(id,SEL))objc_msgSend)(categories,sel_registerName("selectedIndex"));
-    NSInteger step = travel.x<0 ? 1 : -1;
-    if (categories.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft) step=-step;
-    if (index<0 || index>=(NSInteger)layout.titles.count) return;
-    for (NSInteger next=index+step; next>=0 && next<(NSInteger)layout.titles.count; next+=step) {
-        if (layout.hiddenMask & (1UL << next)) continue;
-        // Commit via the host's selection and list lifecycle with its native
-        // index. Animated offsets expose the intervening hidden pages.
-        if (((BOOL (*)(id,SEL,NSInteger,BOOL))objc_msgSend)(categories,sel_registerName("selectItemAtIndex:needAnimation:"),next,NO))
-            HGARefreshHeaderChannelLine(categories,YES);
-        break;
-    }
+    NSInteger next=[self nextVisibleChannelForTravel:travel.x];
+    if (next!=NSNotFound && ((BOOL (*)(id,SEL,NSInteger,BOOL))objc_msgSend)(categories,
+        sel_registerName("selectItemAtIndex:needAnimation:"),next,NO))
+        HGARefreshHeaderChannelLine(categories,YES);
 }
 @end
 
-static BOOL HGAFilteredHomePagerContainsView(UIView *view) {
+static BOOL HGAHomePagerHandlesEpisodeSwipe(UIViewController *owner) {
+    if (![owner isKindOfClass:UIViewController.class]) return NO;
+    UIView *view=owner.viewIfLoaded;
+    if (!view.window) return NO;
+    if ([owner isKindOfClass:objc_lookUpClass("SSVideoSeriesFeedViewController")]) {
+        UIView *container=HGAViewGetter(owner,"containerView",view);
+        view=HGAViewGetter(container,"contentScrollView",container);
+    }
     for (; view && view!=view.window; view=view.superview) {
         if (![view isKindOfClass:UIScrollView.class]) continue;
-        for (UIGestureRecognizer *recognizer in view.gestureRecognizers)
-            if ([recognizer isKindOfClass:HGAFixedChannelPan.class] &&
-                [(HGAFixedChannelPager *)recognizer.delegate isFiltering]) return YES;
+        for (UIGestureRecognizer *recognizer in view.gestureRecognizers) {
+            if (![recognizer isKindOfClass:HGAFixedChannelPan.class]) continue;
+            HGAFixedChannelPager *pager=(id)recognizer.delegate;
+            if ([pager isFiltering] && [pager nextVisibleChannelForTravel:-1]!=NSNotFound) return YES;
+        }
     }
     return NO;
 }
@@ -957,8 +978,10 @@ static void HGAWrapEpisodeSwipeDecision(UIViewController *owner) {
 
     HGALeftEpisodeDecision original=((HGALeftEpisodeDecision(*)(id,SEL))objc_msgSend)(owner,get);
     if (!original || original==objc_getAssociatedObject(owner,&HGAEpisodeSwipeDecisionKey)) return;
+    __weak UIViewController *weakOwner=owner;
     HGALeftEpisodeDecision decision=[^BOOL(UIPanGestureRecognizer *gesture) {
-        if (HGAppearanceEnabled() && HGAppearanceFlag(@"player.disableEpisodeSwipe")) return NO;
+        if (HGAppearanceEnabled() && (HGAppearanceFlag(@"player.disableEpisodeSwipe") ||
+            (NSThread.isMainThread && HGAHomePagerHandlesEpisodeSwipe(weakOwner)))) return NO;
         return original(gesture);
     } copy];
     objc_setAssociatedObject(owner,&HGAEpisodeSwipeDecisionKey,decision,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1004,17 +1027,10 @@ static void HGAInstallHomeEpisodeSwipeGate(void) {
         if (NSThread.isMainThread && HGAppearanceEnabled()) {
             if (HGAppearanceFlag(@"player.disableEpisodeSwipe")) return NO;
             UIViewController *owner=HGReadObjectGetter(context,"viewController");
-            if ([owner isKindOfClass:UIViewController.class]) {
-                UIView *view=owner.viewIfLoaded;
-                if (view.window && [owner isKindOfClass:objc_lookUpClass("SSVideoSeriesFeedViewController")]) {
-                    UIView *container=HGAViewGetter(owner,"containerView",view);
-                    view=HGAViewGetter(container,"contentScrollView",container);
-                }
-                if (view.window && HGAFilteredHomePagerContainsView(view)) {
-                    if (HGEnhancedDiagnostics()) HGLog(@"appearance.channel",
-                        @{@"selector":NSStringFromSelector(selector),@"phase":@"deferred-to-channel"});
-                    return NO;
-                }
+            if (HGAHomePagerHandlesEpisodeSwipe(owner)) {
+                if (HGEnhancedDiagnostics()) HGLog(@"appearance.channel",
+                    @{@"selector":NSStringFromSelector(selector),@"phase":@"deferred-to-channel"});
+                return NO;
             }
         }
         return ((BOOL(*)(id,SEL,id,id))original)(delegate,selector,navigation,context);
@@ -1189,9 +1205,12 @@ static void HGAHeaderCategoryGeometryChanged(UIView *categories) {
     NSArray *titles = HGReadObjectGetter(categories,"titles");
     if (![titles isKindOfClass:NSArray.class] || titles.count > 32) return;
     CGSize size = collection.bounds.size;
+    BOOL ready=collection.delegate==(id)categories && collection.numberOfSections==1 &&
+        [collection numberOfItemsInSection:0]==(NSInteger)titles.count;
     if (state.observedCollection == collection && CGSizeEqualToSize(state.observedSize,size) &&
-        [state.observedTitles isEqualToArray:titles]) return;
+        state.observedChannelListReady==ready && [state.observedTitles isEqualToArray:titles]) return;
     state.observedCollection = collection;
+    state.observedChannelListReady=ready;
     state.observedTitles = titles;
     state.observedSize = size;
     [header setNeedsLayout];
@@ -1369,8 +1388,6 @@ static void HGASetChannelLayout(UIView *categories, HGAHeaderChannelLayout *next
 }
 
 static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state) {
-    BOOL animating=NO;
-    if (HGABoolGetter(header,@"isHeaderViewLayoutAnimating",&animating) && animating) return;
     UIView *tabs = HGAViewGetter(header,"tabContainer",header);
     UIView *categories = nil;
     Class cls = NSClassFromString(@"SSHGBookStoreCategoryTitleView");
@@ -1383,6 +1400,8 @@ static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state)
         state.categories = categories;
     }
     if (!categories) return;
+    BOOL animating=NO;
+    if (HGABoolGetter(header,@"isHeaderViewLayoutAnimating",&animating) && animating) return;
     HGAHeaderChannelLayout *old = objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
     NSArray *titles = HGReadObjectGetter(categories,"titles");
     UICollectionView *collection = (id)HGAViewGetter(categories,"collectionView",categories);
@@ -1397,6 +1416,7 @@ static void HGACompactHeaderChannels(UIView *header, HGAHeaderInsetState *state)
     }
     if (HGAHeaderScrollInFlight(categories,collection)) return;
     state.observedCollection = collection;
+    state.observedChannelListReady=YES;
     state.observedTitles = titles;
     state.observedSize = collection.bounds.size;
     NSUInteger mask = 0;
@@ -1598,22 +1618,26 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
         HGARemoveHeaderChannelControl(state);
         return NO;
     }
-    NSUInteger hiddenMask=layout.hiddenMask;
-    NSUInteger visibleCount=titles.count-(NSUInteger)__builtin_popcountll(hiddenMask);
-    if (!visibleCount || titles.count>32 || CGRectGetWidth(frame)<44*visibleCount) {
+    if (!titles.count || titles.count>32) {
         HGARemoveHeaderChannelControl(state);
         return NO;
     }
-    NSMutableArray<NSString *> *items=[NSMutableArray arrayWithCapacity:visibleCount];
-    NSMutableArray<NSNumber *> *indices=[NSMutableArray arrayWithCapacity:visibleCount];
+    // The host supplies titles before collection layout has measured their
+    // cells. Build the rail from that model even on the first layout pass.
+    NSMutableArray<NSString *> *items=[NSMutableArray arrayWithCapacity:titles.count];
+    NSMutableArray<NSNumber *> *indices=[NSMutableArray arrayWithCapacity:titles.count];
     for (NSUInteger index=0;index<titles.count;index++) {
-        if (hiddenMask & (1UL<<index)) continue;
         NSString *title=titles[index];
-        if (![title isKindOfClass:NSString.class] || !title.length || HGATopChannelHidden(title)) break;
+        if (![title isKindOfClass:NSString.class] || !title.length) {
+            HGARemoveHeaderChannelControl(state);
+            return NO;
+        }
+        if (HGATopChannelHidden(title)) continue;
         [items addObject:title];
         [indices addObject:@(index)];
     }
-    if (items.count!=visibleCount) {
+    NSUInteger visibleCount=items.count;
+    if (!visibleCount) {
         HGARemoveHeaderChannelControl(state);
         return NO;
     }
@@ -1710,6 +1734,9 @@ static CGRect HGAHeaderVisibleChannelsRect(UIView *header) {
     UIView *tabs=HGAViewGetter(header,"tabContainer",header);
     if(!tabs)return CGRectInset(header.bounds,8.0,0);
     if(tabs.hidden || tabs.alpha<0.01 || CGRectIsEmpty(tabs.bounds))return CGRectNull;
+    UIView *collection=HGAViewGetter(state.categories,"collectionView",tabs);
+    if (collection && !CGRectIsEmpty(collection.bounds))
+        return [collection convertRect:collection.bounds toView:header];
     Class cellCls=NSClassFromString(@"FQRJXCategoryTitleCell");
     CGRect unionRect=CGRectNull;
     if(cellCls) {
@@ -1873,11 +1900,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
         CGFloat maxAllowed=!CGRectIsNull(rightCircle) ? CGRectGetMinX(rightCircle)-8.0 : headerW-8.0;
         CGFloat minX=MAX(minAllowed,CGRectGetMinX(channels));
         CGFloat maxX=MIN(maxAllowed,CGRectGetMaxX(channels));
-        if(maxX-minX<side && maxAllowed-minAllowed>=side) {
-            CGFloat cx=MAX(minAllowed+side*0.5,MIN(maxAllowed-side*0.5,CGRectGetMidX(channels)));
-            minX=cx-side*0.5;
-            maxX=cx+side*0.5;
-        }
+        if(maxX-minX<side && maxAllowed-minAllowed>=side) { minX=minAllowed; maxX=maxAllowed; }
         if(maxX-minX>=24.0) {
             CGRect centerFrame=CGRectMake(minX,midY-side*0.5,maxX-minX,side);
             CGRect available=CGRectMake(minAllowed,centerFrame.origin.y,maxAllowed-minAllowed,side);

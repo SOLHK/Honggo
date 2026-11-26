@@ -733,6 +733,20 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         HGAppearanceSet(@"player.headerGlass",@YES,nil);
     }
 
+    // During a new feed template's first layout, titles precede the native
+    // collection delegate. The hidden title still has its original host index.
+    categoryList.delegate=nil;
+    HGAppearanceSet(@"layout.channels.hide.live",@YES,nil); Layout(header);
+    UIView *initialRail=Find(header,material);
+    Check([initialRail isKindOfClass:UIControl.class] && initialRail.bounds.size.width>=3*44 &&
+        categoryList.hidden,
+        @"a partially mounted home header shows one full-width group for the three visible titles");
+    [channels refreshState];
+    categoryList.delegate=channels;
+    [channels refreshState]; [header layoutIfNeeded];
+    Check(pageScroll.gestureRecognizers.count==stockGestures+1 && !pageScroll.panGestureRecognizer.enabled,
+        @"attaching the channel delegate restores filtered paging with the same titles and dimensions");
+    HGAppearanceSet(@"layout.channels.hide.live",@NO,nil); Layout(header);
     NSArray *keys=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
     BOOL independent=YES;
     for(NSUInteger i=0;i<keys.count;i++) {
@@ -796,6 +810,16 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     BOOL vertical=[channelPaging gestureRecognizerShouldBegin:sample];
     sample.fixtureVelocity=CGPointMake(-450,60);
     BOOL horizontal=[channelPaging gestureRecognizerShouldBegin:sample];
+    sample.fixtureVelocity=CGPointMake(450,60);
+    BOOL yieldsAtFirst=![channelPaging gestureRecognizerShouldBegin:sample];
+    FQVCollectionView *verticalFeed=[[FQVCollectionView alloc] initWithFrame:pageScroll.bounds
+        collectionViewLayout:[UICollectionViewFlowLayout new]];
+    [pageScroll addSubview:verticalFeed];
+    BOOL sharesFeed=[channelPaging gestureRecognizer:filterPan shouldRecognizeSimultaneouslyWithGestureRecognizer:verticalFeed.panGestureRecognizer];
+    [verticalFeed removeFromSuperview];
+    Check(sharesFeed && yieldsAtFirst && ![channelPaging gestureRecognizer:filterPan
+        shouldRecognizeSimultaneouslyWithGestureRecognizer:sample],
+        @"a horizontal channel drag survives the nested vertical feed pan and yields at the first visible channel");
     Check(pageScroll.gestureRecognizers.count==stockGestures+1 && !pageScroll.panGestureRecognizer.enabled && !vertical && horizontal &&
         [channelPaging gestureRecognizer:filterPan shouldBeRequiredToFailByGestureRecognizer:pageScroll.panGestureRecognizer] &&
         ![channelPaging gestureRecognizer:filterPan shouldBeRequiredToFailByGestureRecognizer:sample],
@@ -842,6 +866,9 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     [channelPaging page:sample];
     BOOL edge=channels.nativeSelections==1;
     sample.fixtureTravel=CGPointMake(64,2);
+    sample.fixtureVelocity=CGPointMake(450,40);
+    Check([channelPaging gestureRecognizerShouldBegin:sample],
+        @"the rightward body swipe can return from the last visible channel");
     [channelPaging page:sample];
     Check(delayed && leftSwipe && edge && channels.selectedIndex==1 && pageScroll.contentOffset.x==pageWidth &&
         channels.nativeSelections==2 && listContainer.nativeEnds==2 && channels.lastNativeTap==1,

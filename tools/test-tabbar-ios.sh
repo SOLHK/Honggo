@@ -32,6 +32,7 @@ build_variant() {
     if [ "$variant" != current ]; then
         cat >> "$historical_compat" <<'OBJC'
 BOOL HGFeedSidebarOwnsLayout(UIWindow *window) { (void)window; return NO; }
+BOOL HGTabBarKeepsFallbackFill(UIView *bar, UIColor *color) { (void)bar; (void)color; return NO; }
 UIColor *HGOriginalTabTitleColor(UILabel *label) { return label.textColor; }
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) { (void)feed; }
 void HGRefreshVideoBackdropForCategoryPager(UIView *pager) { (void)pager; }

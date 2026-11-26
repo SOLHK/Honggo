@@ -86,6 +86,8 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
 @interface HGGlassBackdrop : UIVisualEffectView
 @property(nonatomic) BOOL nativeGlass;
 @property(nonatomic) BOOL changingWindow;
+@property(nonatomic) BOOL clearGlass;
+@property(nonatomic) BOOL interactiveGlass;
 @end
 @implementation HGGlassBackdrop
 - (void)layoutSubviews {
@@ -94,17 +96,17 @@ static BOOL HGClear(UIColor *color) { return !color || CGColorGetAlpha(color.CGC
     for (UIView *view = self; view && visible; view = view.superview)
         visible = !view.hidden && view.alpha >= 0.999;
     if (!self.effect && visible && CGRectGetWidth(self.bounds) >= 64 && CGRectGetHeight(self.bounds) >= 32) {
-        Class glassClass = NSClassFromString(@"UIGlassEffect");
-        SEL factory = sel_registerName("effectWithStyle:");
-        self.nativeGlass = HGNativeGlassConfigured();
-        UIVisualEffect *effect = self.nativeGlass ?
-            ((id (*)(id, SEL, NSInteger))objc_msgSend)(glassClass, factory, 0) : nil;
-        if (!effect) {
-            self.nativeGlass = NO;
-            effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+        UIVisualEffect *effect = nil;
+        if (@available(iOS 26.0,*)) {
+            if (HGNativeGlassConfigured()) {
+                UIGlassEffect *glass = [UIGlassEffect effectWithStyle:
+                    self.clearGlass ? UIGlassEffectStyleClear : UIGlassEffectStyleRegular];
+                glass.interactive = self.interactiveGlass;
+                effect = glass;
+            }
         }
-        if (self.nativeGlass && [effect respondsToSelector:sel_registerName("setInteractive:")])
-            ((void (*)(id, SEL, BOOL))objc_msgSend)(effect, sel_registerName("setInteractive:"), YES);
+        self.nativeGlass = effect != nil;
+        if (!effect) effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
         // UIGlassEffect is created in a real, attached layout pass. Creating it in
         // didMoveToWindow can leave it unrendered when a host view is recycled.
         self.effect = effect;
@@ -276,6 +278,17 @@ static void HGRestoreViewports(NSArray<HGViewportRecord *> *records) {
 - (void)refresh;
 - (void)restore;
 @end
+
+BOOL HGTabBarKeepsFallbackFill(UIView *bar, UIColor *color) {
+    HGTabState *state=objc_getAssociatedObject(bar,&HGStateKey);
+    if(state.refreshing || !bar.window || state.glass.superview!=bar || state.glass.hidden)return NO;
+    HGSurfaceRecord *record=[state.surfaces objectForKey:bar];
+    if(!record.cleared)return NO;
+    // A host theme can settle after layout. Save its newest fill for restore
+    // while the fallback material still owns the visible bar.
+    record.color=color;
+    return YES;
+}
 
 // Forward to the original runtime class even if a framework adds a subclass
 // above ours later. Only selected live instances ever receive this subclass.
@@ -603,6 +616,13 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
         self.glass.alpha = 1;
     }
     HGGlassBackdrop *glass = self.glass;
+    BOOL clearGlass = [HGAppearanceString(@"dock.material") isEqual:@"clear"];
+    BOOL interactiveGlass = !self.customDock || HGAppearanceFlag(@"dock.haptics");
+    if (glass.clearGlass != clearGlass || glass.interactiveGlass != interactiveGlass) {
+        glass.clearGlass = clearGlass;
+        glass.interactiveGlass = interactiveGlass;
+        glass.effect = nil;
+    }
     // Configure final geometry before attachment, in one disabled-actions
     // transaction. A new zero-sized rectangular effect is never displayed.
     BOOL resized = !HGRectNear(glass.frame, frame);
@@ -1076,7 +1096,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
         }
         if (!self.logged) {
             NSLog(@"[Honggo] 版本 %@；底栏：%@；主包兼容模式=%@；减少透明度=%d；增强对比度=%d；背景已按宿主层级处理",
-                HG_PLUGIN_VERSION, self.nativeGlass ? @"UIGlassEffect Regular" : @"UIBlurEffect fallback",
+                HG_PLUGIN_VERSION, self.nativeGlass ? (self.glass.clearGlass ? @"UIGlassEffect Clear" : @"UIGlassEffect Regular") : @"UIBlurEffect fallback",
                 [NSBundle.mainBundle objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] ?: @"未明确配置",
                 UIAccessibilityIsReduceTransparencyEnabled(), UIAccessibilityDarkerSystemColorsEnabled());
             self.logged = YES;

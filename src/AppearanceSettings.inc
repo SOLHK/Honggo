@@ -617,6 +617,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         @"player.actionStyle":@"player.rightGlass",
         @"panels.commentMaterial":@"panels.comment",@"panels.shareMaterial":@"panels.share",
         @"panels.longpressMaterial":@"panels.longpress"}[key];
+    if([key hasPrefix:@"dock."] && ![key isEqual:@"dock.enabled"] && !HGAppearanceFlag(@"dock.enabled"))
+        area=@"dock.enabled";
     NSMutableDictionary *change=[@{key:value} mutableCopy];
     if(autoEnableMaster)change[@"enabled"]=@YES;
     if(area) {

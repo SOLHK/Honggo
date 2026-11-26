@@ -422,6 +422,16 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             @"the renderer reaches its full viewport synchronously when the native callback hides the cold poster");
         [firstCover removeFromSuperview];cell.canvas.coverImageView=nil;
 
+        cell.videoHeight=width*16.0/9.0;
+        Layout(cell);
+        CGRect insetRenderer=cell.renderer.frame;
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        CGRect insetPicture=[cell.metal.layer convertRect:cell.metal.layer.bounds toLayer:cell.canvas.layer];
+        Check(fabs(CGRectGetMinY(insetPicture))<0.75 && fabs(CGRectGetMaxY(insetPicture)-height)<0.75 &&
+            CGRectGetMinX(insetPicture)<=0 && CGRectGetMaxX(insetPicture)>=width &&
+            CGRectEqualToRect(cell.renderer.frame,insetRenderer) && !cell.renderer.clipsToBounds,
+            @"centered 9:16 home previews reach both screen edges while retaining the native renderer frame");
+        cell.videoHeight=0;
         cell.metalOverscanX=24;Layout(cell);
         CGRect portraitFrame=cell.renderer.frame;
         CGRect nativeMetalBounds=cell.metal.bounds;

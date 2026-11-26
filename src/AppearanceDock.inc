@@ -138,7 +138,7 @@ static void HGADockHostImpact(id controller,SEL cmd) {
     if(HGAppearanceDockEnabled() && !HGAppearanceFlag(@"dock.haptics")) {
         UIView *bar=HGReadObjectGetter(controller,"customTabBar");
         HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
-        if(bar && dock.superview==bar)return;
+        if(bar.window && dock.hostBar==bar)return;
     }
     HGADockOriginalImpact(controller,cmd);
 }
@@ -152,7 +152,7 @@ static void HGADockSetBarColor(UIView *bar,SEL selector,UIColor *color) {
         // keep this same paint ownership without touching its layout.
         dock.hostBackground=color;
         color=UIColor.clearColor;
-    }
+    }else if(HGTabBarKeepsFallbackFill(bar,color))color=UIColor.clearColor;
     HGADockOriginalBarColor(bar,selector,color);
 }
 static BOOL HGADockInstallHostHitRoute(void);
@@ -214,6 +214,16 @@ static CGFloat HGAExpandedDockWidth(CGFloat width,CGFloat controlHeight,NSUInteg
         fabs(ratio-HGADockDefaultWidth)<0.00001);
 }
 static NSArray *HGATabTitles(void){return @[@"首页",@"剧场",@"商城",@"我的"];}
+typedef void (^HGADockTextTabAction)(UIControl *);
+static HGADockTextTabAction HGATextTabAction(UIControl *control) {
+    // 7.4.5.33 binds SSTabBarTextButton to either touch-down or touch-up.
+    // Its installed callback takes the original control and resolves its live tag.
+    if(![control isKindOfClass:objc_lookUpClass("SSTabBarTextButton")])return nil;
+    SEL getter=sel_registerName("tabBarButtonTappedBlock");
+    Method method=class_getInstanceMethod(object_getClass(control),getter);
+    if(!method || strcmp(method_getTypeEncoding(method),"@?16@0:8"))return nil;
+    return ((HGADockTextTabAction (*)(id,SEL))objc_msgSend)(control,getter);
+}
 static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@"person"];}
 @interface HGADockTabButton : UIButton
 @property(nonatomic) CGFloat faceOffsetX;
@@ -711,7 +721,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         for(NSUInteger i=0;owner && owner!=content && i<8;i++,owner=owner.superview) {
             if([owner isKindOfClass:UIControl.class]) {
                 UIControl *control=(id)owner;
-                if((control.allControlEvents & UIControlEventTouchUpInside) || (control.allControlEvents & UIControlEventPrimaryActionTriggered))
+                if((control.allControlEvents & (UIControlEventTouchUpInside|UIControlEventPrimaryActionTriggered)) ||
+                    HGATextTabAction(control))
                     [self.targets setObject:control forKey:HGATabIDs()[index]];
                 break;
             }
@@ -1037,10 +1048,8 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         measured=[platter convertRect:platter.bounds toView:carrier];
         verticalScale=CGRectGetHeight(destination)/CGRectGetHeight(measured);
     }
-    // A native platter has a natural maximum width. When the screen-ratio slot
-    // exceeds that natural width (e.g. 3 tabs on a 440pt Pro Max screen), adopt
-    // UIKit's measured platter width and center the Dock group rather than
-    // discarding native Liquid Glass or stretching its symbols horizontally.
+    // Use UIKit's natural maximum for stock geometry. An explicit wider
+    // request needs our adjustable capsule when the native platter cannot fit.
     CGFloat renderedWidth=CGRectGetWidth(measured)*verticalScale;
     CGFloat difference=CGRectGetWidth(destination)-renderedWidth;
     self.lastSystemPlatterClass=NSStringFromClass(platter.class);
@@ -1049,6 +1058,7 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     CGFloat tolerance=MAX(1.5,2.0/MAX(1,self.traitCollection.displayScale));
     if(renderedWidth<count*44 || difference<-tolerance)return NO;
     if(difference>tolerance) {
+        if(fabs(HGAppearanceNumber(@"dock.width")-HGADockDefaultWidth)>0.00001)return NO;
         destination.origin.x+=difference*0.5;
         destination.size.width=renderedWidth;
     }
@@ -1200,9 +1210,14 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     }
     self.systemDockSyncing=NO;
     NSString *material=active ? [self applySystemMaterial:style] : style;
-    // Keep UIKit's real floating platter even when an OS revision makes its
-    // internal glassEffect read-only; native UITabBar owns genuine Liquid Glass
-    // refraction and continuous finger-tracking lens physics without double-glass artifacts.
+    // If UIKit owns an inaccessible platter, use the single configurable
+    // UIGlassEffect capsule so switching between Regular and Clear is effective.
+    if(active && [material isEqual:@"factory-glass"]) {
+        [self removeSystemDock];
+        active=NO;
+        failure=@"Platter does not expose the requested material";
+        material=style;
+    }
     if(!active)self.failedSystemProbe=probe;
     NSString *mode=active ? (self.systemTabController?@"uikit-controller":@"uikit-tabbar") : @"compatibility";
     NSString *reason=active ? @"UIKit receives the original touch" : failure;
@@ -1389,10 +1404,11 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
             [self recordDockRenderer:flat?@"flat":@"compatibility" reason:reason material:flat?@"flat":style];
         }
     }
-    if(self.quietDragLens)[self endQuietLens];
-    self.quietSystemTouches=NO;
+    self.quietSystemTouches=useSystem && !haptics;
+    if(!self.quietSystemTouches && self.quietDragLens)[self endQuietLens];
     UIView *systemCarrier=[self systemDockCarrier];
-    if(systemCarrier.accessibilityElementsHidden)systemCarrier.accessibilityElementsHidden=NO;
+    if(systemCarrier.accessibilityElementsHidden!=self.quietSystemTouches)
+        systemCarrier.accessibilityElementsHidden=self.quietSystemTouches;
     CGRect actual=useSystem ? self.systemCapsuleFrame : expanded;
     CGRect capsuleFrame=self.collapsed ? compact : actual;
     BOOL capsuleChanged=!CGRectEqualToRect(self.capsule.frame,capsuleFrame);
@@ -1417,8 +1433,8 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     if(flat){HGARemoveGlass(self.extra);HGARemoveGlass(self.expand);}
     UISegmentedControl *extraTrack=HGADockFlatBacking(self.extra,flat ? 1 : 0);
     HGADockFlatBacking(self.expand,flat ? 1 : 0);
-    UIView *extraContent=flat ? self.extra : HGADockMaterialContent(self.extra,style,circle/2,fill,YES);
-    UIView *expandContent=flat ? self.expand : HGADockMaterialContent(self.expand,style,22,fill,YES);
+    UIView *extraContent=flat ? self.extra : HGADockMaterialContent(self.extra,style,circle/2,fill,haptics);
+    UIView *expandContent=flat ? self.expand : HGADockMaterialContent(self.expand,style,22,fill,haptics);
     // UIKit can adapt dynamic label colors to the material's own background
     // when the foreground belongs to the visual effect's contentView.
     if(self.extraSelection.superview!=extraContent)[extraContent insertSubview:self.extraSelection atIndex:0];
@@ -1652,12 +1668,18 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     NSString *key=HGATabIDs()[(NSUInteger)index];
     UIControl *target=[self.targets objectForKey:key];
     if(!target || !target.enabled)return;
-    UIControlEvents event=(target.allControlEvents & UIControlEventTouchUpInside)?UIControlEventTouchUpInside:UIControlEventPrimaryActionTriggered;
+    HGADockTextTabAction textAction=HGATextTabAction(target);
+    UIControlEvents events=target.allControlEvents & (UIControlEventTouchUpInside|UIControlEventPrimaryActionTriggered);
+    if(!textAction && !events)return;
     HGLog(@"navigation.dock", @{@"tab":key, @"phase":@"enter", @"mode":animation});
     // Native selection synchronously attaches the new page and its player. Its
     // layout callbacks must not each rebuild the same dock during that action.
     self.deliveringTabAction=YES;
-    @try { [target sendActionsForControlEvents:event]; }
+    @try {
+        if(textAction)textAction(target);
+        else [target sendActionsForControlEvents:(events & UIControlEventTouchUpInside) ?
+            UIControlEventTouchUpInside : UIControlEventPrimaryActionTriggered];
+    }
     @finally { self.deliveringTabAction=NO; }
     HGLog(@"navigation.dock", @{@"tab":key, @"phase":@"return", @"mode":animation});
     if(![animation hasPrefix:@"uikit-"] || !HGADockOriginalImpact)[self feedback];
@@ -1751,7 +1773,7 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
                 lens.frame=frame;lens.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
                 [self insertSubview:lens aboveSubview:[self systemDockCarrier]];
                 UIGlassEffect *glass=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
-                glass.interactive=YES;lens.effect=glass;
+                glass.interactive=NO;lens.effect=glass;
                 self.quietDragLens=lens;self.quietProvider=self.systemPlatter;
                 for(UIView *part in thumbs.keyEnumerator.allObjects)part.hidden=YES;
             }
@@ -1854,6 +1876,12 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         self.dragLensIsCapsule=NO;self.dragLensCornerRadius=0;
         return;
     }
+    if(@available(iOS 26.0,*)) {
+        if([self.dragLens.effect isKindOfClass:UIGlassEffect.class] &&
+            ((UIGlassEffect *)self.dragLens.effect).interactive!=HGAppearanceFlag(@"dock.haptics")) {
+            [self.dragLens removeFromSuperview];self.dragLens=nil;
+        }
+    }
     if(self.dragLens) {
         if(self.dragLens.overrideUserInterfaceStyle!=self.capsule.overrideUserInterfaceStyle) {
             self.dragLens.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
@@ -1864,7 +1892,7 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     if(CGRectIsEmpty(self.selection.bounds))return;
     if(@available(iOS 26.0,*)) {
         UIGlassEffect *effect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
-        effect.interactive=YES;
+        effect.interactive=HGAppearanceFlag(@"dock.haptics");
         UIVisualEffectView *lens=HGADockMakeInteractiveLens(self.capsule);
         lens.accessibilityIdentifier=@"honggo.appearance.dock.drag-lens";
         lens.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;

@@ -14,6 +14,7 @@ IMP HGReplaceMethod(Class target, SEL selector, const char *encoding, IMP replac
 void HGInstallAds(void);
 void HGInstallPlaybackDiagnostics(void);
 BOOL HGInstallTabBar(void);
+BOOL HGTabBarKeepsFallbackFill(UIView *bar, UIColor *color);
 BOOL HGFeedSidebarOwnsLayout(UIWindow *window);
 BOOL HGInstallSettings(void);
 void HGAttachSettings(UIView *tabBar);

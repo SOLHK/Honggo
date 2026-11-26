@@ -39,8 +39,13 @@ static NSArray<NSString *> *HGABottomControlClasses(void) {
     // Exact observed host identities; do not hook their common UIKit base.
     // Feed type 3 uses the inner multi-series control, a sibling of the
     // outer control responsible for home playback.
-    return @[@"FQVShortVideoDerivativeVideoControlView",@"FQVShortVideoControlView",
-        @"FQVShortVideoVPlayerMultiSeriesControlView",@"FQVShortVideoVPlayerOutterMultiSeriesControlView"];
+    static NSArray *classes;
+    static dispatch_once_t once;
+    dispatch_once(&once,^{
+        classes=@[@"FQVShortVideoDerivativeVideoControlView",@"FQVShortVideoControlView",
+            @"FQVShortVideoVPlayerMultiSeriesControlView",@"FQVShortVideoVPlayerOutterMultiSeriesControlView"];
+    });
+    return classes;
 }
 static BOOL HGAIsBottomControl(UIView *view) {
     for(Class cls=object_getClass(view);cls && cls!=UIView.class;cls=class_getSuperclass(cls))
@@ -225,8 +230,8 @@ static void HGAReconcileCategoryEpisodes(UIView *pager) {
         if (![HGARole(view) isEqual:@"episodes"] || ![view isDescendantOfView:pager]) continue;
         CGRect inWindow = [view convertRect:view.bounds toView:window];
         if (CGRectIsEmpty(CGRectIntersection(inWindow, window.bounds))) continue;
-        HGAppearanceProcessView(view);
-        HGAUpdateBottomLayoutForView(view);
+        if (HGAApplying) HGAUpdateBottomLayoutForView(view);
+        else HGAppearanceProcessView(view);
     }
 }
 
@@ -409,7 +414,17 @@ static HGABottomRailResult HGABottomProgressRail(UIView *progress,UIView *contro
 }
 static void HGAUpdateBottomLayoutForView(UIView *view) {
     if (HGFeedSidebarOwnsLayout(view.window)) return;
-    UIView *control=HGABottomControlForView(view);
+    BOOL isControl=HGAIsBottomControl(view);
+    if (!isControl) {
+        // Like counts, the share icon and unrelated player decorations can
+        // relayout independently. Only owners whose geometry this adapter
+        // measures or moves need to remeasure the HUD.
+        NSString *role=HGARole(view);
+        if (![role isEqual:@"episodes"] && ![role isEqual:@"progress"] && ![role isEqual:@"info"] &&
+            ![view isKindOfClass:objc_lookUpClass("FQVShortVideoBaseInsertView")] &&
+            ![view.superview isKindOfClass:objc_lookUpClass("SSShortVideoOutterSeriesInfoView")]) return;
+    }
+    UIView *control=isControl ? view : HGABottomControlForView(view.superview);
     if(!control)return;
     if(view==control)HGAUpdateFeedProgressWidth(view);
     HGABottomLayoutState *state=objc_getAssociatedObject(control,&HGABottomLayoutKey);
@@ -437,15 +452,18 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     // A native layout may add a neutral intermediate container. Find only the
     // recognized components belonging to this HUD, never a nested player HUD.
     for(UIView *child in HGADescendants(control,96)) {
-        if(child==control || !HGAVisible(child) || HGABottomControlForView(child)!=control)continue;
-        if(HGABottomViewIsA(child,@"FQVShortVideoProgressView")) {
+        if(child==control)continue;
+        BOOL isProgress=HGABottomViewIsA(child,@"FQVShortVideoProgressView");
+        BOOL isWrapper=HGABottomViewIsA(child,@"FQVShortVideoBaseInsertView") && child.subviews.count==1 &&
+            [HGARole(child.subviews.firstObject) isEqual:@"episodes"];
+        BOOL isInfo=child.superview==control && (HGABottomViewIsA(child,@"SSShortVideoDerivateInfoView") ||
+            HGABottomViewIsA(child,@"SSShortVideoOutterSeriesInfoView"));
+        if(!(isProgress || isWrapper || isInfo) || !HGAVisible(child) || HGABottomControlForView(child)!=control)continue;
+        if(isProgress) {
             if(progress){ambiguous=YES;break;}progress=child;
-        } else if(HGABottomViewIsA(child,@"FQVShortVideoBaseInsertView") && child.subviews.count==1 &&
-            [HGARole(child.subviews.firstObject) isEqual:@"episodes"] && HGAVisible(child.subviews.firstObject)) {
+        } else if(isWrapper && HGAVisible(child.subviews.firstObject)) {
             if(wrapper){ambiguous=YES;break;}wrapper=child;
-        } else if(child.superview==control &&
-            (HGABottomViewIsA(child,@"SSShortVideoDerivateInfoView") ||
-             HGABottomViewIsA(child,@"SSShortVideoOutterSeriesInfoView"))) {
+        } else if(isInfo) {
             // Multiple independent HUD groups are left in their native place.
             if(info)ambiguousInfo=YES;else info=child;
         }

@@ -2,6 +2,45 @@
 
 static NSInteger (*HGAOriginalPortraitFinishAction)(id,SEL,id);
 static BOOL (*HGAOriginalLandscapeInflowBlocked)(id,SEL,id);
+static id (*HGAOriginalHighlightOpenParams)(Class,SEL,id,BOOL);
+
+@protocol HGAHighlightOpenParams <NSObject>
+- (void)setVid:(NSString *)vid;
+- (void)setEpisodeIndexNumber:(NSNumber *)index;
+- (void)setInsertHighlightModel:(id)highlight;
+@end
+
+static id HGAHighlightOpenParamsForModel(Class handler,SEL cmd,id model,BOOL nextEpisode) {
+    id<HGAHighlightOpenParams> params=HGAOriginalHighlightOpenParams(handler,cmd,model,nextEpisode);
+    if (nextEpisode || !HGAppearanceEnabled() || ![params isKindOfClass:objc_lookUpClass("SSClipVideoHighlightOpenSingleParams")])
+        return params;
+    id cell=HGReadObjectGetter(model,"cellViewContext");
+    if (!model || HGReadObjectGetter(cell,"model")!=model ||
+        HGReadObjectGetter(HGReadObjectGetter(model,"listVCContext"),"currentModel")!=model) return params;
+
+    // 7.4.5.33 mode 1 reads this cell's live playback time. The native
+    // matcher locates the author-provided clip segment at that timestamp.
+    SEL identify=sel_registerName("identifyClipVideoHighlightWithVideoDataModel:identifyTimeType:");
+    id match=((id(*)(id,SEL,id,NSUInteger))objc_msgSend)(handler,identify,model,1);
+    SEL vid=sel_registerName("vid");
+    Method getter=class_getInstanceMethod(object_getClass(match),vid);
+    if (!getter || strcmp(method_getTypeEncoding(getter),"q16@0:8")) return params;
+    NSInteger target=((NSInteger(*)(id,SEL))objc_msgSend)(match,vid);
+    if (target<=0) return params;
+    NSString *targetVid=@(target).stringValue;
+    NSArray *episodes=HGReadObjectGetter(HGReadObjectGetter(model,"seriesShortVideoModel"),"videoList");
+    if (![episodes isKindOfClass:NSArray.class]) return params;
+    for (id episode in episodes) {
+        if (![targetVid isEqual:HGReadObjectGetter(HGReadObjectGetter(episode,"videoData"),"vid")]) continue;
+        // VID-only navigation is also used by the native highlight replay
+        // action. A history index or inserted preview can supersede that VID.
+        [params setVid:targetVid];
+        [params setEpisodeIndexNumber:nil];
+        [params setInsertHighlightModel:nil];
+        break;
+    }
+    return params;
+}
 
 static NSInteger HGAPortraitFinishAction(id component,SEL cmd,id model) {
     NSInteger action=HGAOriginalPortraitFinishAction(component,cmd,model);
@@ -15,8 +54,20 @@ static BOOL HGALandscapeInflowBlocked(id source,SEL cmd,id model) {
     return HGAppearanceFlag(@"player.disableAutoEnterSeries") || HGAOriginalLandscapeInflowBlocked(source,cmd,model);
 }
 
-static void HGAInstallAutoEnterSeriesPolicy(void) {
+static void HGAInstallSeriesNavigation(void) {
     if (![[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] isEqual:@"7.4.5.33"]) return;
+    Class handler=objc_lookUpClass("SSShortVideoRcmdHighlightVideoHandler");
+    Class params=objc_lookUpClass("SSClipVideoHighlightOpenSingleParams");
+    Method identify=class_getClassMethod(handler,sel_registerName("identifyClipVideoHighlightWithVideoDataModel:identifyTimeType:"));
+    BOOL canResolve=identify && !strcmp(method_getTypeEncoding(identify),"@32@0:8@16Q24");
+    for (NSString *name in @[@"setVid:",@"setEpisodeIndexNumber:",@"setInsertHighlightModel:"]) {
+        Method setter=class_getInstanceMethod(params,NSSelectorFromString(name));
+        if (!setter || strcmp(method_getTypeEncoding(setter),"v24@0:8@16")) canResolve=NO;
+    }
+    if (!HGAOriginalHighlightOpenParams && canResolve)
+        HGAOriginalHighlightOpenParams=(void *)HGInstallVerifiedHook(object_getClass(handler),
+            sel_registerName("openSingleParamsWithVideoDataModel:nextEpisode:"),"@28@0:8@16B24",
+            (IMP)HGAHighlightOpenParamsForModel,@"appearance");
     Class portrait=objc_lookUpClass("FQVShortVideoListVCPlayComponent");
     if (portrait && !HGAOriginalPortraitFinishAction)
         HGAOriginalPortraitFinishAction=(void *)HGInstallVerifiedHook(portrait,

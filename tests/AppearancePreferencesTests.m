@@ -257,7 +257,11 @@ int main(void) {@autoreleasepool {
     Check(!HGAppearanceParse([NSMutableData dataWithLength:128*1024+1],nil),@"oversized JSON rejected");
     NSDictionary *root=@{@"format":@"Honggo.appearance",@"schema":@YES,@"values":@{@"enabled":@YES}};
     Check(!HGAppearanceParse([NSJSONSerialization dataWithJSONObject:root options:0 error:nil],nil),@"boolean schema rejected");
-    Check(HGAppearanceApply(HGAppearancePreset(@"glass"),nil),@"glass preset validates");
+    HGAppearanceSet(@"dock.haptics",@NO,nil);
+    Check(HGAppearanceApply(HGAppearancePreset(@"glass"),nil) && !HGAppearanceFlag(@"dock.haptics"),
+        @"applying the glass preset preserves disabled navigation feedback");
+    HGAppearanceSet(@"dock.haptics",@YES,nil);
+    Check([HGAppearancePreset(@"focus")[@"dock.haptics"] boolValue],@"the focus preset preserves feedback opted in by the user");
     Check(HGAppearanceEnabled() && HGAppearanceFlag(@"dock.enabled") && HGAppearanceFlag(@"panels.speed"),@"glass preset activates visible modules");
     NSDictionary *legacyIcons=@{@"format":@"Honggo.appearance",@"schema":@1,
         @"values":@{@"dock.height":@54,@"dock.normal":@"#001122",@"icons.preset":@"outline",@"icons.collect.normal.symbol":@"bookmark.fill"}};

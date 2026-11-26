@@ -46,6 +46,18 @@
 @end
 @interface SSShortVideoRightInteractionView : UIView @end
 @implementation SSShortVideoRightInteractionView @end
+@interface HGTestHUDTraversalProbe : UIView
+@property(nonatomic) NSUInteger subviewReads;
+@end
+@implementation HGTestHUDTraversalProbe
+- (NSArray<UIView *> *)subviews { self.subviewReads++; return [super subviews]; }
+@end
+@interface HGTestFontReadLabel : UILabel
+@property(nonatomic) NSUInteger fontReads;
+@end
+@implementation HGTestFontReadLabel
+- (UIFont *)font { self.fontReads++; return [super font]; }
+@end
 @interface SSShortVideoAboveLeftContainerView : UIView @end
 @implementation SSShortVideoAboveLeftContainerView @end
 @interface SSShortVideoOutterSeriesLeftContainerView : UIView @end
@@ -175,6 +187,17 @@ static void RunOutterEpisodeSpacingChecks(UIView *root) {
         nativeAbove=above.frame,nativeLeft=left.frame,nativeNotice=notice.frame;
     [root addSubview:screen];Layout(control);Layout(entry);
     @try {
+        HGTestHUDTraversalProbe *probe=[HGTestHUDTraversalProbe new];
+        [control addSubview:probe];
+        UIView *decoration=[UIView new];
+        [right addSubview:decoration];
+        probe.subviewReads=0;
+        HGAppearanceProcessView(decoration);
+        Check(probe.subviewReads==0,@"laying out an unrelated action child does not traverse the playback HUD");
+        HGAppearanceProcessView(progress);
+        Check(probe.subviewReads>0,@"the native progress owner still remeasures the HUD when its rail changes");
+        [probe removeFromSuperview];
+        [decoration removeFromSuperview];
         CGRect rail=[track convertRect:track.bounds toView:control];
         Check(fabs(CGRectGetMinY(rail)-CGRectGetMaxY(wrapper.frame)-8)<0.01 &&
             fabs(wrapper.frame.origin.y-811)<0.01,

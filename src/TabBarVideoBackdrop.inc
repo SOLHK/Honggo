@@ -220,6 +220,15 @@ static BOOL HGVideoBackdropMatchesViewport(CGRect candidate, CGRect viewport) {
         fabs(CGRectGetMidY(candidate)-CGRectGetMidY(viewport)) <= 1.5;
 }
 
+// The outer feed also plays width-fitted portrait clips in a centered,
+// shorter TTPlayerView (402 x 714.67 inside the 402 x 784 feed on device).
+static BOOL HGVideoBackdropCenteredPortrait(CGRect frame, CGRect viewport) {
+    return CGRectGetHeight(frame)>CGRectGetWidth(frame) && CGRectGetHeight(frame)<CGRectGetHeight(viewport) &&
+        fabs(CGRectGetMinX(frame)-CGRectGetMinX(viewport))<=0.75 &&
+        fabs(CGRectGetMaxX(frame)-CGRectGetMaxX(viewport))<=0.75 &&
+        fabs(CGRectGetMidY(frame)-CGRectGetMidY(viewport))<=0.75;
+}
+
 // Measure the actual picture, which can extend beyond the native renderer
 // frame. Scaling from the frame instead can zoom a tall source unnecessarily.
 static CATransform3D HGVideoBackdropCoverTransform(CGSize picture, CGRect native, CGRect full) {
@@ -230,9 +239,10 @@ static CATransform3D HGVideoBackdropCoverTransform(CGSize picture, CGRect native
 }
 
 static UIView *HGVideoBackdropMetal(UIView *renderer, UIView *player, CGRect viewport) {
+    CGRect frame=[renderer convertRect:renderer.bounds toView:player];
     if (HGAppearancePlayerIsTransferring(renderer) || renderer.subviews.count != 1 ||
         renderer.layer.sublayers.count != 1 ||
-        !HGVideoBackdropSameRect([renderer convertRect:renderer.bounds toView:player],viewport,0.75) ||
+        (!HGVideoBackdropSameRect(frame,viewport,0.75) && !HGVideoBackdropCenteredPortrait(frame,viewport)) ||
         !CGPointEqualToPoint(renderer.layer.anchorPoint,CGPointMake(0.5,0.5))) return nil;
     UIView *metal=renderer.subviews.firstObject;
     if (![metal isKindOfClass:objc_lookUpClass("TTMetalView")] || renderer.layer.sublayers.firstObject!=metal.layer ||
@@ -574,13 +584,15 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         NSValue *previous=[self.portraitRenderers objectForKey:renderer];
         if (!CATransform3DIsIdentity(current) &&
             !(previous && CATransform3DEqualToTransform(current,previous.CATransform3DValue))) continue;
-        CATransform3D transform=HGVideoBackdropCoverTransform(metal.bounds.size,viewport,full);
+        CGRect native=[renderer convertRect:renderer.bounds toView:player];
+        CATransform3D transform=HGVideoBackdropCoverTransform(metal.bounds.size,native,full);
         if (!self.portraitRenderers) self.portraitRenderers=[NSMapTable weakToStrongObjectsMapTable];
         if (!previous || !CATransform3DEqualToTransform(previous.CATransform3DValue,transform))
             [self.portraitRenderers setObject:[NSValue valueWithCATransform3D:transform] forKey:renderer];
         if (!CATransform3DEqualToTransform(current,transform)) renderer.layer.sublayerTransform=transform;
         [active addObject:renderer];
-        if (extends) [self releasePortraitClippingFrom:renderer to:boundary active:active];
+        if (extends || HGVideoBackdropCenteredPortrait(native,viewport))
+            [self releasePortraitClippingFrom:renderer to:boundary active:active];
         else if ([self.portraitClips containsObject:renderer]) {
             renderer.clipsToBounds=YES;
             [self.portraitClips removeObject:renderer];
@@ -601,7 +613,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
             if (cover.contentMode!=UIViewContentModeScaleAspectFill) saved.contentMode=cover.contentMode;
         }
         CGRect nativeCover=[cover.superview convertRect:saved.frame toView:coordinateView];
-        if (HGVideoBackdropMatchesViewport(nativeCover,viewport) ||
+        if (HGVideoBackdropMatchesViewport(nativeCover,viewport) || HGVideoBackdropCenteredPortrait(nativeCover,viewport) ||
             HGVideoBackdropMatchesViewport(nativeCover,coordinateView.bounds)) {
             saved.appliedFrame=[coordinateView convertRect:full toView:cover.superview];
             if (!self.portraitCovers) self.portraitCovers=[NSMapTable weakToStrongObjectsMapTable];

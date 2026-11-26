@@ -326,10 +326,15 @@ static void HGRunDockRestoreReentryChecks(SSTabBarController *host) {
     HGAppearanceApply(saved,nil);Layout(host.customTabBar);
 }
 
+@interface SSTabBarTextButton : UIControl
+@property(nonatomic,copy) void (^tabBarButtonTappedBlock)(UIControl *);
+@end
+@implementation SSTabBarTextButton @end
+
 static void HGRunLateDockActionChecks(SSTabBarController *host) {
     NSDictionary *saved=HGAppearanceValues();
-    HGAppearanceApply(@{@"enabled":@NO,@"dock.enabled":@YES,@"dock.style":@"glass",
-        @"dock.extra":@NO,@"dock.hide.home":@NO,@"dock.hide.theater":@NO,
+    HGAppearanceApply(@{@"enabled":@NO,@"dock.enabled":@YES,@"dock.style":@"glass",@"dock.material":@"regular",
+        @"dock.extra":@NO,@"dock.radius":@20,@"dock.haptics":@NO,@"dock.hide.home":@NO,@"dock.hide.theater":@NO,
         @"dock.hide.store":@NO,@"dock.hide.mine":@NO},nil);
     SSTabBarController *fixture=[SSTabBarController new];
     [host addChildViewController:fixture];
@@ -337,13 +342,17 @@ static void HGRunLateDockActionChecks(SSTabBarController *host) {
     SSTabBar *bar=fixture.customTabBar;
     bar.frame=CGRectMake(0,CGRectGetHeight(fixture.view.bounds)-84,402,84);
     bar.contentView.frame=bar.bounds;
+    UIControl *original=bar.contentView.subviews.lastObject;
+    SSTabBarTextButton *last=[[SSTabBarTextButton alloc] initWithFrame:original.frame];
+    last.tag=original.tag;
+    [last addSubview:original.subviews.firstObject];
+    [original removeFromSuperview];
+    [bar.contentView addSubview:last];
     NSArray<UIControl *> *items=bar.contentView.subviews.copy;
     for (NSUInteger i=0;i<items.count;i++) {
         items[i].frame=CGRectMake(402.0*i/4,0,402.0/4,84);
         items[i].subviews.firstObject.frame=items[i].bounds;
     }
-    UIControl *last=items.lastObject;
-    [last removeTarget:fixture action:@selector(nativeTap:) forControlEvents:UIControlEventTouchUpInside];
     UIColor *fill=UIColor.systemOrangeColor;
     bar.backgroundColor=fill;
     bar.opaque=YES;
@@ -357,20 +366,47 @@ static void HGRunLateDockActionChecks(SSTabBarController *host) {
         fallback.effect && !fallback.hidden && !fallback.userInteractionEnabled && !bar.contentView.hidden &&
         [bar.subviews indexOfObject:fallback]<[bar.subviews indexOfObject:bar.contentView],
         @"enabling appearance while the fourth text tab is unbound mounts a material below the live native tabs");
+    if (HGNativeGlassConfigured()) {
+        UIVisualEffect *previous=fallback.effect;
+        HGAppearanceSet(@"dock.material",@"clear",nil); Layout(bar);
+        UIVisualEffect *clear=fallback.effect;
+        BOOL changed=[[fallback valueForKey:@"clearGlass"] boolValue] && clear && clear!=previous;
+        HGAppearanceSet(@"dock.material",@"regular",nil); Layout(bar);
+        Check(changed && ![[fallback valueForKey:@"clearGlass"] boolValue] &&
+            fallback.effect && fallback.effect!=clear && fallback==Find(bar,@"honggo.tabbar.glass"),
+            @"the mounted text-bar backdrop changes between Clear and Regular without replacing the host tabs");
+    }
     UIControl *third=items[2];
     CGPoint point=[third convertPoint:CGPointMake(CGRectGetMidX(third.bounds),CGRectGetMidY(third.bounds)) toView:bar];
     UIView *hit=[bar hitTest:point withEvent:nil];
     if (hit==third) [third sendActionsForControlEvents:UIControlEventTouchUpInside];
     Check(hit==third && fixture.nativeTaps==1 && fixture.selectedIndex==2,
         @"the fallback passes the native text tab hit and its original action through exactly once");
-    [last addTarget:fixture action:@selector(nativeTap:) forControlEvents:UIControlEventTouchUpInside];
+    NSUInteger before=HGFixtureDockImpacts;
+    [fixture impactFeedback];
+    Check(HGFixtureDockImpacts==before,@"the disabled haptic switch also silences the original unbound text bar");
+    fill=UIColor.systemGrayColor;
+    bar.backgroundColor=fill;
+    Check(CGColorGetAlpha(bar.backgroundColor.CGColor)==0,
+        @"a settled native page fill stays transparent behind the fallback capsule before the next layout");
+    __weak SSTabBarController *weakFixture=fixture;
+    last.tabBarButtonTappedBlock=^(UIControl *sender){[weakFixture nativeTap:sender];};
     Layout(bar);
     UIView *dock=Find(bar,@"honggo.appearance.dock");
     UIControl *mine=(id)Find(dock,@"honggo.appearance.tab.mine");
     [mine sendActionsForControlEvents:UIControlEventTouchUpInside];
     Check(dock.superview==bar && bar.contentView.hidden && !fallback.superview &&
         !Find(bar,@"honggo.tabbar.glass") && fixture.nativeTaps==2 && fixture.selectedIndex==3,
-        @"binding the fourth action upgrades to one custom Dock on host layout and forwards that action once");
+        @"binding the host text tab callback upgrades to one custom Dock and forwards its original control once");
+    HGAppearanceSet(@"dock.width",@0.70,nil);Layout(bar);
+    UIView *capsule=Find(dock,@"honggo.appearance.dock.capsule");
+    CGFloat narrow=CGRectGetWidth(capsule.bounds);
+    HGAppearanceSet(@"dock.width",@0.95,nil);Layout(bar);
+    Check(fabs(narrow-402*0.70)<1 && fabs(CGRectGetWidth(capsule.bounds)-402*0.95)<1,
+        @"both configured widths reach the mounted four-item text-tab capsule");
+    HGAppearanceSet(@"dock.hide.store",@YES,nil);Layout(bar);
+    Check(Find(dock,@"honggo.appearance.tab.store").hidden && bar.contentView.hidden && !mine.hidden,
+        @"the text-tab host hides both copies of Store with the remaining navigation available");
     HGAppearanceSet(@"enabled",@NO,nil);
     Check(!bar.contentView.hidden && !Find(bar,@"honggo.appearance.dock") && !Find(bar,@"honggo.tabbar.glass") &&
         [bar.backgroundColor isEqual:fill] && bar.opaque && [bar hitTest:point withEvent:nil]==third,
@@ -1001,21 +1037,12 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     UIButton *theater=(id)Find(dock,@"honggo.appearance.tab.theater");
     NSUInteger taps=host.nativeTaps;
     if(quietBar) {
-        UITabBarController *managed=[dock valueForKey:@"systemTabController"];
-        CGPoint center=CGPointMake(CGRectGetMidX(capsule.bounds),CGRectGetMidY(capsule.bounds));
-        UIView *hit=[dock hitTest:[capsule convertPoint:center toView:dock] withEvent:nil];
-        Check(![[dock valueForKey:@"quietSystemTouches"] boolValue] &&
-            hit!=quietBar && [hit isDescendantOfView:quietBar] &&
-            !Find(dock,@"honggo.appearance.dock.quiet-lens") && !Find(capsule,@"honggo.appearance.material"),
-            @"disabling haptics still routes touches directly into UIKit's native platter without a custom overlay lens");
-        if(managed) {
-            if(@available(iOS 26.0,*)) {
-                UITab *tab=[managed tabForIdentifier:@"theater"];
-                [managed.delegate tabBarController:managed didSelectTab:tab previousTab:managed.selectedTab];
-            }
-        }else if(quietBar.items.count>=2) {
-            [quietBar.delegate tabBar:quietBar didSelectItem:quietBar.items[1]];
-        }
+        CGPoint center=CGPointMake(CGRectGetMidX(theater.bounds),CGRectGetMidY(theater.bounds));
+        UIView *hit=[dock hitTest:[theater convertPoint:center toView:dock] withEvent:nil];
+        Check([[dock valueForKey:@"quietSystemTouches"] boolValue] && hit==theater &&
+            !Find(capsule,@"honggo.appearance.material"),
+            @"the silent slot owns the UIKit platter hit while retaining the native material");
+        [(UIControl *)hit sendActionsForControlEvents:UIControlEventTouchUpInside];
         Check(host.selectedIndex==1 && host.nativeTaps==taps+1 && HGFixtureDockImpacts==impacts+1,
             @"native UIKit selection with haptics off forwards one tab action while suppressing host impact");
     }else {
@@ -1023,15 +1050,16 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
         [theater sendActionsForControlEvents:UIControlEventTouchUpInside];
         Check(host.selectedIndex==1 && host.nativeTaps==taps+1,@"quiet compatibility navigation delivers one original tab action");
     }
-    if(quietBar) {
+    HGAppearanceSet(@"dock.haptics",@YES,nil);HGAppearanceLayoutDock(host.customTabBar,host);
+    if([dock valueForKey:@"systemTabBar"]) {
         Method material=class_getInstanceMethod(dock.class,sel_registerName("applySystemMaterial:"));
         IMP apply=method_setImplementation(material,(IMP)HGAFixtureReadOnlyMaterial);
         @try {
             host.selectedIndex=0;
             HGAppearanceSet(@"dock.material",@"clear",nil);HGAppearanceLayoutDock(host.customTabBar,host);
-            Check([dock valueForKey:@"systemTabBar"]==quietBar && !Find(capsule,@"honggo.appearance.material") &&
-                manual.hidden,
-                @"a read-only iOS 27 platter retains UIKit's native floating Dock rather than degrading to compatibility mode");
+            UIView *glass=Find(capsule,@"honggo.appearance.material");
+            Check(![dock valueForKey:@"systemTabBar"] && [[glass valueForKey:@"style"] isEqual:@"clear"] && !manual.hidden,
+                @"a read-only platter hands off to one Clear glass capsule with live tab controls");
             for (NSNumber *hideStore in @[@NO,@YES]) {
                 HGAppearanceSet(@"dock.hide.store",hideStore,nil);
                 host.selectedIndex=0;HGAppearanceLayoutDock(host.customTabBar,host);
@@ -1043,13 +1071,24 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
                 for (NSNumber *index in @[@1,@3,@0]) {
                     host.selectedIndex=index.unsignedIntegerValue;HGAppearanceLayoutDock(host.customTabBar,host);
                     CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);HGAppearanceLayoutDock(host.customTabBar,host);
-                    Check([dock valueForKey:@"systemTabBar"]!=nil && CGRectEqualToRect(homeFrame,capsule.frame) &&
-                        !Find(capsule,@"honggo.appearance.material"),
-                        @"home, theatre and profile retain the mounted native UIKit platter and stable width across tab switches");
+                    Check(![dock valueForKey:@"systemTabBar"] && CGRectEqualToRect(homeFrame,capsule.frame) &&
+                        [[Find(capsule,@"honggo.appearance.material") valueForKey:@"style"] isEqual:@"clear"],
+                        @"home, theatre and profile retain the selected Clear material and width across tab switches");
                 }
             }
+            HGAppearanceSet(@"dock.material",@"regular",nil);HGAppearanceLayoutDock(host.customTabBar,host);
+            Check([[Find(capsule,@"honggo.appearance.material") valueForKey:@"style"] isEqual:@"regular"],
+                @"the same read-only provider switches back to Regular on the mounted capsule");
         } @finally {
             method_setImplementation(material,apply);
+        }
+    } else {
+        for (NSString *style in @[@"clear",@"regular"]) {
+            HGAppearanceSet(@"dock.material",style,nil);
+            HGAppearanceLayoutDock(host.customTabBar,host);
+            UIView *glass=Find(capsule,@"honggo.appearance.material");
+            Check([[glass valueForKey:@"style"] isEqual:style] && !manual.hidden,
+                [NSString stringWithFormat:@"the initially fallback Dock displays %@ on its mounted capsule",style]);
         }
     }
     host.overrideUserInterfaceStyle=savedStyle;host.selectedIndex=savedIndex;host.customTabBar.frame=frame;
