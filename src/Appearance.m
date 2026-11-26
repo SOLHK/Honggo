@@ -54,6 +54,10 @@ void HGScheduleFeedLayoutRefresh(UIScrollView *feed) {
     CFRunLoopWakeUp(CFRunLoopGetMain());
 }
 
+static void HGARefreshBackdropDuringScroll(id scroll) {
+    if ([scroll isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class])
+        HGRefreshVideoBackdropForFeed(scroll);
+}
 static void HGARefreshBackdropAfterScroll(id scroll) {
     if ([scroll isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class]) {
         HGRefreshVideoBackdropForFeed(scroll);
@@ -168,6 +172,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         selector==sel_registerName("resumeWithType:"));
     BOOL automaticCleanTap=[className isEqual:@"FQVShortVideoListVCControlViewComponent"] &&
         selector==sel_registerName("controlView:singleTapPlay:model:");
+    BOOL playbackStateChanged=selector==sel_registerName("playerPlaybackStateDidChanged:");
     BOOL backdropChange=playerCanvas && (selector==sel_registerName("refreshBgColor") ||
         selector==sel_registerName("refreshCoverImageView"));
     BOOL firstPicture=playerCanvas && selector==sel_registerName("vPlayerReadyToDisPlay:");
@@ -202,6 +207,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         });
     } else if (automaticCleanTap && !strcmp(encoding,"v36@0:8@16B24@28")) {
         replacement=imp_implementationWithBlock(^(id component,UIView *hud,BOOL play,id model) {
+            HGARecordUserTapPlay(hud,play);
             ((void(*)(id,SEL,UIView *,BOOL,id))original)(component,selector,hud,play,model);
             HGAApplyAutomaticCleanTap(component,hud,play,model);
             if([hud isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerControlView")] && !HGAApplying)
@@ -209,8 +215,14 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         });
     } else if (automaticCleanStart && !strcmp(encoding,"v24@0:8q16")) {
         replacement=imp_implementationWithBlock(^(UIView *cell,NSInteger reason) {
+            HGARecordCellPlaybackStart(cell);
             ((void(*)(id,SEL,NSInteger))original)(cell,selector,reason);
             HGAStartAutomaticCleanForCell(cell,NO);
+        });
+    } else if (playbackStateChanged && !strcmp(encoding,"v24@0:8q16")) {
+        replacement=imp_implementationWithBlock(^(UIView *hud,NSInteger state) {
+            ((void(*)(id,SEL,NSInteger))original)(hud,selector,state);
+            if(hud.window && !HGAApplying)HGAApplyPlaybackButton(hud);
         });
     } else if (feedShareTap && !strcmp(encoding,"v24@0:8@16")) {
         replacement=imp_implementationWithBlock(^(id manager,id shareView) {
@@ -281,10 +293,13 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 return;
             }
             if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview))) {
+                BOOL wasTransferring=(HGAPlayerState(object,NO).transferFlags & (selector==@selector(didMoveToSuperview)?1u:2u))!=0;
                 HGAFinishPlayerTransfer(object,selector);
                 if ([(UIView *)object window]) {
+                    if(playerCanvas && selector==@selector(didMoveToWindow))HGARecordCellPlaybackStart(object);
                     HGRefreshVideoBackdropForPlayer(object);
-                    HGScheduleFeedLayoutRefresh((UIScrollView *)HGAAncestorNamed(object,@"FQVCollectionView"));
+                    if(wasTransferring)
+                        HGScheduleFeedLayoutRefresh((UIScrollView *)HGAAncestorNamed(object,@"FQVCollectionView"));
                 }
             }
             if(episodeWrapper)HGAEpisodeReconcileWrapper(object);
@@ -304,8 +319,9 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     } else if (firstPicture && !strcmp(encoding,"v24@0:8@16")) {
         replacement=imp_implementationWithBlock(^(UIView *cell,UIView *player) {
             // This native delegate hides the series cover immediately.
-            // Commit the real renderer's geometry before that handoff.
+            // Commit target resolution and real renderer geometry before that handoff.
             if(NSThread.isMainThread && cell.window && !HGAApplying) {
+                HGAPrimeCellPlaybackQuality(cell);
                 Class mediaClass=objc_lookUpClass("FQVPlayer");
                 UIView *media=[player isKindOfClass:mediaClass] ? player : HGReadObjectGetter(cell,"vPlayer");
                 HGRefreshVideoBackdropForPlayer([media isKindOfClass:mediaClass] && [media isDescendantOfView:cell] ? media : cell);
@@ -315,7 +331,9 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     } else if (!strcmp(encoding,"v24@0:8@16")) {
         replacement=imp_implementationWithBlock(^(id object,id argument) {
             BOOL sameSuperview=selector==@selector(willMoveToSuperview:) && argument==[(UIView *)object superview];
-            BOOL transfer=player && (selector==@selector(willMoveToSuperview:) || selector==@selector(willMoveToWindow:));
+            BOOL sameWindow=selector==@selector(willMoveToWindow:) && argument==[(UIView *)object window];
+            BOOL transfer=player && ((selector==@selector(willMoveToSuperview:) && !sameSuperview) ||
+                (selector==@selector(willMoveToWindow:) && !sameWindow));
             BOOL episodeMove=episode && selector==@selector(willMoveToSuperview:) && !sameSuperview;
             BOOL episodeRender=episode && selector==sel_registerName("renderWithModel:");
             BOOL episodeAdd=episode && selector==@selector(didAddSubview:);
@@ -337,7 +355,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 if(guarded && (episodeMove || (episodeRender && !wasApplying)))HGAApplyEpisodeCorners(object,NO,0);
                 if(guarded && episodeWrapper && bottomMove)HGAEpisodeWrapperWillMove(object);
                 if(guarded && (episodeMove || bottomMove))HGARestoreBottomLayoutForView(object);
-                if(guarded && modelChange)HGAPlayerModelWillChange(object,argument);
+                if(guarded && modelChange) {
+                    HGARecordCellPlaybackStart(object);
+                    HGAPlayerModelWillChange(object,argument);
+                }
                 ((void(*)(id,SEL,id))original)(object,selector,argument);
                 completed=YES;
             } @finally {
@@ -367,9 +388,12 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGAResumeCategoryFeeds(object);
                 HGAHomeChannelPagerDidSettle(object);
             }
-            else if(scrollComponent)HGARefreshBackdropAfterScroll(argument);
+            else if(scrollComponent) {
+                if(selector==@selector(scrollViewDidScroll:))HGARefreshBackdropDuringScroll(argument);
+                else HGARefreshBackdropAfterScroll(argument);
+            }
             else if(controller)HGAppearanceProcessController(object);
-            else if(!transfer && !episodeMove && !bottomMove && !sameSuperview)HGAppearanceProcessView(object);
+            else if(!transfer && !episodeMove && !bottomMove && !sameSuperview && !sameWindow)HGAppearanceProcessView(object);
         });
     } else if (!strcmp(encoding,"v28@0:8@16B24")) {
         BOOL collectRefresh=[className isEqual:@"SSShortVideoRightInteractionCollectView"] &&
@@ -621,6 +645,14 @@ void HGInstallAppearance(void) {
             if([name isEqual:@"FQVShortVideoVPlayerControlView"]) {
                 HGAHook(cls,sel_registerName("setPlayerViewFrame:"),"v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",NO);
                 HGAHook(cls,sel_registerName("handleOutterFeedClipBounds:"),"v20@0:8B16",NO);
+                if(class_getInstanceMethod(cls,sel_registerName("playerPlaybackStateDidChanged:")))
+                    HGAHook(cls,sel_registerName("playerPlaybackStateDidChanged:"),"v24@0:8q16",NO);
+            }
+            if([name isEqual:@"FQVShortVideoVPlayerOutterMultiSeriesControlView"] ||
+                [name isEqual:@"FQVShortVideoDerivativeVideoControlView"] ||
+                [name isEqual:@"FQVShortVideoVPlayerSingleSeriesControlView"]) {
+                if(class_getInstanceMethod(cls,sel_registerName("playerPlaybackStateDidChanged:")))
+                    HGAHook(cls,sel_registerName("playerPlaybackStateDidChanged:"),"v24@0:8q16",NO);
             }
             if([name isEqual:@"SSShortVideoTagListBottomInsertView"])
                 HGAHook(cls,sel_registerName("relayout"),"v16@0:8",NO);

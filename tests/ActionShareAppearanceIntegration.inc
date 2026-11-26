@@ -122,7 +122,104 @@ static NSInteger HGAFixtureShareMode=2;
     return cell;
 }
 @end
+static BOOL HGANightThemeEnabledForTests;
+@interface HGANightThemeServiceFixture : NSObject
+- (BOOL)isCurrentDarkMode;
+- (id)getProtocolService:(Protocol *)proto;
+@end
+@implementation HGANightThemeServiceFixture
+- (BOOL)isCurrentDarkMode { return HGANightThemeEnabledForTests; }
+- (id)getProtocolService:(Protocol *)proto {
+    return (HGANightThemeEnabledForTests && proto && strcmp(protocol_getName(proto),"SSAdaptiveUIColorProtocol")==0) ? self : nil;
+}
+@end
+static void HGAEnsureNightThemeCenterRegistered(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once,^{
+        if(!objc_getProtocol("SSAdaptiveUIColorProtocol")) {
+            Protocol *p=objc_allocateProtocol("SSAdaptiveUIColorProtocol");
+            if(p)objc_registerProtocol(p);
+        }
+        if(!objc_lookUpClass("HTSServiceCenter")) {
+            Class cls=objc_allocateClassPair(NSObject.class,"HTSServiceCenter",0);
+            if(cls) {
+                HGANightThemeServiceFixture *shared=[HGANightThemeServiceFixture new];
+                IMP imp=imp_implementationWithBlock(^id(__unused id receiver){
+                    return HGANightThemeEnabledForTests ? shared : nil;
+                });
+                class_addMethod(object_getClass(cls),sel_registerName("defaultCenter"),imp,"@16@0:8");
+                objc_registerClassPair(cls);
+            }
+        }
+    });
+}
+static void RunNightModeSheetInkChecks(UIViewController *host) {
+    HGAEnsureNightThemeCenterRegistered();
+    UIView *root=host.view;
+    NSDictionary *saved=HGAppearanceValues();
+    UIUserInterfaceStyle savedStyle=host.overrideUserInterfaceStyle;
+    host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
+    if(@available(iOS 17.0,*)){[host updateTraitsIfNeeded];[root updateTraitsIfNeeded];}
+    HGANightThemeEnabledForTests=YES;
+
+    FQCShortVideoCommentListViewController *commentPanel=[FQCShortVideoCommentListViewController_hmd_subfix_ new];
+    [host addChildViewController:commentPanel];[commentPanel loadViewIfNeeded];
+    CGFloat width=root.bounds.size.width;
+    commentPanel.view.frame=CGRectMake(0,root.bounds.size.height-420,width,420);
+    commentPanel.view.backgroundColor=UIColor.blackColor;
+    FQCShortVideoCommentPanelTitleView *header=[[FQCShortVideoCommentPanelTitleView alloc] initWithFrame:CGRectMake(0,0,width,48)];
+    UILabel *headerLabel=[[UILabel alloc] initWithFrame:CGRectMake(16,12,160,24)];
+    UIColor *darkText=[UIColor colorWithWhite:0.12 alpha:1];
+    headerLabel.text=@"评论 128";
+    headerLabel.textColor=darkText;
+    [header addSubview:headerLabel];
+    FQCShortVideoCommentListCollectionView *list=[[FQCShortVideoCommentListCollectionView alloc]
+        initWithFrame:CGRectMake(0,48,width,320) collectionViewLayout:[UICollectionViewFlowLayout new]];
+    FQCShortVideoCommentReplyCell *row=[[FQCShortVideoCommentReplyCell alloc] initWithFrame:CGRectMake(0,12,width,64)];
+    UILabel *richReply=[[UILabel alloc] initWithFrame:CGRectMake(24,8,width-48,36)];
+    NSMutableAttributedString *sourceRich=[[NSMutableAttributedString alloc] initWithString:@"@追剧人 回复：这段反转太绝了"];
+    [sourceRich addAttribute:NSForegroundColorAttributeName value:UIColor.systemBlueColor range:NSMakeRange(0,4)];
+    [sourceRich addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithWhite:0.10 alpha:1] range:NSMakeRange(4,sourceRich.length-4)];
+    richReply.attributedText=[sourceRich copy];
+    [row.contentView addSubview:richReply];
+    FQCShortVideoCommentSectionFooterView *footer=[[FQCShortVideoCommentSectionFooterView alloc] initWithFrame:CGRectMake(0,80,width,34)];
+    UIButton *expandBtn=[UIButton buttonWithType:UIButtonTypeCustom];
+    expandBtn.frame=CGRectMake(24,0,140,34);
+    UIColor *darkBtnColor=[UIColor colorWithWhite:0.18 alpha:1];
+    [expandBtn setTitle:@"展开 6 条回复" forState:UIControlStateNormal];
+    [expandBtn setTitleColor:darkBtnColor forState:UIControlStateNormal];
+    [footer addSubview:expandBtn];
+    [list addSubview:row];[list addSubview:footer];
+    [commentPanel.view addSubview:header];[commentPanel.view addSubview:list];
+    [root addSubview:commentPanel.view];[commentPanel didMoveToParentViewController:host];
+
+    BOOL allMaterialsWhite=YES;
+    for(NSArray<NSString *> *combo in @[@[@"regular",@"inherit"],@[@"blur",@"inherit"],@[@"regular",@"gaussian"],@[@"regular",@"frosted"]]) {
+        HGAppearanceApply(@{@"enabled":@YES,@"panels.comment":@YES,@"panels.material":combo[0],@"panels.commentMaterial":combo[1]},nil);
+        [commentPanel viewDidLayoutSubviews];Layout(header);Layout(row);Layout(footer);
+        CGFloat hw=0,rw=0,bw=0;
+        [headerLabel.textColor getWhite:&hw alpha:NULL];
+        UIColor *mention=[richReply.attributedText attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
+        UIColor *body=[richReply.attributedText attribute:NSForegroundColorAttributeName atIndex:6 effectiveRange:NULL];
+        [body getWhite:&rw alpha:NULL];
+        [[expandBtn titleColorForState:UIControlStateNormal] getWhite:&bw alpha:NULL];
+        allMaterialsWhite &= (hw>0.90 && [mention isEqual:UIColor.systemBlueColor] && rw>0.90 && bw>0.75);
+    }
+    Check(allMaterialsWhite,
+        @"Night Mode converts dark comment titles, multi-run attributed replies and footer buttons to white across liquid, frosted, blur and gaussian glass while preserving colored mentions");
+
+    HGAppearanceSet(@"panels.comment",@NO,nil);
+    [commentPanel viewDidLayoutSubviews];
+    Check([headerLabel.textColor isEqual:darkText] && [richReply.attributedText isEqual:sourceRich],
+        @"disabling Night Mode comment glass restores exact original plain and multi-run attributed text colors");
+
+    [commentPanel.view removeFromSuperview];[commentPanel removeFromParentViewController];
+    HGANightThemeEnabledForTests=NO;
+    host.overrideUserInterfaceStyle=savedStyle;
+    HGAppearanceApply(saved,nil);
+}
 static void RunCommentSheetAppearanceChecks(UIViewController *host) {
+    RunNightModeSheetInkChecks(host);
     UIView *root=host.view;
     UIView *dock=Find(root,@"honggo.appearance.dock");
     BOOL dockWasVisible=dock && !dock.hidden;

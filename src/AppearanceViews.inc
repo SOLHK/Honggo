@@ -34,19 +34,32 @@ static CALayer *HGACreateGaussianBackdrop(void) {
     return backdrop;
 }
 
+static BOOL HGAPlaybackQualitySwitchActive(void);
+
+static BOOL HGAHostExplicitDarkMode(UIView *view,BOOL *isDark) {
+    Protocol *adapter=objc_getProtocol("SSAdaptiveUIColorProtocol");
+    id center=adapter ? HGReadObjectGetter(objc_lookUpClass("HTSServiceCenter"),"defaultCenter") : nil;
+    SEL getter=sel_registerName("getProtocolService:");
+    Method method=center ? class_getInstanceMethod(object_getClass(center),getter) : NULL;
+    id themeManager=(method && !strcmp(method_getTypeEncoding(method),"@24@0:8@16")) ?
+        ((id (*)(id,SEL,Protocol *))objc_msgSend)(center,getter,adapter) : nil;
+    BOOL dark=NO;
+    if(HGABoolGetter(themeManager,@"isCurrentDarkMode",&dark)) {
+        if(isDark)*isDark=dark;
+        return YES;
+    }
+    UIWindow *window=view.window;
+    if(window && HGABoolGetter(window,@"isDark",&dark)) {
+        if(isDark)*isDark=dark;
+        return YES;
+    }
+    return NO;
+}
+
 static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UIView *bar) {
     // Catalogue, profile and modal sheets follow the host's Day/Night theme.
-    static id themeManager;
-    if(!themeManager) {
-        Protocol *adapter=objc_getProtocol("SSAdaptiveUIColorProtocol");
-        id center=adapter ? HGReadObjectGetter(objc_lookUpClass("HTSServiceCenter"),"defaultCenter") : nil;
-        SEL getter=sel_registerName("getProtocolService:");
-        Method method=center ? class_getInstanceMethod(object_getClass(center),getter) : NULL;
-        if(method && !strcmp(method_getTypeEncoding(method),"@24@0:8@16"))
-            themeManager=((id (*)(id,SEL,Protocol *))objc_msgSend)(center,getter,adapter);
-    }
-    BOOL dark;
-    if(HGABoolGetter(themeManager,@"isCurrentDarkMode",&dark))
+    BOOL dark=NO;
+    if(HGAHostExplicitDarkMode(bar ?: controller.viewIfLoaded,&dark))
         return dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
     UIUserInterfaceStyle appStyle=controller.viewIfLoaded.traitCollection.userInterfaceStyle;
     if(appStyle==UIUserInterfaceStyleUnspecified)appStyle=bar.window.traitCollection.userInterfaceStyle;
@@ -139,6 +152,14 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
     if(![self.contentView.backgroundColor isEqual:color])self.contentView.backgroundColor=color;
 }
 @end
+@interface HGAAdaptiveInkEntry : NSObject
+@property(nonatomic,strong) UIColor *sourceColor;
+@property(nonatomic,strong) UIColor *appliedColor;
+@property(nonatomic,copy) NSAttributedString *sourceText;
+@property(nonatomic,copy) NSAttributedString *appliedText;
+@end
+@implementation HGAAdaptiveInkEntry @end
+
 @interface HGAViewState : NSObject
 @property(nonatomic) CGAffineTransform sourceTransform;
 @property(nonatomic) CGAffineTransform appliedTransform;
@@ -152,6 +173,7 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
 @property(nonatomic,strong) UIColor *background;
 @property(nonatomic) BOOL clearsBackground;
 @property(nonatomic,strong) HGAAppearanceMaterial *glass;
+@property(nonatomic,strong) NSMapTable<UIView *,HGAAdaptiveInkEntry *> *adaptiveInk;
 @end
 @implementation HGAViewState @end
 static char HGAViewStateKey;
@@ -221,9 +243,108 @@ static void HGASetGlassHostBackground(UIView *view,BOOL clear) {
         state.clearsBackground=NO;state.background=nil;
     }
 }
+static BOOL HGANeutralColorComponents(UIColor *color,UITraitCollection *traits,CGFloat *white,CGFloat *alpha) {
+    CGFloat r=0,g=0,b=0;
+    if(!color || ![[color resolvedColorWithTraitCollection:traits] getRed:&r green:&g blue:&b alpha:alpha] ||
+        MAX(r,MAX(g,b))-MIN(r,MIN(g,b))>=0.10)return NO;
+    *white=0.2126*r+0.7152*g+0.0722*b;
+    return YES;
+}
+static void HGARestoreAdaptiveInkEntry(UIView *node,HGAAdaptiveInkEntry *entry) {
+    if(!node || !entry)return;
+    if([node isKindOfClass:UILabel.class]) {
+        UILabel *label=(UILabel *)node;
+        if(entry.appliedText && (label.attributedText==entry.appliedText || [label.attributedText isEqual:entry.appliedText])) {
+            label.textColor=entry.sourceColor;
+            if(entry.sourceText)label.attributedText=entry.sourceText;
+        } else if(entry.appliedColor && [label.textColor isEqual:entry.appliedColor]) {
+            label.textColor=entry.sourceColor;
+        }
+    } else if([node isKindOfClass:UIButton.class]) {
+        UIButton *button=(UIButton *)node;
+        if(entry.appliedColor && [[button titleColorForState:UIControlStateNormal] isEqual:entry.appliedColor])
+            [button setTitleColor:entry.sourceColor forState:UIControlStateNormal];
+    }
+}
+static void HGAApplyAdaptiveControlInk(UIView *view,UIUserInterfaceStyle appearance,BOOL enabled) {
+    if(!view)return;
+    HGAViewState *state=HGAState(view,enabled && appearance==UIUserInterfaceStyleDark);
+    if(!enabled || appearance!=UIUserInterfaceStyleDark) {
+        for(UIView *node in state.adaptiveInk.keyEnumerator.allObjects)
+            HGARestoreAdaptiveInkEntry(node,[state.adaptiveInk objectForKey:node]);
+        state.adaptiveInk=nil;
+        return;
+    }
+    if(!state.adaptiveInk)state.adaptiveInk=[NSMapTable weakToStrongObjectsMapTable];
+    NSHashTable<UIView *> *seen=[NSHashTable weakObjectsHashTable];
+    for(UIView *node in HGADescendants(view,28)) {
+        if([node isKindOfClass:UILabel.class]) {
+            UILabel *label=(UILabel *)node;
+            HGAAdaptiveInkEntry *entry=[state.adaptiveInk objectForKey:label];
+            BOOL ownedColor=entry.appliedColor && [label.textColor isEqual:entry.appliedColor];
+            BOOL ownedRich=entry.appliedText && (label.attributedText==entry.appliedText || [label.attributedText isEqual:entry.appliedText]);
+            UIColor *baseColor=(ownedColor || ownedRich) ? entry.sourceColor : label.textColor;
+            NSAttributedString *baseText=(ownedColor || ownedRich) ? entry.sourceText : label.attributedText;
+            CGFloat white=0,alpha=0;
+            BOOL changedRich=NO;
+            NSMutableAttributedString *rewritten=nil;
+            if(baseText.length) {
+                [baseText enumerateAttribute:NSForegroundColorAttributeName inRange:NSMakeRange(0,baseText.length) options:0
+                    usingBlock:^(id value,NSRange range,__unused BOOL *stop) {
+                        UIColor *run=[value isKindOfClass:UIColor.class] ? value : baseColor;
+                        CGFloat rw=0,ra=0;
+                        if(!HGANeutralColorComponents(run,label.traitCollection,&rw,&ra) || rw>=0.66)return;
+                        if(!rewritten)rewritten=[baseText mutableCopy];
+                        [rewritten addAttribute:NSForegroundColorAttributeName
+                            value:[UIColor colorWithWhite:(rw<0.24 ? 0.98 : 0.80) alpha:ra] range:range];
+                        changedRich=YES;
+                    }];
+            }
+            if(changedRich) {
+                if(!entry){entry=[HGAAdaptiveInkEntry new];[state.adaptiveInk setObject:entry forKey:label];}
+                entry.sourceColor=baseColor;entry.sourceText=[baseText copy];
+                entry.appliedColor=(HGANeutralColorComponents(baseColor,label.traitCollection,&white,&alpha) && white<0.66) ?
+                    [UIColor colorWithWhite:(white<0.24 ? 0.98 : 0.80) alpha:alpha] : baseColor;
+                if(entry.appliedColor && ![label.textColor isEqual:entry.appliedColor])label.textColor=entry.appliedColor;
+                label.attributedText=rewritten;
+                entry.appliedText=[label.attributedText copy];
+                [seen addObject:label];
+            } else if(HGANeutralColorComponents(baseColor,label.traitCollection,&white,&alpha) && white<0.66) {
+                if(!entry){entry=[HGAAdaptiveInkEntry new];[state.adaptiveInk setObject:entry forKey:label];}
+                entry.sourceColor=baseColor;entry.sourceText=baseText;
+                entry.appliedColor=[UIColor colorWithWhite:(white<0.24 ? 0.98 : 0.80) alpha:alpha];
+                if(![label.textColor isEqual:entry.appliedColor])label.textColor=entry.appliedColor;
+                entry.appliedText=label.attributedText;
+                [seen addObject:label];
+            }
+        } else if([node isKindOfClass:UIButton.class]) {
+            UIButton *button=(UIButton *)node;
+            HGAAdaptiveInkEntry *entry=[state.adaptiveInk objectForKey:button];
+            UIColor *current=[button titleColorForState:UIControlStateNormal];
+            BOOL owned=entry.appliedColor && [current isEqual:entry.appliedColor];
+            UIColor *baseColor=owned ? entry.sourceColor : current;
+            CGFloat white=0,alpha=0;
+            if(HGANeutralColorComponents(baseColor,button.traitCollection,&white,&alpha) && white<0.66) {
+                if(!entry){entry=[HGAAdaptiveInkEntry new];[state.adaptiveInk setObject:entry forKey:button];}
+                entry.sourceColor=baseColor;
+                entry.appliedColor=[UIColor colorWithWhite:(white<0.24 ? 0.98 : 0.80) alpha:alpha];
+                if(![current isEqual:entry.appliedColor])[button setTitleColor:entry.appliedColor forState:UIControlStateNormal];
+                [seen addObject:button];
+            }
+        }
+    }
+    for(UIView *previous in state.adaptiveInk.keyEnumerator.allObjects) {
+        if(![seen containsObject:previous]) {
+            HGARestoreAdaptiveInkEntry(previous,[state.adaptiveInk objectForKey:previous]);
+            [state.adaptiveInk removeObjectForKey:previous];
+        }
+    }
+    if(!state.adaptiveInk.count)state.adaptiveInk=nil;
+}
 static void HGARemoveGlass(UIView *view) {
     HGAViewState *state=HGAState(view,NO);
     if(!state)return;
+    if(state.adaptiveInk)HGAApplyAdaptiveControlInk(view,UIUserInterfaceStyleLight,NO);
     [state.glass removeFromSuperview];state.glass=nil;
     HGASetGlassHostBackground(view,NO);
 }
@@ -294,7 +415,9 @@ static void HGAInstallButtonGlass(UIView *view,NSString *style,CGRect frame,CGFl
     HGAInstallButtonGlassWithAppearance(view,style,frame,radius,UIUserInterfaceStyleDark);
 }
 static void HGAInstallAdaptiveButtonGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius) {
-    HGAInstallButtonGlassWithAppearance(view,style,frame,radius,HGAAdaptivePageStyle(nil,view));
+    UIUserInterfaceStyle appearance=HGAAdaptivePageStyle(HGAOwner(view),view);
+    HGAInstallButtonGlassWithAppearance(view,style,frame,radius,appearance);
+    HGAApplyAdaptiveControlInk(view,appearance,HGAState(view,NO).glass!=nil);
 }
 static NSDictionary<NSString *,NSString *> *HGAViewRoles(void) {
     static NSDictionary *roles;static dispatch_once_t once;
@@ -497,6 +620,7 @@ static void HGARestoreText(UIView *view) {
 }
 static void HGAApplyTypography(UIView *root) {
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(@"fonts.enabled") && root.window;
+    if(!enabled && !HGATexts.count)return;
     for(UIView *view in HGADescendants(root,180)) {
         UIFont *font=HGAGetFont(view);if(!font)continue;
         if([view isKindOfClass:UITextField.class] && ([(UITextField *)view isSecureTextEntry] || view.isFirstResponder))continue;
@@ -578,6 +702,7 @@ static void HGAUpdateFictionNotice(UIView *canvas) {
     if(enabled) {
         for(UIView *node in HGADescendants(canvas,512)) {
             if(![node isKindOfClass:UILabel.class])continue;
+            if(CGRectGetHeight(node.bounds)<=CGRectGetWidth(node.bounds))continue;
             UILabel *label=(UILabel *)node;
             NSString *text=label.attributedText.string ?: label.text;
             if(![text containsString:@"虚"] && ![text containsString:@"演"])continue;
@@ -633,6 +758,7 @@ void HGAppearanceProcessView(UIView *view) {
             HGAUpdateCommentRow(view);return;
         }
         if(HGAIsCommentSurface(view)) {
+            HGAUpdateCommentSurface(view);
             HGAApplyTypography(view);return;
         }
         if(HGAIsActionPanelSurface(view)) {HGAUpdateActionPanelSurface(view);return;}

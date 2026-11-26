@@ -77,11 +77,13 @@ static void RunPlaybackQualityChecks(void) {
     ctx.currentVideoDataModel=cell.model=[NSObject new];ctx.hasMenu=YES;
     ctx.videoAllowResolutionDict=@{@9:@"360P",@2:@"720P",@4:@"1080P",@1:@"2160P"};
     ctx.supportedResolutionTypes=@[@9,@2,@4];ctx.options=@[@"360P",@"720P",@"2160P"];
-    [component dataModelDidPlay:cell.model];[component cellView:cell vPlayerReadyToDisplay:nil];
+    [component dataModelDidPlay:cell.model];
+    BOOL appliedSynchronouslyOnPlay=(ctx.changes==1 && ctx.currentResolution==2);
+    [component cellView:cell vPlayerReadyToDisplay:nil];
     CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.06,false);
-    Check(ctx.changes==1 && ctx.currentResolution==2 && ctx.lastStrategy==2 &&
+    Check(appliedSynchronouslyOnPlay && ctx.changes==1 && ctx.currentResolution==2 && ctx.lastStrategy==2 &&
         component.nativePlays==1 && component.nativeDisplays==1,
-        @"quality ranks only playable menu choices and keeps native playback callbacks");
+        @"quality applies synchronously on play before first-frame reveal, ranks only playable menu choices, and keeps native callbacks");
     ctx.currentResolution=9;
     [component cellView:cell vPlayerReadyToDisplay:nil];
     CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.03,false);

@@ -41,18 +41,20 @@ static HGAActionSheetState *HGAEpisodeSheetForControl(UIView *control) {
 @interface HGAEpisodeCollectInk : NSObject
 @property(nonatomic,weak) UILabel *label;
 @property(nonatomic,strong) UIColor *sourceColor;
+@property(nonatomic,strong) UIColor *appliedColor;
 @property(nonatomic,weak) UIImageView *icon;
 @property(nonatomic,strong) UIImage *sourceImage;
 @property(nonatomic,strong) UIImage *appliedImage;
 @property(nonatomic,strong) UIColor *sourceTint;
+@property(nonatomic,strong) UIColor *appliedTint;
 @end
 @implementation HGAEpisodeCollectInk @end
 static char HGAEpisodeCollectInkKey;
 static void HGAApplyEpisodeCollectInk(UIView *root,BOOL enabled) {
     HGAEpisodeCollectInk *state=objc_getAssociatedObject(root,&HGAEpisodeCollectInkKey);
     if(!enabled) {
-        if([state.label.textColor isEqual:UIColor.labelColor])state.label.textColor=state.sourceColor;
-        if([state.icon.tintColor isEqual:UIColor.labelColor])state.icon.tintColor=state.sourceTint;
+        if(state.appliedColor && [state.label.textColor isEqual:state.appliedColor])state.label.textColor=state.sourceColor;
+        if(state.appliedTint && [state.icon.tintColor isEqual:state.appliedTint])state.icon.tintColor=state.sourceTint;
         if(state.icon.image==state.appliedImage)state.icon.image=state.sourceImage;
         objc_setAssociatedObject(root,&HGAEpisodeCollectInkKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);return;
     }
@@ -67,13 +69,22 @@ static void HGAApplyEpisodeCollectInk(UIView *root,BOOL enabled) {
         objc_setAssociatedObject(root,&HGAEpisodeCollectInkKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     state.label=(id)label;state.icon=(id)icon;
-    if(![state.label.textColor isEqual:UIColor.labelColor])state.sourceColor=state.label.textColor;
-    if(![state.icon.tintColor isEqual:UIColor.labelColor])state.sourceTint=state.icon.tintColor;
+    if(!state.appliedColor || ![state.label.textColor isEqual:state.appliedColor])state.sourceColor=state.label.textColor;
+    if(!state.appliedTint || ![state.icon.tintColor isEqual:state.appliedTint])state.sourceTint=state.icon.tintColor;
     if(state.icon.image!=state.appliedImage) {
         state.sourceImage=state.icon.image;
         state.appliedImage=[state.sourceImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
     }
-    state.label.textColor=UIColor.labelColor;state.icon.tintColor=UIColor.labelColor;
+    HGAActionSheetState *sheet=HGAEpisodeSheetForControl(root);
+    BOOL dark=(sheet && (sheet.surface.overrideUserInterfaceStyle==UIUserInterfaceStyleDark ||
+        sheet.surface.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark)) ||
+        root.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    BOOL hostDark=NO;
+    if(HGAHostExplicitDarkMode(root,&hostDark) && hostDark)dark=YES;
+    UIColor *desired=dark ? UIColor.whiteColor : UIColor.labelColor;
+    state.appliedColor=desired;state.appliedTint=desired;
+    if(![state.label.textColor isEqual:desired])state.label.textColor=desired;
+    if(![state.icon.tintColor isEqual:desired])state.icon.tintColor=desired;
     if(state.icon.image!=state.appliedImage)state.icon.image=state.appliedImage;
 }
 static char HGAEpisodeLayerPaintKey;
@@ -212,15 +223,89 @@ static UIView *HGALazyControlSubview(UIView *owner,const char *ivarName,const ch
 
 // 7.4.5.33 exposes the portrait player's playBtn as a lazy UIButton getter that
 // constructs and mounts the center button on first read. Read its ivar directly
-// so cold-launch network buffering never flashes a premature center pause icon.
-static char HGAPlaybackButtonKey;
+// so cold-launch network buffering never flashes a premature center pause icon,
+// and suppress transient non-user startup/switch flashes while isUserPlaying=YES.
+@interface HGAPlaybackButtonSuppression : NSObject
+@property(nonatomic) CGFloat sourceAlpha;
+@property(nonatomic) BOOL suppressed;
+@property(nonatomic) NSUInteger generation;
+@end
+@implementation HGAPlaybackButtonSuppression @end
+static char HGAPlaybackButtonKey,HGAPlaybackButtonSuppressKey,HGACellPlayStartKey,HGACellUserPausedKey;
+static CFAbsoluteTime HGAPlaybackLaunchTimestamp;
+
+static void HGARecordCellPlaybackStart(UIView *cell) {
+    if(!cell)return;
+    objc_setAssociatedObject(cell,&HGACellUserPausedKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(cell,&HGACellPlayStartKey,@(CFAbsoluteTimeGetCurrent()),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static void HGARecordUserTapPlay(UIView *hud,BOOL play) {
+    UIView *cell=HGAPlayerCanvas(hud);
+    if(!cell)return;
+    if(play)HGARecordCellPlaybackStart(cell);
+    else {
+        objc_setAssociatedObject(cell,&HGACellUserPausedKey,@YES,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(cell,&HGACellPlayStartKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+static void HGARestorePlaybackButtonAlpha(UIButton *button) {
+    HGAPlaybackButtonSuppression *state=objc_getAssociatedObject(button,&HGAPlaybackButtonSuppressKey);
+    if(!state)return;
+    state.generation++;
+    if(state.suppressed && fabs(button.alpha)<0.001)button.alpha=state.sourceAlpha;
+    state.suppressed=NO;
+}
+static NSTimeInterval HGAPlaybackButtonGraceRemaining(UIView *root) {
+    if(!HGAppearanceEnabled() || !root.window)return 0;
+    UIView *cell=HGAPlayerCanvas(root);
+    if(!cell || [objc_getAssociatedObject(cell,&HGACellUserPausedKey) boolValue])return 0;
+    BOOL userPlaying=NO;
+    if(!HGABoolGetter(cell,@"isUserPlaying",&userPlaying) || !userPlaying)return 0;
+    if(!HGAPlaybackLaunchTimestamp)HGAPlaybackLaunchTimestamp=CFAbsoluteTimeGetCurrent();
+    CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
+    NSTimeInterval remaining=MAX(0,HGAPlaybackLaunchTimestamp+2.4-now);
+    NSNumber *cellStart=objc_getAssociatedObject(cell,&HGACellPlayStartKey);
+    if(cellStart)remaining=MAX(remaining,cellStart.doubleValue+1.25-now);
+    if(HGAPlaybackQualitySwitchActive())remaining=MAX(remaining,0.65);
+    return remaining>0 ? remaining : 0;
+}
 static void HGAApplyPlaybackButton(UIView *root) {
+    UIButton *mounted=root.window ? (id)HGALazyControlSubview(root,"_playBtn","playBtn") : nil;
+    if(![mounted isKindOfClass:UIButton.class])mounted=nil;
+    NSTimeInterval grace=mounted ? HGAPlaybackButtonGraceRemaining(root) : 0;
+    if(mounted) {
+        if(grace>0) {
+            HGAPlaybackButtonSuppression *state=objc_getAssociatedObject(mounted,&HGAPlaybackButtonSuppressKey);
+            if(!state) {
+                state=[HGAPlaybackButtonSuppression new];
+                state.sourceAlpha=1.0;
+                objc_setAssociatedObject(mounted,&HGAPlaybackButtonSuppressKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+            if(!state.suppressed || fabs(mounted.alpha)>=0.001)
+                state.sourceAlpha=mounted.alpha>0.01 ? mounted.alpha : 1.0;
+            state.suppressed=YES;
+            if(fabs(mounted.alpha)>=0.001)mounted.alpha=0;
+            NSUInteger gen=++state.generation;
+            __weak UIView *weakRoot=root;
+            __weak HGAPlaybackButtonSuppression *weakState=state;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)((grace+0.04)*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+                HGAPlaybackButtonSuppression *liveState=weakState;
+                UIView *liveRoot=weakRoot;
+                if(!liveState || liveState.generation!=gen)return;
+                if(liveRoot.window && !HGAApplying)HGAApplyPlaybackButton(liveRoot);
+            });
+        } else {
+            HGARestorePlaybackButtonAlpha(mounted);
+        }
+    }
     BOOL styled=root.window && HGAppearanceEnabled() && HGAppearanceFlag(@"player.rightGlass");
-    UIButton *button=styled ? (id)HGALazyControlSubview(root,"_playBtn","playBtn") : nil;
-    if(![button isKindOfClass:UIButton.class] || !button.currentImage)button=nil;
+    UIButton *button=(styled && mounted.currentImage) ? mounted : nil;
     UIButton *previous=objc_getAssociatedObject(root,&HGAPlaybackButtonKey);
     if(previous!=button) {
-        if(previous)HGARemoveGlass(previous);
+        if(previous) {
+            HGARestorePlaybackButtonAlpha(previous);
+            HGARemoveGlass(previous);
+        }
         objc_setAssociatedObject(root,&HGAPlaybackButtonKey,button,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     if(!button)return;
@@ -280,7 +365,7 @@ static void HGAApplyPlayerControls(UIView *root) {
             HGAClearSheetCover(state,cell.contentView);
             HGAClearSheetCover(state,cell.backgroundView);
             UILabel *label=(id)HGAViewGetter(cell,"titleLabel",cell);
-            if(state.nativeClear && [label isKindOfClass:UILabel.class])HGAApplySheetLabel(state,label);
+            if(HGASheetUsesConvertedInk(state) && [label isKindOfClass:UILabel.class])HGAApplySheetLabel(state,label);
         }
         return;
     }
@@ -367,7 +452,7 @@ static void HGAApplyPlayerControls(UIView *root) {
             [HGAState(target,NO).background colorWithAlphaComponent:0.18] ?: UIColor.clearColor);
         HGAActionSheetState *state=HGAEpisodeSheetForControl(root);
         UILabel *label=(id)HGAViewGetter(root,"textLabel",root);
-        if(state.nativeClear && [label isKindOfClass:UILabel.class])HGAApplySheetLabel(state,label);
+        if(HGASheetUsesConvertedInk(state) && [label isKindOfClass:UILabel.class])HGAApplySheetLabel(state,label);
     }
 }
 

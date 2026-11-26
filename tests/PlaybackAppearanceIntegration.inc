@@ -454,6 +454,10 @@ static void HGPlaybackCheckLandscapeFill(UIView *root) {
             CGRectEqualToRect(nativeFrame,render.frame),@"turning off the settings switch restores native aspect and clipping");
 
         HGAppearanceSet(@"player.fullscreen",@YES,nil);Layout(render);
+        HGPlaybackResetTransformWrites(render);
+        [canvas addSubview:render];
+        Check(render.layer.sublayerTransform.m11>1 && HGPlaybackFillWrites(render)==0,
+            @"re-adding TTPlayerView to its existing superview does not trigger a spurious transfer reset");
         canvas.model=firstModel;Layout(canvas);Layout(render);
         Check(render.layer.sublayerTransform.m11>1 && canvas.model==firstModel,
             @"refreshing the same model keeps eligible landscape playback filled");

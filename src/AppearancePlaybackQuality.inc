@@ -26,6 +26,11 @@ static NSNumber *HGAHighestMenuResolution(NSArray *supported,NSDictionary *label
 static char HGAQualitySelectionKey;
 static NSHashTable *HGAQualityOwners;
 static __weak id HGALastPlayingQualityComponent;
+static CFAbsoluteTime HGAQualitySwitchActiveUntil;
+
+static BOOL HGAPlaybackQualitySwitchActive(void) {
+    return HGAQualitySwitchActiveUntil > CFAbsoluteTimeGetCurrent();
+}
 
 static BOOL HGAQualityMethod(id target,SEL selector,const char *encoding) {
     Method method=class_getInstanceMethod(object_getClass(target),selector);
@@ -70,12 +75,14 @@ static void HGAApplyPlaybackQuality(id component,id model) {
 
     // Use the same engine operation and success callback as manual selection,
     // without writing the host's per-series/global manual choice history.
+    HGAQualitySwitchActiveUntil=CFAbsoluteTimeGetCurrent()+1.25;
     __weak id weakContext=context;
     __weak HGAPlaybackQualitySelection *weakSelection=last;
     void (^completion)(BOOL,NSUInteger)=^(BOOL success,NSUInteger actual) {
         if(HGEnhancedDiagnostics())HGLog(@"playback.default-quality",@{@"requested":@(selected),
             @"applied":@(actual),@"success":@(success)});
         dispatch_async(dispatch_get_main_queue(),^{
+            HGAQualitySwitchActiveUntil=0;
             HGAPlaybackQualitySelection *selection=weakSelection;
             id owner=weakContext;
             if(!owner || !selection || objc_getAssociatedObject(owner,&HGAQualitySelectionKey)!=selection)return;
@@ -93,13 +100,25 @@ static void HGAApplyPlaybackQuality(id component,id model) {
     ((void(*)(id,SEL,NSUInteger,id))objc_msgSend)(engine,configure,selected,completion);
 }
 
+static void HGAPrimeCellPlaybackQuality(UIView *cell) {
+    if(!NSThread.isMainThread || !cell || !HGALastPlayingQualityComponent || !HGAppearanceFlag(@"player.highestQuality"))return;
+    id model=HGReadObjectGetter(cell,"model");
+    if(model)HGAApplyPlaybackQuality(HGALastPlayingQualityComponent,model);
+}
+
 static void HGASchedulePlaybackQuality(id component,id model,id cell) {
     if(!cell && model && NSThread.isMainThread)HGALastPlayingQualityComponent=component;
     if(!HGAppearanceFlag(@"player.highestQuality"))return;
     if(cell)model=HGReadObjectGetter(cell,"model");
     if(!model)return;
-    // Play can precede track availability; ready-to-display can belong to a
-    // prefetched neighbour. Reconcile the active model after either host event.
+    // Commit target resolution synchronously at playback start on the main
+    // thread so TTVideoEngine never decodes 200-400ms of 720P and then stalls
+    // mid-playback to switch to 1080P. Keep cell ready-to-display async so
+    // prefetched/outgoing neighbour cells reconcile after model updates settle.
+    if(!cell && NSThread.isMainThread) {
+        HGAApplyPlaybackQuality(component,model);
+        return;
+    }
     __weak id weakComponent=component,weakModel=model;
     dispatch_async(dispatch_get_main_queue(),^{ HGAApplyPlaybackQuality(weakComponent,weakModel); });
 }

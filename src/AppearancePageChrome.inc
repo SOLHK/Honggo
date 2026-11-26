@@ -174,6 +174,7 @@ static void HGAApplyFinderSearchMaterial(UIView *target,CGRect frame) {
 @property(nonatomic,strong) UIImage *sourceImage;
 @property(nonatomic,strong) UIImage *templateImage;
 @property(nonatomic,strong) UIColor *sourceTint;
+@property(nonatomic,strong) UIColor *appliedTint;
 @end
 @implementation HGAPageChromeIcon @end
 static char HGAPageChromeIconKey, HGAPageChromeIconsKey;
@@ -184,10 +185,12 @@ static void HGAApplyPageChromeIcons(UIView *owner,NSArray<UIView *> *candidates)
         if([candidates containsObject:icon])continue;
         HGAPageChromeIcon *state=objc_getAssociatedObject(icon,&HGAPageChromeIconKey);
         if(icon.image==state.templateImage)icon.image=state.sourceImage;
-        if([icon.tintColor isEqual:UIColor.labelColor])icon.tintColor=state.sourceTint;
+        if(state.appliedTint && [icon.tintColor isEqual:state.appliedTint])icon.tintColor=state.sourceTint;
         objc_setAssociatedObject(icon,&HGAPageChromeIconKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     [previous removeAllObjects];
+    UIColor *desired=HGAAdaptivePageStyle(HGAOwner(owner),owner)==UIUserInterfaceStyleDark ?
+        UIColor.whiteColor : UIColor.labelColor;
     for(UIView *candidate in candidates) {
         if(![candidate isKindOfClass:UIImageView.class])continue;
         UIImageView *icon=(UIImageView *)candidate;
@@ -206,10 +209,9 @@ static void HGAApplyPageChromeIcons(UIView *owner,NSArray<UIView *> *candidates)
             state.sourceImage=icon.image;
             state.templateImage=[icon.image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
         }
-        if(![icon.tintColor isEqual:UIColor.labelColor]) {
-            state.sourceTint=icon.tintColor;
-            icon.tintColor=UIColor.labelColor;
-        }
+        if(!state.appliedTint || ![icon.tintColor isEqual:state.appliedTint])state.sourceTint=icon.tintColor;
+        state.appliedTint=desired;
+        if(![icon.tintColor isEqual:desired])icon.tintColor=desired;
         if(icon.image!=state.templateImage)icon.image=state.templateImage;
     }
 }
@@ -351,6 +353,7 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition
         HGAHidePageChromeTarget(owner,@"finderAI",nil);
         HGAHidePageChromeTarget(owner,@"finderRecognitionDivider",nil);
         HGAUpdatePageChromeTargets(owner,nil);
+        HGAApplyAdaptiveControlInk(owner,UIUserInterfaceStyleLight,NO);
         return;
     }
     HGAViewState *assistantState=HGAState(assistant,NO);
@@ -413,6 +416,10 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition
         }
         HGAApplyFinderSearchMaterial(target,frame);
     }
+    if(recognitionContent && recognitionContent!=recognition)
+        HGAApplyAdaptiveControlInk(recognitionContent,HGAAdaptivePageStyle(HGAOwner(owner),owner),glass);
+    if(field && field.superview && field.superview!=owner)
+        HGAApplyAdaptiveControlInk(field.superview,HGAAdaptivePageStyle(HGAOwner(owner),owner),glass);
 }
 
 static char HGAFinderAIInkKey;
@@ -441,6 +448,9 @@ static void HGAApplyFinderAIInk(UIView *owner,UIView *assistant,id artOwner,NSAr
         glyph.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         objc_setAssociatedObject(owner,&HGAFinderAIInkKey,glyph,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+    UIColor *aiTint=HGAAdaptivePageStyle(HGAOwner(owner),assistant ?: owner)==UIUserInterfaceStyleDark ?
+        UIColor.whiteColor : UIColor.labelColor;
+    if(![glyph.tintColor isEqual:aiTint])glyph.tintColor=aiTint;
     if(!CGRectEqualToRect(glyph.frame,assistant.bounds))glyph.frame=assistant.bounds;
     if(glyph.superview!=assistant)[assistant addSubview:glyph];
 }
@@ -923,6 +933,9 @@ static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMu
         [button addSubview:dot];
         objc_setAssociatedObject(controller,&HGAMineMenuButtonKey,button,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+    UIColor *menuTint=HGAAdaptivePageStyle(controller,titleBar)==UIUserInterfaceStyleDark ?
+        UIColor.whiteColor : UIColor.labelColor;
+    if(![button.tintColor isEqual:menuTint])button.tintColor=menuTint;
     CGFloat x=CGRectGetMaxX(titleBar.bounds)-28,y=CGRectGetMaxY(titleBar.bounds)-22;
     UIView *neighbour=glyphs.firstObject;
     if(neighbour) {

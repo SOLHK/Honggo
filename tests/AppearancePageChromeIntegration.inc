@@ -1717,5 +1717,42 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         CGRectEqualToRect(wideFilter.frame,CGRectMake(339.5,6,30,32)) &&
         CGRectEqualToRect(wideEdit.frame,CGRectMake(394,6,30,32)) && !Find(wideMine,material),
         @"disabling Mine glass restores history cell bgLayers, inner clipping, divider and native Filter/Edit frames");
+    HGAEnsureNightThemeCenterRegistered();
+    UIColor *darkHistoryGray=[UIColor colorWithWhite:0.16 alpha:1];
+    UIColor *darkEditBlack=[UIColor colorWithWhite:0.10 alpha:1];
+    wideAll.titleLabel.textColor=UIColor.systemOrangeColor;
+    wideWatched.titleLabel.textColor=darkHistoryGray;
+    [wideEdit setTitleColor:darkEditBlack forState:UIControlStateNormal];
+    UIUserInterfaceStyle prevHostStyle=host.overrideUserInterfaceStyle;
+    NSUInteger prevTabIndex=host.selectedIndex;
+    host.overrideUserInterfaceStyle=UIUserInterfaceStyleLight;
+    host.selectedIndex=1;
+    HGANightThemeEnabledForTests=YES;
+    HGAppearanceSet(@"player.mineGlass",@YES,nil);
+    Layout(wideBar);Layout(wideFilter);Layout(wideCats);Layout(wideMine);
+    Layout(wideAll);Layout(wideWatched);Layout(wideEdit);
+    CGFloat watchedNightWhite=0,editNightWhite=0;
+    [wideWatched.titleLabel.textColor getWhite:&watchedNightWhite alpha:NULL];
+    [[wideEdit titleColorForState:UIControlStateNormal] getWhite:&editNightWhite alpha:NULL];
+    NSString *prevDockMaterial=HGAppearanceString(@"dock.material");
+    HGAppearanceApply(@{@"dock.enabled":@YES,@"dock.style":@"glass",@"dock.material":@"blur"},nil);
+    HGAppearanceLayoutDock(bar,host);Layout(bar);
+    UIView *nightDockCapsule=Find(bar,@"honggo.appearance.dock.capsule");
+    UIButton *nightTheaterBtn=(id)Find(bar,@"honggo.appearance.tab.theater");
+    CGFloat dockBtnWhite=0;
+    [[nightTheaterBtn titleColorForState:UIControlStateNormal] getWhite:&dockBtnWhite alpha:NULL];
+    Check([wideAll.titleLabel.textColor isEqual:UIColor.systemOrangeColor] &&
+        watchedNightWhite>0.75 && editNightWhite>0.90 &&
+        nightDockCapsule.overrideUserInterfaceStyle==UIUserInterfaceStyleDark && dockBtnWhite>0.95,
+        @"Night Mode turns Mine history pills and blur Dock captions crisp white while preserving orange selected accents");
+    HGANightThemeEnabledForTests=NO;
+    HGAppearanceSet(@"player.mineGlass",@NO,nil);
+    Check([wideWatched.titleLabel.textColor isEqual:darkHistoryGray] &&
+        [[wideEdit titleColorForState:UIControlStateNormal] isEqual:darkEditBlack],
+        @"exiting Night Mode or disabling Mine glass restores original history pill text colors");
+    host.selectedIndex=prevTabIndex;
+    host.overrideUserInterfaceStyle=prevHostStyle;
+    HGAppearanceSet(@"dock.material",prevDockMaterial,nil);
+    HGAppearanceLayoutDock(bar,host);
     HGAppearanceSet(@"player.mineGlass",@YES,nil);[wideMine removeFromSuperview];
 }

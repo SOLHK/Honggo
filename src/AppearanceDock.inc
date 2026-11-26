@@ -337,6 +337,8 @@ static UIUserInterfaceStyle HGADockPageStyle(UIViewController *controller,UIView
     // Home video playback always has a dark canvas and white chrome, even when
     // the app's Day theme is active. Light optical Regular glass washes out white.
     if(selected==0)return UIUserInterfaceStyleDark;
+    BOOL hostDark=NO;
+    if(HGAHostExplicitDarkMode(bar,&hostDark) && hostDark)return UIUserInterfaceStyleDark;
     id appearance=HGReadObjectGetter(bar,"appearanceStyle");
     UIUserInterfaceStyle style=HGADockColorStyle(HGReadObjectGetter(appearance,"selectedImageColor"),bar.traitCollection,YES);
     if(style==UIUserInterfaceStyleUnspecified)
@@ -748,8 +750,10 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 
 - (BOOL)syncSystemItems:(NSArray<NSString *> *)keys content:(NSString *)content iconSize:(CGFloat)size {
     UITraitCollection *traits=self.capsule.traitCollection;
-    UIColor *selected=[UIColor.labelColor resolvedColorWithTraitCollection:traits];
-    CGFloat normalAlpha=traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.90 : 0.62;
+    BOOL darkDock=self.capsule.overrideUserInterfaceStyle==UIUserInterfaceStyleDark ||
+        traits.userInterfaceStyle==UIUserInterfaceStyleDark;
+    UIColor *selected=darkDock ? UIColor.whiteColor : [UIColor.labelColor resolvedColorWithTraitCollection:traits];
+    CGFloat normalAlpha=traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.90 : (darkDock ? 0.78 : 0.62);
     UIColor *normal=[selected colorWithAlphaComponent:normalAlpha];
     BOOL videoClear=HGASelectedTab(self.hostController)==0 && [HGAppearanceString(@"dock.material") isEqual:@"clear"];
     if(videoClear) {
@@ -1380,7 +1384,8 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     if(self.extraSelection.superview!=extraContent)[extraContent insertSubview:self.extraSelection atIndex:0];
     if(self.extraButton.superview!=extraContent)[extraContent addSubview:self.extraButton];
     if(self.expandButton.superview!=expandContent)[expandContent addSubview:self.expandButton];
-    UIUserInterfaceStyle buttonStyle=videoClear ? surfaceStyle : UIUserInterfaceStyleUnspecified;
+    UIUserInterfaceStyle buttonStyle=(videoClear || (translucent && surfaceStyle!=UIUserInterfaceStyleUnspecified)) ?
+        surfaceStyle : UIUserInterfaceStyleUnspecified;
     if(self.extraButton.overrideUserInterfaceStyle!=buttonStyle)self.extraButton.overrideUserInterfaceStyle=buttonStyle;
     if(self.expandButton.overrideUserInterfaceStyle!=buttonStyle)self.expandButton.overrideUserInterfaceStyle=buttonStyle;
     if(styleChangedAny) {
@@ -1402,7 +1407,8 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     self.expand.layer.cornerRadius=22;
     self.extra.layer.borderWidth=!flat && translucent && !classicBlur && !nativeGlass ? 0.5 : 0;
     self.extra.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
-    BOOL darkSurface=self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    BOOL darkSurface=surfaceStyle==UIUserInterfaceStyleDark ||
+        self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
     BOOL nativeSelection=liquidSelection && !reduced && HGNativeGlassConfigured();
     // The native resting thumb is recessed into the rail. Refract only while tracking.
     UIColor *selectionBg=nativeSelection ? UIColor.secondarySystemFillColor : HGADockSelectionColor(self.capsule.traitCollection,flat || !liquidSelection);
@@ -1448,7 +1454,8 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         if(fabs(b.faceOffsetX-nextOffset)>0.001){b.faceOffsetX=nextOffset;[b setNeedsLayout];}
         UIColor *color=active ? UIColor.labelColor :
             (translucent ? [UIColor.labelColor colorWithAlphaComponent:unselectedOpacity] : UIColor.secondaryLabelColor);
-        if(videoClear)color=active ? UIColor.whiteColor : [UIColor.whiteColor colorWithAlphaComponent:unselectedOpacity];
+        if(videoClear || (darkSurface && translucent))
+            color=active ? UIColor.whiteColor : [UIColor.whiteColor colorWithAlphaComponent:unselectedOpacity];
         NSString *symbol=HGATabSymbols()[index];
         NSString *title=[content isEqual:@"icon"]?nil:HGATabTitles()[index];
         UIFont *font=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];
@@ -1497,7 +1504,8 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     NSString *baseSymbol=[action isEqual:@"settings"]?@"slider.horizontal.3":([action isEqual:@"search"]?@"magnifyingglass":HGATabSymbols()[detachedIndex]);
     UIColor *accessoryColor=detachedSelected ? UIColor.labelColor :
         (detachedIndex!=NSNotFound && translucent ? [UIColor.labelColor colorWithAlphaComponent:unselectedOpacity] : UIColor.labelColor);
-    if(videoClear)accessoryColor=detachedSelected || detachedIndex==NSNotFound ? UIColor.whiteColor : [UIColor.whiteColor colorWithAlphaComponent:unselectedOpacity];
+    if(videoClear || (darkSurface && translucent))
+        accessoryColor=detachedSelected || detachedIndex==NSNotFound ? UIColor.whiteColor : [UIColor.whiteColor colorWithAlphaComponent:unselectedOpacity];
     UIFont *accessoryFont=[UIFont systemFontOfSize:11];
     CGFloat extraIconSize=MIN(requestedIcon,circle*0.34);
     NSArray *extraSig=@[baseSymbol ?: @"",@(detachedSelected || (flat && detachedIndex!=NSNotFound)),@(extraIconSize),accessoryColor,@(darkSurface),@(videoClear),@(self.extraButton.enabled)];
@@ -1613,6 +1621,7 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     @finally { self.deliveringTabAction=NO; }
     HGLog(@"navigation.dock", @{@"tab":key, @"phase":@"return", @"mode":animation});
     if(![animation hasPrefix:@"uikit-"] || !HGADockOriginalImpact)[self feedback];
+    if(!self.systemDockActive)self.failedSystemProbe=nil;
     UIView *bar=self.hostBar;
     // Layout the complete host bar, including the video behind it, for the
     // incoming selection as well as a reselect. UIKit coalesces repeated marks.

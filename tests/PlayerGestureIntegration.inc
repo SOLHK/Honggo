@@ -151,6 +151,32 @@ static void RunAutomaticCleanChecks(UIView *root) {
     [detail willMoveToParentViewController:nil];[detail.view removeFromSuperview];[detail removeFromParentViewController];
     [list willMoveToParentViewController:nil];[list.view removeFromSuperview];[list removeFromParentViewController];
 }
+static void RunTransientPauseFlashChecks(UIView *root) {
+    NSDictionary *saved=HGAppearanceValues();
+    HGAppearanceApply(@{@"enabled":@YES,@"gestures.cleanWhilePlaying":@NO,@"player.rightGlass":@YES,@"player.actionStyle":@"glass"},nil);
+    HGAAutoCleanCellFixture *cell=[[HGAAutoCleanCellFixture alloc] initWithFrame:CGRectMake(0,0,360,640)];
+    cell.isUserPlaying=YES;
+    cell.model=[NSObject new];
+    FQVShortVideoVPlayerControlView *hud=[[FQVShortVideoVPlayerControlView alloc] initWithFrame:cell.bounds];
+    UIButton *play=[UIButton buttonWithType:UIButtonTypeCustom];
+    play.frame=CGRectMake(156,296,48,48);
+    [play setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
+    hud.playBtn=play;
+    [hud addSubview:play];
+    [cell addSubview:hud];
+    [root addSubview:cell];
+    [cell playWithType:0];
+    HGAppearanceProcessView(hud);
+    BOOL suppressedTransientFlash=(fabs(play.alpha)<0.001);
+    FQVShortVideoListVCControlViewComponent *tap=[FQVShortVideoListVCControlViewComponent new];
+    cell.isUserPlaying=NO;
+    [tap controlView:hud singleTapPlay:NO model:cell.model];
+    BOOL revealedOnUserPause=(fabs(play.alpha-1.0)<0.001 && Find(play,@"honggo.appearance.material")!=nil);
+    Check(suppressedTransientFlash && revealedOnUserPause,
+        @"startup/episode-switch handoff suppresses transient center playBtn flashes while isUserPlaying=YES and reveals immediately on manual pause");
+    [cell removeFromSuperview];
+    HGAppearanceApply(saved,nil);
+}
 static void RunPlayerGestureChecks(UIView *root) {
     NSDictionary *saved=HGAppearanceValues();
     HGAppearanceApply(@{@"enabled":@NO,@"gestures.pinchClean":@YES,@"gestures.doubleTapComments":@YES},nil);
@@ -260,5 +286,6 @@ static void RunPlayerGestureChecks(UIView *root) {
     [list willMoveToParentViewController:nil];[list.view removeFromSuperview];[list removeFromParentViewController];
     [header removeFromSuperview];[otherEntry removeFromSuperview];
     RunAutomaticCleanChecks(root);
+    RunTransientPauseFlashChecks(root);
     HGAppearanceApply(saved,nil);
 }
