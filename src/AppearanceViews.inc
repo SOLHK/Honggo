@@ -205,6 +205,7 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
 @property(nonatomic) CGAffineTransform appliedTransform;
 @property(nonatomic) BOOL geometry;
 @property(nonatomic) BOOL transferring;
+@property(nonatomic) BOOL matchesEpisodeRail;
 @property(nonatomic,weak) UIView *geometrySuperview;
 @property(nonatomic,weak) id<UIViewControllerTransitionCoordinator> transition;
 @property(nonatomic) BOOL sourceHidden;
@@ -232,21 +233,25 @@ static void HGARestoreGeometry(UIView *view) {
     state.geometry=NO;state.geometrySuperview=nil;
     if(owned && !CGAffineTransformEqualToTransform(view.transform,source))view.transform=source;
 }
-static void HGASetGeometry(UIView *view,CGFloat x,CGFloat y,CGFloat scale) {
-    if(fabs(x)<0.001 && fabs(y)<0.001 && fabs(scale-1)<0.001){HGARestoreGeometry(view);return;}
-    if(!isfinite(x)||!isfinite(y)||!isfinite(scale))return;
+static void HGASetGeometryXY(UIView *view,CGFloat x,CGFloat y,CGFloat scaleX,CGFloat scaleY) {
+    if(fabs(x)<0.001 && fabs(y)<0.001 && fabs(scaleX-1)<0.001 && fabs(scaleY-1)<0.001){HGARestoreGeometry(view);return;}
+    if(!isfinite(x)||!isfinite(y)||!isfinite(scaleX)||!isfinite(scaleY))return;
     HGAViewState *state=HGAState(view,YES);
     if(state.geometry && state.geometrySuperview!=view.superview)HGARestoreGeometry(view);
     // Reuse the unmodified baseline while we still own the current value.
     // Restoring and reapplying on every layout invalidates native player layout.
     if(!state.geometry || !CGAffineTransformEqualToTransform(view.transform,state.appliedTransform))
         state.sourceTransform=view.transform;
-    CGAffineTransform next=CGAffineTransformScale(state.sourceTransform,scale,scale);
+    CGAffineTransform next=CGAffineTransformScale(state.sourceTransform,scaleX,scaleY);
     next.tx+=x;next.ty+=y;
     state.appliedTransform=next;state.geometry=YES;state.geometrySuperview=view.superview;
     if(!CGAffineTransformEqualToTransform(view.transform,next))view.transform=next;
 }
+static void HGASetGeometry(UIView *view,CGFloat x,CGFloat y,CGFloat scale) {
+    HGASetGeometryXY(view,x,y,scale,scale);
+}
 static void HGASetHidden(UIView *view,BOOL hide) {
+    if(!view)return;
     HGAViewState *state=HGAState(view,hide);
     if(!state)return;
     if(!hide && state.visibility) {
@@ -259,8 +264,56 @@ static void HGASetHidden(UIView *view,BOOL hide) {
         if(!view.hidden)view.hidden=YES;
     }
 }
+// The host owns hidden for these controls (for example, after following an author).
+// Suppress alpha so native hidden changes still take effect when a switch is restored.
+static char HGAFeedPartsKey;
+static void HGASetSuppressedFeedParts(UIView *owner, NSArray<UIView *> *parts) {
+    NSMapTable<UIView *,NSNumber *> *alphas=objc_getAssociatedObject(owner,&HGAFeedPartsKey);
+    for (UIView *view in alphas.keyEnumerator.allObjects) {
+        if ([parts containsObject:view]) continue;
+        if (view.alpha==0) view.alpha=[alphas objectForKey:view].doubleValue;
+        [alphas removeObjectForKey:view];
+    }
+    if (!parts.count) {
+        if (alphas) objc_setAssociatedObject(owner,&HGAFeedPartsKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    if (!alphas) {
+        alphas=[NSMapTable weakToStrongObjectsMapTable];
+        objc_setAssociatedObject(owner,&HGAFeedPartsKey,alphas,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    for (UIView *view in parts) {
+        if (view.alpha!=0 || ![alphas objectForKey:view]) [alphas setObject:@(view.alpha) forKey:view];
+        if (view.alpha!=0) view.alpha=0;
+    }
+}
+
+static UIView *HGALazyControlSubview(UIView *owner,const char *ivarName,const char *getterName);
+static void HGAApplyFeedActionCaption(UIView *action,NSString *role,BOOL enabled) {
+    static NSDictionary *options;
+    static dispatch_once_t once;
+    dispatch_once(&once,^{options=@{
+        @"collect":@[@"player.hideFeedCollectCount",@"_starCountLabel",@"_collectCountLabel"],
+        @"comment":@[@"player.hideFeedCommentCount",@"_commentCountLabel"],
+        @"like":@[@"player.hideFeedLikeCount",@"_likeCountLabel"],
+        @"share":@[@"player.hideFeedShareCaption",@"_shareCountLabel"]
+    };});
+    NSArray *fields=options[role];
+    if (!fields) return;
+    NSMutableArray *parts=nil;
+    if (enabled && HGAppearanceFlag(fields.firstObject)) {
+        parts=[NSMutableArray array];
+        for (NSUInteger i=1;i<fields.count;i++) {
+            UIView *label=HGALazyControlSubview(action,[fields[i] UTF8String],NULL);
+            if (label) [parts addObject:label];
+        }
+    }
+    HGASetSuppressedFeedParts(action,parts);
+}
 static void HGAApplyRailAvatarVisibility(UIView *avatar,BOOL enabled) {
-    BOOL hide=enabled && HGAppearanceFlag(@"layout.avatar.hidden");
+    BOOL hidePhoto=enabled && HGAppearanceFlag(@"player.hideFeedAvatarPhoto");
+    BOOL hideFollow=enabled && HGAppearanceFlag(@"player.hideFeedFollow");
+    BOOL hide=(hidePhoto && hideFollow) || (enabled && HGAppearanceFlag(@"layout.avatar.hidden"));
     UIView *rail=avatar.superview;UIWindow *window=avatar.window;
     if(enabled && !hide && window && [rail isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionView")] &&
         !CGRectIsEmpty(rail.bounds) && CGRectGetMinX(avatar.frame)>=CGRectGetMaxX(rail.bounds)) {
@@ -271,6 +324,19 @@ static void HGAApplyRailAvatarVisibility(UIView *avatar,BOOL enabled) {
         hide=CGRectGetMinX(frame)<edge && CGRectGetMidX(frame)>=edge;
     }
     HGASetHidden(avatar,hide);
+    NSMutableArray *parts=nil;
+    if (hidePhoto || hideFollow) {
+        parts=[NSMutableArray array];
+        for (NSString *ivar in hidePhoto ? @[@"_avatarView",@"_circleBorder",@"_liveDecoration",@"_decorationView"] : @[]) {
+            UIView *part=HGALazyControlSubview(avatar,ivar.UTF8String,NULL);
+            if (part) [parts addObject:part];
+        }
+        for (NSString *ivar in hideFollow ? @[@"_followButtonBgView",@"_followImageView",@"_followedImageView",@"_followGuideBubbleView"] : @[]) {
+            UIView *part=HGALazyControlSubview(avatar,ivar.UTF8String,NULL);
+            if (part) [parts addObject:part];
+        }
+    }
+    HGASetSuppressedFeedParts(avatar,parts);
 }
 static void HGASetGlassHostBackground(UIView *view,BOOL clear) {
     HGAViewState *state=HGAState(view,clear);
@@ -441,10 +507,6 @@ static void HGAConfigureButtonGlassWithAppearance(HGAAppearanceMaterial *glass,N
     glass.overlayColor=(UIAccessibilityIsReduceTransparencyEnabled() || [style isEqual:@"solid"]) ?
         UIColor.secondarySystemBackgroundColor : UIColor.clearColor;
     [glass requestMaterialRefresh];
-}
-static void HGAConfigureButtonGlass(HGAAppearanceMaterial *glass,UIView *view,NSString *style) {
-    (void)view;
-    HGAConfigureButtonGlassWithAppearance(glass,style,UIUserInterfaceStyleDark);
 }
 static void HGAInstallButtonGlassWithAppearance(UIView *view,NSString *style,CGRect frame,CGFloat radius,UIUserInterfaceStyle appearance) {
     HGAInstallGlassInRect(view,style,frame,radius,0);
@@ -841,14 +903,18 @@ void HGAppearanceProcessView(UIView *view) {
         BOOL outer=!HGAHasRoleAncestor(view,role);
         NSString *prefix=[@"layout." stringByAppendingString:role];
         BOOL avatar=[role isEqual:@"avatar"];
-        if(!avatar)HGASetHidden(view,enabled && outer && (HGAppearanceFlag([prefix stringByAppendingString:@".hidden"]) ||
+        BOOL hideOwner=[role isEqual:@"info"] ? [NSStringFromClass(view.class) hasSuffix:@"LeftContainerView"] : outer;
+        if(!avatar)HGASetHidden(view,enabled && hideOwner && (HGAppearanceFlag([prefix stringByAppendingString:@".hidden"]) ||
             (header && !headerShowsFinder && HGAAllTopControlsHidden())));
-        HGASetGeometry(view,enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".x"]):0,
+        if([role isEqual:@"progress"])HGAUpdateFeedProgressWidth(view);
+        else HGASetGeometry(view,enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".x"]):0,
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".y"]):0,
             enabled && outer?HGAppearanceNumber([prefix stringByAppendingString:@".scale"]):1);
         if(avatar)HGAApplyRailAvatarVisibility(view,enabled && outer);
         BOOL action=[@[@"avatar",@"collect",@"comment",@"like",@"share",@"more"] containsObject:role];
-        BOOL styleActions=action && HGAppearanceFlag(@"player.rightGlass");
+        if(action && !avatar)HGAApplyFeedActionCaption(view,role,enabled && outer);
+        BOOL styleActions=action && HGAppearanceFlag(@"player.rightGlass") &&
+            !(avatar && HGAppearanceFlag(@"player.hideFeedAvatarPhoto"));
         BOOL flat=enabled && outer && styleActions && HGFlatPlayerStyle();
         BOOL glass=enabled && outer && ((styleActions && !flat) ||
             ([role isEqual:@"channels"] && !headerShowsFinder && HGAppearanceFlag(@"player.headerGlass")) ||
@@ -858,7 +924,10 @@ void HGAppearanceProcessView(UIView *view) {
         // (such as channel swipes or cell rebinding) while attached to a live window.
         BOOL episodeStyled=episode && glass && (!view.hidden ||
             (outer && view.window && !CGRectIsEmpty(view.bounds) && !HGAppearanceFlag(@"layout.episodes.hidden")));
-        if(episode && outer)HGAApplyEpisodeInset(view,episodeStyled);
+        if(episode && outer) {
+            HGAApplyEpisodeInset(view,episodeStyled);
+            HGAUpdateFeedProgressWidth(view);
+        }
         CGRect episodeFrame=episode ? HGAEpisodeGlassFrame(view) : CGRectZero;
         CGFloat episodeRadius=MIN(view.bounds.size.width,view.bounds.size.height)/2;
         if(episode)HGAApplyEpisodeCorners(view,episodeStyled,episodeRadius);

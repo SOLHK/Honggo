@@ -118,10 +118,60 @@ static BOOL HGABottomViewIsA(UIView *view,NSString *name) {
     Class cls=NSClassFromString(name);
     return cls && [view isKindOfClass:cls];
 }
+// Align the visible native scrubbing track. Its bounds and the time/position
+// space used by the host stay intact; UIKit inverts this same transform for touches.
+static void HGAUpdateFeedProgressWidth(UIView *view) {
+    BOOL isProgress=[view isKindOfClass:objc_lookUpClass("FQVShortVideoProgressView")];
+    UIView *control=HGABottomControlForView(view);
+    if(!control) {
+        for(UIView *node=view.superview;node && node!=view.window;node=node.superview)
+            if([node isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerControlView")]) {control=node;break;}
+    }
+    UIView *progress=isProgress ? view : HGALazyControlSubview(control,"_progressContainer","progressContainer");
+    if(!progress)return;
+    BOOL enabled=HGAppearanceEnabled() && progress.window;
+    CGFloat x=enabled ? HGAppearanceNumber(@"layout.progress.x") : 0;
+    CGFloat y=enabled ? HGAppearanceNumber(@"layout.progress.y") : 0;
+    CGFloat scale=enabled ? HGAppearanceNumber(@"layout.progress.scale") : 1;
+    CGFloat scaleX=scale;
+    HGAViewState *state=HGAState(progress,NO);
+    CGAffineTransform base=(state.geometry && CGAffineTransformEqualToTransform(progress.transform,state.appliedTransform))
+        ? state.sourceTransform : progress.transform;
+    BOOL match=NO;
+    if(enabled && progress.window.bounds.size.height>progress.window.bounds.size.width && base.a>0 && base.b==0 && base.c==0) {
+        UIView *wrapper=HGALazyControlSubview(control,"_insertAboveProgressView","insertAboveProgressView");
+        UIView *entry=nil;
+        for(UIView *child in wrapper.subviews) {
+            if(![HGARole(child) isEqual:@"episodes"] || !HGAVisible(child))continue;
+            if(entry){entry=nil;break;}
+            entry=child;
+        }
+        UIView *rail=HGALazyControlSubview(progress,"_customizedProgressBarBackgroundView","customizedProgressBarBackgroundView");
+        if(!HGAVisible(rail))rail=HGALazyControlSubview(progress,"_progressBarBackgroundView","progressBarBackgroundView");
+        if(entry && HGAVisible(rail)) {
+            CGRect capsule=[entry convertRect:HGAEpisodeGlassFrame(entry) toView:progress.superview];
+            CGRect track=[rail convertRect:rail.bounds toView:progress];
+            if(CGRectGetWidth(track)>1 && CGRectGetWidth(capsule)>1) {
+                match=YES;
+                // The visible capsule owns both endpoints, including when an older
+                // preset has its own progress X/scale. Keep its vertical scale.
+                scaleX=CGRectGetWidth(capsule)/(CGRectGetWidth(track)*base.a);
+                CGFloat anchor=CGRectGetMinX(progress.bounds)+progress.layer.anchorPoint.x*CGRectGetWidth(progress.bounds);
+                x=CGRectGetMidX(capsule)-progress.layer.position.x-base.tx-(CGRectGetMidX(track)-anchor)*base.a*scaleX;
+            }
+        }
+    }
+    HGASetGeometryXY(progress,x,y,scaleX,scale);
+    HGAState(progress,NO).matchesEpisodeRail=match;
+}
 static BOOL HGABottomNativeCoordinates(UIView *view,UIView *control) {
     for(NSUInteger depth=0;view && depth<12;depth++,view=view.superview) {
         if(view==control)return YES;
-        if(!CGAffineTransformIsIdentity(view.transform))return NO;
+        if(!CGAffineTransformIsIdentity(view.transform)) {
+            HGAViewState *state=HGAState(view,NO);
+            if(!state.matchesEpisodeRail || !CGAffineTransformEqualToTransform(view.transform,state.appliedTransform) ||
+                !CGAffineTransformIsIdentity(state.sourceTransform))return NO;
+        }
     }
     return NO;
 }
@@ -334,6 +384,7 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     if (HGFeedSidebarOwnsLayout(view.window)) return;
     UIView *control=HGABottomControlForView(view);
     if(!control)return;
+    if(view==control)HGAUpdateFeedProgressWidth(view);
     HGABottomLayoutState *state=objc_getAssociatedObject(control,&HGABottomLayoutKey);
     BOOL resuming=state.resumeWindow && state.resumeWindow==control.window &&
         CGSizeEqualToSize(state.resumeSize,control.bounds.size) && HGAppearanceDockEnabled();
@@ -395,7 +446,7 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     CGRect railRect=CGRectNull;
     CGFloat width=control.bounds.size.width,height=control.bounds.size.height;
     BOOL ordinary=entryRect.size.height>=32 && entryRect.size.height<=80 &&
-        entryRect.size.width>=width*0.65 && progressRect.size.width>=width*0.65 &&
+        entryRect.size.width>=width*0.65 && progress.bounds.size.width>=width*0.65 &&
         progressRect.size.height>=6 && progressRect.size.height<=80 &&
         CGRectGetMinY(entryRect)>height*0.55 && CGRectGetMinY(progressRect)>height*0.60;
     if(!ordinary) {HGARestoreBottomState(state);return;}

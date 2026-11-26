@@ -2,6 +2,8 @@ static BOOL HGTestPageGlassButton(UIView *surface) {
     if(![surface isKindOfClass:UIButton.class])return NO;
     UIButton *button=(UIButton *)surface;
     return button.configuration && button.configuration.cornerStyle==UIButtonConfigurationCornerStyleCapsule &&
+        NSDirectionalEdgeInsetsEqualToDirectionalEdgeInsets(button.configuration.background.backgroundInsets,
+            NSDirectionalEdgeInsetsMake(2,2,2,2)) && CGRectGetHeight(button.bounds)>=43.99 &&
         !button.userInteractionEnabled && !button.isAccessibilityElement && button.accessibilityElementsHidden;
 }
 
@@ -1271,8 +1273,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     CGRect recognitionSurface=[recognitionGlass convertRect:recognitionGlass.bounds toView:finder.view];
     Check(searchGlass && recognitionGlass && assistantGlass && !Find(finder.searchView,material) &&
         fabs(CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)-7-2*chromePixel)<0.01 &&
-        fabs(CGRectGetWidth(assistantGlass.bounds)-(34-2*chromePixel))<0.01 &&
-        fabs(CGRectGetHeight(assistantGlass.bounds)-(34-2*chromePixel))<0.01 &&
+        fabs(CGRectGetWidth(assistantGlass.frame)-(28-2*chromePixel))<0.01 &&
+        fabs(CGRectGetHeight(assistantGlass.frame)-(28-2*chromePixel))<0.01 &&
         CGRectEqualToRect(finder.searchBgView.frame,nativeSearchField) &&
         CGRectEqualToRect(finder.imageSearchContainer.frame,nativeRecognition) &&
         finder.normalImageSearchView.separatorView.hidden,
@@ -1392,13 +1394,36 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             (CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)))<0.01 &&
         fabs(CGRectGetMidY(searchSurface)-CGRectGetMidY(recognitionSurface))<0.01 &&
         fabs(CGRectGetMidY(aiSurface)-CGRectGetMidY(recognitionSurface))<0.01 &&
-        fabs(CGRectGetHeight(searchSurface)-(36-2*chromePixel))<0.01 &&
+        fabs(CGRectGetHeight(searchSurface)-(30-2*chromePixel))<0.01 &&
+        CGRectGetMaxY(searchSurface)<=CGRectGetMaxY(finder.searchBgView.frame)-4 &&
         fabs(CGRectGetHeight(recognitionSurface)-CGRectGetHeight(searchSurface))<0.01 &&
         fabs(CGRectGetHeight(aiSurface)-CGRectGetHeight(searchSurface))<0.01,
         @"the nested theatre search, recognition and AI surfaces have equal gaps and aligned heights");
     Check(recognitionGlass && CGRectGetMaxX(ink)<CGRectGetMaxX(recognitionGlass.frame)-5 &&
         fabs(CGRectGetMidX(ink)-CGRectGetMidX(recognitionGlass.frame))<0.1,
         @"the nested theatre centers camera and recognition text inside the capsule");
+    UIView *cue=PageChromeControl(finder.searchBgView,CGRectMake(32,0,240,38));
+    UITapGestureRecognizer *wordTap=[[UITapGestureRecognizer alloc] init];
+    UITapGestureRecognizer *imageTap=[[UITapGestureRecognizer alloc] init];
+    [finder.searchBgView addGestureRecognizer:wordTap];
+    [finder.imageSearchContainer addGestureRecognizer:imageTap];
+    BOOL finderButtonsIndependent=YES;
+    for(NSUInteger mask=0;mask<8;mask++) {
+        BOOL words=(mask&1)!=0,image=(mask&2)!=0,ai=(mask&4)!=0;
+        HGAppearanceApply(@{@"player.finderSearch":@(words),@"player.finderRecognition":@(image),
+            @"player.finderAI":@(ai)},nil);
+        HGAppearanceProcessController(finder);
+        finderButtonsIndependent &= finder.searchBgView.hidden==(!words && !image) && finder.searchView.hidden==!words &&
+            (finder.searchBgView.hidden || cue.hidden==!words) && finder.imageSearchContainer.hidden==!image &&
+            finder.aiSearchEntranceView.hidden==!ai && imageTap.enabled && wordTap.enabled==(words || !image);
+        if(image) {
+            UIView *slot=finder.imageSearchContainer;
+            CGPoint center=[slot convertPoint:CGPointMake(CGRectGetMidX(slot.bounds),CGRectGetMidY(slot.bounds)) toView:finder.view];
+            UIView *hit=[finder.view hitTest:center withEvent:nil];
+            finderButtonsIndependent &= hit==slot || [hit isDescendantOfView:slot];
+        }
+    }
+    Check(finderButtonsIndependent,@"all eight Finder visibility combinations preserve recognition hit-testing inside the search field and restore the host search tap");
     HGAppearanceSet(@"finder.hide.category.novels",@YES,nil);
     HGAppearanceSet(@"finder.hide.shortcut.filter",@YES,nil);
     Check(novels.hidden && !films.hidden && filterShortcut.hidden && !((UIView *)shortcuts[1]).hidden,
@@ -1726,8 +1751,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         wideScroll.clipsToBounds && !wideCats.clipsToBounds && !wideCollection.clipsToBounds &&
         !wideAll.clipsToBounds && !wideAll.contentView.clipsToBounds &&
         CGRectGetMinY(allInScroll)>=1.8 && CGRectGetMaxY(allInScroll)<=CGRectGetHeight(wideScroll.bounds)-1.8 &&
-        fabs(CGRectGetWidth(allPill.bounds)-54)<0.01 && fabs(CGRectGetHeight(allPill.bounds)-28)<0.01 &&
-        fabs(CGRectGetWidth(watchedPill.bounds)-68)<0.01 && fabs(CGRectGetHeight(watchedPill.bounds)-28)<0.01 &&
+        fabs(CGRectGetWidth(allPill.frame)-54)<0.01 && fabs(CGRectGetHeight(allPill.frame)-28)<0.01 &&
+        fabs(CGRectGetWidth(watchedPill.frame)-68)<0.01 && fabs(CGRectGetHeight(watchedPill.frame)-28)<0.01 &&
         wideDivider.hidden && fabs(CGRectGetWidth(filterInBar)-44)<0.01 && fabs(CGRectGetHeight(filterInBar)-28)<0.01 &&
         fabs(CGRectGetWidth(editInBar)-44)<0.01 && fabs(CGRectGetHeight(editInBar)-28)<0.01 &&
         CGAffineTransformIsIdentity(wideFilter.transform) && CGAffineTransformIsIdentity(wideEdit.transform) &&

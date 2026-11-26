@@ -5,6 +5,8 @@ static NSDictionary<NSString *,NSArray<NSString *> *> *HGAPlayerControlGetters(v
     static NSDictionary *getters;static dispatch_once_t once;
     dispatch_once(&once,^{getters=@{
         @"FQVShortVideoVPlayerControlView":@[@"fullscreenBtn"],
+        @"FQVShortVideoBaseLeftContainerView":@[],
+        @"SSShortVideoPostVideoLeftContainerView":@[],
         @"SSShortVideoBottomInsertView":@[@"playRateButton",@"cleanScreenView"],
         @"SSShortVideoSingleBottomInsertView":@[@"episodeInfoView"],
         @"SSShortVideoAlbumSeriesBottomInsertView":@[@"containerView"],
@@ -140,6 +142,53 @@ static void HGAPlayerControlGlass(UIView *target,BOOL sheet,BOOL episodeEntry) {
 @end
 @implementation HGADanmakuLegacyInk @end
 static char HGADanmakuLegacyInkKey;
+
+// In combined mode the two buttons share one capsule. Limit its paint to the
+// remaining action without moving the host's native control or its tap target.
+static char HGADanmakuCropKey;
+static UIView *HGAApplyDanmakuParts(UIView *root,BOOL *legacyIcon) {
+    UIView *capsule=HGAViewGetter(root,"capsuleView",root);
+    UIView *toggle=HGAViewGetter(root,"clickView",root);
+    BOOL combined=HGAVisible(capsule);
+    BOOL enabled=root.window && HGAppearanceEnabled();
+    BOOL hideToggle=enabled && HGAppearanceFlag(@"player.hideFeedDanmakuToggle");
+    BOOL hidePublish=enabled && HGAppearanceFlag(@"player.hideFeedDanmakuPublish");
+    UIView *target=combined ? capsule : toggle;
+    CALayer *crop=objc_getAssociatedObject(capsule,&HGADanmakuCropKey);
+    if (hideToggle || hidePublish) {
+        UIView *publish=HGAViewGetter(root,"publishButton",root);
+        NSMutableArray *parts=[NSMutableArray array];
+        if (hideToggle && toggle) [parts addObject:toggle];
+        if (hidePublish && publish) [parts addObject:publish];
+        for (NSString *key in @[@"dividerView",@"publishLabel",@"guideImageView",@"iconView"]) {
+            if (([key isEqual:@"iconView"] && !hideToggle) || ([key isEqual:@"publishLabel"] && !hidePublish)) continue;
+            UIView *part=HGAViewGetter(root,key.UTF8String,root);
+            if (part) [parts addObject:part];
+        }
+        HGASetSuppressedFeedParts(root,parts);
+        target=hideToggle ? (combined && !hidePublish ? publish : nil) : toggle;
+    } else HGASetSuppressedFeedParts(root,nil);
+    if (combined && (hideToggle || hidePublish) && (!capsule.layer.mask || capsule.layer.mask==crop)) {
+        CGRect visible=HGAVisible(target) ? CGRectIntersection(capsule.bounds,[target convertRect:target.bounds toView:capsule]) : CGRectZero;
+        if (CGRectIsNull(visible)) visible=CGRectZero;
+        if (!crop) {
+            crop=[CALayer layer];
+            crop.backgroundColor=UIColor.whiteColor.CGColor;
+            objc_setAssociatedObject(capsule,&HGADanmakuCropKey,crop,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        if (!CGRectEqualToRect(crop.frame,visible)) crop.frame=visible;
+        crop.cornerRadius=MIN(visible.size.width,visible.size.height)/2;
+        if (capsule.layer.mask!=crop) capsule.layer.mask=crop;
+        [CATransaction commit];
+    } else if (crop) {
+        if (capsule.layer.mask==crop) capsule.layer.mask=nil;
+        objc_setAssociatedObject(capsule,&HGADanmakuCropKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    *legacyIcon=!combined && target==toggle && HGAVisible(target);
+    return target;
+}
 
 static UIImage *HGADanmakuForegroundImage(UIImage *image) {
     CGImageRef source=image.CGImage;
@@ -434,11 +483,47 @@ static void HGAApplyPlayerControls(UIView *root) {
         }
         return;
     }
+    if([root isKindOfClass:objc_lookUpClass("FQVShortVideoBaseLeftContainerView")]) {
+        BOOL enabled=root.window && HGAppearanceEnabled();
+        BOOL author=enabled && HGAppearanceFlag(@"player.hideFeedAuthor");
+        BOOL description=enabled && HGAppearanceFlag(@"player.hideFeedDescription");
+        HGASetHidden(HGALazyControlSubview(root,"_nameLabel","nameLabel"),author);
+        HGASetHidden(HGALazyControlSubview(root,"_nextImageView","nextImageView"),author);
+        HGASetHidden(HGALazyControlSubview(root,"_titleLabel","titleLabel"),description);
+        HGASetHidden(HGALazyControlSubview(root,"_expandedLabel","expandedLabel"),description);
+        HGASetHidden(HGALazyControlSubview(root,"_videoChapterInfoLabel",NULL),description);
+        if([root isKindOfClass:objc_lookUpClass("SSShortVideoPostVideoLeftContainerView")]) {
+            HGASetHidden(HGALazyControlSubview(root,"_postContentLabel",NULL),description);
+            HGASetHidden(HGALazyControlSubview(root,"_quoteContentLabel",NULL),description);
+        }
+        return;
+    }
     if([root isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerControlView")]) {
+        UIView *full=HGALazyControlSubview(root,"_fullscreenBtn","fullscreenBtn");
+        if(full) {
+            NSString *mode=root.window && HGAppearanceEnabled() ? HGAppearanceString(@"player.fullscreenEntry") : nil;
+            HGASetHidden(full,[mode isEqual:@"hide"]);
+            UIView *caption=HGALazyControlSubview(root,"_fullscreenLabel",NULL);
+            if(caption && ![caption isDescendantOfView:full])
+                HGASetHidden(caption,[mode isEqual:@"hide"] || [mode isEqual:@"invisible"]);
+            // Presentation opacity does not alter UIView alpha, its accessibility
+            // action or the original hit rectangle. The host still owns visibility.
+            NSString *key=@"honggo.fullscreenEntry.opacity";
+            if([mode isEqual:@"invisible"]) {
+                if(![full.layer animationForKey:key]) {
+                    CABasicAnimation *ink=[CABasicAnimation animationWithKeyPath:@"opacity"];
+                    ink.fromValue=@0;ink.toValue=@0;ink.duration=0.001;
+                    ink.fillMode=kCAFillModeBoth;ink.removedOnCompletion=NO;
+                    [full.layer addAnimation:ink forKey:key];
+                }
+            } else if([full.layer animationForKey:key])[full.layer removeAnimationForKey:key];
+        }
         HGAUpdatePlayerGestures(root);
         HGAApplyPlaybackButton(root);
     }
     BOOL danmaku=[name isEqual:@"FQCShortVideoDanmakuEntranceView"];
+    BOOL legacyDanmaku=NO;
+    UIView *danmakuTarget=danmaku ? HGAApplyDanmakuParts(root,&legacyDanmaku) : nil;
     BOOL sheet=HGAEpisodeControl(root);
     BOOL enabled=HGAppearanceEnabled() && HGAppearanceFlag(sheet?@"panels.episodes":@"player.controlsGlass") && root.window;
     BOOL ranges=[name isEqual:@"FQVShortVideoEpisodesNumberView"];
@@ -522,13 +607,8 @@ static void HGAApplyPlayerControls(UIView *root) {
         }
     }
     if(danmaku) {
-        UIView *capsule=HGAViewGetter(root,"capsuleView",root);
-        // updateStyleVisibility keeps capsuleView mounted and hides it in
-        // compact mode. clickView returns the actual native toggle button.
-        UIView *target=HGAVisible(capsule) ? capsule : HGAViewGetter(root,"clickView",root);
-        BOOL visible=HGAVisible(target);
-        if(visible)[targets addObject:target];
-        HGAApplyDanmakuLegacyInk(root,visible && target!=capsule);
+        if(HGAVisible(danmakuTarget))[targets addObject:danmakuTarget];
+        HGAApplyDanmakuLegacyInk(root,legacyDanmaku);
     }
     if([name isEqual:@"SSShortVideoDanmakuLeftAboveView"]) {
         UIView *entrance=HGAViewGetter(root,"danmakuEntranceView",root);

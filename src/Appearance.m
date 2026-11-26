@@ -19,6 +19,7 @@ static NSHashTable<UIView *> *HGABars;
 static void HGARefreshAssets(void);
 static void HGAApplyTypography(UIView *root);
 static void HGAObserveFeed(UIScrollView *feed);
+static void HGAUpdateFeedProgressWidth(UIView *view);
 static void HGARegisterCategoryFeed(UIScrollView *feed);
 static void HGARefreshDock(UIView *bar);
 static NSArray<NSString *> *HGABottomControlClasses(void);
@@ -215,6 +216,16 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             NSUInteger native=((NSUInteger(*)(id,SEL,id,id))original)(item,selector,supported,model);
             return HGAInitialFeedResolution(item,supported,model,native);
         });
+    } else if (!strcmp(encoding,"{CGRect={CGPoint=dd}{CGSize=dd}}24@0:8@16") &&
+               (selector==sel_registerName("convertSeriesNameFrameToView:") ||
+                selector==sel_registerName("convertTitleClickableFrameToView:"))) {
+        NSString *flag=selector==sel_registerName("convertSeriesNameFrameToView:") ? @"player.hideFeedAuthor" : @"player.hideFeedDescription";
+        replacement=imp_implementationWithBlock(^CGRect(UIView *owner,UIView *target) {
+            // singleTapGesture: also tests layout rectangles directly even if the
+            // corresponding label is hidden. Let empty space fall through.
+            if(owner.window && HGAppearanceEnabled() && HGAppearanceFlag(flag))return CGRectZero;
+            return ((CGRect(*)(id,SEL,id))original)(owner,selector,target);
+        });
     } else if (automaticCleanTap && !strcmp(encoding,"v36@0:8@16B24@28")) {
         replacement=imp_implementationWithBlock(^(id component,UIView *hud,BOOL play,id model) {
             HGARecordUserTapPlay(hud,play);
@@ -278,6 +289,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             if(hud.window && !HGAApplying)HGRefreshVideoBackdropForPlayer(hud);
         });
     } else if (!strcmp(encoding,"v16@0:8")) {
+        BOOL refreshFeedParts=(selector==sel_registerName("updateStyleVisibility") &&
+            [className isEqual:@"FQCShortVideoDanmakuEntranceView"]) ||
+            ((selector==sel_registerName("refreshSubviews") || selector==sel_registerName("resetFollowUI")) &&
+             [className hasPrefix:@"SSShortVideoRightInteraction"]);
         replacement=imp_implementationWithBlock(^(id object) {
             BOOL recycling=playerCanvas && selector==sel_registerName("resetToRecycle") && NSThread.isMainThread;
             BOOL wasApplying=HGAApplying;
@@ -289,6 +304,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 }
                 ((void(*)(id,SEL))original)(object,selector);
             } @finally {if(recycling)HGAApplying=wasApplying;}
+            if(refreshFeedParts && !objc_getAssociatedObject(object,&HGAFeedPartsKey))return;
             if(mediaPlayer) {
                 if([(UIView *)object window] && !HGAApplying)HGRefreshVideoBackdropForPlayer(object);
                 return;
@@ -577,6 +593,10 @@ void HGInstallAppearance(void) {
         HGAInstallEpisodeMedia();
         HGAInstallAutoEnterSeriesPolicy();
         HGAInstallHeaderLayoutAdapters();
+        Class leftInfo=objc_lookUpClass("FQVShortVideoBaseLeftContainerView");
+        Class portraitHUD=objc_lookUpClass("FQVShortVideoVPlayerControlView");
+        if(leftInfo)HGAHook(leftInfo,sel_registerName("convertSeriesNameFrameToView:"),"{CGRect={CGPoint=dd}{CGSize=dd}}24@0:8@16",NO);
+        if(portraitHUD)HGAHook(portraitHUD,sel_registerName("convertTitleClickableFrameToView:"),"{CGRect={CGPoint=dd}{CGSize=dd}}24@0:8@16",NO);
         Class infoView=objc_lookUpClass("FQVShortVideoBaseInfoView");
         if(infoView)HGAHook(infoView,sel_registerName("setLeftContainer:"),"v24@0:8@16",NO);
         Class playComponent=objc_lookUpClass("FQVShortVideoListVCPlayComponent");
@@ -687,6 +707,8 @@ void HGInstallAppearance(void) {
             if([name isEqual:@"FQVShortVideoPlayerLandscapeBaseInfoView"])
                 HGAHook(cls,sel_registerName("setVideoDataModel:"),"v24@0:8@16",NO);
             if([name isEqual:@"FQVShortVideoPlayerLandscapeBaseControlView"]) {
+                HGALandscapeNativeHit=(void *)HGInstallVerifiedHook(cls,@selector(hitTest:withEvent:),
+                    "@40@0:8{CGPoint=dd}16@32",(IMP)HGALandscapeHit,@"appearance");
                 HGAHook(cls,sel_registerName("updateScreenLockButtonStyle"),"v16@0:8",NO);
                 HGAHook(cls,sel_registerName("showControlWithoutScreenLock"),"v16@0:8",NO);
                 HGAHook(cls,sel_registerName("showControlWithoutAnimation"),"v16@0:8",NO);
@@ -725,6 +747,10 @@ void HGInstallAppearance(void) {
             }
             if([name isEqual:@"SSShortVideoLandscapeBizInteractionView"])
                 HGAHook(cls,sel_registerName("refreshUI"),"v16@0:8",NO);
+            if([name isEqual:@"FQVShortVideoLandscapeBottomRightView"]) {
+                HGAHook(cls,sel_registerName("updatePlayRateBtnTextWithString:"),"v24@0:8@16",NO);
+                HGAHook(cls,sel_registerName("updateResolutionBtnTextWithString:"),"v24@0:8@16",NO);
+            }
             if([name isEqual:@"SSHGBookStoreCategoryTitleCell"] ||
                 ([name isEqual:@"FQRJXCategoryTitleCell"] && class_getInstanceMethod(cls,sel_registerName("reloadData:"))))
                 HGAHook(cls,sel_registerName("reloadData:"),"v24@0:8@16",NO);
@@ -769,8 +795,17 @@ void HGInstallAppearance(void) {
             }
             if([name isEqual:@"FQVShortVideoLoadingView"])
                 HGAHook(cls,@selector(setHidden:),"v20@0:8B16",NO);
-            if([name isEqual:@"FQCShortVideoDanmakuEntranceView"])
+            if([name isEqual:@"FQCShortVideoDanmakuEntranceView"]) {
                 HGAHook(cls,sel_registerName("refreshIcon"),"v16@0:8",NO);
+                if(class_getInstanceMethod(cls,sel_registerName("updateStyleVisibility")))
+                    HGAHook(cls,sel_registerName("updateStyleVisibility"),"v16@0:8",NO);
+            }
+            if([@[@"avatar",@"collect",@"comment",@"like",@"share"] containsObject:HGAViewRoles()[name] ?: @""]) {
+                if(class_getInstanceMethod(cls,sel_registerName("refreshSubviews")))
+                    HGAHook(cls,sel_registerName("refreshSubviews"),"v16@0:8",NO);
+                if([name isEqual:@"SSShortVideoRightInteractionAvatarView"] && class_getInstanceMethod(cls,sel_registerName("resetFollowUI")))
+                    HGAHook(cls,sel_registerName("resetFollowUI"),"v16@0:8",NO);
+            }
             if([name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 for(NSString *selectorName in @[@"setModel:",@"resetToRecycle"]) {
                     SEL selector=NSSelectorFromString(selectorName);

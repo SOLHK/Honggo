@@ -38,11 +38,19 @@
 @end
 @implementation FQVShortVideoLandscapeNavBar @end
 
+@interface FQVLandscapeBrightnessButton : UIControl @end
+@implementation FQVLandscapeBrightnessButton @end
+
 @interface FQVLandscapeVolumeButton : UIControl @end
 @implementation FQVLandscapeVolumeButton @end
 
 @interface FQVTouchIgoringView : UIView @end
-@implementation FQVTouchIgoringView @end
+@implementation FQVTouchIgoringView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *result=[super hitTest:point withEvent:event];
+    return result==self ? nil : result;
+}
+@end
 
 @interface SSShortVideoLandscapeAutoInflowTipView : UIControl @end
 @implementation SSShortVideoLandscapeAutoInflowTipView @end
@@ -51,8 +59,11 @@
 @property(nonatomic,strong) UIView *playRateBtn;
 @property(nonatomic,strong) UIView *resolutionBtn;
 @property(nonatomic,strong) UIView *seriesBtn;
+- (void)updateResolutionBtnTextWithString:(NSString *)value;
 @end
-@implementation FQVShortVideoLandscapeBottomRightView @end
+@implementation FQVShortVideoLandscapeBottomRightView
+- (void)updateResolutionBtnTextWithString:(NSString *)value { [(UIButton *)self.resolutionBtn setTitle:value forState:UIControlStateNormal]; }
+@end
 
 @interface SSShortVideoLandscapeBizInteractionView : UIView
 @property(nonatomic,strong) UIView *likeBtnView;
@@ -97,7 +108,10 @@ static UIView *HGALandscapeFixtureCount(UIView *parent,CGFloat x,NSString *symbo
 }
 
 static BOOL HGALandscapeFixtureIsCircle(UIView *glass) {
-    return glass && CGRectGetWidth(glass.bounds)==36 && CGRectGetHeight(glass.bounds)==36 && glass.layer.cornerRadius==18;
+    UIButton *button=(id)glass;
+    return [button isKindOfClass:UIButton.class] && !button.userInteractionEnabled &&
+        button.configuration.cornerStyle==UIButtonConfigurationCornerStyleCapsule &&
+        CGRectGetWidth(button.bounds)>=40 && CGRectGetWidth(button.bounds)==CGRectGetHeight(button.bounds);
 }
 
 @interface FQVShortVideoListVCToastComponent : NSObject
@@ -161,6 +175,12 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     volume.alpha=0;
     controls.fixtureVolume=volume;
     [controls addSubview:volume];
+    FQVLandscapeBrightnessButton *brightness=[[FQVLandscapeBrightnessButton alloc] initWithFrame:CGRectMake(22,193,32,32)];
+    brightness.backgroundColor=UIColor.darkGrayColor;
+    UILongPressGestureRecognizer *brightnessDrag=[[UILongPressGestureRecognizer alloc] initWithTarget:nil action:NULL];
+    [brightness addGestureRecognizer:brightnessDrag];
+    [controls addSubview:brightness];
+    volume.frame=CGRectMake(730,193,32,32);
     SSShortVideoLandscapeAutoInflowTipView *inflow=[[SSShortVideoLandscapeAutoInflowTipView alloc] initWithFrame:CGRectMake(22,220,123,40)];
     inflow.clipsToBounds=YES;
     inflow.backgroundColor=UIColor.darkGrayColor;
@@ -219,7 +239,8 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
         @"the native nonanimated show hook reuses the footer glass and refreshes the audio backing");
     UIView *backGlass=Find(top,identifier);
     CGRect titleFrame=info.titleL.frame;
-    Check(Count(page,identifier)==15 && Count(bottom,identifier)==3 && Count(interactions,identifier)==5 &&
+    Check(CGRectGetMinX(titleFrame)-CGRectGetMaxX(backGlass.frame)>=12 && HGALandscapeFixtureIsCircle(Find(brightness,identifier)) && [brightness.gestureRecognizers containsObject:brightnessDrag], @"back/title separation and a native brightness glass button preserve the adjustment gesture");
+    Check(Count(page,identifier)==16 && Count(bottom,identifier)==3 && Count(interactions,identifier)==5 &&
         Count(navigation,identifier)==2 && Count(progress,identifier)==0 && Count(inflow,identifier)==1,
         @"landscape glass covers the original navigation, side and business controls without styling the scrubber");
     Check(backGlass.superview==top && !backGlass.userInteractionEnabled && HGALandscapeFixtureIsCircle(backGlass) &&
@@ -249,14 +270,50 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
     CGRect inputRect=[inputGlass convertRect:inputGlass.bounds toView:interactions];
     Check(inputGlass.superview==interactions.danmakuInputView && nativeInputPaint.hidden && !placeholder.hidden &&
         CGRectEqualToRect(interactions.danmakuInputView.frame,originalInputFrame) &&
-        CGRectGetMinX(inputRect)-CGRectGetMaxX(switchGlass.frame)>=8 &&
-        CGRectGetMinX(moreRect)-CGRectGetMaxX(shareGlass.frame)>=8,
-        @"the share and more circles and the danmaku switch and input have an 8-point gap within native hit geometry");
+        CGRectGetMinX(inputRect)-CGRectGetMaxX(switchGlass.frame)>=4 &&
+        CGRectGetMinX(moreRect)-CGRectGetMaxX(shareGlass.frame)>=4,
+        @"the share and more circles and the danmaku switch and input retain a gap within native hit geometry");
     BOOL equalCircles=HGALandscapeFixtureIsCircle(switchGlass) && HGALandscapeFixtureIsCircle(shareGlass);
     for(UIView *button in @[interactions.likeBtnView,interactions.commentBtnView,interactions.starBtnView,
-        info.moreBtn,controls.screenLockBtn,volume,bottom.playRateBtn,bottom.resolutionBtn,bottom.seriesBtn])
+        info.moreBtn,controls.screenLockBtn,volume,brightness])
         equalCircles &= HGALandscapeFixtureIsCircle(Find(button,identifier));
-    Check(equalCircles,@"the landscape navigation, actions and playback options share a round 36-point material");
+    Check(equalCircles,@"navigation and side actions use 40–44pt circles with room for counters");
+    [bottom updateResolutionBtnTextWithString:@"1080P"];
+    NSArray *options=@[bottom.playRateBtn,bottom.resolutionBtn,bottom.seriesBtn];
+    for (NSNumber *rowWidth in @[@228,@168,@135]) {
+        stack.frame=CGRectMake(0,0,rowWidth.doubleValue,32);[stack setNeedsLayout];[stack layoutIfNeeded];
+        HGAppearanceProcessView(bottom);
+        CGRect previous=CGRectNull;
+        BOOL valid=YES;
+        for (UIButton *option in options) {
+            UIButton *glass=(id)Find(option,identifier);
+            CGRect rect=[glass convertRect:glass.bounds toView:stack];
+            valid &= [glass isKindOfClass:UIButton.class] && [glass.configuration.attributedTitle.string isEqual:option.currentTitle] &&
+                (CGRectIsNull(previous) || CGRectGetMinX(rect)-CGRectGetMaxX(previous)>=3.9) &&
+                glass.configuration.contentInsets.leading>=7 && [glass hitTest:CGPointMake(5,5) withEvent:nil]==nil;
+            previous=rect;
+        }
+        Check(valid,@"long native playback choices retain horizontal padding and never overlap in compact or wide stacks");
+    }
+    UIButton *rate=(UIButton *)bottom.playRateBtn,*resolution=(UIButton *)bottom.resolutionBtn;
+    UIButton *rateGlass=(id)Find(rate,identifier);
+    CGPoint rim=[rateGlass convertPoint:CGPointMake(CGRectGetMidX(rateGlass.bounds),2) toView:controls];
+    CGPoint center=[rate convertPoint:CGPointMake(CGRectGetMidX(rate.bounds),CGRectGetMidY(rate.bounds)) toView:controls];
+    HGAEpisodeTapFixture *rimAction=[HGAEpisodeTapFixture new];
+    [rate addTarget:rimAction action:@selector(open:) forControlEvents:UIControlEventTouchUpInside];
+    UIView *rimHit=[controls hitTest:rim withEvent:nil];
+    if(rimHit==rateGlass)[(UIButton *)rimHit sendActionsForControlEvents:UIControlEventTouchUpInside];
+    Check([controls hitTest:center withEvent:nil]==rate && rimHit==rateGlass && rimAction.taps==1,
+        @"capsule rim activates the correct original option once while its center hits the host button");
+    CGRect first=[rateGlass convertRect:rateGlass.bounds toView:controls];
+    UIView *second=Find(resolution,identifier);
+    CGRect following=[second convertRect:second.bounds toView:controls];
+    CGPoint gap=CGPointMake((CGRectGetMaxX(first)+CGRectGetMinX(following))/2,CGRectGetMidY(first));
+    UIView *gapHit=[controls hitTest:gap withEvent:nil];
+    UIButton *cover=HGALandscapeFixtureButton(controls,CGRectMake(rim.x-4,rim.y-4,8,8),@"");
+    Check(gapHit!=rateGlass && gapHit!=second && [controls hitTest:rim withEvent:nil]==cover,
+        @"the margin belongs to neither option and a native covering control retains hit priority");
+    [cover removeFromSuperview];
     interactions.fixtureSwitchHidden=YES;
     [interactions refreshUI];
     BOOL followedHide=[switchGlass.accessibilityIdentifier isEqual:identifier] && switchGlass.hidden;
@@ -277,7 +334,7 @@ static void RunLandscapeChromeChecks(SSTabBarController *host) {
         @"landscape lock and volume glass follow their native owners when hidden");
     HGAppearanceSet(@"player.controlsGlass",@NO,nil);
     for(UIView *root in @[info,navigation,controls,volume,inflow,interactions,bottom]) HGAppearanceProcessView(root);
-    Check(!Find(page,identifier) && [next.backgroundColor isEqual:UIColor.darkGrayColor] && action.taps==2 &&
+    Check(!Find(page,identifier) && fabs(info.titleL.frame.origin.x-56)<0.1 && !((UIButton *)bottom.resolutionBtn).titleLabel.hidden && [next.backgroundColor isEqual:UIColor.darkGrayColor] && action.taps==2 &&
         stack.arrangedSubviews.count==3 && volume.clipsToBounds && volume.opaque && !nativeInputPaint.hidden &&
         [volume.backgroundColor isEqual:UIColor.systemTealColor] &&
         CGRectEqualToRect(interactions.likeCountLabel.frame,originalCountFrame) &&

@@ -9,6 +9,7 @@ static NSDictionary<NSString *,NSArray<NSString *> *> *HGALandscapeTargetGetters
             @"FQVShortVideoPlayerLandscapeBaseControlView":@[@"screenLockBtn"],
             @"FQVShortVideoLandscapeNavBar":@[],
             @"FQVLandscapeVolumeButton":@[],
+            @"FQVLandscapeBrightnessButton":@[],
             @"SSShortVideoLandscapeAutoInflowTipView":@[],
             @"FQVShortVideoLandscapeBottomRightView":@[@"playRateBtn",@"resolutionBtn",@"seriesBtn"],
             @"SSShortVideoLandscapeBizInteractionView":@[@"likeBtnView",@"commentBtnView",@"starBtnView",
@@ -22,12 +23,28 @@ static NSArray<NSString *> *HGALandscapeChromeClasses(void) {
     return HGALandscapeTargetGetters().allKeys;
 }
 
-// The native share and more centers are 44pt apart. A common 36pt
-// diameter leaves an 8pt gap within the original navigation hit region.
-static const CGFloat HGALandscapeButtonDiameter=36;
+static const CGFloat HGALandscapeButtonDiameter = 44;
+static const CGFloat HGALandscapeGap = 4;
+
+// The host wins normal hit testing. The HUD can explicitly return this button
+// for the extra rim of a nontracking playback option outside its native bounds.
+@interface HGALandscapeButton : HGAPageGlassButton
+@property(nonatomic,weak) UIButton *option;
+- (void)activateOption;
+@end
+@implementation HGALandscapeButton
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event { return nil; }
+- (void)activateOption {
+    if (self.option.enabled) [self.option sendActionsForControlEvents:UIControlEventTouchUpInside];
+}
+@end
 
 @interface HGALandscapeSurface : NSObject
-@property(nonatomic,strong) HGAAppearanceMaterial *glass;
+@property(nonatomic,strong) HGALandscapeButton *glass;
+@property(nonatomic,weak) UILabel *nativeOptionTitle;
+@property(nonatomic,weak) UILabel *positionedLabel;
+@property(nonatomic) CGRect hostLabelFrame;
+@property(nonatomic) CGRect appliedLabelFrame;
 @property(nonatomic,strong) UIColor *sourceBackground;
 @property(nonatomic,weak) UIView *coveredPaint;
 @property(nonatomic,weak) UILabel *counter;
@@ -39,7 +56,51 @@ static const CGFloat HGALandscapeButtonDiameter=36;
 @implementation HGALandscapeSurface
 - (void)dealloc { [_glass removeFromSuperview]; }
 @end
-static char HGALandscapeSurfacesKey;
+static char HGALandscapeSurfacesKey,HGALandscapeHitTargetsKey;
+static UIView *(*HGALandscapeNativeHit)(UIView *,SEL,CGPoint,UIEvent *);
+
+static UIView *HGALandscapeHit(UIView *hud,SEL cmd,CGPoint point,UIEvent *event) {
+    UIView *native=HGALandscapeNativeHit(hud,cmd,point,event);
+    if (!hud.window || hud.hidden || hud.alpha<=0.01 || !hud.userInteractionEnabled ||
+        [native isKindOfClass:UIControl.class])return native;
+    NSMapTable *targets=objc_getAssociatedObject(hud,&HGALandscapeHitTargetsKey);
+    for(UIView *target in targets) {
+        HGALandscapeButton *glass=[targets objectForKey:target];
+        if (!glass.superview || ![glass isDescendantOfView:hud] || !HGAVisible(glass) ||
+            (native && ![target isDescendantOfView:native]))continue;
+        CGPoint p=[glass convertPoint:point fromView:hud];
+        CGRect bounds=glass.bounds;
+        if(!CGRectContainsPoint(bounds,p))continue;
+        CGFloat radius=MIN(bounds.size.width,bounds.size.height)/2;
+        CGFloat cx=MAX(CGRectGetMinX(bounds)+radius,MIN(p.x,CGRectGetMaxX(bounds)-radius));
+        if(hypot(p.x-cx,p.y-CGRectGetMidY(bounds))>radius)continue;
+        // Ask the original implementation who owns the control center. This
+        // keeps a native long press, icon tap, and any covering overlay intact.
+        CGPoint center=[target convertPoint:CGPointMake(CGRectGetMidX(target.bounds),CGRectGetMidY(target.bounds)) toView:hud];
+        UIView *owner=HGALandscapeNativeHit(hud,cmd,center,event);
+        if (!owner || ![owner isDescendantOfView:target])continue;
+        if (glass.option && owner==glass.option && glass.option.enabled &&
+            ![owner pointInside:[owner convertPoint:point fromView:hud] withEvent:event])return glass;
+        return owner;
+    }
+    return native;
+}
+
+// A model/title refresh may replace the label or lay it out again while enabled.
+static void HGALandscapePositionLabel(HGALandscapeSurface *state, UILabel *label, CGFloat minX, CGFloat maxX) {
+    UILabel *previous = state.positionedLabel;
+    if (previous && previous != label && CGRectEqualToRect(previous.frame, state.appliedLabelFrame))
+        previous.frame = state.hostLabelFrame;
+    if (!label) { state.positionedLabel = nil; return; }
+    if (previous != label || !CGRectEqualToRect(label.frame, state.appliedLabelFrame))
+        state.hostLabelFrame = label.frame;
+    CGRect adjusted = state.hostLabelFrame;
+    adjusted.origin.x = MAX(CGRectGetMinX(adjusted), minX);
+    adjusted.size.width = MIN(adjusted.size.width, MAX(0, maxX - adjusted.origin.x));
+    state.positionedLabel = label;
+    state.appliedLabelFrame = adjusted;
+    if (!CGRectEqualToRect(label.frame, adjusted)) label.frame = adjusted;
+}
 
 static void HGARestoreLandscapeSurface(UIView *target,HGALandscapeSurface *state) {
     if(state.clearsBackground && [target.backgroundColor isEqual:UIColor.clearColor])
@@ -49,35 +110,42 @@ static void HGARestoreLandscapeSurface(UIView *target,HGALandscapeSurface *state
     HGASetHidden(state.coveredPaint,NO);
     HGARestoreGeometry(state.counter);
     HGARestoreGeometry(state.counterIcon);
+    HGALandscapePositionLabel(state,nil,0,0);
+    HGASetHidden(state.nativeOptionTitle,NO);
+    [state.glass.press.view removeGestureRecognizer:state.glass.press];
     [state.glass removeFromSuperview];
 }
 
 static void HGAPlaceLandscapeSurface(UIView *target,CGRect frame,BOOL inside,HGALandscapeSurface *state) {
     if(!state.glass) {
-        state.glass=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
+        state.glass=[[HGALandscapeButton alloc] initWithFrame:frame];
         state.glass.accessibilityIdentifier=@"honggo.appearance.landscape.chrome";
         state.glass.accessibilityElementsHidden=YES;
+        state.glass.isAccessibilityElement=NO;
         state.glass.userInteractionEnabled=NO;
-        state.glass.clipsToBounds=YES;
-        state.glass.layer.cornerCurve=kCACornerCurveContinuous;
-        state.glass.opaque=NO;
-        if(@available(iOS 26.0,*))state.glass.cornerConfiguration=UICornerConfiguration.capsuleConfiguration;
+        state.glass.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
+        state.glass.press=[[HGAPageButtonPress alloc] initWithTarget:nil action:NULL];
+        state.glass.press.button=state.glass;
+        state.glass.press.cancelsTouchesInView=NO;
+        state.glass.press.delaysTouchesEnded=NO;
     }
     if(!state.clearsBackground || ![target.backgroundColor isEqual:UIColor.clearColor])
         state.sourceBackground=target.backgroundColor;
     state.clearsBackground=YES;
     if(target.opaque){state.clearedOpaque=YES;target.opaque=NO;}
     if(![target.backgroundColor isEqual:UIColor.clearColor])target.backgroundColor=UIColor.clearColor;
-    HGAAppearanceMaterial *glass=state.glass;
-    NSString *style=HGAppearanceString(@"player.material");
-    if(![glass.style isEqual:style]) {
-        glass.style=style;glass.materialSignature=nil;
+    HGAPageGlassButton *glass=state.glass;
+    HGAConfigurePageButton(glass,HGALiquidButtonMaterial(),nil);
+    UIButtonConfiguration *config=glass.configuration;
+    UIBackgroundConfiguration *background=config.background;
+    if (!NSDirectionalEdgeInsetsEqualToDirectionalEdgeInsets(background.backgroundInsets,NSDirectionalEdgeInsetsZero)) {
+        background.backgroundInsets=NSDirectionalEdgeInsetsZero;
+        config.background=background;
+        glass.configuration=config;
     }
     if(!CGRectEqualToRect(glass.frame,frame))glass.frame=frame;
-    CGFloat cornerRadius=MIN(frame.size.width,frame.size.height)/2;
-    glass.materialCornerRadius=cornerRadius;
-    if(glass.layer.cornerRadius!=cornerRadius)glass.layer.cornerRadius=cornerRadius;
-    HGAConfigureButtonGlass(glass,target,style);
+    UIView *pressHost=target.userInteractionEnabled ? target : target.superview;
+    if(pressHost && glass.press.view!=pressHost)[pressHost addGestureRecognizer:glass.press];
     if(inside) {
         // Keep the glass with controls that have separate foreground views so
         // it follows their native hide and scale animations.
@@ -87,18 +155,88 @@ static void HGAPlaceLandscapeSurface(UIView *target,CGRect frame,BOOL inside,HGA
         // A sibling sits behind UIImageView's own pixels as well as descendants.
         [target.superview insertSubview:glass belowSubview:target];
     }
+    UIView *hud=HGAAncestorNamed(target,@"FQVShortVideoPlayerLandscapeBaseControlView");
+    if(hud) {
+        NSMapTable *targets=objc_getAssociatedObject(hud,&HGALandscapeHitTargetsKey);
+        if(!targets) {
+            targets=[NSMapTable weakToWeakObjectsMapTable];
+            objc_setAssociatedObject(hud,&HGALandscapeHitTargetsKey,targets,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if([targets objectForKey:target]!=glass)[targets setObject:glass forKey:target];
+    }
     BOOL hidden=!inside && (target.hidden || target.alpha<0.01);
     if(glass.hidden!=hidden)glass.hidden=hidden;
-    [glass requestMaterialRefresh];
+
 }
 
-static CGRect HGALandscapeSurfaceFrame(UIView *target,BOOL round,BOOL inside) {
+// Take half the distance to either neighbouring center. Both buttons may grow
+// without crossing this midpoint, even with a fourth arranged item or a compact row.
+static CGFloat HGALandscapeSlotWidth(UIView *target, NSArray<UIView *> *peers, CGFloat preferred) {
+    UIView *parent=target.superview;
+    CGFloat center=CGRectGetMidX([target convertRect:target.bounds toView:parent]);
+    CGFloat width=preferred;
+    for (UIView *other in peers) {
+        if (other==target || other.hidden || CGRectIsEmpty(other.bounds)) continue;
+        CGFloat distance=fabs(CGRectGetMidX([other convertRect:other.bounds toView:parent])-center);
+        width=MIN(width,MAX(0,distance-HGALandscapeGap));
+    }
+    return width;
+}
+
+// Narrow layouts let the compact input and the first playback option approach
+// from different containers. Reserve a shared boundary for both sets of glass.
+static CGFloat HGALandscapeFooterDivider(UIView *root,BOOL options) {
+    UIView *left=options ? nil : root,*right=options ? root : nil;
+    for(UIView *other in root.superview.subviews) {
+        if(other.hidden)continue;
+        if(options && [other isKindOfClass:objc_lookUpClass("SSShortVideoLandscapeBizInteractionView")])left=other;
+        if(!options && [other isKindOfClass:objc_lookUpClass("FQVShortVideoLandscapeBottomRightView")])right=other;
+    }
+    if(!left || !right)return NAN;
+    CGFloat end=-CGFLOAT_MAX,start=CGFLOAT_MAX;
+    for(NSString *name in @[@"likeBtnView",@"commentBtnView",@"starBtnView",@"danmakuBtnView",@"danmakuInputView",@"danmakuPublishBtn"]) {
+        UIView *v=HGAViewGetter(left,name.UTF8String,left);
+        if(v && !v.hidden && !CGRectIsEmpty(v.bounds))end=MAX(end,CGRectGetMaxX([v convertRect:v.bounds toView:root.superview]));
+    }
+    UIView *rate=HGAViewGetter(right,"playRateBtn",right);
+    UIStackView *stack=[rate.superview isKindOfClass:UIStackView.class] ? (UIStackView *)rate.superview : nil;
+    for(UIView *v in stack.arrangedSubviews) {
+        if(!v.hidden && !CGRectIsEmpty(v.bounds))start=MIN(start,CGRectGetMinX([v convertRect:v.bounds toView:root.superview]));
+    }
+    return (end==-CGFLOAT_MAX || start==CGFLOAT_MAX) ? NAN : (end+start)/2;
+}
+
+static CGRect HGALandscapeSurfaceFrame(UIView *target,CGSize size,BOOL inside) {
     UIView *parent=inside ? target : target.superview;
-    CGRect frame=inside ? target.bounds : [target convertRect:target.bounds toView:parent];
-    CGFloat height=round ? HGALandscapeButtonDiameter : 40;
-    CGFloat width=round ? height : MAX(height,CGRectGetWidth(frame));
-    CGRect padded=CGRectMake(CGRectGetMidX(frame)-width/2,CGRectGetMidY(frame)-height/2,width,height);
+    CGRect frame=[target convertRect:target.bounds toView:parent];
+    CGRect padded=CGRectMake(CGRectGetMidX(frame)-size.width/2,CGRectGetMidY(frame)-size.height/2,size.width,size.height);
     return !inside && parent.clipsToBounds ? CGRectIntersection(padded,parent.bounds) : padded;
+}
+
+static void HGALandscapeOptionTitle(UIButton *button,HGALandscapeSurface *state) {
+    // The host fixes some button frames at 34pt. Keep its title for accessibility
+    // and actions, and draw the complete current title inside the wider native capsule.
+    UILabel *host=button.titleLabel;
+    if(state.glass.option!=button) {
+        state.glass.option=button;
+        state.glass.userInteractionEnabled=YES;
+        [state.glass addTarget:state.glass action:@selector(activateOption) forControlEvents:UIControlEventTouchUpInside];
+    }
+    if (state.nativeOptionTitle != host) HGASetHidden(state.nativeOptionTitle,NO);
+    state.nativeOptionTitle=host;
+    HGASetHidden(host,YES);
+    NSAttributedString *title=button.currentAttributedTitle;
+    if (!title.length) title=[[NSAttributedString alloc] initWithString:button.currentTitle ?: @""
+        attributes:@{NSFontAttributeName:host.font, NSForegroundColorAttributeName:[button titleColorForState:button.state] ?: UIColor.whiteColor}];
+    UIButtonConfiguration *config=state.glass.configuration;
+    if (![config.attributedTitle isEqual:title]) {
+        config.attributedTitle=title;
+        config.contentInsets=NSDirectionalEdgeInsetsMake(0,7,0,7);
+        config.titleLineBreakMode=NSLineBreakByClipping;
+        state.glass.configuration=config;
+    }
+    state.glass.titleLabel.adjustsFontSizeToFitWidth=YES;
+    state.glass.titleLabel.minimumScaleFactor=0.55;
 }
 
 static void HGAPlaceLandscapeCounter(UIView *target,UILabel *counter,UIView *icon,HGALandscapeSurface *state) {
@@ -112,14 +250,14 @@ static void HGAPlaceLandscapeCounter(UIView *target,UILabel *counter,UIView *ico
     state.counter=counter;state.counterIcon=icon;
     if(!counter)return;
     CGFloat midX=CGRectGetMidX(target.bounds),midY=CGRectGetMidY(target.bounds);
-    CGFloat iconScale=MIN(1,20/MAX(CGRectGetWidth(icon.bounds),CGRectGetHeight(icon.bounds)));
+    CGFloat iconScale=MIN(1,22/MAX(CGRectGetWidth(icon.bounds),CGRectGetHeight(icon.bounds)));
     // Center the original glyph above its count. Align the text's ink instead
     // of the original label frame, which is offset over the icon's corner.
-    HGASetGeometry(icon,midX-icon.center.x,midY-7.5-icon.center.y,iconScale);
-    CGFloat textScale=MIN(1,MIN(24/CGRectGetWidth(ink),10/CGRectGetHeight(ink)));
+    HGASetGeometry(icon,midX-icon.center.x,midY-7-icon.center.y,iconScale);
+    CGFloat textScale=MIN(1,MIN(32/CGRectGetWidth(ink),12/CGRectGetHeight(ink)));
     CGFloat inkX=(CGRectGetMidX(ink)-CGRectGetMidX(counter.bounds))*textScale;
     CGFloat inkY=(CGRectGetMidY(ink)-CGRectGetMidY(counter.bounds))*textScale;
-    HGASetGeometry(counter,midX-counter.center.x-inkX,midY+8.5-counter.center.y-inkY,textScale);
+    HGASetGeometry(counter,midX-counter.center.x-inkX,midY+11-counter.center.y-inkY,textScale);
 }
 
 static void HGALandscapeApplyView(UIView *root) {
@@ -144,15 +282,17 @@ static void HGALandscapeApplyView(UIView *root) {
     BOOL control=[kind isEqual:@"FQVShortVideoPlayerLandscapeBaseControlView"];
     BOOL info=[kind isEqual:@"FQVShortVideoPlayerLandscapeBaseInfoView"];
     BOOL biz=[kind isEqual:@"SSShortVideoLandscapeBizInteractionView"];
-    BOOL volume=[kind isEqual:@"FQVLandscapeVolumeButton"];
+    BOOL adjustmentButton=[kind isEqual:@"FQVLandscapeVolumeButton"] || [kind isEqual:@"FQVLandscapeBrightnessButton"];
+    BOOL options=[kind isEqual:@"FQVShortVideoLandscapeBottomRightView"];
     BOOL inflow=[kind isEqual:@"SSShortVideoLandscapeAutoInflowTipView"];
     if(control) {
         HGALandscapeApplyView(HGAViewGetter(root,"infoView",root));
         Class volumeClass=NSClassFromString(@"FQVLandscapeVolumeButton");
+        Class brightnessClass=NSClassFromString(@"FQVLandscapeBrightnessButton");
         Class overlayClass=NSClassFromString(@"FQVTouchIgoringView");
         Class inflowClass=NSClassFromString(@"SSShortVideoLandscapeAutoInflowTipView");
         for(UIView *child in root.subviews) {
-            if([child isKindOfClass:volumeClass])HGALandscapeApplyView(child);
+            if([child isKindOfClass:volumeClass] || [child isKindOfClass:brightnessClass])HGALandscapeApplyView(child);
             if([child isKindOfClass:overlayClass]) {
                 for(UIView *entry in child.subviews)
                     if([entry isKindOfClass:inflowClass])HGALandscapeApplyView(entry);
@@ -199,7 +339,7 @@ static void HGALandscapeApplyView(UIView *root) {
                 if(share && !CGRectIsEmpty(share.bounds))[targets addObject:share];
             }
         }
-    } else if((volume || inflow) && !CGRectIsEmpty(root.bounds)) {
+    } else if((adjustmentButton || inflow) && !CGRectIsEmpty(root.bounds)) {
         [targets addObject:root];
     }
 
@@ -213,7 +353,8 @@ static void HGALandscapeApplyView(UIView *root) {
         states=[NSMapTable weakToStrongObjectsMapTable];
         objc_setAssociatedObject(root,&HGALandscapeSurfacesKey,states,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    BOOL adjustment=control || volume || inflow;
+    BOOL adjustment=control || adjustmentButton || inflow;
+    CGFloat footerDivider=(biz || options) ? HGALandscapeFooterDivider(root,options) : NAN;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     for(UIView *target in targets) {
@@ -221,11 +362,46 @@ static void HGALandscapeApplyView(UIView *root) {
         NSArray<UIView *> *counter=[counters objectForKey:target];
         BOOL inside=adjustment || target==input || counter || (target!=back && !target.clipsToBounds &&
             ![target isKindOfClass:UIImageView.class] && ![target isKindOfClass:UILabel.class]);
-        BOOL round=target!=next && target!=input && !inflow;
-        CGRect frame=HGALandscapeSurfaceFrame(target,round,inside);
-        // Give the switch breathing room without shifting the host's input
-        // target, placeholder or draft publish button.
-        if(target==input)frame=CGRectInset(frame,MIN(6,MAX(0,(CGRectGetWidth(frame)-44)/2)),0);
+        CGFloat diameter=HGALandscapeButtonDiameter;
+        CGSize size=CGSizeMake(diameter,diameter);
+        if (options && [target isKindOfClass:UIButton.class]) {
+            UIButton *option=(UIButton *)target;
+            UILabel *label=option.titleLabel;
+            CGFloat text=option.currentAttributedTitle.length ? option.currentAttributedTitle.size.width :
+                [option.currentTitle sizeWithAttributes:@{NSFontAttributeName:label.font}].width;
+            UIStackView *stack=[target.superview isKindOfClass:UIStackView.class] ? (UIStackView *)target.superview : nil;
+            size.width=HGALandscapeSlotWidth(target,stack.arrangedSubviews ?: targets,MAX(48,ceil(text)+20));
+        } else if (target==input || inflow || target==next) {
+            size.width=MAX(diameter,CGRectGetWidth(target.bounds)+(target==input ? 0 : 8));
+        } else if (biz) {
+            NSMutableArray *icons=targets.mutableCopy;
+            if(input)[icons removeObject:input];
+            size.width=size.height=HGALandscapeSlotWidth(target,icons,diameter);
+        } else if ([kind isEqual:@"FQVShortVideoLandscapeNavBar"] || (info && target!=back)) {
+            // On 7.4.5.33 share and more are 44pt apart in the same navigation row.
+            size.width=size.height=40;
+        }
+        CGRect frame=HGALandscapeSurfaceFrame(target,size,inside);
+        if (target==input) {
+            UIView *toggle=HGAViewGetter(root,"danmakuBtnView",root);
+            if (toggle && !toggle.hidden) {
+                CGRect slot=[toggle convertRect:toggle.bounds toView:input];
+                CGFloat edge=CGRectGetMidX(slot)+diameter/2+HGALandscapeGap;
+                if (CGRectGetMidX(slot)<CGRectGetMidX(frame) && edge>CGRectGetMinX(frame)) {
+                    CGFloat x=MIN(edge,CGRectGetMaxX(frame));
+                    frame=CGRectMake(x,CGRectGetMinY(frame),CGRectGetMaxX(frame)-x,frame.size.height);
+                }
+            }
+        }
+        if (isfinite(footerDivider)) {
+            UIView *coordinateView=inside ? target : target.superview;
+            CGFloat split=[coordinateView convertPoint:CGPointMake(footerDivider,0) fromView:root.superview].x;
+            CGFloat edge=options ? MAX(CGRectGetMinX(frame),split+HGALandscapeGap/2) : CGRectGetMinX(frame);
+            CGFloat end=options ? CGRectGetMaxX(frame) : MIN(CGRectGetMaxX(frame),split-HGALandscapeGap/2);
+            frame=CGRectMake(edge,CGRectGetMinY(frame),MAX(0,end-edge),frame.size.height);
+            if (biz && target!=input && frame.size.width<frame.size.height)
+                frame=CGRectInset(frame,0,(frame.size.height-frame.size.width)/2);
+        }
         HGALandscapeSurface *state=[states objectForKey:target];
         if(CGRectIsEmpty(frame)) {
             HGARestoreLandscapeSurface(target,state);
@@ -240,6 +416,24 @@ static void HGALandscapeApplyView(UIView *root) {
         }
         if(counter || state.counter)HGAPlaceLandscapeCounter(target,(UILabel *)counter.firstObject,counter.lastObject,state);
         HGAPlaceLandscapeSurface(target,frame,inside,state);
+        if (options && [target isKindOfClass:UIButton.class]) HGALandscapeOptionTitle((UIButton *)target,state);
+        if (target==back) {
+            UIView *title=HGAViewGetter(root,"titleL",root);
+            UIView *nav=HGAViewGetter(root,"navBar",root);
+            if ([title isKindOfClass:UILabel.class] && title.superview) {
+                CGRect arrow=[state.glass convertRect:state.glass.bounds toView:title.superview];
+                CGFloat edge=CGRectGetMaxX(title.superview.bounds);
+                if (nav && !nav.hidden) {
+                    CGRect right=[nav convertRect:nav.bounds toView:title.superview];
+                    if (CGRectGetMinX(right)>CGRectGetMaxX(arrow))edge=MIN(edge,CGRectGetMinX(right)-12);
+                }
+                HGALandscapePositionLabel(state,(UILabel *)title,CGRectGetMaxX(arrow)+12,edge);
+            }
+        } else if (target==input) {
+            UILabel *placeholder=(id)HGAViewGetter(root,"danmakuInputLabel",input);
+            if ([placeholder isKindOfClass:UILabel.class] && placeholder.superview==input)
+                HGALandscapePositionLabel(state,placeholder,CGRectGetMinX(frame)+10,CGRectGetMaxX(frame)-10);
+        }
     }
     [CATransaction commit];
 }

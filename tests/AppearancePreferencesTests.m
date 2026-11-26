@@ -110,7 +110,7 @@ int main(void) {@autoreleasepool {
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];
-    NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.finderAI",@"player.mineGlass",@"player.episodeGlass",
+    NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.finderSearch",@"player.finderRecognition",@"player.finderAI",@"player.mineGlass",@"player.episodeGlass",
         @"player.controlsGlass",@"player.commentMovesVideo",@"panels.episodes",@"panels.commentFloatingBar",
         @"panels.commentDetachedInput",@"mine.show.publish",@"mine.show.theme"]];
     BOOL unique=YES,defaults=YES;

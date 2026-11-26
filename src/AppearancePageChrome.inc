@@ -118,6 +118,12 @@ static void HGAConfigurePageButton(UIButton *button,NSString *style,UIImage *ima
         config.contentInsets=NSDirectionalEdgeInsetsZero;
         config.image=image;
         if (image) config.baseForegroundColor=UIColor.labelColor;
+        else {
+            config.buttonSize=UIButtonConfigurationSizeSmall;
+            UIBackgroundConfiguration *background=config.background;
+            background.backgroundInsets=NSDirectionalEdgeInsetsMake(2,2,2,2);
+            config.background=background;
+        }
     }
     button.configuration=config;
     objc_setAssociatedObject(button,&HGAPageButtonMaterialKey,style,OBJC_ASSOCIATION_COPY_NONATOMIC);
@@ -150,7 +156,16 @@ static void HGAApplyNativePageButton(UIView *target,CGRect frame,UIView *pressHo
     HGAConfigurePageButton(button,HGALiquidButtonMaterial(),nil);
     UIUserInterfaceStyle appearance=HGAAdaptivePageStyle(HGAOwner(target),target);
     if (button.overrideUserInterfaceStyle!=appearance) button.overrideUserInterfaceStyle=appearance;
-    if (!CGRectEqualToRect(button.frame,frame)) button.frame=frame;
+    // The system background clips to its layout bounds. Lay the glass out at
+    // normal control height with room for its edge, then fit that whole button
+    // into the compact host slot. Host text, hit areas and frames stay native.
+    CGFloat scale=MIN(1,CGRectGetHeight(frame)/44.0);
+    CGRect bounds=CGRectMake(0,0,CGRectGetWidth(frame)/scale,CGRectGetHeight(frame)/scale);
+    CGPoint center=CGPointMake(CGRectGetMidX(frame),CGRectGetMidY(frame));
+    CGAffineTransform transform=CGAffineTransformMakeScale(scale,scale);
+    if (!CGRectEqualToRect(button.bounds,bounds)) button.bounds=bounds;
+    if (!CGPointEqualToPoint(button.center,center)) button.center=center;
+    if (!CGAffineTransformEqualToTransform(button.transform,transform)) button.transform=transform;
     HGASetGlassHostBackground(target,YES);
     if (button.superview!=target) [target insertSubview:button atIndex:0];
     if (pressHost && button.press.view!=pressHost) [pressHost addGestureRecognizer:button.press];
@@ -252,6 +267,8 @@ static CGRect HGAFinderSearchSurface(UIView *target,CGRect frame) {
 }
 
 static void HGAApplyFinderSearchMaterial(UIView *target,CGRect frame) {
+    BOOL circle=fabs(CGRectGetWidth(frame)-CGRectGetHeight(frame))<0.01;
+    frame=CGRectInset(frame,circle ? 3 : 0,3);
     HGAApplyNativePageButton(target,HGAFinderSearchSurface(target,frame),target.superview);
 }
 
@@ -434,13 +451,73 @@ static BOOL HGAReflowFinderRecognition(UIView *owner,UIView *recognition,UIView 
     return offset>0;
 }
 
-static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition,UIView *assistant,
-    UIView *recognitionContent,UIView *divider,BOOL glass) {
+@interface HGAFinderSearchVisibility : NSObject
+@property(nonatomic,weak) UIView *sharedField;
+@property(nonatomic,strong) NSHashTable<UIView *> *hidden;
+@property(nonatomic,strong) NSHashTable<UIGestureRecognizer *> *disabledTaps;
+@property(nonatomic) BOOL wasAccessibilityElement;
+@end
+@implementation HGAFinderSearchVisibility @end
+
+static void HGASetFinderSearchHidden(UIView *owner,UIView *field,UIView *cue,UIView *alternate,
+    UIView *recognition,BOOL hide) {
+    static char key;
+    HGAFinderSearchVisibility *state=objc_getAssociatedObject(owner,&key);
+    if(!hide && !state)return;
+    if(!state) {
+        state=[HGAFinderSearchVisibility new];
+        state.hidden=NSHashTable.weakObjectsHashTable;
+        state.disabledTaps=NSHashTable.weakObjectsHashTable;
+        objc_setAssociatedObject(owner,&key,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    // The 7.4.5 theatre mounts the recognition tap inside the search pill.
+    // Keep that ancestor alive and suppress only its own search paint and taps.
+    UIView *shared=hide && field && recognition!=field && [recognition isDescendantOfView:field] ? field : nil;
+    if(state.sharedField!=shared) {
+        if(state.sharedField) {
+            HGASetGlassHostBackground(state.sharedField,NO);
+            state.sharedField.isAccessibilityElement=state.wasAccessibilityElement;
+        }
+        for(UIGestureRecognizer *tap in state.disabledTaps)tap.enabled=YES;
+        [state.disabledTaps removeAllObjects];
+        state.sharedField=shared;
+        state.wasAccessibilityElement=shared.isAccessibilityElement;
+    }
+    NSMutableSet<UIView *> *parts=[NSMutableSet set];
+    if(shared) {
+        HGASetGlassHostBackground(shared,YES);
+        shared.isAccessibilityElement=NO;
+        for(UIGestureRecognizer *tap in shared.gestureRecognizers)
+            if([tap isKindOfClass:UITapGestureRecognizer.class] && tap.enabled) {
+                [state.disabledTaps addObject:tap];
+                tap.enabled=NO;
+            }
+        for(UIView *child in shared.subviews)
+            if(!HGAOwnView(child) && child!=recognition && ![recognition isDescendantOfView:child])
+                [parts addObject:child];
+    } else if(hide && field)[parts addObject:field];
+    UIView *controls[]={cue,alternate};
+    for(NSUInteger i=0;hide && i<2;i++) {
+        UIView *part=controls[i];
+        if(!part || part==owner || part==shared || part==recognition ||
+            [recognition isDescendantOfView:part] || (recognition && [part isDescendantOfView:recognition]))continue;
+        [parts addObject:part];
+    }
+    for(UIView *part in state.hidden)if(![parts containsObject:part])HGASetHidden(part,NO);
+    [state.hidden removeAllObjects];
+    for(UIView *part in parts){HGASetHidden(part,YES);[state.hidden addObject:part];}
+    if(!hide)objc_setAssociatedObject(owner,&key,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *cue,UIView *alternate,UIView *recognition,
+    UIView *assistant,UIView *recognitionContent,UIView *divider,BOOL glass) {
     if(!field && !recognition && !assistant) {
         HGAReflowFinderRecognition(owner,nil,nil,NO,NO);
         HGAHidePageChromeTarget(owner,@"finderAI",nil);
+        HGAHidePageChromeTarget(owner,@"finderRecognition",nil);
         HGAHidePageChromeTarget(owner,@"finderRecognitionDivider",nil);
         HGAUpdatePageChromeTargets(owner,nil);
+        HGASetFinderSearchHidden(owner,nil,nil,nil,nil,NO);
         HGAApplyAdaptiveControlInk(owner,UIUserInterfaceStyleLight,NO);
         return;
     }
@@ -448,13 +525,17 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition
     BOOL hostShowsAI=assistantState.visibility && assistant.hidden==assistantState.appliedHidden ?
         !assistantState.sourceHidden : HGAFinderControlReady(assistant);
     BOOL hideAI=assistant && !HGAppearanceFlag(@"player.finderAI");
-    BOOL reflow=HGAReflowFinderRecognition(owner,recognition,hostShowsAI?assistant:nil,hideAI,glass);
+    BOOL hideSearch=!HGAppearanceFlag(@"player.finderSearch");
+    BOOL hideRecognition=!HGAppearanceFlag(@"player.finderRecognition");
+    HGAHidePageChromeTarget(owner,@"finderRecognition",hideRecognition ? recognition : nil);
+    BOOL reflow=HGAReflowFinderRecognition(owner,hideRecognition ? nil : recognition,hostShowsAI?assistant:nil,hideAI,glass);
     HGAHidePageChromeTarget(owner,@"finderAI",hideAI ? assistant : nil);
     NSMutableArray<UIView *> *targets=[NSMutableArray array];
-    if(glass && field)[targets addObject:field];
-    if(glass && recognition && recognition!=field)[targets addObject:recognition];
+    if(glass && field && !hideSearch)[targets addObject:field];
+    if(glass && recognition && recognition!=field && !hideRecognition)[targets addObject:recognition];
     if(glass && assistant && !hideAI)[targets addObject:assistant];
     HGAUpdatePageChromeTargets(owner,targets);
+    HGASetFinderSearchHidden(owner,field,cue,alternate,hideRecognition ? nil : recognition,hideSearch);
 
     CGRect searchFrame=field ? field.bounds : CGRectZero;
     BOOL separate=glass && HGAFinderControlReady(field) && HGAFinderControlReady(recognition) && recognition!=field;
@@ -464,8 +545,8 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *recognition
         if(recognition.superview==field && !hideAI && HGAFinderControlReady(assistant)) {
             CGRect ai=[assistant convertRect:assistant.bounds toView:field];
             CGFloat remaining=CGRectGetMinX(ai)-CGRectGetMaxX(button);
-            // Match the measured right gap after the one-point inset below.
-            if(remaining>=6 && remaining<=16)gap=remaining-1;
+            // Match the additional breathing room around the round AI button.
+            if(remaining>=6 && remaining<=16)gap=remaining+2;
         }
         CGFloat edge=CGRectGetMinX(button)-gap;
         if(edge>CGRectGetMidX(searchFrame) &&
@@ -557,7 +638,7 @@ static BOOL HGAApplyHeaderChrome(UIView *header,BOOL enabled) {
     HGAHidePageChromeTarget(header,@"sidebar",sidebar);
     HGAHidePageChromeTarget(header,@"searchSlot",searchSlot);
     if(!enabled || !finder) {
-        HGAApplyFinderSearch(header,nil,nil,nil,nil,nil,NO);
+        HGAApplyFinderSearch(header,nil,nil,nil,nil,nil,nil,nil,NO);
         HGAApplyPageChromeIcons(header,nil);
         if(objc_getAssociatedObject(header,&HGAFinderAIInkKey))
             HGAApplyFinderAIInk(header,nil,nil,@[@"lottieView",@"loadingLottieView"]);
@@ -571,7 +652,8 @@ static BOOL HGAApplyHeaderChrome(UIView *header,BOOL enabled) {
     UIView *assistant=HGAViewGetter(header,"findDramaAIEntranceViewV731",header);
     UIView *divider=recognition ? HGAViewGetter(searchOwner,"imageSearchSeparatorView",recognition) : nil;
     BOOL glass=HGAppearanceFlag(@"player.finderGlass");
-    HGAApplyFinderSearch(header,field,recognition,assistant,nil,divider,glass);
+    UIView *alternate=HGAViewGetter(searchOwner,"searchButtonSlotView",searchOwner);
+    HGAApplyFinderSearch(header,field,searchField,alternate,recognition,assistant,nil,divider,glass);
     NSMutableArray<UIView *> *icons=[NSMutableArray array];
     if(glass) {
         UIView *searchIcon=HGAViewGetter(searchOwner,"searchIcon",searchOwner);
@@ -620,7 +702,7 @@ static CGSize HGAFinderShortcutSize(id cell,SEL cmd,UICollectionView *collection
     return size;
 }
 
-static IMP HGAOriginalFinderRowHeight,HGAOriginalFinderSectionInset,HGAOriginalFinderHeaderHeight;
+static IMP HGAOriginalFinderRowHeight,HGAOriginalFinderSectionInset,HGAOriginalFinderHeaderHeight,HGAOriginalHideFinderSearchBar;
 static IMP HGAOriginalTheaterHeaderBgLayout;
 static NSHashTable<UICollectionView *> *HGAFinderLists;
 static NSUInteger HGAFinderLayoutMask;
@@ -684,6 +766,15 @@ static CGFloat HGAFinderHeaderHeight(id coordinator,SEL cmd,BOOL visible) {
     return ((CGFloat (*)(id,SEL,BOOL))HGAOriginalFinderHeaderHeight)(coordinator,cmd,visible);
 }
 
+static BOOL HGAFinderSearchRowHidden(void) {
+    return HGAppearanceEnabled() && !HGAppearanceFlag(@"player.finderSearch") &&
+        !HGAppearanceFlag(@"player.finderRecognition") && !HGAppearanceFlag(@"player.finderAI");
+}
+
+static BOOL HGAHideFinderSearchBar(id coordinator,SEL cmd) {
+    return HGAFinderSearchRowHidden() || ((BOOL (*)(id,SEL))HGAOriginalHideFinderSearchBar)(coordinator,cmd);
+}
+
 static void HGATheaterHeaderBgLayout(UIView *bgView,SEL cmd) {
     ((void (*)(id,SEL))HGAOriginalTheaterHeaderBgLayout)(bgView,cmd);
     if(bgView.window)HGAReconcileTheaterHeaderBackdropForView(bgView);
@@ -700,6 +791,8 @@ static void HGAInstallFinderShortcutHook(void) {
         "{UIEdgeInsets=dddd}40@0:8@16@24q32",(IMP)HGAFinderSectionInset,@"appearance");
     HGAOriginalFinderHeaderHeight=HGInstallVerifiedHook(objc_lookUpClass("FQTheaterLayoutCoordinator"),
         sel_registerName("_calculateHeaderHeightWithTabContainerVisible:"),"d20@0:8B16",(IMP)HGAFinderHeaderHeight,@"appearance");
+    HGAOriginalHideFinderSearchBar=HGInstallVerifiedHook(objc_lookUpClass("FQTheaterLayoutCoordinator"),
+        sel_registerName("shouldHideSearchBar"),"B16@0:8",(IMP)HGAHideFinderSearchBar,@"appearance");
     Class headerBg=objc_lookUpClass("FQTheaterHeaderBgView");
     if([headerBg isSubclassOfClass:UIView.class] && !HGAOriginalTheaterHeaderBgLayout)
         HGAOriginalTheaterHeaderBgLayout=HGInstallVerifiedHook(headerBg,@selector(layoutSubviews),"v16@0:8",(IMP)HGATheaterHeaderBgLayout,@"appearance");
@@ -1519,7 +1612,7 @@ static void HGAReconcileTheaterHeaderBackdropForView(UIView *view) {
     }
     if(!theater || !theater.isViewLoaded)return;
     UIView *root=theater.view;
-    BOOL active=HGAppearanceEnabled() && HGAppearanceFlag(@"player.finderGlass") && root.window!=nil;
+    BOOL active=HGAppearanceEnabled() && HGAppearanceFlag(@"player.finderGlass") && !HGAFinderSearchRowHidden() && root.window!=nil;
     UIView *search=HGAViewGetter(theater,"searchView",root) ?: HGAViewGetter(theater,"searchButtonView",root);
     UIView *field=HGAViewGetter(theater,"searchBgView",root) ?: search;
     HGAUpdateTheaterHeaderBackdrop(theater,root,field,active);
@@ -1537,10 +1630,11 @@ static void HGAApplyFinderChrome(UIViewController *controller) {
         @"aiSearchEntranceLottieFirstFrameView",@"aiSearchEntranceLottieView"];
     UIView *categories=enabled && root.window && HGAppearanceFlag(@"finder.hide.category.row") ?
         HGAViewGetter(controller,"tabContainer",root) : nil;
-    static char categoryRowCollapsed;
-    BOOL collapse=categories!=nil;
-    BOOL changed=collapse!=[objc_getAssociatedObject(root,&categoryRowCollapsed) boolValue];
-    if (changed) objc_setAssociatedObject(root,&categoryRowCollapsed,collapse ? @YES : nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    static char collapsedRows;
+    BOOL hideRow=HGAFinderSearchRowHidden();
+    NSUInteger collapse=(categories ? 1u : 0u) | (hideRow ? 2u : 0u);
+    BOOL changed=collapse!=[objc_getAssociatedObject(root,&collapsedRows) unsignedIntegerValue];
+    if (changed) objc_setAssociatedObject(root,&collapsedRows,collapse ? @(collapse) : nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if (changed && theater && root.window) {
         SEL relayout=sel_registerName("relayoutHeader");
         Method method=class_getInstanceMethod(object_getClass(controller),relayout);
@@ -1551,7 +1645,7 @@ static void HGAApplyFinderChrome(UIViewController *controller) {
     if(!enabled || !root.window) {
         UIView *recognitionContent=HGAViewGetter(controller,"normalImageSearchView",root);
         HGARestoreGeometry(recognitionContent);
-        HGAApplyFinderSearch(root,nil,nil,nil,nil,nil,NO);
+        HGAApplyFinderSearch(root,nil,nil,nil,nil,nil,nil,nil,NO);
         HGAApplyPageChromeIcons(root,nil);
         if(theater) {
             HGAApplyFinderAIInk(root,nil,nil,aiArt);
@@ -1566,8 +1660,9 @@ static void HGAApplyFinderChrome(UIViewController *controller) {
     UIView *recognition=HGAViewGetter(controller,"imageSearchContainer",root) ?: recognitionContent;
     UIView *assistant=HGAViewGetter(controller,theater ? "aiSearchEntranceView" : "searchAiButtonView",root);
     UIView *divider=recognition ? HGAViewGetter(recognitionContent,"separatorView",recognition) : nil;
-    HGAApplyFinderSearch(root,field,recognition,assistant,recognitionContent,divider,glass);
-    if(theater)HGAUpdateTheaterHeaderBackdrop(controller,root,field,glass);
+    UIView *alternate=HGAViewGetter(controller,"searchButtonView",root);
+    HGAApplyFinderSearch(root,field,search,alternate,recognition,assistant,recognitionContent,divider,glass);
+    if(theater)HGAUpdateTheaterHeaderBackdrop(controller,root,field,glass && !hideRow);
     NSMutableArray<UIView *> *icons=[NSMutableArray array];
     if(glass) {
         UIView *searchIcon=[search isKindOfClass:UIButton.class] ? ((UIButton *)search).imageView :

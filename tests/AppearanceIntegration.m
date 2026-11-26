@@ -467,8 +467,24 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
                 HGMenuPath(detail,@"panels.commentDetachedInput") &&
                 HGMenuPath(detail,@"panels.commentInputMaterial"),
                 @"comments groups its panel, video layout, opening gesture, and floating/detached composer controls");
-        if ([group isEqual:@"player"])
+        if ([group isEqual:@"player"]) {
             Check(HGMenuPath(detail,@"gestures.cleanWhilePlaying")!=nil,@"the playback page exposes automatic clean mode");
+            NSIndexPath *shortcut=HGMenuPath(detail,@"@group.player.visibility");
+            if(shortcut)[detail tableView:detail.tableView didSelectRowAtIndexPath:shortcut];
+            UITableViewController *visibility=(id)navigation.topViewController;
+            [visibility loadViewIfNeeded];
+            NSArray *keys=@[@"layout.channels.hide.sidebar",@"layout.channels.hide.follow",@"layout.channels.hide.comic",
+                @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search",
+                @"player.hideFeedAvatarPhoto",@"player.hideFeedFollow",@"layout.collect.hidden",@"player.hideFeedCollectCount",
+                @"layout.comment.hidden",@"player.hideFeedCommentCount",@"layout.like.hidden",@"player.hideFeedLikeCount",
+                @"layout.share.hidden",@"player.hideFeedShareCaption",@"player.fullscreenEntry",@"player.hideFeedDanmakuToggle",
+                @"player.hideFeedDanmakuPublish",@"player.hideFeedAuthor",@"player.hideFeedDescription",@"layout.episodes.hidden",
+                @"layout.progress.hidden"];
+            BOOL allReachable=visibility!=detail;
+            for(NSString *key in keys)allReachable &= HGMenuPath(visibility,key)!=nil;
+            Check(shortcut && allReachable,@"all marked feed controls are reachable from playback visibility");
+            if(visibility!=detail)[navigation popViewControllerAnimated:NO];
+        }
         if ([group isEqual:@"player"] || [group isEqual:@"drama"]) {
             BOOL player=[group isEqual:@"player"];
             NSArray *roles=player ? @[@"channels",@"info",@"tags",@"progress",@"danmaku",@"notice",

@@ -121,6 +121,14 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         NSArray *tabNames = @[@"首页",@"剧场",@"商城",@"我的"];
         for (NSUInteger i=0; i<tabIDs.count; i++) flag([@"dock.hide." stringByAppendingString:tabIDs[i]],@"dock",[@"隐藏" stringByAppendingString:tabNames[i]]);
         flag(@"player.rightGlass",@"player",@"自定义播放动作按钮");
+        flag(@"player.hideFeedAvatarPhoto",@"player",@"隐藏作者头像图片");
+        flag(@"player.hideFeedFollow",@"player",@"隐藏头像上的关注按钮");
+        flag(@"player.hideFeedDanmakuToggle",@"player",@"隐藏弹幕开关按钮");
+        flag(@"player.hideFeedDanmakuPublish",@"player",@"隐藏发弹幕入口");
+        flag(@"player.hideFeedCollectCount",@"player",@"隐藏收藏数");
+        flag(@"player.hideFeedCommentCount",@"player",@"隐藏评论数");
+        flag(@"player.hideFeedLikeCount",@"player",@"隐藏点赞数");
+        flag(@"player.hideFeedShareCaption",@"player",@"隐藏分享按钮下方文字");
         buttonStyle(@"player.actionStyle",@"player",@"播放动作按钮风格",@"glass");
         choice(@"player.collectGlyph",@"player",@"收藏按钮图标",@[@"star",@"sparkles"],@[@"五角星",@"闪光星"]);
         flag(@"player.headerGlass",@"chrome",@"自定义顶部按钮");
@@ -134,7 +142,9 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         [a addObject:HGADef(@"player.hideFollowRecommendUsers",@"chrome",@"隐藏关注页推荐用户卡片",@"bool",@NO,
             @{@"keywords":@"关注 推荐其他精选用户 关注内容已刷完 精选用户 换一个"})];
         [a addObject:HGADef(@"player.finderGlass",@"chrome",@"找剧搜索与快捷入口玻璃",@"bool",@YES,nil)];
-        [a addObject:HGADef(@"player.finderAI",@"chrome",@"显示找剧 AI 入口",@"bool",@YES,nil)];
+        [a addObject:HGADef(@"player.finderSearch",@"chrome",@"显示找剧搜索框",@"bool",@YES,nil)];
+        [a addObject:HGADef(@"player.finderRecognition",@"chrome",@"显示识剧按钮",@"bool",@YES,nil)];
+        [a addObject:HGADef(@"player.finderAI",@"chrome",@"显示找剧 AI 星形按钮",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.mineGlass",@"mine",@"我的页面控件玻璃",@"bool",@YES,nil)];
         flag(@"finder.hide.category.row",@"chrome",@"隐藏整个找剧频道栏");
         NSArray *finderTabs=@[@"dramas",@"live",@"community",@"comics",@"films",@"audio",@"novels",@"manga",@"long"];
@@ -182,6 +192,10 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         [a addObject:HGADef(@"player.commentMovesVideo",@"panels",@"打开评论区时上移视频",@"bool",@YES,
             @{@"keywords":@"评论 画面 上移 评论区上移 视频上移"})];
         [a addObject:HGADef(@"panels.episodes",@"panels",@"选集面板与选集按钮玻璃",@"bool",@YES,nil)];
+        flag(@"player.hideFeedAuthor",@"player",@"隐藏视频作者名称");
+        flag(@"player.hideFeedDescription",@"player",@"隐藏视频描述／剧集标题");
+        choice(@"player.fullscreenEntry",@"player",@"全屏观看入口",@[@"show",@"invisible",@"hide"],
+            @[@"正常显示",@"隐藏外观，原位置可点",@"完全隐藏"]);
         flag(@"player.fullscreen",@"player",@"横屏铺满");
         flag(@"player.highestQuality",@"player",@"默认使用最高可用清晰度");
         flag(@"player.hideNowPlayingIsland",@"player",@"前台播放时隐藏红果灵动岛播放信息");

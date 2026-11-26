@@ -1,3 +1,13 @@
+@interface FQVShortVideoBaseLeftContainerView : UIView
+@property(nonatomic,strong) UILabel *nameLabel;
+@property(nonatomic,strong) UILabel *titleLabel;
+@property(nonatomic,strong) UILabel *expandedLabel;
+- (CGRect)convertSeriesNameFrameToView:(UIView *)view;
+@end
+@implementation FQVShortVideoBaseLeftContainerView
+- (CGRect)convertSeriesNameFrameToView:(UIView *)view {return CGRectMake(4,4,100,20);}
+@end
+
 @interface FQVShortVideoVPlayerControlView : UIView <UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIButton *fullscreenBtn;
 @property(nonatomic) CGRect playerViewFrame;
@@ -5,9 +15,11 @@
 @property(nonatomic,strong,readonly) UIPanGestureRecognizer *progressPanGesture;
 @property(nonatomic) NSUInteger nativeClipPasses;
 - (void)handleOutterFeedClipBounds:(BOOL)clip;
+- (CGRect)convertTitleClickableFrameToView:(UIView *)view;
 @end
 @implementation FQVShortVideoVPlayerControlView
 @synthesize progressPanGesture=_progressPanGesture;
+- (CGRect)convertTitleClickableFrameToView:(UIView *)view {return CGRectMake(4,24,125,20);}
 - (UIPanGestureRecognizer *)progressPanGesture {
     if(!_progressPanGesture) {
         _progressPanGesture=[UIPanGestureRecognizer new];
@@ -118,6 +130,8 @@
 @interface FQCShortVideoDanmakuEntranceView : UIView
 @property(nonatomic,strong) UIView *capsuleView;
 @property(nonatomic,strong) UIButton *clickView;
+@property(nonatomic,strong) UIButton *publishButton;
+@property(nonatomic,strong) UIView *dividerView;
 @property(nonatomic,strong) UIImageView *iconView;
 @property(nonatomic,strong) UIImage *legacyImage;
 - (void)refreshIcon;
@@ -170,6 +184,26 @@ static void RunDanmakuChromeChecks(UIView *root) {
     Check(combinedGlass && (!HGTestOpenGlass(entrance) || HGTestButtonGlass(combinedGlass)) &&
         !Find(entrance.clickView,@"honggo.appearance.material") && entrance.iconView.image==combined,
         @"combined danmaku moves glass to the capsule and keeps its native state image");
+
+    entrance.publishButton=[UIButton buttonWithType:UIButtonTypeCustom];
+    entrance.publishButton.frame=CGRectMake(34,0,56,32);
+    [entrance addSubview:entrance.publishButton];
+    entrance.dividerView=[[UIView alloc] initWithFrame:CGRectMake(32,8,1,16)];
+    [entrance addSubview:entrance.dividerView];
+    for(NSUInteger mask=0;mask<4;mask++) {
+        BOOL hideToggle=(mask&1)!=0, hidePublish=(mask&2)!=0;
+        HGAppearanceApply(@{@"player.hideFeedDanmakuToggle":@(hideToggle),@"player.hideFeedDanmakuPublish":@(hidePublish)},nil);
+        HGAppearanceProcessView(entrance);
+        Check((entrance.clickView.alpha==0)==hideToggle && (entrance.publishButton.alpha==0)==hidePublish &&
+            (entrance.dividerView.alpha==0)==(mask!=0) && (!hideToggle || [entrance hitTest:CGPointMake(16,16) withEvent:nil]!=entrance.clickView) &&
+            (hidePublish || [entrance hitTest:CGPointMake(60,16) withEvent:nil]==entrance.publishButton),
+            @"the danmaku switch and composer can each be disabled without taking away the other's tap");
+    }
+    entrance.publishButton.hidden=YES;
+    HGAppearanceApply(@{@"player.hideFeedDanmakuToggle":@NO,@"player.hideFeedDanmakuPublish":@NO},nil);
+    HGAppearanceProcessView(entrance);
+    Check(entrance.publishButton.hidden && !entrance.capsuleView.layer.mask && entrance.dividerView.alpha==1,
+        @"restoring both actions preserves the host's own hidden state and restores the full native capsule");
 
     entrance.capsuleView.hidden=YES;
     entrance.iconView.image=entrance.legacyImage;
@@ -323,7 +357,10 @@ static void RunPlayerBadgeChecks(UIView *host) {
     HGAppearanceSet(@"player.hide.seriesBadge",@NO,nil);
 }
 
-@interface SSShortVideoRightInteractionAvatarView : UIControl @end
+@interface SSShortVideoRightInteractionAvatarView : UIControl
+@property(nonatomic,strong) UIView *avatarView;
+@property(nonatomic,strong) UIView *followButtonBgView;
+@end
 @implementation SSShortVideoRightInteractionAvatarView @end
 static void RunOffscreenAvatarChecks(UIView *root) {
     NSDictionary *saved=HGAppearanceValues();
@@ -343,6 +380,24 @@ static void RunOffscreenAvatarChecks(UIView *root) {
     Check(!avatar.hidden,@"reusing the same rail for an on-screen author restores the native avatar");
     HGAppearanceSet(@"layout.avatar.hidden",@YES,nil);Layout(rail);
     Check(avatar.hidden,@"the explicit avatar switch remains authoritative on a visible slot");
+    avatar.avatarView=[[UIControl alloc] initWithFrame:CGRectMake(2,0,40,32)];
+    avatar.followButtonBgView=[[UIControl alloc] initWithFrame:CGRectMake(13,32,20,14)];
+    [avatar addSubview:avatar.avatarView]; [avatar addSubview:avatar.followButtonBgView];
+    HGAppearanceSet(@"layout.avatar.hidden",@NO,nil);
+    for(NSUInteger mask=0;mask<4;mask++) {
+        BOOL hidePhoto=(mask&1)!=0,hideFollow=(mask&2)!=0;
+        HGAppearanceApply(@{@"player.hideFeedAvatarPhoto":@(hidePhoto),@"player.hideFeedFollow":@(hideFollow)},nil);
+        HGAppearanceProcessView(avatar);
+        Check(avatar.hidden==(hidePhoto && hideFollow) && (avatar.avatarView.alpha==0)==hidePhoto &&
+            (avatar.followButtonBgView.alpha==0)==hideFollow &&
+            (hideFollow || [avatar hitTest:CGPointMake(23,39) withEvent:nil]==avatar.followButtonBgView),
+            @"profile image and follow action independently hide, with the remaining control retaining its hit");
+    }
+    avatar.followButtonBgView.hidden=YES;
+    HGAppearanceApply(@{@"player.hideFeedAvatarPhoto":@NO,@"player.hideFeedFollow":@NO},nil);
+    HGAppearanceProcessView(avatar);
+    Check(avatar.avatarView.alpha==1 && avatar.followButtonBgView.hidden,
+        @"reusing the avatar while the host hides the follow button preserves the new host state");
     [rail removeFromSuperview];HGAppearanceApply(saved,nil);
 }
 @interface HGALazyPlayControlFixture : FQVShortVideoVPlayerControlView
@@ -420,6 +475,36 @@ static void RunPlayerChromeChecks(SSTabBarController *host) {
     Check(action.taps==2 && !Find(fullscreen,@"honggo.appearance.material") &&
         [fullscreen.backgroundColor isEqual:nativeFullscreenColor],
         @"fullscreen button forwards its native action once in both states and restores its backing");
+    FQVShortVideoBaseLeftContainerView *metadata=[[FQVShortVideoBaseLeftContainerView alloc] initWithFrame:CGRectMake(0,0,220,60)];
+    metadata.nameLabel=[UILabel new];metadata.titleLabel=[UILabel new];metadata.expandedLabel=[UILabel new];
+    for(UILabel *label in @[metadata.nameLabel,metadata.titleLabel,metadata.expandedLabel])[metadata addSubview:label];
+    [host.view addSubview:metadata];
+    HGAppearanceApply(@{@"player.hideFeedAuthor":@YES,@"player.hideFeedDescription":@NO},nil);
+    HGAppearanceProcessView(metadata);
+    Check(metadata.nameLabel.hidden && !metadata.titleLabel.hidden && !metadata.expandedLabel.hidden &&
+        CGRectIsEmpty([metadata convertSeriesNameFrameToView:playback]) && !CGRectIsEmpty([playback convertTitleClickableFrameToView:playback]),
+        @"hiding the feed author leaves the episode description and expansion affordance available");
+    HGAppearanceApply(@{@"player.hideFeedAuthor":@NO,@"player.hideFeedDescription":@YES},nil);
+    HGAppearanceProcessView(metadata);
+    Check(!metadata.nameLabel.hidden && metadata.titleLabel.hidden && metadata.expandedLabel.hidden &&
+        !CGRectIsEmpty([metadata convertSeriesNameFrameToView:playback]) && CGRectIsEmpty([playback convertTitleClickableFrameToView:playback]),
+        @"hiding the episode description restores the author and hides the associated expansion affordance");
+    [metadata removeFromSuperview];
+    CGPoint fullscreenCenter=[fullscreen convertPoint:CGPointMake(CGRectGetMidX(fullscreen.bounds),
+        CGRectGetMidY(fullscreen.bounds)) toView:playback];
+    HGAppearanceSet(@"player.fullscreenEntry",@"invisible",nil);
+    HGAppearanceProcessView(playback);
+    Check(!fullscreen.hidden && [fullscreen.layer animationForKey:@"honggo.fullscreenEntry.opacity"] &&
+        [playback hitTest:fullscreenCenter withEvent:nil]==fullscreen,
+        @"invisible fullscreen keeps the mounted native target at its existing coordinates");
+    HGAppearanceSet(@"player.fullscreenEntry",@"hide",nil);
+    HGAppearanceProcessView(playback);
+    Check(fullscreen.hidden && [playback hitTest:fullscreenCenter withEvent:nil]!=fullscreen,
+        @"fully hidden fullscreen removes the original target from UIKit hit testing");
+    HGAppearanceSet(@"player.fullscreenEntry",@"show",nil);
+    HGAppearanceProcessView(playback);
+    Check(!fullscreen.hidden && ![fullscreen.layer animationForKey:@"honggo.fullscreenEntry.opacity"],
+        @"show restores fullscreen without a lingering presentation cover");
     UIButton *play=[UIButton buttonWithType:UIButtonTypeCustom];
     play.frame=CGRectMake(8,4,48,48);
     [play setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];

@@ -203,6 +203,7 @@ static NSString *HGAGroupDisplayTitle(NSString *group) {
         @"chrome.mine.hide":@"我的快捷入口",
         @"player":@"播放页",
         @"rightButtons":@"右侧按钮",
+        @"player.visibility":@"画面控件显隐",
         @"drama":@"短剧",
         @"comments":@"评论区",
         @"panelMaterial":@"面板材质",
@@ -396,7 +397,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"player.headerGlass",@"player.headerStyle",@"player.headerSelectionStyle",@"player.hideFollowRecommendUsers"]);
         [rows addObject:HGASubpage(@"@group.chrome.hide",@"顶部按钮与频道隐藏",@"菜单、频道与搜索")];
         section(@"找剧");
-        HGAAddDefs(rows,@[@"player.finderGlass",@"player.finderAI"]);
+        HGAAddDefs(rows,@[@"player.finderGlass",@"player.finderSearch",@"player.finderRecognition",@"player.finderAI"]);
         [rows addObject:HGASubpage(@"@group.chrome.finder.hide",@"找剧频道与快捷入口",@"逐项隐藏频道、筛选等入口")];
     } else if([self.group isEqual:@"mine"] || [self.group isEqual:@"chrome.mine.hide"]) {
         HGAAddDefs(rows,@[@"player.mineGlass",@"mine.show.publish",@"mine.show.theme"]);
@@ -432,11 +433,23 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"player.fullscreen",@"player.highestQuality",@"player.hideNowPlayingIsland",
             @"player.disableEpisodeSwipe",@"gestures.cleanWhilePlaying",@"gestures.pinchClean"]);
         section(@"播放控件");
+        [rows addObject:HGASubpage(@"@group.player.visibility",@"画面控件显隐",@"顶部频道、全屏观看、右侧按钮与底部信息")];
         [rows addObject:HGASubpage(@"@group.rightButtons",@"右侧按钮",@"头像、收藏、评论、点赞、分享、更多")];
         HGAAddDefs(rows,@[@"player.rightGlass",@"player.actionStyle",@"player.collectGlyph",@"player.material",@"player.controlsGlass"]);
         section(@"位置与大小");
         for (NSString *role in @[@"channels",@"info",@"tags",@"progress",@"danmaku",@"notice"])
             [rows addObject:HGARoleEntry(role)];
+    } else if([self.group isEqual:@"player.visibility"]) {
+        section(@"顶部按钮与频道");
+        HGAAddDefs(rows,@[@"layout.channels.hide.sidebar",@"layout.channels.hide.follow",@"layout.channels.hide.comic",
+            @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search"]);
+        section(@"右侧操作");
+        HGAAddDefs(rows,@[@"player.hideFeedAvatarPhoto",@"player.hideFeedFollow",@"layout.collect.hidden",
+            @"player.hideFeedCollectCount",@"layout.comment.hidden",@"player.hideFeedCommentCount",
+            @"layout.like.hidden",@"player.hideFeedLikeCount",@"layout.share.hidden",@"player.hideFeedShareCaption"]);
+        section(@"播放器与底部信息");
+        HGAAddDefs(rows,@[@"player.fullscreenEntry",@"player.hideFeedDanmakuToggle",@"player.hideFeedDanmakuPublish",
+            @"player.hideFeedAuthor",@"player.hideFeedDescription",@"layout.episodes.hidden",@"layout.progress.hidden"]);
     } else if([self.group isEqual:@"rightButtons"]) {
         for (NSString *role in HGARightButtonRoles()) {
             section(HGAppearanceRoleTitles()[[HGAppearanceRoles() indexOfObject:role]]);

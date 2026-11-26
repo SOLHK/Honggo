@@ -18,7 +18,9 @@
 @implementation FQVShortVideoControlView
 - (void)layoutSubviews {[super layoutSubviews];}
 @end
-@interface FQVShortVideoProgressView : UIControl @end
+@interface FQVShortVideoProgressView : UIControl
+@property(nonatomic,strong) UIView *progressBarBackgroundView;
+@end
 @implementation FQVShortVideoProgressView @end
 @interface SSShortVideoDerivateInfoView : UIView @end
 @implementation SSShortVideoDerivateInfoView @end
@@ -28,7 +30,10 @@
 @implementation FQVShortVideoVPlayerOutterMultiSeriesControlView
 - (void)layoutSubviews {[super layoutSubviews];}
 @end
-@interface FQVShortVideoVPlayerMultiSeriesControlView : UIView @end
+@interface FQVShortVideoVPlayerMultiSeriesControlView : UIView
+@property(nonatomic,strong) FQVShortVideoProgressView *progressContainer;
+@property(nonatomic,strong) FQVShortVideoBaseInsertView *insertAboveProgressView;
+@end
 @implementation FQVShortVideoVPlayerMultiSeriesControlView
 - (void)layoutSubviews {[super layoutSubviews];}
 @end
@@ -72,6 +77,27 @@ static void RunInnerEpisodeSpacingChecks(UIView *root) {
     Check(fabs(CGRectGetMinY(rail)-CGRectGetMaxY(wrapper.frame)-8)<0.01 &&
         CGRectEqualToRect(progress.frame,progressFrame) && CGRectEqualToRect(comment.frame,commentFrame),
         @"detail playback keeps an eight-point gap above the native rail without moving the comment entry");
+    control.progressContainer=progress;control.insertAboveProgressView=wrapper;
+    progress.progressBarBackgroundView=track;
+    [wrapper addSubview:[UIView new]];
+    SSShortVideoBottomDistributionView *inactive=[[SSShortVideoBottomDistributionView alloc] initWithFrame:entry.frame];
+    [wrapper addSubview:inactive];inactive.hidden=YES;
+    id savedX=HGAppearanceValue(@"layout.progress.x"),savedScale=HGAppearanceValue(@"layout.progress.scale");
+    HGAppearanceApply(@{@"layout.progress.x":@18,@"layout.progress.scale":@1.2},nil);
+    HGAppearanceProcessView(progress);
+    CGRect capsule=[entry convertRect:entry.bounds toView:control];
+    CGRect fitted=[track convertRect:track.bounds toView:control];
+    Check(fabs(CGRectGetMinX(fitted)-CGRectGetMinX(capsule))<0.01 &&
+        fabs(CGRectGetMaxX(fitted)-CGRectGetMaxX(capsule))<0.01 &&
+        fabs(CGRectGetHeight(fitted)-1.2*CGRectGetHeight(track.bounds))<0.01 &&
+        [progress pointInside:[progress convertPoint:CGPointMake(CGRectGetMaxX(fitted)-1,CGRectGetMidY(fitted)) fromView:control] withEvent:nil],
+        @"capsule controls both seekable endpoints despite saved X/scale, decorative siblings and an inactive second episode; vertical scale is preserved");
+    entry.hidden=YES;HGAppearanceProcessView(progress);
+    Check(fabs(progress.transform.a-1.2)<0.001 && fabs(progress.transform.tx-18)<0.001,
+        @"with no visible capsule the saved progress width and horizontal offset take effect again");
+    HGAppearanceApply(@{@"layout.progress.x":savedX,@"layout.progress.scale":savedScale},nil);
+    HGAppearanceProcessView(progress);
+    entry.hidden=NO;
     [control removeFromSuperview];
     Check(CGRectEqualToRect(wrapper.frame,entryFrame) && CGRectEqualToRect(progress.frame,progressFrame),
         @"leaving the detail HUD restores its original capsule position");
