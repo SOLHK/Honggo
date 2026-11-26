@@ -445,7 +445,10 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"播放面板");
         HGAAddDefs(rows,@[@"panels.episodes",@"panels.share",@"panels.longpress",@"panels.speed"]);
     } else if([self.group isEqual:@"comments"]) {
+        section(@"评论面板与交互");
         HGAAddDefs(rows,@[@"panels.comment",@"panels.commentMaterial",@"player.commentMovesVideo",@"gestures.doubleTapComments"]);
+        section(@"评论输入框");
+        HGAAddDefs(rows,@[@"panels.commentFloatingBar",@"panels.commentDetachedInput",@"panels.commentInputMaterial"]);
     } else if([self.group isEqual:@"panelMaterial"]) {
         HGAAddDefs(rows,@[@"panels.material",@"panels.opacity"]);
     } else if([self.group hasPrefix:@"role."]) {

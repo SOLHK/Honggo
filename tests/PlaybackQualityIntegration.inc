@@ -138,6 +138,17 @@ static void RunPlaybackQualityChecks(void) {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.04,false);
         Check(deferredWhileDragging && ctx.changes==5 && ctx.currentResolution==4,
             @"active feed dragging defers and coalesces resolution switches onto default runloop mode without stalling intermediate swipes");
+        NSObject *nextEpisode=[NSObject new];
+        ctx.currentVideoDataModel=nextEpisode;
+        ctx.currentResolution=2;
+        [component dataModelDidPlay:nextEpisode];
+        NSUInteger afterNext=ctx.changes;
+        ctx.currentVideoDataModel=settledEpisode;
+        ctx.currentResolution=2;
+        [component dataModelDidPlay:settledEpisode];
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.03,false);
+        Check(afterNext==6 && ctx.changes==6 && ctx.currentResolution==2,
+            @"swiping back up to an already-configured cached episode never tears down or re-requests its stream");
         [scrollingFeed removeFromSuperview];
     }
     HGAppearanceSet(@"player.highestQuality",@(saved),nil);

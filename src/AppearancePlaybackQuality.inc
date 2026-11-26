@@ -39,7 +39,10 @@ static BOOL HGAAnyVideoFeedScrolling(void) {
     for(UIView *view in HGAManaged.allObjects) {
         if(!view.window || ![view isKindOfClass:feedClass] || ![view isKindOfClass:UIScrollView.class])continue;
         UIScrollView *scroll=(UIScrollView *)view;
-        if(scroll.tracking || scroll.dragging || scroll.decelerating)return YES;
+        // Defer only while the user's finger is actively dragging so intermediate
+        // cells never reconfigure; once finger lifts, apply immediately before
+        // first-frame reveal instead of tearing down an already playing stream.
+        if(scroll.tracking || scroll.dragging)return YES;
     }
     return NO;
 }
@@ -49,17 +52,28 @@ static BOOL HGAQualityMethod(id target,SEL selector,const char *encoding) {
     return method && strcmp(method_getTypeEncoding(method),encoding)==0;
 }
 
+static NSMapTable<id,HGAPlaybackQualitySelection *> *HGAQualitySelections(id context,BOOL create) {
+    if(!context)return nil;
+    NSMapTable *table=objc_getAssociatedObject(context,&HGAQualitySelectionKey);
+    if(!table && create) {
+        table=[NSMapTable weakToStrongObjectsMapTable];
+        objc_setAssociatedObject(context,&HGAQualitySelectionKey,table,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return table;
+}
+
 static void HGAApplyPlaybackQuality(id component,id model) {
     if(!HGAppearanceFlag(@"player.highestQuality"))return;
     id context=HGReadObjectGetter(component,"listVCContext");
     if(!model || HGReadObjectGetter(context,"currentVideoDataModel")!=model)return;
     id player=HGReadObjectGetter(context,"currentPlayer");
-    HGAPlaybackQualitySelection *last=objc_getAssociatedObject(context,&HGAQualitySelectionKey);
-    if(last && (last.model!=model || last.player!=player)) {
-        objc_setAssociatedObject(context,&HGAQualitySelectionKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        last=nil;
-    }
-    if(last || !player)return;
+    if(!player)return;
+    NSMapTable<id,HGAPlaybackQualitySelection *> *selections=HGAQualitySelections(context,NO);
+    HGAPlaybackQualitySelection *last=[selections objectForKey:model];
+    // Preserve cached buffers and manual per-episode quality choices across
+    // up/down swipes: never re-trigger stream reconfiguration for an episode
+    // already configured in this list session.
+    if(last)return;
 
     // Asking for the actual menu item preserves scene, account and asset
     // eligibility. This getter builds option data without presenting the sheet.
@@ -77,9 +91,10 @@ static void HGAApplyPlaybackQuality(id component,id model) {
     SEL update=sel_registerName("updateDropFrameStrategyWithPlayRate:resolutionType:");
     if(!HGAQualityMethod(engine,configure,"v32@0:8Q16@?24") || !HGAQualityMethod(player,current,"Q16@0:8") ||
         !HGAQualityMethod(player,rate,"f16@0:8") || !HGAQualityMethod(player,update,"v28@0:8f16Q20"))return;
+    selections=HGAQualitySelections(context,YES);
     last=[HGAPlaybackQualitySelection new];
     last.player=player;last.model=model;
-    objc_setAssociatedObject(context,&HGAQualitySelectionKey,last,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [selections setObject:last forKey:model];
     if(!HGAQualityOwners)HGAQualityOwners=[NSHashTable weakObjectsHashTable];
     [HGAQualityOwners addObject:context];
     NSUInteger selected=choice.unsignedIntegerValue;
@@ -97,13 +112,14 @@ static void HGAApplyPlaybackQuality(id component,id model) {
             HGAQualitySwitchActiveUntil=0;
             HGAPlaybackQualitySelection *selection=weakSelection;
             id owner=weakContext;
-            if(!owner || !selection || objc_getAssociatedObject(owner,&HGAQualitySelectionKey)!=selection)return;
+            NSMapTable *liveTable=HGAQualitySelections(owner,NO);
+            if(!owner || !selection || !selection.model || [liveTable objectForKey:selection.model]!=selection)return;
             if(!success) {
-                objc_setAssociatedObject(owner,&HGAQualitySelectionKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                [liveTable removeObjectForKey:selection.model];
                 return;
             }
             id live=selection.player;
-            if(!live || !selection.model || HGReadObjectGetter(owner,"currentPlayer")!=live ||
+            if(!live || HGReadObjectGetter(owner,"currentPlayer")!=live ||
                 HGReadObjectGetter(owner,"currentVideoDataModel")!=selection.model)return;
             float speed=((float(*)(id,SEL))objc_msgSend)(live,rate);
             ((void(*)(id,SEL,float,NSUInteger))objc_msgSend)(live,update,speed,actual);

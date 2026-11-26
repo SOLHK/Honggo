@@ -333,7 +333,12 @@ static void RunDetailVideoBackdropChecks(UIView *root) {
     Check(CGRectEqualToRect(incomingCover.frame,incomingDetail.bounds),
         @"an incoming detail episode without its transferred HUD inherits the verified bottom tray viewport from frame zero");
     [incomingDetail removeFromSuperview];
-    [player addSubview:renderer];HGRefreshVideoBackdropForPlayer(canvas);
+    [player addSubview:renderer];hud.singleSeriesBottomView.frame=CGRectMake(0,0,crop.size.width,89);
+    HGRefreshVideoBackdropForPlayer(canvas);
+    Check(CATransform3DEqualToTransform(renderer.layer.sublayerTransform,fit),
+        @"a detail episode whose bottom tray is temporarily at y=0 before AutoLayout still fills from its native renderer viewport on frame zero");
+    hud.singleSeriesBottomView.frame=bottom;Layout(hud);
+    HGRefreshVideoBackdropForPlayer(canvas);
     HGVideoBackdropPrepareRendererTransfer(player);
     Check(cover.contentMode==UIViewContentModeScaleAspectFill && CGRectEqualToRect(cover.frame,CGRectInset(crop,-24,0)) &&
         CATransform3DIsIdentity(renderer.layer.sublayerTransform),

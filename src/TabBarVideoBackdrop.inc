@@ -68,9 +68,11 @@ static UIViewController *HGVideoBackdropOwner(UIView *view) {
 }
 
 static BOOL HGVideoBackdropHasTransition(UIViewController *owner) {
-    for (UIViewController *controller = owner; controller; controller = controller.parentViewController)
-        if (controller.transitionCoordinator || controller.isBeingDismissed || controller.isBeingPresented)
-            return YES;
+    for (UIViewController *controller = owner; controller; controller = controller.parentViewController) {
+        if (controller.isBeingDismissed || controller.isBeingPresented) return YES;
+        id<UIViewControllerTransitionCoordinator> tc = controller.transitionCoordinator;
+        if (tc && tc.presentationStyle != UIModalPresentationNone) return YES;
+    }
     return NO;
 }
 
@@ -83,6 +85,16 @@ static BOOL HGVideoBackdropFullWindow(UIView *view, UIWindow *window) {
         fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 0.75;
 }
 
+static BOOL HGVideoBackdropHorizontalWindowSlice(UIView *view, UIWindow *window) {
+    if (!view || !window) return NO;
+    CGRect rect = [view convertRect:view.bounds toView:window];
+    CGRect bounds = window.bounds;
+    return fabs(CGRectGetMinY(rect) - CGRectGetMinY(bounds)) <= 0.75 &&
+        fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 0.75 &&
+        fabs(CGRectGetWidth(rect) - CGRectGetWidth(bounds)) <= 0.75 &&
+        !CGRectIsEmpty(CGRectIntersection(rect, bounds));
+}
+
 static UIView *HGVideoBackdropCategoryPager(UIView *view, UIWindow *window) {
     if (!view || !window) return nil;
     Class containerClass = objc_lookUpClass("FQRJXCategoryListContainerView");
@@ -93,8 +105,8 @@ static UIView *HGVideoBackdropCategoryPager(UIView *view, UIWindow *window) {
         if ([node isKindOfClass:containerClass]) {
             UIView *contentScroll = HGView(node, "contentScrollView");
             if (pagerScroll && contentScroll == pagerScroll &&
-                HGVideoBackdropFullWindow(node, window) &&
-                HGVideoBackdropFullWindow(pagerScroll, window))
+                HGVideoBackdropHorizontalWindowSlice(node, window) &&
+                HGVideoBackdropHorizontalWindowSlice(pagerScroll, window))
                 return node;
             return nil;
         }
@@ -110,16 +122,11 @@ static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController
     if (!window || !parent || !ownerView || (parent != ownerView && ![parent isDescendantOfView:ownerView]) ||
         window.bounds.size.height <= window.bounds.size.width || feed.layer.mask ||
         !HGVideoBackdropVisible(feed, window) || bar.window!=window ||
-        !HGVideoBackdropFullWindow(root, window) ||
+        !HGVideoBackdropHorizontalWindowSlice(root, window) ||
         HGVideoBackdropHasTransition(owner)) return NO;
-    BOOL alignedParent = HGVideoBackdropFullWindow(parent, window);
+    BOOL alignedParent = HGVideoBackdropSameRect([parent convertRect:parent.bounds toView:root], root.bounds, 0.75);
     if (!alignedParent && HGVideoBackdropCategoryPager(parent, window)) {
-        CGRect rect = [parent convertRect:parent.bounds toView:window];
-        CGRect bounds = window.bounds;
-        alignedParent = fabs(CGRectGetMinY(rect) - CGRectGetMinY(bounds)) <= 0.75 &&
-            fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 0.75 &&
-            fabs(CGRectGetWidth(rect) - CGRectGetWidth(bounds)) <= 0.75 &&
-            !CGRectIsEmpty(CGRectIntersection(rect, bounds));
+        alignedParent = HGVideoBackdropHorizontalWindowSlice(parent, window);
     }
     if (!alignedParent) return NO;
     CGRect frame = feed.frame, full = parent.bounds;
@@ -240,17 +247,52 @@ static UIView *HGVideoBackdropMetal(UIView *renderer, UIView *player, CGRect vie
     return nil;
 }
 
+static BOOL HGVideoBackdropReadDimension(id info, SEL selector, double *outValue) {
+    Method m = class_getInstanceMethod(object_getClass(info), selector);
+    const char *enc = m ? method_getTypeEncoding(m) : NULL;
+    if (!enc) return NO;
+    if (!strcmp(enc, "d16@0:8")) {
+        *outValue = ((double(*)(id,SEL))objc_msgSend)(info, selector);
+        return YES;
+    }
+    if (!strcmp(enc, "q16@0:8") || !strcmp(enc, "Q16@0:8")) {
+        *outValue = (double)((NSInteger(*)(id,SEL))objc_msgSend)(info, selector);
+        return YES;
+    }
+    return NO;
+}
+
+static BOOL HGVideoBackdropInfoIsPortrait(id info, BOOL *resolved) {
+    if (!info) return NO;
+    double x = 0, y = 0;
+    if (HGVideoBackdropReadDimension(info, sel_registerName("videoWidth"), &x) &&
+        HGVideoBackdropReadDimension(info, sel_registerName("videoHeight"), &y) &&
+        x > 0 && y > 0 && isfinite(x) && isfinite(y)) {
+        if (resolved) *resolved = YES;
+        return y > x;
+    }
+    return NO;
+}
+
 // The cell's model is available before its poster or Metal surface. Both
 // source sizes are authored by the host, independent of the screen bounds.
 static BOOL HGVideoBackdropPortraitModel(id model) {
-    const char *keys[]={"shortVideoModel","videoInfo"};
-    for(NSUInteger i=0;i<2;i++) {
-        id info=HGReadObjectGetter(model,keys[i]);
-        SEL width=sel_registerName("videoWidth"),height=sel_registerName("videoHeight");
-        Method w=class_getInstanceMethod(object_getClass(info),width),h=class_getInstanceMethod(object_getClass(info),height);
-        if(!w || !h || strcmp(method_getTypeEncoding(w),"d16@0:8") || strcmp(method_getTypeEncoding(h),"d16@0:8"))continue;
-        double x=((double(*)(id,SEL))objc_msgSend)(info,width),y=((double(*)(id,SEL))objc_msgSend)(info,height);
-        if(x>0 && y>0 && isfinite(x) && isfinite(y))return y>x;
+    if (!model) return NO;
+    BOOL resolved = NO;
+    BOOL result = HGVideoBackdropInfoIsPortrait(model, &resolved);
+    if (resolved) return result;
+    const char *keys[] = {"shortVideoModel","videoInfo","videoData","episodeVideoData",
+        "seriesVideoData","derivateVideoData","filterableEpisodeVideoData","filterableSeriesVideoData"};
+    const char *inner[] = {"shortVideoModel","videoInfo"};
+    for (NSUInteger i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
+        id child = HGReadObjectGetter(model, keys[i]);
+        if (!child) continue;
+        result = HGVideoBackdropInfoIsPortrait(child, &resolved);
+        if (resolved) return result;
+        for (NSUInteger j = 0; j < sizeof(inner)/sizeof(inner[0]); j++) {
+            result = HGVideoBackdropInfoIsPortrait(HGReadObjectGetter(child, inner[j]), &resolved);
+            if (resolved) return result;
+        }
     }
     return NO;
 }
@@ -798,53 +840,85 @@ static char HGDetailOwnerTrayRectKey;
                 if ([candidate isKindOfClass:trayClass]) { tray = candidate; break; }
         }
     }
-    CGRect bottom = tray ? [tray convertRect:tray.bounds toView:canvas] : CGRectZero;
+    CGRect rawBottom = (tray && !CGRectIsEmpty(tray.bounds)) ? [tray convertRect:tray.bounds toView:canvas] : CGRectZero;
+    BOOL alignedTray = rawBottom.size.height >= 44 && rawBottom.size.height <= 110 &&
+        fabs(CGRectGetMinX(rawBottom) - CGRectGetMinX(canvas.bounds)) <= 0.75 &&
+        fabs(CGRectGetWidth(rawBottom) - CGRectGetWidth(canvas.bounds)) <= 0.75 &&
+        fabs(CGRectGetMaxY(rawBottom) - CGRectGetMaxY(canvas.bounds)) <= 0.75;
+    CGRect bottom = alignedTray ? rawBottom : CGRectZero;
     CGRect viewport = canvas.bounds;
     viewport.size.height -= bottom.size.height;
     id model=HGReadObjectGetter(canvas,"model");
     BOOL portrait=HGVideoBackdropPortraitModel(model);
-    if(portrait && CGRectIsEmpty(bottom)) {
-        // Before the tray is laid out or before the shared single-series HUD
-        // transfers to an incoming cell, use the published/cached tray viewport.
-        CGRect predicted=CGRectZero;
-        SEL frame=sel_registerName("playerViewFrame");
-        Method method=class_getInstanceMethod(object_getClass(hud),frame);
-        if(method && !strcmp(method_getTypeEncoding(method),"{CGRect={CGPoint=dd}{CGSize=dd}}16@0:8"))
-            predicted=((CGRect(*)(id,SEL))objc_msgSend)(hud,frame);
-        if(CGRectIsEmpty(predicted)) {
-            id component=HGReadObjectGetter(HGReadObjectGetter(owner,"listPlayer"),"playerComponent");
-            frame=sel_registerName("videoPlayerViewFrameWithModel:");
-            method=class_getInstanceMethod(object_getClass(component),frame);
-            if(method && !strcmp(method_getTypeEncoding(method),"{CGRect={CGPoint=dd}{CGSize=dd}}24@0:8@16"))
-                predicted=((CGRect(*)(id,SEL,id))objc_msgSend)(component,frame,model);
+    if(!alignedTray) {
+        // If TTPlayerView is already sized to the reserved shorter detail viewport
+        // before the shared tray finishes AutoLayout, adopt its exact frame on frame 0
+        // so the video never starts with an 89pt bottom black bar and jumps later.
+        CGRect rendererViewport=CGRectZero;
+        for (UIView *renderer in player.subviews) {
+            if (![renderer isKindOfClass:objc_lookUpClass("TTPlayerView")] || CGRectIsEmpty(renderer.bounds)) continue;
+            UIView *metal=renderer.subviews.firstObject;
+            BOOL metalPortrait=[metal isKindOfClass:objc_lookUpClass("TTMetalView")] &&
+                metal.bounds.size.width>0 && metal.bounds.size.height>metal.bounds.size.width;
+            if (!portrait && !metalPortrait) continue;
+            CGRect inCanvas=[renderer convertRect:renderer.bounds toView:canvas];
+            CGFloat reserved=CGRectGetMaxY(canvas.bounds)-CGRectGetMaxY(inCanvas);
+            if (fabs(CGRectGetMinX(inCanvas)-CGRectGetMinX(canvas.bounds))<=0.75 &&
+                fabs(CGRectGetMinY(inCanvas)-CGRectGetMinY(canvas.bounds))<=0.75 &&
+                fabs(CGRectGetWidth(inCanvas)-CGRectGetWidth(canvas.bounds))<=0.75 &&
+                reserved>=44 && reserved<=110) {
+                rendererViewport=inCanvas;
+                break;
+            }
         }
-        if(!CGRectIsEmpty(predicted) && fabs(CGRectGetMinY(predicted)-CGRectGetMinY(canvas.bounds))<=0.75 &&
-           fabs(CGRectGetMinX(predicted)-CGRectGetMinX(canvas.bounds))<=0.75 &&
-           fabs(CGRectGetWidth(predicted)-CGRectGetWidth(canvas.bounds))<=0.75) {
-            viewport=predicted;
+        if(!CGRectIsEmpty(rendererViewport)) {
+            viewport=rendererViewport;
             bottom=CGRectMake(CGRectGetMinX(viewport),CGRectGetMaxY(viewport),viewport.size.width,
                 CGRectGetMaxY(canvas.bounds)-CGRectGetMaxY(viewport));
-        } else {
-            NSValue *cached=objc_getAssociatedObject(owner,&HGDetailOwnerTrayRectKey);
-            CGRect cachedBottom=cached ? cached.CGRectValue : CGRectZero;
-            if(cachedBottom.size.height>=44 && cachedBottom.size.height<=110 &&
-               fabs(CGRectGetWidth(cachedBottom)-CGRectGetWidth(canvas.bounds))<=0.75 &&
-               fabs(CGRectGetMaxY(cachedBottom)-CGRectGetMaxY(canvas.bounds))<=0.75) {
-                bottom=CGRectMake(CGRectGetMinX(canvas.bounds),CGRectGetMaxY(canvas.bounds)-cachedBottom.size.height,
-                    CGRectGetWidth(canvas.bounds),cachedBottom.size.height);
-                viewport=canvas.bounds;
-                viewport.size.height-=bottom.size.height;
+        } else if(portrait || HGVideoBackdropPortraitImage(HGVideoBackdropCover(canvas)) ||
+                  HGVideoBackdropPortraitImage(HGVideoBackdropCover(player))) {
+            // Before the tray is laid out or before the shared single-series HUD
+            // transfers to an incoming cell, use the published/cached tray viewport.
+            CGRect predicted=CGRectZero;
+            SEL frame=sel_registerName("playerViewFrame");
+            Method method=class_getInstanceMethod(object_getClass(hud),frame);
+            if(method && !strcmp(method_getTypeEncoding(method),"{CGRect={CGPoint=dd}{CGSize=dd}}16@0:8"))
+                predicted=((CGRect(*)(id,SEL))objc_msgSend)(hud,frame);
+            if(CGRectIsEmpty(predicted)) {
+                id component=HGReadObjectGetter(HGReadObjectGetter(owner,"listPlayer"),"playerComponent");
+                frame=sel_registerName("videoPlayerViewFrameWithModel:");
+                method=class_getInstanceMethod(object_getClass(component),frame);
+                if(method && !strcmp(method_getTypeEncoding(method),"{CGRect={CGPoint=dd}{CGSize=dd}}24@0:8@16"))
+                    predicted=((CGRect(*)(id,SEL,id))objc_msgSend)(component,frame,model);
+            }
+            if(!CGRectIsEmpty(predicted) && fabs(CGRectGetMinY(predicted)-CGRectGetMinY(canvas.bounds))<=0.75 &&
+               fabs(CGRectGetMinX(predicted)-CGRectGetMinX(canvas.bounds))<=0.75 &&
+               fabs(CGRectGetWidth(predicted)-CGRectGetWidth(canvas.bounds))<=0.75) {
+                viewport=predicted;
+                bottom=CGRectMake(CGRectGetMinX(viewport),CGRectGetMaxY(viewport),viewport.size.width,
+                    CGRectGetMaxY(canvas.bounds)-CGRectGetMaxY(viewport));
+            } else {
+                NSValue *cached=objc_getAssociatedObject(owner,&HGDetailOwnerTrayRectKey);
+                CGRect cachedBottom=cached ? cached.CGRectValue : CGRectZero;
+                if(cachedBottom.size.height>=44 && cachedBottom.size.height<=110 &&
+                   fabs(CGRectGetWidth(cachedBottom)-CGRectGetWidth(canvas.bounds))<=0.75 &&
+                   fabs(CGRectGetMaxY(cachedBottom)-CGRectGetMaxY(canvas.bounds))<=0.75) {
+                    bottom=CGRectMake(CGRectGetMinX(canvas.bounds),CGRectGetMaxY(canvas.bounds)-cachedBottom.size.height,
+                        CGRectGetWidth(canvas.bounds),cachedBottom.size.height);
+                    viewport=canvas.bounds;
+                    viewport.size.height-=bottom.size.height;
+                }
             }
         }
     }
     NSMutableSet *active=[NSMutableSet set];
-    BOOL alignedTray=bottom.size.height>=44 && bottom.size.height<=110 &&
+    BOOL validBottom=bottom.size.height>=44 && bottom.size.height<=110 &&
         HGVideoBackdropSameRect(bottom,CGRectMake(CGRectGetMinX(viewport),CGRectGetMaxY(viewport),
             viewport.size.width,bottom.size.height),0.75);
     if(hud && tray && alignedTray)
         objc_setAssociatedObject(owner,&HGDetailOwnerTrayRectKey,[NSValue valueWithCGRect:bottom],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     BOOL knownSingleSeries=hud || HGVideoBackdropSingleList(owner) || objc_getAssociatedObject(owner,&HGDetailOwnerTrayRectKey)!=nil;
-    BOOL fills=knownSingleSeries && (alignedTray || CGRectIsEmpty(bottom)) &&
+    BOOL fills=knownSingleSeries && (validBottom || CGRectIsEmpty(bottom)) &&
         [self fillPortraitInCanvas:canvas viewport:viewport full:canvas.bounds boundary:canvas active:active];
     [self restorePortraitExcept:active];
     if (fills) {

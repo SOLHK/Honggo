@@ -629,13 +629,393 @@ static void HGAUpdateCommentRow(UIView *row) {
         return;
     }
 }
+static void HGAApplyPageChromeIcons(UIView *owner,NSArray<UIView *> *candidates);
+
+@interface HGACommentComposerState : NSObject
+@property(nonatomic,strong) HGAAppearanceMaterial *primaryGlass;
+@property(nonatomic,strong) HGAAppearanceMaterial *secondaryGlass;
+@property(nonatomic,strong) NSMapTable<UIView *,UIColor *> *backgrounds;
+@property(nonatomic,strong) NSMapTable<UIVisualEffectView *,UIVisualEffect *> *effects;
+@property(nonatomic,strong) NSMapTable<UIView *,NSNumber *> *hiddenViews;
+@property(nonatomic,strong) NSMapTable<UIView *,NSNumber *> *clips;
+@property(nonatomic,strong) NSMapTable<CALayer *,UIColor *> *layerPaints;
+@property(nonatomic,strong) NSMapTable<CALayer *,NSNumber *> *borderWidths;
+@property(nonatomic,strong) NSMapTable<UITextView *,UIColor *> *textViewColors;
+@property(nonatomic,strong) NSHashTable<UIView *> *shiftedViews;
+@property(nonatomic,weak) UIView *maskedStrip;
+@property(nonatomic,strong) CAShapeLayer *stripMask;
+@end
+@implementation HGACommentComposerState
+- (instancetype)init {
+    if((self=[super init])) {
+        _backgrounds=[NSMapTable weakToStrongObjectsMapTable];
+        _effects=[NSMapTable weakToStrongObjectsMapTable];
+        _hiddenViews=[NSMapTable weakToStrongObjectsMapTable];
+        _clips=[NSMapTable weakToStrongObjectsMapTable];
+        _layerPaints=[NSMapTable weakToStrongObjectsMapTable];
+        _borderWidths=[NSMapTable weakToStrongObjectsMapTable];
+        _textViewColors=[NSMapTable weakToStrongObjectsMapTable];
+        _shiftedViews=[NSHashTable weakObjectsHashTable];
+    }
+    return self;
+}
+@end
+static char HGACommentComposerKey;
+
+static void HGAComposerClearBackground(HGACommentComposerState *state,UIView *view,UIColor *replacement) {
+    if(!view)return;
+    UIColor *target=replacement ?: UIColor.clearColor;
+    UIColor *current=view.backgroundColor;
+    if(current && ![current isEqual:target]) {
+        if(![state.backgrounds objectForKey:view])[state.backgrounds setObject:current forKey:view];
+        view.backgroundColor=target;
+    } else if(!current && ![target isEqual:UIColor.clearColor]) {
+        if(![state.backgrounds objectForKey:view])[state.backgrounds setObject:UIColor.clearColor forKey:view];
+        view.backgroundColor=target;
+    }
+}
+
+static void HGAComposerClearLayerPaint(HGACommentComposerState *state,CALayer *layer) {
+    if(!layer)return;
+    if(layer.backgroundColor && CGColorGetAlpha(layer.backgroundColor)>0.001) {
+        if(![state.layerPaints objectForKey:layer])
+            [state.layerPaints setObject:[UIColor colorWithCGColor:layer.backgroundColor] forKey:layer];
+        layer.backgroundColor=nil;
+    }
+    if(layer.borderWidth>0.001) {
+        if(![state.borderWidths objectForKey:layer])
+            [state.borderWidths setObject:@(layer.borderWidth) forKey:layer];
+        layer.borderWidth=0;
+    }
+}
+
+static void HGAComposerSetUnclipped(HGACommentComposerState *state,UIView *view) {
+    if(!view)return;
+    if(![state.clips objectForKey:view])[state.clips setObject:@(view.clipsToBounds) forKey:view];
+    if(view.clipsToBounds)view.clipsToBounds=NO;
+}
+
+static void HGARestoreCommentComposer(UIView *owner) {
+    HGACommentComposerState *state=objc_getAssociatedObject(owner,&HGACommentComposerKey);
+    if(!state)return;
+    [state.primaryGlass removeFromSuperview];
+    [state.secondaryGlass removeFromSuperview];
+    if(state.maskedStrip && state.maskedStrip.layer.mask==state.stripMask)
+        state.maskedStrip.layer.mask=nil;
+    for(UIView *shifted in state.shiftedViews.allObjects)HGARestoreGeometry(shifted);
+    for(UIView *view in state.clips.keyEnumerator.allObjects)
+        view.clipsToBounds=[[state.clips objectForKey:view] boolValue];
+    for(UIView *view in state.hiddenViews.keyEnumerator.allObjects)
+        if(view.hidden)view.hidden=[[state.hiddenViews objectForKey:view] boolValue];
+    for(UIVisualEffectView *ev in state.effects.keyEnumerator.allObjects)
+        if(!ev.effect)ev.effect=[state.effects objectForKey:ev];
+    for(UIView *view in state.backgrounds.keyEnumerator.allObjects) {
+        UIColor *saved=[state.backgrounds objectForKey:view];
+        if(!view.backgroundColor || [view.backgroundColor isEqual:UIColor.clearColor])
+            view.backgroundColor=saved;
+    }
+    for(CALayer *layer in state.layerPaints.keyEnumerator.allObjects)
+        if(!layer.backgroundColor || CGColorGetAlpha(layer.backgroundColor)==0)
+            layer.backgroundColor=[state.layerPaints objectForKey:layer].CGColor;
+    for(CALayer *layer in state.borderWidths.keyEnumerator.allObjects)
+        if(layer.borderWidth==0)layer.borderWidth=[[state.borderWidths objectForKey:layer] doubleValue];
+    for(UITextView *tv in state.textViewColors.keyEnumerator.allObjects)
+        if([tv.textColor isEqual:UIColor.whiteColor])tv.textColor=[state.textViewColors objectForKey:tv];
+    HGAApplyAdaptiveControlInk(owner,UIUserInterfaceStyleLight,NO);
+    HGAApplyPageChromeIcons(owner,nil);
+    objc_setAssociatedObject(owner,&HGACommentComposerKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static UIUserInterfaceStyle HGACommentComposerAppearance(UIView *view) {
+    for(UIView *ancestor=view.superview;ancestor;ancestor=ancestor.superview) {
+        HGAActionSheetState *sheet=objc_getAssociatedObject(ancestor,&HGAActionSheetKey);
+        if(sheet && [view isDescendantOfView:sheet.surface]) {
+            if(sheet.surface.overrideUserInterfaceStyle==UIUserInterfaceStyleDark ||
+               sheet.surface.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark)
+                return UIUserInterfaceStyleDark;
+            break;
+        }
+    }
+    BOOL hostDark=NO;
+    if(HGAHostExplicitDarkMode(view,&hostDark))return hostDark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+    return view.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark ?
+        UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+}
+
+static HGAAppearanceMaterial *HGAConfigureComposerMaterial(HGAAppearanceMaterial *glass,NSString *identifier,
+        CGRect frame,CGFloat radius,UIUserInterfaceStyle appearance,BOOL interactive,UIView *touchHost) {
+    if(!glass) {
+        glass=[[HGAAppearanceMaterial alloc] initWithEffect:nil];
+        glass.accessibilityIdentifier=identifier;
+        glass.accessibilityElementsHidden=YES;
+        glass.userInteractionEnabled=NO;
+        glass.layer.cornerCurve=kCACornerCurveContinuous;
+    }
+    BOOL useBlur=[HGAppearanceString(@"panels.commentInputMaterial") isEqual:@"blur"];
+    NSString *style=useBlur ? @"blur" : HGALiquidButtonMaterial();
+    BOOL liquid=!useBlur && ([style isEqual:@"regular"] || [style isEqual:@"clear"]);
+    glass.flexTouchHost=interactive ? touchHost : nil;
+    glass.style=style;
+    glass.overlayOpacity=0;
+    glass.untintedGlass=liquid;
+    glass.interactiveGlass=liquid && interactive;
+    glass.lightContourRim=YES;
+    if(!liquid)glass.clipsToBounds=YES;
+    if(glass.overrideUserInterfaceStyle!=appearance) {
+        glass.overrideUserInterfaceStyle=appearance;
+        if(@available(iOS 17.0,*))[glass updateTraitsIfNeeded];
+    }
+    BOOL dark=(appearance==UIUserInterfaceStyleDark);
+    glass.overlayColor=(UIAccessibilityIsReduceTransparencyEnabled() || [style isEqual:@"solid"]) ?
+        UIColor.secondarySystemBackgroundColor :
+        (liquid ? UIColor.clearColor : [UIColor colorWithWhite:(dark ? 0.14 : 0.97) alpha:(dark ? 0.56 : 0.68)]);
+    if(!CGRectEqualToRect(glass.frame,frame))glass.frame=frame;
+    CGFloat corner=MIN(radius,MIN(frame.size.width,frame.size.height)*0.5);
+    glass.materialCornerRadius=corner;
+    if(fabs(glass.layer.cornerRadius-corner)>0.001)glass.layer.cornerRadius=corner;
+    glass.materialSignature=nil;
+    [glass requestMaterialRefresh];
+    if(glass.window && !CGRectIsEmpty(glass.bounds))[glass layoutIfNeeded];
+    return glass;
+}
+
+static void HGAUpdateCommentBottomBar(UIView *toolbar) {
+    BOOL enabled=toolbar.window && !CGRectIsEmpty(toolbar.bounds) &&
+        HGAppearanceEnabled() && HGAppearanceFlag(@"panels.commentFloatingBar");
+    UIView *innerBox=nil;
+    CGFloat barW=CGRectGetWidth(toolbar.bounds),barH=CGRectGetHeight(toolbar.bounds);
+    if(enabled && barW>=180 && barH>=44) {
+        for(UIView *sub in toolbar.subviews) {
+            if(HGAOwnView(sub) || sub.hidden || [sub isKindOfClass:UIControl.class] ||
+               [sub isKindOfClass:UIVisualEffectView.class])continue;
+            CGRect r=sub.frame;
+            if(CGRectGetHeight(r)>=26 && CGRectGetHeight(r)<=48 &&
+               CGRectGetWidth(r)>=barW*0.42 && CGRectGetWidth(r)<=barW-20 && sub.subviews.count>0) {
+                innerBox=sub;
+                break;
+            }
+        }
+    }
+    if(!enabled || !innerBox) {
+        HGARestoreCommentComposer(toolbar);
+        return;
+    }
+    HGACommentComposerState *state=objc_getAssociatedObject(toolbar,&HGACommentComposerKey);
+    if(!state) {
+        state=[HGACommentComposerState new];
+        objc_setAssociatedObject(toolbar,&HGACommentComposerKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    HGAComposerClearBackground(state,toolbar,UIColor.clearColor);
+    HGAComposerClearBackground(state,innerBox,UIColor.clearColor);
+    HGAComposerClearLayerPaint(state,innerBox.layer);
+
+    NSMutableArray<UIView *> *icons=[NSMutableArray array];
+    NSMutableSet<UIView *> *currentShifted=[NSMutableSet set];
+    NSUInteger insertIdx=0;
+    for(NSUInteger idx=0;idx<toolbar.subviews.count;idx++) {
+        UIView *sub=toolbar.subviews[idx];
+        if(sub==state.primaryGlass || HGAOwnView(sub))continue;
+        CGRect r=sub.frame;
+        if([sub isKindOfClass:UIVisualEffectView.class] && CGRectGetWidth(r)>=barW*0.85) {
+            UIVisualEffectView *ev=(UIVisualEffectView *)sub;
+            if(ev.effect) {
+                if(![state.effects objectForKey:ev])[state.effects setObject:ev.effect forKey:ev];
+                ev.effect=nil;
+            }
+            HGAComposerClearBackground(state,ev.contentView,UIColor.clearColor);
+            insertIdx=idx+1;
+        } else if(sub.class==UIView.class && sub.subviews.count==0 && CGRectGetWidth(r)>=barW*0.85) {
+            if(CGRectGetHeight(r)<=1.5) {
+                if(![state.hiddenViews objectForKey:sub])[state.hiddenViews setObject:@(sub.hidden) forKey:sub];
+                if(!sub.hidden)sub.hidden=YES;
+            } else {
+                HGAComposerClearBackground(state,sub,UIColor.clearColor);
+                HGAComposerClearLayerPaint(state,sub.layer);
+                insertIdx=idx+1;
+            }
+        } else if([sub isKindOfClass:UIButton.class] && !sub.hidden && sub.alpha>0.01 &&
+                  CGRectGetWidth(r)>0 && CGRectGetWidth(r)<=40) {
+            UIButton *btn=(UIButton *)sub;
+            HGAViewState *vs=HGAState(btn,NO);
+            CGRect baseRect=(vs.geometry && CGAffineTransformEqualToTransform(btn.transform,vs.appliedTransform)) ?
+                CGRectOffset(r,-(vs.appliedTransform.tx-vs.sourceTransform.tx),0) : r;
+            if(CGRectGetMaxX(baseRect)>barW-22) {
+                HGASetGeometry(btn,-6,0,1);
+                [state.shiftedViews addObject:btn];
+                [currentShifted addObject:btn];
+            }
+            if(btn.imageView)[icons addObject:btn.imageView];
+        }
+    }
+    for(UIView *oldBtn in state.shiftedViews.allObjects) {
+        if(![currentShifted containsObject:oldBtn]) {
+            HGARestoreGeometry(oldBtn);
+            [state.shiftedViews removeObject:oldBtn];
+        }
+    }
+
+    UIUserInterfaceStyle appearance=HGACommentComposerAppearance(toolbar);
+    CGFloat capsuleH=44.0;
+    CGFloat capsuleY=MAX(4.0,CGRectGetMidY(innerBox.frame)-capsuleH*0.5);
+    CGRect capsuleFrame=CGRectMake(12.0,capsuleY,barW-24.0,capsuleH);
+    state.primaryGlass=HGAConfigureComposerMaterial(state.primaryGlass,@"honggo.appearance.comment.bar",
+        capsuleFrame,capsuleH*0.5,appearance,YES,innerBox);
+    if(state.primaryGlass.superview!=toolbar)
+        [toolbar insertSubview:state.primaryGlass atIndex:MIN(insertIdx,toolbar.subviews.count)];
+    HGAApplyAdaptiveControlInk(toolbar,appearance,appearance==UIUserInterfaceStyleDark);
+    HGAApplyPageChromeIcons(toolbar,appearance==UIUserInterfaceStyleDark ? icons : nil);
+}
+
+static void HGAUpdateCommentDetachedEditor(UIView *editor) {
+    BOOL enabled=editor.window && !CGRectIsEmpty(editor.bounds) &&
+        HGAppearanceEnabled() && HGAppearanceFlag(@"panels.commentDetachedInput");
+    CGFloat edW=CGRectGetWidth(editor.bounds),edH=CGRectGetHeight(editor.bounds);
+    UIView *scrim=nil,*sliding=nil,*inputCard=nil,*emoticonBoard=nil;
+    if(enabled && edW>=240 && edH>=240) {
+        for(UIView *sub in editor.subviews) {
+            if(HGAOwnView(sub))continue;
+            if(sub.subviews.count==0 && CGRectGetHeight(sub.frame)>=edH*0.88 && CGRectGetWidth(sub.frame)>=edW*0.88)
+                scrim=sub;
+            else if(sub.subviews.count>0 && CGRectGetWidth(sub.frame)>=edW*0.88)
+                sliding=sub;
+        }
+        for(UIView *sub in sliding.subviews) {
+            if(HGAOwnView(sub))continue;
+            CGRect r=sub.frame;
+            if(CGRectGetMinY(r)<=12 && CGRectGetHeight(r)>=72 && CGRectGetHeight(r)<=360 && sub.subviews.count>0)
+                inputCard=sub;
+            else if(CGRectGetMinY(r)>=70 && CGRectGetHeight(r)>=160)
+                emoticonBoard=sub;
+        }
+    }
+    if(!enabled || !sliding || !inputCard) {
+        HGARestoreCommentComposer(editor);
+        return;
+    }
+    HGACommentComposerState *state=objc_getAssociatedObject(editor,&HGACommentComposerKey);
+    if(!state) {
+        state=[HGACommentComposerState new];
+        objc_setAssociatedObject(editor,&HGACommentComposerKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if(scrim)HGAComposerClearBackground(state,scrim,UIColor.clearColor);
+    HGAComposerClearBackground(state,sliding,UIColor.clearColor);
+    HGAComposerClearLayerPaint(state,sliding.layer);
+    HGAComposerSetUnclipped(state,sliding);
+    HGAComposerClearBackground(state,inputCard,UIColor.clearColor);
+    HGAComposerClearLayerPaint(state,inputCard.layer);
+    HGAComposerSetUnclipped(state,inputCard);
+
+    BOOL emojiOpen=emoticonBoard && !emoticonBoard.hidden && emoticonBoard.alpha>0.01;
+    UIUserInterfaceStyle appearance=HGACommentComposerAppearance(editor);
+    BOOL dark=(appearance==UIUserInterfaceStyleDark);
+    CGFloat cardW=CGRectGetWidth(inputCard.bounds),cardH=CGRectGetHeight(inputCard.bounds);
+    CGFloat insetX=12.0,radius=24.0;
+
+    HGASetGeometry(inputCard,0,emojiOpen ? -4.0 : -8.0,1.0);
+    [state.shiftedViews addObject:inputCard];
+
+    UIView *emojiStrip=nil;
+    NSMutableArray<UIView *> *icons=[NSMutableArray array];
+    for(UIView *child in inputCard.subviews) {
+        if(HGAOwnView(child))continue;
+        NSString *cname=NSStringFromClass(child.class);
+        CGRect r=child.frame;
+        HGAViewState *vs=HGAState(child,NO);
+        CGRect baseR=(vs.geometry && CGAffineTransformEqualToTransform(child.transform,vs.appliedTransform)) ?
+            CGRectOffset(r,-(vs.appliedTransform.tx-vs.sourceTransform.tx),0) : r;
+        if([child isKindOfClass:UITextView.class]) {
+            UITextView *tv=(UITextView *)child;
+            HGAComposerClearBackground(state,tv,UIColor.clearColor);
+            HGAComposerClearLayerPaint(state,tv.layer);
+            if(dark) {
+                if(tv.textColor && ![tv.textColor isEqual:UIColor.whiteColor]) {
+                    if(![state.textViewColors objectForKey:tv])[state.textViewColors setObject:tv.textColor forKey:tv];
+                    tv.textColor=UIColor.whiteColor;
+                }
+            } else if([tv.textColor isEqual:UIColor.whiteColor] && [state.textViewColors objectForKey:tv]) {
+                tv.textColor=[state.textViewColors objectForKey:tv];
+            }
+        } else if([cname containsString:@"EmojiPanel"] ||
+                  (CGRectGetMinY(baseR)>=70 && CGRectGetHeight(baseR)>=32 && CGRectGetHeight(baseR)<=64 && CGRectGetWidth(baseR)>=cardW*0.85)) {
+            emojiStrip=child;
+            HGAComposerClearBackground(state,child,UIColor.clearColor);
+            HGAComposerClearLayerPaint(state,child.layer);
+            for(UIView *inner in child.subviews) {
+                if([inner isKindOfClass:UICollectionView.class] || inner.class==UIView.class)
+                    HGAComposerClearBackground(state,inner,UIColor.clearColor);
+            }
+        } else if([cname containsString:@"InnerRightView"] ||
+                  (CGRectGetMinX(baseR)<32 && CGRectGetHeight(baseR)<=40 && CGRectGetWidth(baseR)>=60 && CGRectGetWidth(baseR)<=cardW*0.65)) {
+            HGAComposerClearBackground(state,child,UIColor.clearColor);
+            if(CGRectGetMinX(baseR)<insetX+10.0) {
+                HGASetGeometry(child,8.0,0,1.0);
+                [state.shiftedViews addObject:child];
+            }
+            for(UIView *sub in HGADescendants(child,24))
+                if([sub isKindOfClass:UIImageView.class])[icons addObject:sub];
+        } else if([cname containsString:@"GradientButton"] ||
+                  (CGRectGetMaxX(baseR)>cardW-24 && CGRectGetWidth(baseR)<=88 && CGRectGetHeight(baseR)<=40)) {
+            HGASetGeometry(child,-8.0,0,1.0);
+            [state.shiftedViews addObject:child];
+        }
+    }
+
+    if(emojiStrip && !emojiStrip.hidden) {
+        if(!state.stripMask)state.stripMask=[CAShapeLayer layer];
+        CGRect stripInCard=[emojiStrip convertRect:emojiStrip.bounds toView:inputCard];
+        CGRect clipInCard=CGRectIntersection(stripInCard,CGRectMake(insetX,0,cardW-insetX*2.0,cardH));
+        CGRect clipLocal=[inputCard convertRect:clipInCard toView:emojiStrip];
+        UIBezierPath *maskPath=[UIBezierPath bezierPathWithRoundedRect:clipLocal
+            byRoundingCorners:UIRectCornerBottomLeft|UIRectCornerBottomRight
+            cornerRadii:CGSizeMake(radius,radius)];
+        state.stripMask.path=maskPath.CGPath;
+        if(emojiStrip.layer.mask!=state.stripMask)emojiStrip.layer.mask=state.stripMask;
+        state.maskedStrip=emojiStrip;
+    } else if(state.maskedStrip && state.maskedStrip.layer.mask==state.stripMask) {
+        state.maskedStrip.layer.mask=nil;
+        state.maskedStrip=nil;
+    }
+
+    CGRect glassRect=CGRectMake(insetX,0,MAX(0,cardW-insetX*2.0),cardH);
+    state.primaryGlass=HGAConfigureComposerMaterial(state.primaryGlass,@"honggo.appearance.comment.editor",
+        glassRect,radius,appearance,NO,nil);
+    if(state.primaryGlass.superview!=inputCard)[inputCard insertSubview:state.primaryGlass atIndex:0];
+
+    if(emojiOpen && CGRectGetWidth(emoticonBoard.bounds)>insetX*2.0) {
+        HGAComposerClearBackground(state,emoticonBoard,UIColor.clearColor);
+        for(UIView *sub in emoticonBoard.subviews) {
+            if([sub isKindOfClass:UIScrollView.class] || sub.class==UIView.class)
+                HGAComposerClearBackground(state,sub,UIColor.clearColor);
+        }
+        CGRect emoRect=CGRectMake(insetX,2.0,CGRectGetWidth(emoticonBoard.bounds)-insetX*2.0,
+            MAX(0,CGRectGetHeight(emoticonBoard.bounds)-6.0));
+        state.secondaryGlass=HGAConfigureComposerMaterial(state.secondaryGlass,@"honggo.appearance.comment.emoticon",
+            emoRect,radius,appearance,NO,nil);
+        if(state.secondaryGlass.superview!=emoticonBoard)[emoticonBoard insertSubview:state.secondaryGlass atIndex:0];
+    } else if(state.secondaryGlass) {
+        [state.secondaryGlass removeFromSuperview];
+        state.secondaryGlass=nil;
+    }
+
+    HGAApplyAdaptiveControlInk(inputCard,appearance,dark);
+    HGAApplyPageChromeIcons(editor,dark ? icons : nil);
+}
+
 static void HGAUpdateCommentSurface(UIView *surfaceView) {
+    if([surfaceView isKindOfClass:objc_lookUpClass("FQCShortVideoNewEditorView")]) {
+        HGAUpdateCommentDetachedEditor(surfaceView);
+        return;
+    }
+    BOOL isBottomBar=[surfaceView isKindOfClass:objc_lookUpClass("FQCShortVideoBottomToolBar")];
+    if(isBottomBar)HGAUpdateCommentBottomBar(surfaceView);
     if(!surfaceView.window || !HGAPanelWantsGlass(@"comment"))return;
     for(UIView *ancestor=surfaceView.superview;ancestor;ancestor=ancestor.superview) {
         HGAActionSheetState *state=objc_getAssociatedObject(ancestor,&HGAActionSheetKey);
         if(!state || ![surfaceView isDescendantOfView:state.surface])continue;
-        if(state.nativeClear)HGAClearSheetBackground(state,surfaceView);
-        else HGAClearSheetCover(state,surfaceView);
+        if(!isBottomBar || !HGAppearanceFlag(@"panels.commentFloatingBar")) {
+            if(state.nativeClear)HGAClearSheetBackground(state,surfaceView);
+            else HGAClearSheetCover(state,surfaceView);
+        }
         if(HGASheetUsesConvertedInk(state)) {
             for(UIView *child in HGADescendants(surfaceView,36))
                 if([child isKindOfClass:UILabel.class] && HGAVisible(child))HGAApplySheetLabel(state,(UILabel *)child);
@@ -844,6 +1224,8 @@ static void HGAApplyActionSheet(UIView *root,NSString *kind) {
         }
         if(share)HGAApplySettingsPanelPart(state,view);
         if(comment && HGAIsCommentRow(view))HGAApplyCommentRow(state,view);
+        if(comment && [view isKindOfClass:NSClassFromString(@"FQCShortVideoBottomToolBar")])
+            HGAUpdateCommentBottomBar(view);
         if(CGRectGetHeight(view.bounds)<16 || CGRectGetHeight(view.bounds)>CGRectGetHeight(surface.bounds)+2 ||
             CGRectGetWidth(view.bounds)<CGRectGetWidth(surface.bounds)*0.8)continue;
         if(comment && view.class==UIVisualEffectView.class &&

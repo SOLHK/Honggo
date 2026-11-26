@@ -12,8 +12,10 @@ static BOOL HGAUsesNativeGlass(NSString *style) {
 @property(nonatomic,strong) UIColor *overlayColor;
 @property(nonatomic) BOOL interactiveGlass;
 @property(nonatomic) BOOL untintedGlass;
+@property(nonatomic) BOOL lightContourRim;
 @property(nonatomic) CGFloat materialCornerRadius;
 @property(nonatomic,strong) CALayer *gaussianBackdrop;
+@property(nonatomic,strong) CALayer *contourRimLayer;
 @property(nonatomic,weak) UIView *flexTouchHost;
 - (void)requestMaterialRefresh;
 @end
@@ -82,6 +84,10 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
     if(_untintedGlass==untintedGlass)return;
     _untintedGlass=untintedGlass;self.materialSignature=nil;[self setNeedsLayout];
 }
+- (void)setLightContourRim:(BOOL)lightContourRim {
+    if(_lightContourRim==lightContourRim)return;
+    _lightContourRim=lightContourRim;[self setNeedsLayout];
+}
 - (void)setOverlayColor:(UIColor *)color {
     if(_overlayColor==color || [_overlayColor isEqual:color])return;
     _overlayColor=color;self.materialSignature=nil;[self setNeedsLayout];
@@ -126,6 +132,32 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
     }
     if (self.gaussianBackdrop && !CGRectEqualToRect(self.gaussianBackdrop.frame,self.bounds))
         self.gaussianBackdrop.frame=self.bounds;
+    BOOL wantsRim=self.lightContourRim && self.traitCollection.userInterfaceStyle!=UIUserInterfaceStyleDark &&
+        !UIAccessibilityIsReduceTransparencyEnabled();
+    if(wantsRim) {
+        if(!self.contourRimLayer) {
+            self.contourRimLayer=[CALayer layer];
+            self.contourRimLayer.cornerCurve=kCACornerCurveContinuous;
+        }
+        if(self.contourRimLayer.superlayer!=self.contentView.layer)
+            [self.contentView.layer insertSublayer:self.contourRimLayer atIndex:0];
+        CGRect rimBounds=self.contentView.bounds;
+        CGFloat rimRadius=self.materialCornerRadius>0 ?
+            MIN(self.materialCornerRadius,MIN(rimBounds.size.width,rimBounds.size.height)*0.5) :
+            MIN(rimBounds.size.width,rimBounds.size.height)*0.5;
+        CGFloat px=1.0/MAX(1.0,self.traitCollection.displayScale);
+        [CATransaction begin];[CATransaction setDisableActions:YES];
+        self.contourRimLayer.frame=rimBounds;
+        self.contourRimLayer.cornerRadius=rimRadius;
+        self.contourRimLayer.borderWidth=px;
+        self.contourRimLayer.borderColor=[UIColor colorWithWhite:0 alpha:0.115].CGColor;
+        self.contourRimLayer.backgroundColor=[UIColor colorWithWhite:0 alpha:0.025].CGColor;
+        self.contourRimLayer.hidden=NO;
+        [CATransaction commit];
+    } else if(self.contourRimLayer) {
+        [self.contourRimLayer removeFromSuperlayer];
+        self.contourRimLayer=nil;
+    }
     NSString *signature=[self currentMaterialSignature];
     if([signature isEqual:self.materialSignature])return;
     self.materialSignature=signature;
@@ -417,7 +449,9 @@ static void HGAInstallButtonGlass(UIView *view,NSString *style,CGRect frame,CGFl
 static void HGAInstallAdaptiveButtonGlass(UIView *view,NSString *style,CGRect frame,CGFloat radius) {
     UIUserInterfaceStyle appearance=HGAAdaptivePageStyle(HGAOwner(view),view);
     HGAInstallButtonGlassWithAppearance(view,style,frame,radius,appearance);
-    HGAApplyAdaptiveControlInk(view,appearance,HGAState(view,NO).glass!=nil);
+    HGAAppearanceMaterial *glass=HGAState(view,NO).glass;
+    if(glass)glass.lightContourRim=YES;
+    HGAApplyAdaptiveControlInk(view,appearance,glass!=nil);
 }
 static NSDictionary<NSString *,NSString *> *HGAViewRoles(void) {
     static NSDictionary *roles;static dispatch_once_t once;
@@ -755,6 +789,21 @@ void HGAppearanceProcessView(UIView *view) {
             }
             HGAApplyTypography(view);HGRefreshVideoBackdropForPlayer(view);return;
         }
+        if([name isEqual:@"FQVShortVideoLoadingView"]) {
+            HGAApplyLoadingSpinner(view);return;
+        }
+        if([name isEqual:@"SSShortVideoDistributionContentView"] ||
+           [name isEqual:@"SSShortVideoDistributionContentBaseView"]) {
+            for(UIView *parent=view.superview;parent;parent=parent.superview) {
+                if([HGARole(parent) isEqual:@"episodes"] && !HGAHasRoleAncestor(parent,@"episodes")) {
+                    BOOL epStyled=HGAppearanceEnabled() && parent.window && HGAppearanceFlag(@"player.episodeGlass") &&
+                        (!parent.hidden || (!CGRectIsEmpty(parent.bounds) && !HGAppearanceFlag(@"layout.episodes.hidden")));
+                    HGAApplyEpisodeLabels(parent,HGAEpisodeGlassFrame(parent),epStyled);
+                    break;
+                }
+            }
+            return;
+        }
         if([view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerSingleSeriesControlView")]) {
             HGRefreshVideoBackdropForPlayer(view);return;
         }
@@ -878,38 +927,72 @@ void HGAppearanceProcessController(UIViewController *controller) {
 // The feed already supplies this episode's count before the separate comment
 // request completes. Both native request strategies can display a placeholder
 // in the meantime. Use the owner's formatter without changing its request/model.
-static BOOL HGAReadCommentCountValue(id object,NSInteger *outCount) {
-    if(!object)return NO;
-    const char *selectors[]={"commentCount","episodeCommentCount","totalCommentCount"};
-    for(NSUInteger i=0;i<sizeof(selectors)/sizeof(selectors[0]);i++) {
-        SEL getter=sel_registerName(selectors[i]);
-        Method method=class_getInstanceMethod(object_getClass(object),getter);
-        const char *enc=method ? method_getTypeEncoding(method) : NULL;
-        if(!enc)continue;
-        if(!strcmp(enc,"q16@0:8") || !strcmp(enc,"Q16@0:8")) {
-            *outCount=((NSInteger(*)(id,SEL))objc_msgSend)(object,getter);
-            return YES;
-        }
-        if(!strcmp(enc,"i16@0:8") || !strcmp(enc,"I16@0:8")) {
-            *outCount=(NSInteger)((int(*)(id,SEL))objc_msgSend)(object,getter);
-            return YES;
+static BOOL HGAReadCommentCountSelector(id object,const char *selectorName,NSInteger *outCount) {
+    if(!object || !selectorName)return NO;
+    SEL getter=sel_registerName(selectorName);
+    Method method=class_getInstanceMethod(object_getClass(object),getter);
+    const char *enc=method ? method_getTypeEncoding(method) : NULL;
+    if(!enc)return NO;
+    if(!strcmp(enc,"q16@0:8") || !strcmp(enc,"Q16@0:8")) {
+        *outCount=((NSInteger(*)(id,SEL))objc_msgSend)(object,getter);
+        return YES;
+    }
+    if(!strcmp(enc,"i16@0:8") || !strcmp(enc,"I16@0:8")) {
+        *outCount=(NSInteger)((int(*)(id,SEL))objc_msgSend)(object,getter);
+        return YES;
+    }
+    if(!strcmp(enc,"@16@0:8")) {
+        id val=((id(*)(id,SEL))objc_msgSend)(object,getter);
+        if([val isKindOfClass:NSNumber.class]) { *outCount=[val integerValue]; return YES; }
+        if([val isKindOfClass:NSString.class] && [val length]) {
+            NSInteger parsed=[val integerValue];
+            if(parsed>0 || [val isEqualToString:@"0"]) { *outCount=parsed; return YES; }
         }
     }
     return NO;
+}
+static BOOL HGAReadCommentCountValue(id object,NSInteger *outCount) {
+    if(!object)return NO;
+    const char *selectors[]={"commentCount","episodeCommentCount","totalCommentCount","commentNum"};
+    for(NSUInteger i=0;i<sizeof(selectors)/sizeof(selectors[0]);i++) {
+        NSInteger val=0;
+        if(HGAReadCommentCountSelector(object,selectors[i],&val)) {
+            *outCount=val;
+            if(val>0)return YES;
+        }
+    }
+    return NO;
+}
+static NSInteger HGAPrimedCommentCountFromModel(id model) {
+    if(!model)return 0;
+    const char *paths[]={"videoData","episodeVideoData","seriesVideoData","derivateVideoData",
+        "filterableEpisodeVideoData","filterableSeriesVideoData","albumVideoData","pugcVideoData",
+        "shortVideoModel","videoInfo","statistics","statInfo","commentInfo"};
+    const char *nested[]={"shortVideoModel","videoInfo","statistics","statInfo","commentInfo"};
+    for(NSUInteger i=0;i<sizeof(paths)/sizeof(paths[0]);i++) {
+        id sub=HGReadObjectGetter(model,paths[i]);
+        if(!sub)continue;
+        NSInteger count=0;
+        if(HGAReadCommentCountValue(sub,&count) && count>0)return count;
+        for(NSUInteger j=0;j<sizeof(nested)/sizeof(nested[0]);j++) {
+            NSInteger innerCount=0;
+            if(HGAReadCommentCountValue(HGReadObjectGetter(sub,nested[j]),&innerCount) && innerCount>0)
+                return innerCount;
+        }
+    }
+    NSInteger direct=0;
+    if(HGAReadCommentCountValue(model,&direct) && direct>0)return direct;
+    return 0;
 }
 static NSInteger HGAPrimedCommentCount(id manager) {
     if(!manager || HGReadObjectGetter(manager,"countModel"))return 0;
     BOOL supported=NO;
     if(!HGABoolGetter(manager,@"supportComment",&supported) || !supported)return 0;
     id model=HGReadObjectGetter(manager,"model") ?: HGReadObjectGetter(manager,"videoDataModel");
-    const char *paths[]={"videoData","episodeVideoData","seriesVideoData","shortVideoModel","videoInfo"};
-    for(NSUInteger i=0;i<sizeof(paths)/sizeof(paths[0]);i++) {
-        NSInteger count=0;
-        if(HGAReadCommentCountValue(HGReadObjectGetter(model,paths[i]),&count) && count>0)return count;
-    }
-    NSInteger direct=0;
-    if(HGAReadCommentCountValue(model,&direct) && direct>0)return direct;
-    return 0;
+    NSInteger count=HGAPrimedCommentCountFromModel(model);
+    if(count>0)return count;
+    id view=HGReadObjectGetter(manager,"commentView") ?: HGReadObjectGetter(manager,"view");
+    return HGAPrimedCommentCountFromModel(HGReadObjectGetter(view,"model"));
 }
 static void HGAPrimeRightCommentCount(id manager) {
     NSInteger count=HGAPrimedCommentCount(manager);

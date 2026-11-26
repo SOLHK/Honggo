@@ -147,7 +147,11 @@ static const CACornerMask HGAEpisodeAllCorners = kCALayerMinXMinYCorner |
 @property(nonatomic) CGRect appliedFrame;
 @property(nonatomic) BOOL ownsFrame;
 @property(nonatomic) NSLineBreakMode sourceBreakMode;
+@property(nonatomic) NSLineBreakMode appliedBreakMode;
 @property(nonatomic) BOOL ownsBreakMode;
+@property(nonatomic,copy) NSString *sourceText;
+@property(nonatomic,copy) NSString *appliedText;
+@property(nonatomic) BOOL ownsText;
 @property(nonatomic,copy) NSAttributedString *sourceRichText;
 @property(nonatomic,copy) NSAttributedString *appliedRichText;
 @property(nonatomic) BOOL ownsRichText;
@@ -164,12 +168,14 @@ static void HGARestoreEpisodeForegroundItem(HGAEpisodeForegroundState *state) {
         UILabel *label=(UILabel *)view;
         if(state.ownsRichText && [label.attributedText isEqual:state.appliedRichText])
             label.attributedText=state.sourceRichText;
-        if(state.ownsBreakMode && label.lineBreakMode==NSLineBreakByTruncatingTail)
+        else if(state.ownsText && [label.text isEqualToString:state.appliedText ?: @""])
+            label.text=state.sourceText;
+        if(state.ownsBreakMode && label.lineBreakMode==state.appliedBreakMode)
             label.lineBreakMode=state.sourceBreakMode;
     }
     if(state.ownsFrame && CGRectEqualToRect(view.frame,state.appliedFrame))
         view.frame=state.sourceFrame;
-    state.ownsHidden=NO;state.ownsRichText=NO;state.ownsBreakMode=NO;state.ownsFrame=NO;
+    state.ownsHidden=NO;state.ownsRichText=NO;state.ownsText=NO;state.ownsBreakMode=NO;state.ownsFrame=NO;
 }
 
 static void HGARestoreEpisodeLabels(UIView *entry) {
@@ -179,34 +185,76 @@ static void HGARestoreEpisodeLabels(UIView *entry) {
     objc_setAssociatedObject(entry,&HGAEpisodeLabelsKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-static NSAttributedString *HGATruncatingEpisodeRichText(NSAttributedString *source) {
+static NSAttributedString *HGAClippedEpisodeRichText(NSAttributedString *source,NSUInteger prefixLength) {
     if(!source.length)return nil;
-    __block BOOL needsUpdate=NO;
-    [source enumerateAttribute:NSParagraphStyleAttributeName inRange:NSMakeRange(0,source.length) options:0
-        usingBlock:^(id value,NSRange range,BOOL *stop) {
-            NSParagraphStyle *style=(NSParagraphStyle *)value;
-            if([style isKindOfClass:NSParagraphStyle.class] && style.lineBreakMode!=NSLineBreakByTruncatingTail) {
-                needsUpdate=YES;*stop=YES;
-            }
-        }];
-    if(!needsUpdate)return nil;
-    NSMutableAttributedString *updated=[source mutableCopy];
-    [source enumerateAttribute:NSParagraphStyleAttributeName inRange:NSMakeRange(0,source.length) options:0
-        usingBlock:^(id value,NSRange range,BOOL *stop) {
-            NSParagraphStyle *style=(NSParagraphStyle *)value;
-            if([style isKindOfClass:NSParagraphStyle.class] && style.lineBreakMode!=NSLineBreakByTruncatingTail) {
-                NSMutableParagraphStyle *copy=[style mutableCopy];
-                copy.lineBreakMode=NSLineBreakByTruncatingTail;
-                [updated addAttribute:NSParagraphStyleAttributeName value:copy range:range];
-            }
+    NSAttributedString *slice=prefixLength<source.length ?
+        [source attributedSubstringFromRange:NSMakeRange(0,prefixLength)] : source;
+    if(!slice.length)return slice;
+    NSMutableAttributedString *updated=[slice mutableCopy];
+    [slice enumerateAttribute:NSParagraphStyleAttributeName inRange:NSMakeRange(0,slice.length) options:0
+        usingBlock:^(id value,NSRange range,__unused BOOL *stop) {
+            NSMutableParagraphStyle *copy=[value isKindOfClass:NSParagraphStyle.class] ?
+                [(NSParagraphStyle *)value mutableCopy] : [NSMutableParagraphStyle new];
+            copy.lineBreakMode=NSLineBreakByClipping;
+            [updated addAttribute:NSParagraphStyleAttributeName value:copy range:range];
         }];
     return updated;
+}
+
+static CGFloat HGAEpisodeSingleLineWidth(UILabel *label,NSAttributedString *rich,NSString *plain) {
+    if(rich.length) {
+        NSMutableAttributedString *measure=[rich mutableCopy];
+        UIFont *fallbackFont=label.font ?: [UIFont systemFontOfSize:14];
+        [rich enumerateAttribute:NSFontAttributeName inRange:NSMakeRange(0,rich.length) options:0
+            usingBlock:^(id value,NSRange range,__unused BOOL *stop) {
+                if(!value)[measure addAttribute:NSFontAttributeName value:fallbackFont range:range];
+            }];
+        CGRect bounds=[measure boundingRectWithSize:CGSizeMake(4096,MAX(24,CGRectGetHeight(label.bounds)))
+            options:NSStringDrawingUsesLineFragmentOrigin|NSStringDrawingUsesFontLeading context:nil];
+        return ceil(CGRectGetWidth(bounds));
+    }
+    if(plain.length) {
+        UIFont *font=label.font ?: [UIFont systemFontOfSize:14];
+        CGRect bounds=[plain boundingRectWithSize:CGSizeMake(4096,MAX(24,CGRectGetHeight(label.bounds)))
+            options:NSStringDrawingUsesLineFragmentOrigin|NSStringDrawingUsesFontLeading
+            attributes:@{NSFontAttributeName:font} context:nil];
+        return ceil(CGRectGetWidth(bounds));
+    }
+    return 0;
+}
+
+static NSUInteger HGAEpisodeFittingPrefixLength(UILabel *label,NSAttributedString *rich,NSString *plain,CGFloat maxWidth) {
+    NSString *full=rich.length ? rich.string : plain;
+    if(!full.length || maxWidth<=1.0)return 0;
+    if(HGAEpisodeSingleLineWidth(label,rich,plain)<=maxWidth+0.25)return full.length;
+    NSUInteger cursor=full.length;
+    while(cursor>0) {
+        NSRange seq=[full rangeOfComposedCharacterSequenceAtIndex:cursor-1];
+        cursor=seq.location;
+        while(cursor>0) {
+            unichar tail=[full characterAtIndex:cursor-1];
+            if(tail==' ' || tail==0x00A0 || tail==0x3000)cursor--;
+            else break;
+        }
+        if(!cursor)break;
+        NSAttributedString *subRich=rich.length ? [rich attributedSubstringFromRange:NSMakeRange(0,cursor)] : nil;
+        NSString *subPlain=rich.length ? nil : [full substringToIndex:cursor];
+        if(HGAEpisodeSingleLineWidth(label,subRich,subPlain)<=maxWidth+0.25)return cursor;
+    }
+    return 0;
 }
 
 static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) {
     if(!enabled || !entry.window || CGRectIsEmpty(glassFrame)) {
         HGARestoreEpisodeLabels(entry);
         return;
+    }
+    for(UIView *child in entry.subviews) {
+        if([child isKindOfClass:objc_lookUpClass("SSShortVideoDistributionContentBaseView")] ||
+           [child isKindOfClass:objc_lookUpClass("SSShortVideoDistributionContentView")]) {
+            [child layoutIfNeeded];
+            break;
+        }
     }
     NSArray<HGAEpisodeForegroundState *> *previous=objc_getAssociatedObject(entry,&HGAEpisodeLabelsKey);
     NSMapTable<UIView *,HGAEpisodeForegroundState *> *byView=[NSMapTable weakToStrongObjectsMapTable];
@@ -216,7 +264,7 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
     NSMutableArray<UIImageView *> *leadIcons=[NSMutableArray array];
     UIImageView *trailingIcon=nil;
     CGFloat glassW=CGRectGetWidth(glassFrame);
-    for(UIView *node in HGADescendants(entry,32)) {
+    for(UIView *node in HGADescendants(entry,48)) {
         if(node==entry || !CGAffineTransformIsIdentity(node.transform))continue;
         HGAEpisodeForegroundState *old=[byView objectForKey:node];
         BOOL wasHidden=old && old.ownsHidden ? old.sourceHidden : node.hidden;
@@ -226,10 +274,12 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
         CGRect inGlass=CGRectOffset(inEntry,-glassFrame.origin.x,-glassFrame.origin.y);
         if([node isKindOfClass:UILabel.class]) {
             UILabel *lbl=(UILabel *)node;
-            NSString *str=lbl.attributedText.string ?: lbl.text;
+            NSString *str=(old && old.ownsRichText && [lbl.attributedText isEqual:old.appliedRichText]) ?
+                old.sourceRichText.string : ((old && old.ownsText && [lbl.text isEqualToString:old.appliedText ?: @""]) ?
+                old.sourceText : (lbl.attributedText.string ?: lbl.text));
             if(str.length && CGRectGetHeight(inGlass)>0)[labels addObject:lbl];
         } else if([node isKindOfClass:UIImageView.class] && ![(UIImageView *)node isAnimating] &&
-                  CGRectGetWidth(inGlass)>0 && CGRectGetWidth(inGlass)<=36) {
+                  CGRectGetWidth(inGlass)>0 && CGRectGetWidth(inGlass)<=36 && CGRectGetHeight(inGlass)<=36) {
             if(CGRectGetMinX(inGlass)<glassW*0.35)[leadIcons addObject:(UIImageView *)node];
             else if(CGRectGetWidth(inGlass)<=18 && CGRectGetMaxX(inGlass)<=glassW-6 && CGRectGetMinX(inGlass)>glassW*0.75)
                 trailingIcon=(UIImageView *)node;
@@ -240,13 +290,14 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
         return;
     }
 
-    CGFloat leadX=CGFLOAT_MAX;
-    for(UIImageView *icon in leadIcons) {
-        HGAEpisodeForegroundState *old=[byView objectForKey:icon];
-        CGRect base=(old && old.ownsFrame && CGRectEqualToRect(icon.frame,old.appliedFrame)) ? old.sourceFrame : icon.frame;
-        CGRect r=CGRectOffset([icon.superview convertRect:base toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
-        leadX=MIN(leadX,CGRectGetMinX(r));
-    }
+    [leadIcons sortUsingComparator:^NSComparisonResult(UIImageView *a,UIImageView *b) {
+        HGAEpisodeForegroundState *sa=[byView objectForKey:a],*sb=[byView objectForKey:b];
+        CGRect fa=(sa && sa.ownsFrame && CGRectEqualToRect(a.frame,sa.appliedFrame)) ? sa.sourceFrame : a.frame;
+        CGRect fb=(sb && sb.ownsFrame && CGRectEqualToRect(b.frame,sb.appliedFrame)) ? sb.sourceFrame : b.frame;
+        CGFloat xa=CGRectGetMinX([a.superview convertRect:fa toView:entry]);
+        CGFloat xb=CGRectGetMinX([b.superview convertRect:fb toView:entry]);
+        return xa<xb ? NSOrderedAscending : (xa>xb ? NSOrderedDescending : NSOrderedSame);
+    }];
     [labels sortUsingComparator:^NSComparisonResult(UILabel *a,UILabel *b) {
         HGAEpisodeForegroundState *sa=[byView objectForKey:a],*sb=[byView objectForKey:b];
         CGRect fa=(sa && sa.ownsFrame && CGRectEqualToRect(a.frame,sa.appliedFrame)) ? sa.sourceFrame : a.frame;
@@ -255,87 +306,129 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
         CGFloat xb=CGRectGetMinX([b.superview convertRect:fb toView:entry]);
         return xa<xb ? NSOrderedAscending : (xa>xb ? NSOrderedDescending : NSOrderedSame);
     }];
+
+    CGFloat leadX=CGFLOAT_MAX;
+    for(UIImageView *icon in leadIcons) {
+        HGAEpisodeForegroundState *old=[byView objectForKey:icon];
+        CGRect base=(old && old.ownsFrame && CGRectEqualToRect(icon.frame,old.appliedFrame)) ? old.sourceFrame : icon.frame;
+        CGRect r=CGRectOffset([icon.superview convertRect:base toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
+        leadX=MIN(leadX,CGRectGetMinX(r));
+    }
     for(UILabel *lbl in labels) {
         HGAEpisodeForegroundState *old=[byView objectForKey:lbl];
         CGRect base=(old && old.ownsFrame && CGRectEqualToRect(lbl.frame,old.appliedFrame)) ? old.sourceFrame : lbl.frame;
         CGRect r=CGRectOffset([lbl.superview convertRect:base toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
         leadX=MIN(leadX,CGRectGetMinX(r));
     }
-    CGFloat padLeft=isfinite(leadX) ? MIN(22.0,MAX(12.0,leadX)) : 14.0;
+    CGFloat padLeft=isfinite(leadX) ? MIN(18.0,MAX(12.0,leadX)) : 14.0;
     CGFloat rightLimit=glassW-padLeft;
     if(trailingIcon) {
         CGRect tr=CGRectOffset([trailingIcon.superview convertRect:trailingIcon.frame toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
-        rightLimit=MIN(rightLimit,CGRectGetMinX(tr)-4.0);
-    }
-
-    // Check whether native unadjusted text already fits with >= padLeft right margin.
-    CGFloat sourceRightMax=0;
-    for(UILabel *lbl in labels) {
-        HGAEpisodeForegroundState *old=[byView objectForKey:lbl];
-        CGRect base=(old && old.ownsFrame && CGRectEqualToRect(lbl.frame,old.appliedFrame)) ? old.sourceFrame : lbl.frame;
-        CGRect inGlass=CGRectOffset([lbl.superview convertRect:base toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
-        sourceRightMax=MAX(sourceRightMax,CGRectGetMaxX(inGlass));
-    }
-    if(sourceRightMax<=rightLimit+0.5) {
-        HGARestoreEpisodeLabels(entry);
-        return;
+        rightLimit=MIN(rightLimit,CGRectGetMinX(tr)-6.0);
     }
 
     NSMutableArray<HGAEpisodeForegroundState *> *active=[NSMutableArray array];
     NSMutableArray<HGAEpisodeForegroundState *> *visibleStates=[NSMutableArray array];
+    CGFloat cursorX=padLeft;
+    BOOL needsAdjustment=NO;
+
     for(UIImageView *icon in leadIcons) {
         HGAEpisodeForegroundState *s=[byView objectForKey:icon] ?: [HGAEpisodeForegroundState new];
         if(!s.ownsFrame || !CGRectEqualToRect(icon.frame,s.appliedFrame))s.sourceFrame=icon.frame;
         s.view=icon;
+        CGRect inGlass=CGRectOffset([icon.superview convertRect:s.sourceFrame toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
+        if(CGRectGetMinX(inGlass)<cursorX-0.25) {
+            inGlass.origin.x=cursorX;
+            needsAdjustment=YES;
+        }
+        CGRect targetInEntry=CGRectOffset(inGlass,glassFrame.origin.x,glassFrame.origin.y);
+        CGRect targetFrame=[icon.superview convertRect:targetInEntry fromView:entry];
+        s.appliedFrame=targetFrame;s.ownsFrame=YES;
+        if(!CGRectEqualToRect(icon.frame,targetFrame))icon.frame=targetFrame;
+        cursorX=MAX(cursorX,CGRectGetMaxX(inGlass)+6.0);
         [active addObject:s];
         [visibleStates addObject:s];
     }
+
     for(UILabel *lbl in labels) {
         HGAEpisodeForegroundState *s=[byView objectForKey:lbl] ?: [HGAEpisodeForegroundState new];
         s.view=lbl;
         if(!s.ownsFrame || !CGRectEqualToRect(lbl.frame,s.appliedFrame))s.sourceFrame=lbl.frame;
         if(!s.ownsHidden || !lbl.hidden)s.sourceHidden=lbl.hidden;
-        if(!s.ownsBreakMode || lbl.lineBreakMode!=NSLineBreakByTruncatingTail)s.sourceBreakMode=lbl.lineBreakMode;
-        NSAttributedString *currentRich=lbl.attributedText;
-        if(!s.ownsRichText || ![currentRich isEqual:s.appliedRichText])s.sourceRichText=currentRich;
+        if(!s.ownsBreakMode || lbl.lineBreakMode!=s.appliedBreakMode)s.sourceBreakMode=lbl.lineBreakMode;
+        BOOL matchesRich=s.ownsRichText && [lbl.attributedText isEqual:s.appliedRichText];
+        BOOL matchesPlain=s.ownsText && [lbl.text isEqualToString:s.appliedText ?: @""];
+        if(!matchesRich && !matchesPlain) {
+            s.sourceRichText=[lbl.attributedText copy];
+            s.sourceText=[lbl.text copy];
+        }
+        NSAttributedString *baseRich=s.sourceRichText;
+        NSString *baseText=s.sourceText;
+        NSString *full=baseRich.length ? baseRich.string : baseText;
 
         CGRect inEntry=[lbl.superview convertRect:s.sourceFrame toView:entry];
         CGRect inGlass=CGRectOffset(inEntry,-glassFrame.origin.x,-glassFrame.origin.y);
-        if(CGRectGetMinX(inGlass)>=rightLimit-14.0) {
+        if(CGRectGetMinX(inGlass)<cursorX-0.25) {
+            inGlass.origin.x=cursorX;
+            needsAdjustment=YES;
+        }
+        CGFloat availW=rightLimit-CGRectGetMinX(inGlass);
+        NSUInteger fitLen=HGAEpisodeFittingPrefixLength(lbl,baseRich,baseText,availW);
+        if(fitLen==0 || availW<12.0) {
             if(s.ownsRichText && [lbl.attributedText isEqual:s.appliedRichText])lbl.attributedText=s.sourceRichText;
-            if(s.ownsBreakMode && lbl.lineBreakMode==NSLineBreakByTruncatingTail)lbl.lineBreakMode=s.sourceBreakMode;
+            if(s.ownsText && [lbl.text isEqualToString:s.appliedText ?: @""])lbl.text=s.sourceText;
+            if(s.ownsBreakMode && lbl.lineBreakMode==s.appliedBreakMode)lbl.lineBreakMode=s.sourceBreakMode;
             if(s.ownsFrame && CGRectEqualToRect(lbl.frame,s.appliedFrame))lbl.frame=s.sourceFrame;
-            s.ownsRichText=NO;s.ownsBreakMode=NO;s.ownsFrame=NO;
+            s.ownsRichText=NO;s.ownsText=NO;s.ownsBreakMode=NO;s.ownsFrame=NO;
             s.ownsHidden=YES;
             if(!lbl.hidden)lbl.hidden=YES;
+            needsAdjustment=YES;
             [active addObject:s];
             continue;
         }
         if(s.ownsHidden && lbl.hidden)lbl.hidden=s.sourceHidden;
         s.ownsHidden=NO;
 
-        if(CGRectGetMaxX(inGlass)>rightLimit)inGlass.size.width=MAX(14.0,rightLimit-CGRectGetMinX(inGlass));
-        NSAttributedString *truncRich=HGATruncatingEpisodeRichText(s.sourceRichText);
-        if(truncRich) {
-            s.appliedRichText=truncRich;s.ownsRichText=YES;
-            if(![lbl.attributedText isEqual:truncRich])lbl.attributedText=truncRich;
-        } else if(s.ownsRichText) {
-            if([lbl.attributedText isEqual:s.appliedRichText])lbl.attributedText=s.sourceRichText;
-            s.ownsRichText=NO;s.appliedRichText=nil;
+        BOOL trimmed=(fitLen<full.length);
+        if(trimmed)needsAdjustment=YES;
+        if(baseRich.length) {
+            NSAttributedString *clipped=HGAClippedEpisodeRichText(baseRich,fitLen);
+            if(clipped && (trimmed || ![baseRich isEqual:clipped])) {
+                s.appliedRichText=clipped;s.ownsRichText=YES;s.ownsText=NO;
+                if(![lbl.attributedText isEqual:clipped])lbl.attributedText=clipped;
+            } else if(s.ownsRichText) {
+                if([lbl.attributedText isEqual:s.appliedRichText])lbl.attributedText=baseRich;
+                s.ownsRichText=NO;s.appliedRichText=nil;
+            }
+            CGFloat measuredW=HGAEpisodeSingleLineWidth(lbl,s.ownsRichText ? s.appliedRichText : baseRich,nil);
+            inGlass.size.width=MIN(availW,MAX(1.0,measuredW+1.0));
+        } else {
+            NSString *clippedText=trimmed ? [full substringToIndex:fitLen] : full;
+            if(trimmed) {
+                s.appliedText=clippedText;s.ownsText=YES;s.ownsRichText=NO;
+                if(![lbl.text isEqualToString:clippedText])lbl.text=clippedText;
+            } else if(s.ownsText) {
+                if([lbl.text isEqualToString:s.appliedText ?: @""])lbl.text=baseText;
+                s.ownsText=NO;s.appliedText=nil;
+            }
+            CGFloat measuredW=HGAEpisodeSingleLineWidth(lbl,nil,clippedText);
+            inGlass.size.width=MIN(availW,MAX(1.0,measuredW+1.0));
         }
         s.ownsBreakMode=YES;
-        if(lbl.lineBreakMode!=NSLineBreakByTruncatingTail)lbl.lineBreakMode=NSLineBreakByTruncatingTail;
+        s.appliedBreakMode=NSLineBreakByClipping;
+        if(lbl.lineBreakMode!=NSLineBreakByClipping)lbl.lineBreakMode=NSLineBreakByClipping;
 
         CGRect targetInEntry=CGRectOffset(inGlass,glassFrame.origin.x,glassFrame.origin.y);
         CGRect targetFrame=[lbl.superview convertRect:targetInEntry fromView:entry];
         s.appliedFrame=targetFrame;s.ownsFrame=YES;
         if(!CGRectEqualToRect(lbl.frame,targetFrame))lbl.frame=targetFrame;
+        cursorX=CGRectGetMaxX(inGlass)+2.0;
         [active addObject:s];
         [visibleStates addObject:s];
     }
 
-    // Balance any leftover sub-character ellipsis slack equally on left and right
-    // so the last visible character keeps the exact same border gap as the lead item.
+    // Center the visible [icon + whole-character labels] group horizontally inside
+    // the capsule so left and right empty margins match identically.
     if(!trailingIcon && visibleStates.count) {
         CGFloat minInk=CGFLOAT_MAX,maxInk=0;
         for(HGAEpisodeForegroundState *s in visibleStates) {
@@ -343,7 +436,7 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
             if([v isKindOfClass:UILabel.class]) {
                 UILabel *lbl=(UILabel *)v;
                 CGRect tr=[lbl textRectForBounds:lbl.bounds limitedToNumberOfLines:1];
-                if(CGRectIsEmpty(tr))continue;
+                if(CGRectIsEmpty(tr))tr=lbl.bounds;
                 CGRect r=CGRectOffset([lbl convertRect:tr toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
                 minInk=MIN(minInk,CGRectGetMinX(r));maxInk=MAX(maxInk,CGRectGetMaxX(r));
             } else {
@@ -354,7 +447,8 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
         if(isfinite(minInk) && maxInk>minInk) {
             CGFloat rightPad=glassW-maxInk;
             CGFloat shift=(rightPad-minInk)*0.5;
-            if(fabs(shift)>0.25 && fabs(shift)<=18.0 && minInk+shift>=10.0) {
+            if(fabs(shift)>0.25 && (needsAdjustment || minInk<11.0 || rightPad<11.0 || fabs(rightPad-minInk)>3.0) &&
+               minInk+shift>=8.0) {
                 for(HGAEpisodeForegroundState *s in visibleStates) {
                     UIView *v=s.view;
                     CGRect base=s.ownsFrame ? s.appliedFrame : s.sourceFrame;

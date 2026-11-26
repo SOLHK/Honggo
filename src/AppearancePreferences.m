@@ -165,6 +165,12 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         }
         choice(@"panels.commentMaterial",@"panels",@"评论区材质",@[@"inherit",@"clear",@"frosted",@"gaussian"],
             @[@"跟随面板材质",@"清透液态玻璃",@"模糊玻璃",@"高斯模糊"]);
+        [a addObject:HGADef(@"panels.commentFloatingBar",@"panels",@"评论区底部悬浮输入框",@"bool",@YES,
+            @{@"keywords":@"评论 底部 发评论 悬浮 胶囊 液态玻璃 模糊玻璃"})];
+        [a addObject:HGADef(@"panels.commentDetachedInput",@"panels",@"发评论弹出框分离悬浮",@"bool",@YES,
+            @{@"keywords":@"评论 弹出 输入框 分离 悬浮 键盘 液态玻璃 模糊玻璃"})];
+        choice(@"panels.commentInputMaterial",@"panels",@"评论输入框玻璃样式",@[@"liquid",@"blur"],
+            @[@"悬浮液态玻璃",@"悬浮模糊玻璃"]);
         choice(@"panels.material",@"panels",@"面板材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）"]);
         number(@"panels.opacity",@"panels",@"面板底色不透明度",0.28,0.08,0.85);
         flag(@"fonts.enabled",@"fonts",@"启用原生文字字体与缩放");
@@ -370,7 +376,7 @@ BOOL HGAppearanceEnabled(void){return HGAppearanceFlag(@"enabled");}
 BOOL HGAppearanceNeedsGlass(void) {
     if(!HGAppearanceEnabled())return NO;
     if(HGAppearanceFlag(@"player.finderGlass") || HGAppearanceFlag(@"player.mineGlass"))return YES;
-    for(NSString *key in @[@"dock.enabled",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"])
+    for(NSString *key in @[@"dock.enabled",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.commentFloatingBar",@"panels.commentDetachedInput",@"panels.share",@"panels.longpress",@"panels.speed"])
         if(HGAppearanceFlag(key))return YES;
     return NO;
 }
@@ -378,7 +384,7 @@ NSDictionary *HGAppearancePreset(NSString *name) {
     NSMutableDictionary *d=[NSMutableDictionary dictionary]; for(NSDictionary *def in HGAppearanceCatalog()) d[def[@"key"]]=def[@"default"];
     d[@"video.blockedKeywords"]=HGVideoBlockedKeywords();
     if([name isEqual:@"glass"] || [name isEqual:@"focus"]) {
-        for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"dock.haptics",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.share",@"panels.longpress",@"panels.speed"])d[key]=@YES;
+        for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"dock.haptics",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.commentFloatingBar",@"panels.commentDetachedInput",@"panels.share",@"panels.longpress",@"panels.speed"])d[key]=@YES;
         if([name isEqual:@"focus"]) {d[@"dock.collapse"]=@YES; d[@"dock.autoCollapse"]=@YES; for(NSString *role in @[@"avatar",@"tags",@"notice"])d[[NSString stringWithFormat:@"layout.%@.hidden",role]]=@YES; }
     }
     return d.copy;

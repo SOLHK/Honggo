@@ -111,7 +111,8 @@ int main(void) {@autoreleasepool {
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];
     NSSet *onWhenEnabled=[NSSet setWithArray:@[@"player.finderGlass",@"player.finderAI",@"player.mineGlass",@"player.episodeGlass",
-        @"player.controlsGlass",@"player.commentMovesVideo",@"panels.episodes",@"mine.show.publish",@"mine.show.theme"]];
+        @"player.controlsGlass",@"player.commentMovesVideo",@"panels.episodes",@"panels.commentFloatingBar",
+        @"panels.commentDetachedInput",@"mine.show.publish",@"mine.show.theme"]];
     BOOL unique=YES,defaults=YES;
     for(NSDictionary *entry in HGAppearanceCatalog()) {
         unique &= ![keys containsObject:entry[@"key"]];[keys addObject:entry[@"key"]];
@@ -128,6 +129,15 @@ int main(void) {@autoreleasepool {
         !HGAppearanceFlag(@"gestures.cleanWhilePlaying"), @"automatic playback clean is searchable and opt-in");
     Check([HGAppearanceSearch(@"评论区上移").firstObject[@"key"] isEqual:@"player.commentMovesVideo"] &&
         HGAppearanceFlag(@"player.commentMovesVideo"), @"the comment video movement switch is searchable and defaults to host behavior");
+    Check(HGAppearanceFlag(@"panels.commentFloatingBar") && HGAppearanceFlag(@"panels.commentDetachedInput") &&
+        [HGAppearanceString(@"panels.commentInputMaterial") isEqual:@"liquid"] &&
+        HGAppearanceSet(@"panels.commentInputMaterial",@"blur",nil) &&
+        [HGAppearanceString(@"panels.commentInputMaterial") isEqual:@"blur"] &&
+        !HGAppearanceSet(@"panels.commentInputMaterial",@"invalid",nil) &&
+        HGAppearanceSet(@"panels.commentInputMaterial",@"liquid",nil) &&
+        [HGAppearanceSearch(@"底部悬浮输入框").firstObject[@"key"] isEqual:@"panels.commentFloatingBar"] &&
+        [HGAppearanceSearch(@"分离悬浮").firstObject[@"key"] isEqual:@"panels.commentDetachedInput"],
+        @"comment floating bar, detached popup input and liquid/blur input material validate and remain searchable");
     Check(HGFlatTopStyle() && !HGFlatDockStyle() && !HGFlatPlayerStyle(),
         @"existing appearance settings start with flat top channels and glass dock and player actions");
     Check(HGAppearanceSet(@"dock.style",@"flat",nil) && HGFlatDockStyle() && HGFlatTopStyle() && !HGFlatPlayerStyle(),

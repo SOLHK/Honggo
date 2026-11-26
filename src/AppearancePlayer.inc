@@ -11,6 +11,7 @@
 @property(nonatomic) BOOL sourceClipping;
 @property(nonatomic) BOOL yieldedToHost;
 @property(nonatomic) NSUInteger transferFlags;
+@property(nonatomic) CFAbsoluteTime transferStartedAt;
 @property(nonatomic) NSUInteger generation;
 @property(nonatomic,weak) UIView *parent;
 @property(nonatomic,weak) id<UIViewControllerTransitionCoordinator> transition;
@@ -36,8 +37,19 @@ static UIView *HGAPlayerCanvas(UIView *view) {
         if ([view isKindOfClass:canvasClass]) return view;
     return nil;
 }
+static BOOL HGAPruneStaleTransfer(UIView *view) {
+    HGAPlayerFillState *state=HGAPlayerState(view,NO);
+    if(!state || !state.transferFlags)return NO;
+    if(view.window && view.superview && state.transferStartedAt>0 &&
+       CFAbsoluteTimeGetCurrent()-state.transferStartedAt>0.22) {
+        state.transferFlags=0;
+        state.transferStartedAt=0;
+        return NO;
+    }
+    return YES;
+}
 BOOL HGAppearancePlayerIsTransferring(UIView *view) {
-    return HGAPlayerState(view,NO).transferFlags || HGAPlayerState(HGAPlayerCanvas(view),NO).transferFlags;
+    return HGAPruneStaleTransfer(view) || HGAPruneStaleTransfer(HGAPlayerCanvas(view));
 }
 static void HGAPlayerFillStatus(UIView *render,NSString *status,CGFloat zoom) {
     HGAPlayerFillState *state=HGAPlayerState(render,YES);
@@ -88,6 +100,7 @@ static BOOL HGAWaitForPlayerTransition(UIView *render,UIView *canvas) {
 static void HGAPreparePlayerTransfer(UIView *view,SEL selector) {
     HGAPlayerFillState *state=HGAPlayerState(view,YES);
     state.transferFlags|=selector==@selector(willMoveToSuperview:)?1u:2u;
+    state.transferStartedAt=CFAbsoluteTimeGetCurrent();
     state.generation++;state.transition=nil;state.yieldedToHost=NO;
     HGARestorePlayerFill(view);
     if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"] && state.hasChildFill) {
@@ -103,7 +116,10 @@ static void HGAPreparePlayerTransfer(UIView *view,SEL selector) {
 }
 static void HGAFinishPlayerTransfer(UIView *view,SEL selector) {
     HGAPlayerFillState *state=HGAPlayerState(view,NO);
+    if(!state)return;
     state.transferFlags&=~(selector==@selector(didMoveToSuperview)?1u:2u);
+    if(view.superview && view.window)state.transferFlags=0;
+    if(!state.transferFlags)state.transferStartedAt=0;
 }
 static BOOL HGAHasKnownPlayerSurface(UIView *render) {
     // This hierarchy is present in the supplied 7.4.3.33 scene. Do not zoom

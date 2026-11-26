@@ -256,6 +256,174 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 @end
 
 
+const NSUInteger HGConfigurationBackupMaximumBytes = 192 * 1024;
+
+static BOOL HGBackupFailure(NSError **error, NSInteger code, NSString *description) {
+    if (error) *error = [NSError errorWithDomain:HGPreferencesErrorDomain code:code
+        userInfo:@{NSLocalizedDescriptionKey: description}];
+    return NO;
+}
+
+static BOOL HGBackupIsIntegerNumber(id value, NSInteger expected) {
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() ||
+        CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
+    return [value isEqualToNumber:@(expected)];
+}
+
+NSData *HGConfigurationBackupExport(NSError **error) {
+    if (error) *error = nil;
+    NSData *featureData = HGPreferencesExport(error);
+    if (!featureData) return nil;
+    NSDictionary *featureDoc = [NSJSONSerialization JSONObjectWithData:featureData options:0 error:error];
+    NSDictionary *features = [featureDoc isKindOfClass:NSDictionary.class] ? featureDoc[@"features"] : nil;
+    NSDictionary *appearance = HGAppearanceValues();
+    if (![features isKindOfClass:NSDictionary.class] || ![appearance isKindOfClass:NSDictionary.class]) {
+        HGBackupFailure(error, 1, @"无法整理当前功能与外观设置。");
+        return nil;
+    }
+    NSDictionary *document = @{
+        @"format": @"Honggo.backup",
+        @"schema": @2,
+        @"pluginVersion": HG_PLUGIN_VERSION,
+        @"features": features,
+        @"appearance": appearance
+    };
+    return [NSJSONSerialization dataWithJSONObject:document
+        options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:error];
+}
+
+NSDictionary *HGConfigurationBackupParse(NSData *data, NSError **error) {
+    if (error) *error = nil;
+    if (![data isKindOfClass:NSData.class] || data.length == 0 || data.length > HGConfigurationBackupMaximumBytes) {
+        HGBackupFailure(error, 1, @"请选择不超过 192 KB 的 Honggo 配置 JSON 文件。");
+        return nil;
+    }
+    NSError *decodeError = nil;
+    id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:&decodeError];
+    if (![root isKindOfClass:NSDictionary.class] || decodeError) {
+        HGBackupFailure(error, 2, @"文件不是有效的 Honggo 配置 JSON。");
+        return nil;
+    }
+    NSString *format = root[@"format"];
+    if ([format isEqual:@"Honggo.preferences"]) {
+        NSDictionary *features = HGPreferencesParse(data, error);
+        return features ? @{@"features": features} : nil;
+    }
+    if ([format isEqual:@"Honggo.appearance"]) {
+        NSDictionary *appearance = HGAppearanceParse(data, error);
+        return appearance ? @{@"appearance": appearance} : nil;
+    }
+    if (![format isEqual:@"Honggo.backup"]) {
+        HGBackupFailure(error, 3, @"该文件不是支持的 Honggo 配置备份；不会导入其他应用的设置。");
+        return nil;
+    }
+    if (!HGBackupIsIntegerNumber(root[@"schema"], 2)) {
+        HGBackupFailure(error, 4, @"当前 Honggo 不支持这个备份格式版本。");
+        return nil;
+    }
+    id version = root[@"pluginVersion"];
+    if (![version isKindOfClass:NSString.class] || [version length] == 0 || [version length] > 64) {
+        HGBackupFailure(error, 3, @"备份中的 Honggo 版本信息无效。");
+        return nil;
+    }
+    NSSet *allowed = [NSSet setWithArray:@[@"format", @"schema", @"pluginVersion", @"features", @"appearance"]];
+    for (id key in [root allKeys]) {
+        if (![allowed containsObject:key]) {
+            HGBackupFailure(error, 3, @"备份包含未知顶层字段，已拒绝导入。");
+            return nil;
+        }
+    }
+    id rawFeatures = root[@"features"];
+    id rawAppearance = root[@"appearance"];
+    if (!rawFeatures && !rawAppearance) {
+        HGBackupFailure(error, 5, @"备份未包含任何可恢复的功能或外观设置。");
+        return nil;
+    }
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    if (rawFeatures) {
+        if (![rawFeatures isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:rawFeatures]) {
+            HGBackupFailure(error, 5, @"备份中的功能开关格式无效。");
+            return nil;
+        }
+        NSData *wrapped = [NSJSONSerialization dataWithJSONObject:@{
+            @"format": @"Honggo.preferences", @"schema": @1,
+            @"pluginVersion": version, @"features": rawFeatures
+        } options:0 error:nil];
+        NSDictionary *validatedFeatures = HGPreferencesParse(wrapped, error);
+        if (!validatedFeatures) return nil;
+        result[@"features"] = validatedFeatures;
+    }
+    if (rawAppearance) {
+        if (![rawAppearance isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:rawAppearance]) {
+            HGBackupFailure(error, 6, @"备份中的外观参数格式无效。");
+            return nil;
+        }
+        NSData *wrapped = [NSJSONSerialization dataWithJSONObject:@{
+            @"format": @"Honggo.appearance", @"schema": @1, @"values": rawAppearance
+        } options:0 error:nil];
+        NSDictionary *validatedAppearance = HGAppearanceParse(wrapped, error);
+        if (!validatedAppearance) return nil;
+        result[@"appearance"] = validatedAppearance;
+    }
+    return result.copy;
+}
+
+NSUInteger HGConfigurationBackupChangeCount(NSDictionary *backup) {
+    if (![backup isKindOfClass:NSDictionary.class]) return 0;
+    NSUInteger changes = 0;
+    NSDictionary *features = backup[@"features"];
+    if ([features isKindOfClass:NSDictionary.class]) changes += HGPreferencesChangeCount(features);
+    NSDictionary *appearance = backup[@"appearance"];
+    if ([appearance isKindOfClass:NSDictionary.class]) {
+        NSDictionary *current = HGAppearanceValues();
+        for (NSString *key in appearance) {
+            id target = appearance[key];
+            id existing = current[key];
+            if (existing && ![existing isEqual:target]) changes++;
+        }
+    }
+    return changes;
+}
+
+BOOL HGConfigurationBackupApply(NSDictionary *backup, NSError **error) {
+    if (error) *error = nil;
+    if (![backup isKindOfClass:NSDictionary.class] || !backup.count)
+        return HGBackupFailure(error, 5, @"没有可恢复的配置内容。");
+    NSDictionary *features = backup[@"features"];
+    NSDictionary *appearance = backup[@"appearance"];
+    if (!features && !appearance)
+        return HGBackupFailure(error, 5, @"没有可恢复的配置内容。");
+    if (features) {
+        if (![features isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:features])
+            return HGBackupFailure(error, 5, @"功能开关内容无效。");
+        NSData *wrapped = [NSJSONSerialization dataWithJSONObject:@{
+            @"format": @"Honggo.preferences", @"schema": @1,
+            @"pluginVersion": HG_PLUGIN_VERSION, @"features": features
+        } options:0 error:nil];
+        if (!HGPreferencesParse(wrapped, error)) return NO;
+    }
+    if (appearance) {
+        if (![appearance isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:appearance])
+            return HGBackupFailure(error, 6, @"外观配置内容无效。");
+        NSData *wrapped = [NSJSONSerialization dataWithJSONObject:@{
+            @"format": @"Honggo.appearance", @"schema": @1, @"values": appearance
+        } options:0 error:nil];
+        NSDictionary *parsedAppearance = HGAppearanceParse(wrapped, error);
+        if (!parsedAppearance) return NO;
+        if ([parsedAppearance[@"dock.hide.home"] boolValue] &&
+            [parsedAppearance[@"dock.hide.theater"] boolValue] &&
+            [parsedAppearance[@"dock.hide.store"] boolValue] &&
+            [parsedAppearance[@"dock.hide.mine"] boolValue])
+            return HGBackupFailure(error, 6, @"至少保留一个底栏导航项目。");
+        appearance = parsedAppearance;
+    }
+    if (appearance && !HGAppearanceApply(appearance, error)) return NO;
+    if (features && !HGPreferencesApply(features, error)) return NO;
+    HGAppearanceRefresh();
+    return YES;
+}
+
 @interface HGSettingsController () <UISearchResultsUpdating, UISearchControllerDelegate, UIDocumentPickerDelegate>
 @property(nonatomic, strong) UISearchController *settingsSearch;
 @property(nonatomic, copy) NSString *activeQuery;
@@ -266,12 +434,18 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 @property(nonatomic, copy) NSArray<NSDictionary *> *visibleAppearance;
 @property(nonatomic) BOOL preferenceOperationInFlight;
 @property(nonatomic) BOOL communityVisible;
+@property(nonatomic, weak) UIViewController *pendingRestorePresenter;
 @property(nonatomic, copy) dispatch_block_t afterSearchDismissal;
 - (void)performAction:(NSUInteger)action inSection:(NSInteger)section presenter:(UIViewController *)presenter;
 - (void)toggleChanged:(UISwitch *)toggle;
 @end
 
 // Level 2 & Level 3 subpage controller mirroring FanqieX's clean hierarchy.
+@interface HGReleaseNotesController : UITableViewController
+@property(nonatomic) BOOL currentOnly;
+@property(nonatomic, copy) NSArray<NSArray<NSString *> *> *entries;
+@end
+
 @interface HGSettingsSubpageController : UITableViewController
 @property(nonatomic, copy) NSString *pageID;
 @property(nonatomic, weak) HGSettingsController *rootSettings;
@@ -332,7 +506,7 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
         [rows addObject:@{@"kind": @"action", @"section": @2, @"action": @1, @"title": @"从文件恢复配置", @"id": @"honggo.preferences.import"}];
     } else if ([pid isEqual:@"community"]) {
         self.title = @"作者与频道";
-        [rows addObject:@{@"kind": @"info", @"title": @"当前版本", @"detail": @"Honggo " HG_PLUGIN_VERSION, @"id": @"honggo.about.version"}];
+        [rows addObject:@{@"kind": @"changelog", @"title": @"当前版本", @"detail": @"Honggo " HG_PLUGIN_VERSION @" · 点击查看全部版本更新内容", @"id": @"honggo.about.version"}];
         [rows addObject:@{@"kind": @"community", @"title": @"TG 更新频道", @"detail": @"@Naloiafeed · 打开频道或复制地址", @"id": @"honggo.community.channel"}];
     }
     self.rows = rows;
@@ -342,7 +516,7 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     NSString *pid = self.pageID ?: @"";
     if ([pid isEqual:@"backup"])
-        return @"配置文件仅保存 Honggo 的功能开关。恢复前会核对格式并显示变更数量。恢复后，请完全退出再打开。";
+        return @"配置文件保存 Honggo 的全部功能开关、外观布局与屏蔽词设置（不含账号与日志）。恢复后界面外观立即生效；若更改了广告拦截开关，请完全退出红果后重开。";
     if ([pid isEqual:@"community"])
         return @"查看插件更新与测试版公告。只有点击打开或复制时才执行操作，不会自动加入频道。";
     if ([pid isEqual:@"base"]) {
@@ -412,6 +586,15 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
         HGOpenAppearance(self, row[@"group"]);
     } else if ([kind isEqual:@"community"]) {
         HGShowCommunity(self);
+    } else if ([kind isEqual:@"changelog"]) {
+        HGReleaseNotesController *all = [[HGReleaseNotesController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+        all.currentOnly = NO;
+        if (self.navigationController) {
+            [self.navigationController pushViewController:all animated:YES];
+        } else {
+            UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:all];
+            [self presentViewController:nav animated:YES completion:nil];
+        }
     } else if ([kind isEqual:@"action"]) {
         [self.rootSettings performAction:[row[@"action"] unsignedIntegerValue]
             inSection:[row[@"section"] integerValue] presenter:self];
@@ -419,41 +602,137 @@ static NSArray<NSDictionary *> *HGDiagnosticActions(void) {
 }
 @end
 
-@interface HGReleaseNotesController : UITableViewController
-@property(nonatomic, copy) NSArray<NSArray<NSString *> *> *entries;
-@end
+static NSAttributedString *HGFormattedReleaseNotesBody(NSString *raw) {
+    if (!raw.length) return nil;
+    NSCharacterSet *trimSet = [NSCharacterSet characterSetWithCharactersInString:@" \t\n\r；;。"];
+    NSArray<NSString *> *clauses = [raw componentsSeparatedByString:@"；"];
+    if (clauses.count <= 1) {
+        NSArray<NSString *> *sentences = [raw componentsSeparatedByString:@"。"];
+        NSMutableArray<NSString *> *nonEmpty = [NSMutableArray array];
+        for (NSString *s in sentences) {
+            NSString *c = [s stringByTrimmingCharactersInSet:trimSet];
+            if (c.length) [nonEmpty addObject:c];
+        }
+        if (nonEmpty.count > 1) clauses = nonEmpty;
+    }
+    NSMutableArray<NSString *> *bullets = [NSMutableArray array];
+    for (NSString *part in clauses) {
+        NSString *cleaned = [part stringByTrimmingCharactersInSet:trimSet];
+        if (!cleaned.length) continue;
+        [bullets addObject:[NSString stringWithFormat:@"• %@", cleaned]];
+    }
+    NSString *joined = bullets.count ? [bullets componentsJoinedByString:@"\n"] : raw;
+    NSMutableParagraphStyle *para = [NSMutableParagraphStyle new];
+    para.lineSpacing = 4.5;
+    para.paragraphSpacing = 7.0;
+    para.firstLineHeadIndent = 0.0;
+    para.headIndent = 12.5;
+    return [[NSAttributedString alloc] initWithString:joined attributes:@{
+        NSFontAttributeName: [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline],
+        NSForegroundColorAttributeName: UIColor.secondaryLabelColor,
+        NSParagraphStyleAttributeName: para
+    }];
+}
 
 @implementation HGReleaseNotesController
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title=@"更新记录";
-    self.entries=HGReleaseNotes();
-    self.navigationItem.rightBarButtonItem=[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
-        target:self action:@selector(closeNotes)];
-    self.tableView.accessibilityIdentifier=@"honggo.settings.releaseNotes";
-    self.tableView.rowHeight=UITableViewAutomaticDimension;
-    self.tableView.estimatedRowHeight=88;
-    self.tableView.backgroundColor=UIColor.clearColor;
-    self.tableView.allowsSelection=NO;
+    NSArray<NSArray<NSString *> *> *all = HGReleaseNotes();
+    if (self.currentOnly) {
+        self.title = @"当前版本更新";
+        NSArray<NSString *> *matched = nil;
+        for (NSArray<NSString *> *item in all) {
+            if ([item.firstObject isEqualToString:HG_PLUGIN_VERSION]) { matched = item; break; }
+        }
+        if (!matched) matched = all.firstObject;
+        self.entries = matched ? @[matched] : @[];
+    } else {
+        self.title = @"全部版本更新记录";
+        self.entries = all;
+    }
+    if (!self.navigationController || self.navigationController.viewControllers.firstObject == self) {
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
+            target:self action:@selector(closeNotes)];
+    }
+    self.tableView.accessibilityIdentifier = self.currentOnly ?
+        @"honggo.settings.releaseNotes.current" : @"honggo.settings.releaseNotes";
+    self.tableView.rowHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight = 96;
+    if (self.navigationController.presentingViewController && self.navigationController.modalPresentationStyle == UIModalPresentationPageSheet) {
+        self.tableView.backgroundColor = UIColor.clearColor;
+    }
+    self.tableView.allowsSelection = self.currentOnly;
 }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    if (self.currentOnly) return self.entries.count ? 2 : 1;
     return self.entries.count;
 }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (self.currentOnly && !self.entries.count) return 0;
+    return 1;
+}
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (self.currentOnly) return section == 0 ? @"本次版本更新内容" : @"全部版本历史";
+    if (section == 0) return @"当前版本";
+    if (section == 1) return @"历史版本记录";
+    return nil;
+}
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    if (self.currentOnly && section == 1)
+        return @"提示：如需随时查看全部历史版本的更新内容，请前往「Honggo 设置 → 作者与频道 → 当前版本」。";
+    return nil;
+}
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
-    UITableViewCell *cell=[tableView dequeueReusableCellWithIdentifier:@"release"];
-    if(!cell)cell=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"release"];
-    NSArray *entry=self.entries[path.row];
-    UIListContentConfiguration *content=[UIListContentConfiguration subtitleCellConfiguration];
-    content.text=entry.firstObject;
-    content.textProperties.font=[UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    content.secondaryText=entry.lastObject;
-    content.secondaryTextProperties.font=[UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-    content.secondaryTextProperties.numberOfLines=0;
-    content.textToSecondaryTextVerticalPadding=6;
-    content.directionalLayoutMargins=NSDirectionalEdgeInsetsMake(14,20,14,20);
-    cell.contentConfiguration=content;
-    cell.backgroundConfiguration=[UIBackgroundConfiguration clearConfiguration];
+    BOOL frostedSheet = self.navigationController.modalPresentationStyle == UIModalPresentationPageSheet &&
+        self.navigationController.sheetPresentationController != nil;
+    if (self.currentOnly && path.section == 1) {
+        UITableViewCell *hint = [tableView dequeueReusableCellWithIdentifier:@"releaseHint"];
+        if (!hint) hint = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"releaseHint"];
+        UIListContentConfiguration *cfg = [UIListContentConfiguration subtitleCellConfiguration];
+        cfg.text = @"查看全部版本的更新内容";
+        cfg.textProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+        cfg.secondaryText = @"前往「设置 → 作者与频道 → 当前版本」查看完整记录";
+        cfg.secondaryTextProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+        cfg.secondaryTextProperties.color = UIColor.secondaryLabelColor;
+        cfg.secondaryTextProperties.numberOfLines = 0;
+        cfg.textToSecondaryTextVerticalPadding = 4;
+        cfg.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(12, 16, 12, 16);
+        hint.contentConfiguration = cfg;
+        hint.accessibilityIdentifier = @"honggo.settings.releaseNotes.allHint";
+        hint.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        UIBackgroundConfiguration *bg = [UIBackgroundConfiguration listGroupedCellConfiguration];
+        if (frostedSheet) bg.backgroundColor = [UIColor.secondarySystemGroupedBackgroundColor colorWithAlphaComponent:0.65];
+        hint.backgroundConfiguration = bg;
+        return hint;
+    }
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"release"];
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"release"];
+    NSArray *entry = self.entries[self.currentOnly ? 0 : path.section];
+    UIListContentConfiguration *content = [UIListContentConfiguration subtitleCellConfiguration];
+    content.text = entry.firstObject;
+    content.textProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+    content.secondaryAttributedText = HGFormattedReleaseNotesBody(entry.lastObject);
+    content.secondaryTextProperties.numberOfLines = 0;
+    content.textToSecondaryTextVerticalPadding = 8;
+    content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(16, 18, 16, 18);
+    cell.contentConfiguration = content;
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    cell.accessoryType = UITableViewCellAccessoryNone;
+    UIBackgroundConfiguration *bg = [UIBackgroundConfiguration listGroupedCellConfiguration];
+    if (frostedSheet) bg.backgroundColor = [UIColor.secondarySystemGroupedBackgroundColor colorWithAlphaComponent:0.68];
+    cell.backgroundConfiguration = bg;
     return cell;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path {
+    [tableView deselectRowAtIndexPath:path animated:YES];
+    if (!self.currentOnly || path.section != 1) return;
+    HGReleaseNotesController *all = [[HGReleaseNotesController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    all.currentOnly = NO;
+    if (self.navigationController) {
+        all.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
+            target:all action:@selector(closeNotes)];
+        [self.navigationController pushViewController:all animated:YES];
+    }
 }
 - (void)closeNotes { [self dismissViewControllerAnimated:YES completion:nil]; }
 @end
@@ -484,7 +763,8 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
 @implementation HGSettingsController
 - (void)showReleaseNotes:(UIButton *)button {
     if(self.presentedViewController)return;
-    HGReleaseNotesController *notes=[[HGReleaseNotesController alloc] initWithStyle:UITableViewStylePlain];
+    HGReleaseNotesController *notes=[[HGReleaseNotesController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    notes.currentOnly=YES;
     UINavigationController *card=[[UINavigationController alloc] initWithRootViewController:notes];
     card.modalPresentationStyle=UIModalPresentationPageSheet;
     UISheetPresentationController *sheet=card.sheetPresentationController;
@@ -653,7 +933,7 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
     if (!self.isFiltering || section == 4) return nil;
     if (section == 3) return @"查看插件更新与测试版公告。只有点击打开或复制时才执行操作，不会自动加入频道。";
     if (section == 1) return @"复现问题后可截屏记录控件结构，再到诊断日志导出对应会话。";
-    if (section == 2) return @"配置文件仅保存 Honggo 的功能开关。恢复后，请完全退出再打开。";
+    if (section == 2) return @"配置文件保存 Honggo 的全部功能开关、外观布局与屏蔽词设置。恢复后界面外观立即生效。";
     return @"功能开关更改后请完全退出红果短剧，再重新打开。";
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -744,15 +1024,32 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
         HGLog(@"settings.toggle", @{@"feature": HGFeatureIdentifier(feature), @"enabled": @(toggle.on)});
 }
 - (UIViewController *)activePresenter:(UIViewController *)preferred {
-    UIViewController *top = preferred ?: self.navigationController.topViewController ?: self;
+    UIViewController *top = preferred.viewIfLoaded.window ? preferred :
+        (self.navigationController.topViewController.viewIfLoaded.window ? self.navigationController.topViewController : self);
     return top.viewIfLoaded.window ? top : self;
 }
+- (void)presentControllerWhenReady:(UIViewController *)modal on:(UIViewController *)preferred retries:(NSUInteger)retries {
+    if (!modal) return;
+    UIViewController *host = [self activePresenter:preferred ?: self.pendingRestorePresenter];
+    if (self.isBeingDismissed || self.navigationController.isBeingDismissed) return;
+    BOOL busy = !host.viewIfLoaded.window || host.isBeingPresented || host.isBeingDismissed ||
+        host.transitionCoordinator != nil || self.navigationController.transitionCoordinator != nil ||
+        host.presentedViewController != nil;
+    if (!busy) {
+        [host presentViewController:modal animated:YES completion:nil];
+        return;
+    }
+    if (retries == 0) return;
+    __weak HGSettingsController *weakSelf = self;
+    __weak UIViewController *weakPreferred = preferred;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        [weakSelf presentControllerWhenReady:modal on:weakPreferred retries:retries - 1];
+    });
+}
 - (void)showMessage:(NSString *)title detail:(NSString *)detail on:(UIViewController *)presenter {
-    UIViewController *host = [self activePresenter:presenter];
-    if (!host.viewIfLoaded.window || host.presentedViewController) return;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:detail preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-    [host presentViewController:alert animated:YES completion:nil];
+    [self presentControllerWhenReady:alert on:presenter retries:35];
 }
 - (void)showDiagnosticError:(NSError *)error on:(UIViewController *)presenter {
     [self showMessage:@"日志操作失败" detail:[NSString stringWithFormat:@"%@ (%ld)", error.domain, (long)error.code] on:presenter];
@@ -773,7 +1070,7 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
     if (self.preferenceOperationInFlight) return;
     [self setPreferenceBusy:YES];
     NSError *encodingError = nil;
-    NSData *data = HGPreferencesExport(&encodingError);
+    NSData *data = HGConfigurationBackupExport(&encodingError);
     if (!data) {
         [self setPreferenceBusy:NO];
         [self showMessage:@"配置导出失败" detail:encodingError.localizedDescription on:presenter];
@@ -792,28 +1089,40 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
         });
     });
 }
-- (void)confirmPreferenceRestore:(NSDictionary<NSString *, NSNumber *> *)features on:(UIViewController *)presenter {
-    UIViewController *host = [self activePresenter:presenter];
-    if (!host.viewIfLoaded.window || host.presentedViewController) return;
-    NSUInteger changed = HGPreferencesChangeCount(features);
-    if (!changed) { [self showMessage:@"无需恢复" detail:@"文件中的功能开关与当前设置一致。" on:host]; return; }
-    NSString *message = [NSString stringWithFormat:@"将更新 %lu 项 Honggo 功能开关。文件未包含的开关保持当前值，账号和其他设置不受影响。恢复后请完全退出再打开红果。", (unsigned long)changed];
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"恢复功能配置？" message:message preferredStyle:UIAlertControllerStyleAlert];
+- (void)confirmPreferenceRestore:(NSDictionary *)backup on:(UIViewController *)presenter {
+    NSUInteger changed = HGConfigurationBackupChangeCount(backup);
+    if (!changed) {
+        [self showMessage:@"无需恢复" detail:@"文件中的功能开关与外观设置已与当前设置一致。" on:presenter];
+        return;
+    }
+    NSString *message = [NSString stringWithFormat:@"将更新 %lu 项 Honggo 设置（包含功能开关与外观布局，账号与日志不受影响）。恢复后界面外观立即生效；如更改了广告拦截开关，请完全退出再打开红果。", (unsigned long)changed];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"恢复配置备份？" message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak HGSettingsController *weakSelf = self;
+    __weak UIViewController *weakPresenter = presenter;
     [alert addAction:[UIAlertAction actionWithTitle:@"恢复" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        HGSettingsController *strongSelf = weakSelf;
+        if (!strongSelf) return;
         NSError *error = nil;
-        if (HGPreferencesApply(features, &error)) {
+        if (HGConfigurationBackupApply(backup, &error)) {
             HGLog(@"settings.restored", @{@"changed": @(changed)});
-            [self.tableView reloadData];
+            [strongSelf.tableView reloadData];
+            for (UIViewController *vc in strongSelf.navigationController.viewControllers) {
+                if ([vc isKindOfClass:UITableViewController.class] && vc.isViewLoaded)
+                    [((UITableViewController *)vc).tableView reloadData];
+            }
+            [strongSelf showMessage:@"配置已恢复"
+                detail:[NSString stringWithFormat:@"已成功恢复 %lu 项设置。", (unsigned long)changed]
+                on:weakPresenter];
         } else {
-            dispatch_async(dispatch_get_main_queue(), ^{ [self showMessage:@"配置恢复失败" detail:error.localizedDescription on:host]; });
+            [strongSelf showMessage:@"配置恢复失败" detail:error.localizedDescription on:weakPresenter];
         }
     }]];
-    [host presentViewController:alert animated:YES completion:nil];
+    [self presentControllerWhenReady:alert on:presenter retries:45];
 }
-- (void)readPreferenceURL:(NSURL *)url {
+- (void)readPreferenceURL:(NSURL *)url on:(UIViewController *)presenter {
     if (self.preferenceOperationInFlight) return;
-    if (!url.isFileURL) { [self showMessage:@"无法恢复配置" detail:@"请选择本地或文件提供方中的 JSON 文件。" on:nil]; return; }
+    if (!url.isFileURL) { [self showMessage:@"无法恢复配置" detail:@"请选择本地或文件提供方中的 JSON 文件。" on:presenter]; return; }
     [self setPreferenceBusy:YES];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         BOOL scoped = [url startAccessingSecurityScopedResource];
@@ -825,7 +1134,7 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
             NSFileHandle *handle = [NSFileHandle fileHandleForReadingFromURL:readURL error:&readError];
             if (!handle) return;
             NSMutableData *buffer = [NSMutableData data];
-            NSUInteger limit = HGPreferencesMaximumBytes + 1;
+            NSUInteger limit = HGConfigurationBackupMaximumBytes + 1;
             while (buffer.length < limit) {
                 NSData *chunk = [handle readDataUpToLength:MIN((NSUInteger)8192, limit - buffer.length) error:&readError];
                 if (!chunk.length || readError) break;
@@ -836,20 +1145,23 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
         }];
         if (scoped) [url stopAccessingSecurityScopedResource];
         NSError *error = coordinationError ?: readError;
-        NSDictionary *features = error ? nil : HGPreferencesParse(data, &error);
+        NSDictionary *backup = error ? nil : HGConfigurationBackupParse(data, &error);
         dispatch_async(dispatch_get_main_queue(), ^{
             [self setPreferenceBusy:NO];
-            if (features) [self confirmPreferenceRestore:features on:nil];
-            else [self showMessage:@"无法恢复配置" detail:error.localizedDescription ?: @"无法读取所选文件。" on:nil];
+            if (backup) [self confirmPreferenceRestore:backup on:presenter];
+            else [self showMessage:@"无法恢复配置" detail:error.localizedDescription ?: @"无法读取所选文件。" on:presenter];
         });
     });
 }
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     NSURL *url = urls.firstObject;
     if (!url) return;
-    if (controller.presentingViewController) {
-        [controller dismissViewControllerAnimated:YES completion:^{ [self readPreferenceURL:url]; }];
-    } else [self readPreferenceURL:url];
+    UIViewController *presenter = self.pendingRestorePresenter;
+    if (controller.presentingViewController && !controller.isBeingDismissed) {
+        [controller dismissViewControllerAnimated:YES completion:^{ [self readPreferenceURL:url on:presenter]; }];
+    } else {
+        [self readPreferenceURL:url on:presenter];
+    }
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
@@ -893,6 +1205,7 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
     if (section == 2) {
         if (action == 0) [self exportPreferencesOn:host];
         else if (action == 1) {
+            self.pendingRestorePresenter = host;
             UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeJSON] asCopy:YES];
             picker.delegate = self;
             picker.allowsMultipleSelection = NO;

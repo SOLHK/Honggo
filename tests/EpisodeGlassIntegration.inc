@@ -130,7 +130,26 @@ static void RunEpisodeGlassChecks(UIView *root) {
         (!innerPlate.layer.backgroundColor || CGColorGetAlpha(innerPlate.layer.backgroundColor)==0) &&
         leftPad>=10 && rightPad>=10 && fabs(rightPad-leftPad)<=2.5,
         @"reused collection entry stays Dock-width without double-capsule paint and keeps symmetric left and right text padding");
-    [leadIcon removeFromSuperview];[albumTitle removeFromSuperview];[albumCount removeFromSuperview];[innerPlate removeFromSuperview];
+    // Simulate host SSShortVideoDistributionContentView relayout colliding leadIcon
+    // with the label and slicing the trailing character against the capsule border.
+    [albumCount removeFromSuperview];
+    leadIcon.frame=CGRectMake(14,15,16,16);
+    albumTitle.frame=CGRectMake(20,12,260,20);
+    albumTitle.attributedText=[[NSAttributedString alloc] initWithString:@"合集 · 《国产战争电影合集》更新至第88集"
+        attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:14 weight:UIFontWeightMedium],
+                     NSParagraphStyleAttributeName:clipStyle}];
+    Layout(wideContent);
+    CGRect iconInGlass=[leadIcon convertRect:leadIcon.bounds toView:wideGlass];
+    CGRect titleTextRect=[albumTitle textRectForBounds:albumTitle.bounds limitedToNumberOfLines:1];
+    CGRect titleInGlass=[albumTitle convertRect:titleTextRect toView:wideGlass];
+    CGFloat symLeft=CGRectGetMinX(iconInGlass);
+    CGFloat symRight=CGRectGetWidth(wideGlass.bounds)-CGRectGetMaxX(titleInGlass);
+    Check(CGRectGetMinX(titleInGlass)>=CGRectGetMaxX(iconInGlass)+5.0 &&
+        albumTitle.attributedText.length<[@"合集 · 《国产战争电影合集》更新至第88集" length] &&
+        ![albumTitle.attributedText.string containsString:@"…"] &&
+        symLeft>=10 && symRight>=10 && fabs(symRight-symLeft)<=2.0,
+        @"content relayout separates overlapping lead icon from text, hides overflowing trailing characters cleanly, and equalizes left/right capsule margins");
+    [leadIcon removeFromSuperview];[albumTitle removeFromSuperview];[innerPlate removeFromSuperview];
     [wideContent addSubview:trailing];
     wideEntry.frame=nativeWideFrame;wideContent.frame=nativeWideFrame;
     HGAppearanceSet(@"player.episodeDockWidth",@NO,nil);

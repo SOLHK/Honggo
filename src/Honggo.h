@@ -23,6 +23,12 @@ void HGStyleControl(UIView *control);
 UIUserInterfaceStyle HGGlassForegroundStyle(UIView *content, UITraitCollection *traits);
 UIColor *HGOriginalTabTitleColor(UILabel *label);
 
+FOUNDATION_EXPORT const NSUInteger HGConfigurationBackupMaximumBytes;
+NSData *HGConfigurationBackupExport(NSError **error);
+NSDictionary *HGConfigurationBackupParse(NSData *data, NSError **error);
+NSUInteger HGConfigurationBackupChangeCount(NSDictionary *backup);
+BOOL HGConfigurationBackupApply(NSDictionary *backup, NSError **error);
+
 @interface HGSettingsController : UITableViewController
 + (void)openFromController:(UIViewController *)presenter;
 + (void)openFromTabBar:(UILongPressGestureRecognizer *)gesture;

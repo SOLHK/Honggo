@@ -383,25 +383,44 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         UIViewController *presented=navigation.presentedViewController;
         return [presented isKindOfClass:UINavigationController.class] && !presented.isBeingPresented;
     } deadline:[NSDate dateWithTimeIntervalSinceNow:6] completion:^(BOOL opened) {
-        [self check:opened name:@"the version button opens the release notes card"];
+        [self check:opened name:@"the version button opens the current-version release notes card"];
         if(!opened){completion();return;}
-        UITableViewController *notes=(id)[(UINavigationController *)navigation.presentedViewController topViewController];
+        UINavigationController *notesNav=(UINavigationController *)navigation.presentedViewController;
+        UITableViewController *notes=(id)notesNav.topViewController;
         if(@available(iOS 26.1,*)) {
-            NSArray *detents=navigation.presentedViewController.sheetPresentationController.detents;
+            NSArray *detents=notesNav.sheetPresentationController.detents;
             BOOL frosted=detents.count==2;
             for(UISheetPresentationControllerDetent *detent in detents) frosted &= [detent.backgroundEffect isKindOfClass:UIBlurEffect.class];
-            [self check:frosted name:@"both sizes of the release history use a frosted sheet material"];
+            [self check:frosted name:@"both sizes of the release notes card use a frosted sheet material"];
         }
         UITableView *table=notes.tableView;
-        NSInteger count=[table numberOfRowsInSection:0];
-        NSIndexPath *first=[NSIndexPath indexPathForRow:0 inSection:0];
-        NSIndexPath *last=[NSIndexPath indexPathForRow:MAX(count-1,0) inSection:0];
-        UIListContentConfiguration *current=(id)[table.dataSource tableView:table cellForRowAtIndexPath:first].contentConfiguration;
-        if(count)[table scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:NO];
         [table layoutIfNeeded];
-        [self check:count>1 && [current.text isEqual:HGReleaseNotes().firstObject.firstObject] && current.secondaryText.length &&
-            [table.indexPathsForVisibleRows containsObject:last] name:@"the last published notes lead the scrollable history for an unlisted build"];
-        [navigation dismissViewControllerAnimated:NO completion:completion];
+        NSIndexPath *first=[NSIndexPath indexPathForRow:0 inSection:0];
+        NSIndexPath *hintPath=[NSIndexPath indexPathForRow:0 inSection:1];
+        UIListContentConfiguration *current=(id)[table.dataSource tableView:table cellForRowAtIndexPath:first].contentConfiguration;
+        UITableViewCell *hintCell=[table.dataSource tableView:table cellForRowAtIndexPath:hintPath];
+        NSString *footer=[table.dataSource tableView:table titleForFooterInSection:1];
+        [self check:[table numberOfSections]==2 && [table numberOfRowsInSection:0]==1 &&
+            [current.text isEqual:HGReleaseNotes().firstObject.firstObject] &&
+            current.secondaryAttributedText.length>0 && [current.secondaryAttributedText.string containsString:@"• "] &&
+            [hintCell.accessibilityIdentifier isEqual:@"honggo.settings.releaseNotes.allHint"] &&
+            [footer containsString:@"作者与频道"]
+            name:@"top-left version button shows only the formatted current version and directs users to Author & Channel for full history"];
+        [notes tableView:table didSelectRowAtIndexPath:hintPath];
+        [self poll:^BOOL {
+            return notesNav.topViewController!=notes && !notesNav.transitionCoordinator;
+        } deadline:[NSDate dateWithTimeIntervalSinceNow:5] completion:^(BOOL pushedAll) {
+            UITableViewController *allNotes=(id)notesNav.topViewController;
+            UITableView *allTable=allNotes.tableView;
+            NSInteger sections=[allTable numberOfSections];
+            NSIndexPath *last=[NSIndexPath indexPathForRow:0 inSection:MAX(sections-1,0)];
+            if(sections)[allTable scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:NO];
+            [allTable layoutIfNeeded];
+            [self check:pushedAll && sections==(NSInteger)HGReleaseNotes().count &&
+                [allTable.indexPathsForVisibleRows containsObject:last]
+                name:@"full release history displays every version in well-formatted cards and scrolls to the earliest entry"];
+            [navigation dismissViewControllerAnimated:NO completion:completion];
+        }];
     }];
 }
 - (void)runDiagnosticExportWithCompletion:(dispatch_block_t)completion {
@@ -573,10 +592,39 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
     [communityPage setValue:@"community" forKey:@"pageID"];
     [communityPage setValue:settings forKey:@"rootSettings"];
     [communityPage loadViewIfNeeded];
+    UITableViewCell *versionRow = [communityPage tableView:communityPage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
     UITableViewCell *communityRow = [communityPage tableView:communityPage.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:0]];
     [self check:[communityPage.tableView numberOfRowsInSection:0] == 2 &&
+        [versionRow.accessibilityIdentifier isEqual:@"honggo.about.version"] &&
+        versionRow.accessoryType == UITableViewCellAccessoryDisclosureIndicator &&
         [communityRow.accessibilityIdentifier isEqual:@"honggo.community.channel"]
-        name:@"Telegram channel is visible in the author/channel subpage without enabling any feature"];
+        name:@"Telegram channel and interactive version history entry are visible in the author/channel subpage"];
+
+    NSDictionary *savedAppearance = [HGAppearanceValues() copy];
+    NSDictionary *savedFeatures = HGPreferencesParse(HGPreferencesExport(nil), nil);
+    HGSetEnabled(HGSplash, NO);
+    HGAppearanceApply(@{@"enabled": @YES, @"dock.height": @68, @"panels.commentInputMaterial": @"blur",
+        @"video.blockedKeywords": @[@"测试词"]}, nil);
+    NSError *backupErr = nil;
+    NSData *fullBackupData = HGConfigurationBackupExport(&backupErr);
+    NSDictionary *parsedFull = HGConfigurationBackupParse(fullBackupData, &backupErr);
+    HGPreferencesReset();
+    HGAppearanceReset();
+    NSUInteger pendingChanges = HGConfigurationBackupChangeCount(parsedFull);
+    BOOL appliedFull = HGConfigurationBackupApply(parsedFull, &backupErr);
+    [self check:fullBackupData.length > 0 && parsedFull != nil && backupErr == nil &&
+        pendingChanges >= 4 && appliedFull && !HGIsEnabled(HGSplash) &&
+        HGAppearanceEnabled() && HGAppearanceNumber(@"dock.height") == 68 &&
+        [HGAppearanceString(@"panels.commentInputMaterial") isEqual:@"blur"] &&
+        [HGVideoBlockedKeywords() isEqual:@[@"测试词"]] &&
+        HGConfigurationBackupChangeCount(parsedFull) == 0
+        name:@"unified configuration backup exports and restores both feature switches and full appearance settings"];
+    NSData *legacyPrefData = HGPreferencesExport(nil);
+    NSDictionary *parsedLegacy = HGConfigurationBackupParse(legacyPrefData, &backupErr);
+    [self check:parsedLegacy[@"features"] != nil && parsedLegacy[@"appearance"] == nil && backupErr == nil
+        name:@"configuration restore remains backward-compatible with v1 feature-only backups"];
+    HGPreferencesApply(savedFeatures, nil);
+    HGAppearanceApply(savedAppearance, nil);
     [self check:[HGCommunityURLString() isEqual:@"https://t.me/Naloiafeed"]
         name:@"channel destination matches the owner supplied HTTPS address exactly"];
     for (NSString *query in @[@"TG", @"频道", @"nAlOiAfEeD", @"telegram 更新"]) {

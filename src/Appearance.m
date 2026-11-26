@@ -147,6 +147,7 @@ static BOOL HGAInsideFeedShareTap;
 static NSUInteger HGAPlayerTransferInvocation;
 static void HGATracePlayerTransfer(id object,SEL selector,id destination,NSUInteger invocation,NSString *phase) {
     if(!invocation)return;
+    if(![phase isEqual:@"exception"] && (!HGAppearanceFlag(@"player.fullscreen") || invocation>12))return;
     HGLog(@"appearance.player-transfer",@{@"class":NSStringFromClass([object class]),
         @"method":NSStringFromSelector(selector),@"attached":@(destination!=nil),
         @"fullscreen":@(HGAppearanceFlag(@"player.fullscreen")),@"phase":phase,
@@ -175,7 +176,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL playbackStateChanged=selector==sel_registerName("playerPlaybackStateDidChanged:");
     BOOL pauseNext=playerCanvas && selector==sel_registerName("pauseWhenPlayNext");
     BOOL backdropChange=playerCanvas && (selector==sel_registerName("refreshBgColor") ||
-        selector==sel_registerName("refreshCoverImageView"));
+        selector==sel_registerName("refreshCoverImageView") ||
+        selector==sel_registerName("layoutVideoView"));
     BOOL firstPicture=playerCanvas && selector==sel_registerName("vPlayerReadyToDisPlay:");
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL mediaPlayer=[className isEqual:@"FQVPlayer"];
@@ -261,7 +263,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             ((void(*)(id,SEL))original)(panel,selector);
             HGAPrimeEpisodeCommentCount(panel);
         });
-    } else if (selector==sel_registerName("setPlayerViewFrame:") &&
+    } else if ((selector==sel_registerName("setPlayerViewFrame:") ||
+                (playerCanvas && selector==sel_registerName("refreshUIWithPlayViewFrame:"))) &&
                !strcmp(encoding,"v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16")) {
         replacement=imp_implementationWithBlock(^(UIView *hud,CGRect frame) {
             ((void(*)(id,SEL,CGRect))original)(hud,selector,frame);
@@ -520,8 +523,28 @@ static void HGAInstallNativeShareRoute(void) {
     HGAHook(object_getClass(presenter),sel_registerName("presentationMode"),"q16@0:8",NO);
     HGAHook(manager,sel_registerName("shareViewDidClick:"),"v24@0:8@16",NO);
 }
+static void HGAScanMountedViewsOnce(void) {
+    static BOOL scanned;
+    if(scanned)return;
+    NSMutableArray<UIWindow *> *windows=[NSMutableArray array];
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        for(UIWindow *w in ((UIWindowScene *)scene).windows)if(!w.hidden)[windows addObject:w];
+    }
+    if(!windows.count)return;
+    scanned=YES;
+    for(UIWindow *window in windows) {
+        for(UIView *view in HGADescendants(window,384)) {
+            NSString *clsName=NSStringFromClass(view.class);
+            if(HGAViewRoles()[clsName] || [clsName isEqual:@"FQVShortVideoPlayerCellView"] ||
+               [clsName isEqual:@"FQVCollectionView"] || [clsName isEqual:@"SSTabBar"])
+                HGAppearanceProcessView(view);
+        }
+    }
+}
 void HGAppearanceRefresh(void) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();}); return; }
+    HGAScanMountedViewsOnce();
     HGARefreshPlaybackQualityPreference();
     HGAUpdateEpisodeMedia(UIApplication.sharedApplication.applicationState!=UIApplicationStateBackground);
     HGARefreshCleanPlayback();
@@ -611,6 +634,7 @@ void HGInstallAppearance(void) {
         [classes addObjectsFromArray:HGALandscapeChromeClasses()];
         [classes addObject:@"FQVTransitionPlayerTopContentView"];
         [classes addObject:@"FQVShortVideoVPlayerSingleSeriesControlView"];
+        [classes addObjectsFromArray:@[@"SSShortVideoDistributionContentView",@"SSShortVideoDistributionContentBaseView"]];
         [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"FQVPlayer",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar",@"FQVShortVideoBaseInsertView"]];
         for (NSString *name in classes) {
             Class cls=NSClassFromString(name);
@@ -627,6 +651,18 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName(tag?"updateAppearance":"modelDidUpdate"),"v16@0:8",NO);
                 HGAHook(cls,@selector(traitCollectionDidChange:),"v24@0:8@16",NO);
                 if(tag)HGAHook(cls,sel_registerName("onDarkModeChange:"),"v20@0:8B16",NO);
+            }
+            if([name isEqual:@"FQCShortVideoBottomToolBar"]) {
+                if(class_getInstanceMethod(cls,sel_registerName("configThemeWithDarkMode:")))
+                    HGAHook(cls,sel_registerName("configThemeWithDarkMode:"),"v20@0:8B16",NO);
+                if(class_getInstanceMethod(cls,sel_registerName("setup:")))
+                    HGAHook(cls,sel_registerName("setup:"),"v24@0:8@16",NO);
+            }
+            if([name isEqual:@"FQCShortVideoNewEditorView"]) {
+                for(NSString *selName in @[@"setIsShowEmoticonBoard:",@"setIsShowKeyboard:",@"setIsCurrentShowSelectImageView:"]) {
+                    SEL sel=NSSelectorFromString(selName);
+                    if(class_getInstanceMethod(cls,sel))HGAHook(cls,sel,"v20@0:8B16",NO);
+                }
             }
             if([name isEqual:@"FQCShortVideoCommentSectionFooterView"]) {
                 HGAHook(cls,sel_registerName("setupTheme"),"v16@0:8",NO);
@@ -715,12 +751,18 @@ void HGInstallAppearance(void) {
             if([name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 HGAHook(cls,sel_registerName("refreshBgColor"),"v16@0:8",NO);
                 HGAHook(cls,sel_registerName("refreshCoverImageView"),"v16@0:8",NO);
+                if(class_getInstanceMethod(cls,sel_registerName("layoutVideoView")))
+                    HGAHook(cls,sel_registerName("layoutVideoView"),"v16@0:8",NO);
+                if(class_getInstanceMethod(cls,sel_registerName("refreshUIWithPlayViewFrame:")))
+                    HGAHook(cls,sel_registerName("refreshUIWithPlayViewFrame:"),"v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",NO);
                 HGAHook(cls,sel_registerName("vPlayerReadyToDisPlay:"),"v24@0:8@16",NO);
                 HGAHook(cls,sel_registerName("playWithType:"),"v24@0:8q16",NO);
                 HGAHook(cls,sel_registerName("resumeWithType:"),"v24@0:8q16",NO);
                 if(class_getInstanceMethod(cls,sel_registerName("pauseWhenPlayNext")))
                     HGAHook(cls,sel_registerName("pauseWhenPlayNext"),"v16@0:8",NO);
             }
+            if([name isEqual:@"FQVShortVideoLoadingView"])
+                HGAHook(cls,@selector(setHidden:),"v20@0:8B16",NO);
             if([name isEqual:@"FQCShortVideoDanmakuEntranceView"])
                 HGAHook(cls,sel_registerName("refreshIcon"),"v16@0:8",NO);
             if([name isEqual:@"FQVShortVideoPlayerCellView"]) {
@@ -817,6 +859,7 @@ void HGInstallAppearance(void) {
         }
         Class detailController=NSClassFromString(@"SSShortVideoDetailViewController");
         if([detailController isSubclassOfClass:UIViewController.class]) {
+            HGAHook(detailController,@selector(viewDidAppear:),"v20@0:8B16",YES);
             HGAHook(detailController,@selector(viewDidDisappear:),"v20@0:8B16",YES);
             HGAHook(detailController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
         }
@@ -826,6 +869,7 @@ void HGInstallAppearance(void) {
         static dispatch_once_t once;
         dispatch_once(&once, ^{
             HGAInstallAppSwitchHUDs();
+            if(NSThread.isMainThread)HGAScanMountedViewsOnce();
             dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();});
             NSArray *notifications=@[HGAppearanceDidChangeNotification,
                 UIAccessibilityReduceTransparencyStatusDidChangeNotification,

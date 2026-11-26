@@ -1564,9 +1564,12 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
     UIButton *titleMenu=(id)Find(titleBar,@"honggo.appearance.mine.menu");
     [titleMenu sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+    UIView *menuBadge=Find(titleMenu,@"honggo.appearance.mine.menu.badge");
+    CGRect glyphInMenu=[titleMenu.imageView convertRect:titleMenu.imageView.bounds toView:titleMenu];
     Check(titleMenu && !CGRectIntersectsRect(moon.frame,[titleMenu.superview convertRect:titleMenu.frame toView:renderer]) &&
+        CGRectGetWidth(glyphInMenu)<=24 && !CGRectIntersectsRect(glyphInMenu,menuBadge.frame) &&
         [titleMenu.accessibilityValue isEqual:@"有新消息"] && nativeMine.sidebarOpens==1,
-        @"the title menu remains actionable and announces the host badge after Compose removes the shared menu glyph");
+        @"the title menu uses a balanced glyph clear of its badge and remains actionable after Compose removes the shared menu glyph");
     nativeMine.sidebarSnapshot.showRedDot=0;
     [nativeMine minePageKMPSidebarEntrySnapshot:nativeMine.minePageKMPDepend];
     HGAppearanceProcessController(nativeMine);
@@ -1701,17 +1704,17 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     Check(wideAll.bgLayer.hidden && wideWatched.bgLayer.hidden &&
         wideScroll.clipsToBounds && !wideCats.clipsToBounds && !wideCollection.clipsToBounds &&
         !wideAll.clipsToBounds && !wideAll.contentView.clipsToBounds &&
-        CGRectGetMinY(allInScroll)>=2.5 && CGRectGetMaxY(allInScroll)<=CGRectGetHeight(wideScroll.bounds)-2.5 &&
-        fabs(CGRectGetWidth(allPill.bounds)-54)<0.01 && fabs(CGRectGetHeight(allPill.bounds)-26)<0.01 &&
-        fabs(CGRectGetWidth(watchedPill.bounds)-68)<0.01 && fabs(CGRectGetHeight(watchedPill.bounds)-26)<0.01 &&
-        wideDivider.hidden && fabs(CGRectGetWidth(filterInBar)-44)<0.01 && fabs(CGRectGetHeight(filterInBar)-26)<0.01 &&
-        fabs(CGRectGetWidth(editInBar)-44)<0.01 && fabs(CGRectGetHeight(editInBar)-26)<0.01 &&
+        CGRectGetMinY(allInScroll)>=1.8 && CGRectGetMaxY(allInScroll)<=CGRectGetHeight(wideScroll.bounds)-1.8 &&
+        fabs(CGRectGetWidth(allPill.bounds)-54)<0.01 && fabs(CGRectGetHeight(allPill.bounds)-28)<0.01 &&
+        fabs(CGRectGetWidth(watchedPill.bounds)-68)<0.01 && fabs(CGRectGetHeight(watchedPill.bounds)-28)<0.01 &&
+        wideDivider.hidden && fabs(CGRectGetWidth(filterInBar)-44)<0.01 && fabs(CGRectGetHeight(filterInBar)-28)<0.01 &&
+        fabs(CGRectGetWidth(editInBar)-44)<0.01 && fabs(CGRectGetHeight(editInBar)-28)<0.01 &&
         CGAffineTransformIsIdentity(wideFilter.transform) && CGAffineTransformIsIdentity(wideEdit.transform) &&
         CGRectEqualToRect(wideFilter.frame,CGRectMake(339.5,6,30,32)) &&
         CGRectEqualToRect(wideEdit.frame,CGRectMake(394,6,30,32)) &&
         CGRectGetMinX(filterInBar)>=CGRectGetMaxX(wideScroll.frame)+0.5 &&
         CGRectGetMinX(editInBar)>=CGRectGetMaxX(filterInBar)+6.0,
-        @"wide Mine history unclips inner cell/collection rims inside the 32pt strip and shapes Filter/Edit into 26pt capsules without transform drift");
+        @"wide Mine history unclips inner cell/collection rims inside the 32pt strip and shapes Filter/Edit into 28pt capsules without transform drift");
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
     Check(!wideAll.bgLayer.hidden && !wideWatched.bgLayer.hidden && !wideDivider.hidden &&
         wideCats.clipsToBounds && wideCollection.clipsToBounds && wideAll.clipsToBounds && wideAll.contentView.clipsToBounds &&

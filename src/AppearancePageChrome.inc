@@ -292,6 +292,8 @@ static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL enabled) {
         HGASetHistoryCellBackingHidden(target,enabled);
         HGASetHistoryUnclipped(target,content ? @[target,content] : @[target],enabled);
         target=content;
+    } else if(target) {
+        HGASetHistoryUnclipped(target,@[target],enabled);
     }
     CGRect frame=enabled ? target.bounds : CGRectZero;
     if(enabled && !CGRectIsEmpty(frame)) {
@@ -299,10 +301,10 @@ static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL enabled) {
             CGFloat side=target.clipsToBounds ? MIN(30,MIN(frame.size.width,frame.size.height)) : 30;
             frame=CGRectInset(frame,(frame.size.width-side)/2,(frame.size.height-side)/2);
         } else {
-            // Keep 3pt vertical breathing room inside the 32pt clipped history
+            // Keep 2pt vertical breathing room inside the 32pt clipped history
             // strip so UIGlassEffect's outer specular rim is never sliced flat,
-            // and give right-side 30pt text controls matching 26pt capsules.
-            CGFloat height=MIN(26,frame.size.height);
+            // and give right-side 30pt text controls matching 28pt capsules.
+            CGFloat height=isCell ? MIN(28,frame.size.height) : 28;
             CGFloat width=isCell ? (frame.size.width>=44 ? frame.size.width-2 : frame.size.width) :
                 HGAHistoryActionCapsuleWidth(target);
             frame=CGRectInset(frame,(frame.size.width-width)/2,(frame.size.height-height)/2);
@@ -903,6 +905,22 @@ static void HGAWatchMineTitleRenderer(UIViewController *page,UIView *renderer) {
     objc_setAssociatedObject(renderer,&HGAMineTitleWatchKey,watch,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+@interface HGAMineMenuButton : UIButton
+@end
+@implementation HGAMineMenuButton
+- (void)setHighlighted:(BOOL)highlighted {
+    BOOL changed=(self.isHighlighted!=highlighted);
+    [super setHighlighted:highlighted];
+    if(!changed || UIAccessibilityIsReduceMotionEnabled())return;
+    [UIView animateWithDuration:highlighted ? 0.14 : 0.34 delay:0
+        usingSpringWithDamping:highlighted ? 0.92 : 0.68 initialSpringVelocity:0
+        options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
+        animations:^{
+            self.transform=highlighted ? CGAffineTransformMakeScale(0.92,0.92) : CGAffineTransformIdentity;
+        } completion:nil];
+}
+@end
+
 static char HGAMineShortcutMaskKey,HGAMineTitleGlassKey;
 static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMutableArray<UIView *> *glyphs) {
     UIButton *button=objc_getAssociatedObject(controller,&HGAMineMenuButtonKey);
@@ -920,21 +938,24 @@ static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMu
             id depend=HGReadObjectGetter(page,"minePageKMPDepend");
             if(depend)((void (*)(id,SEL,id,BOOL))objc_msgSend)(page,sel_registerName("minePageKMPDepend:setSidebarOpen:"),depend,YES);
         }];
-        button=[UIButton buttonWithType:UIButtonTypeSystem primaryAction:open];
+        button=[HGAMineMenuButton buttonWithType:UIButtonTypeCustom primaryAction:open];
         button.accessibilityIdentifier=@"honggo.appearance.mine.menu";
         button.accessibilityLabel=@"菜单";
-        UIImageSymbolConfiguration *icon=[UIImageSymbolConfiguration configurationWithPointSize:21 weight:UIImageSymbolWeightMedium];
-        [button setImage:[UIImage systemImageNamed:@"line.3.horizontal" withConfiguration:icon] forState:UIControlStateNormal];
+        UIImageSymbolConfiguration *icon=[UIImageSymbolConfiguration configurationWithPointSize:15.5 weight:UIImageSymbolWeightMedium];
+        UIImage *menuImage=[[UIImage systemImageNamed:@"line.3.horizontal" withConfiguration:icon]
+            imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+        [button setImage:menuImage forState:UIControlStateNormal];
+        button.imageView.contentMode=UIViewContentModeCenter;
         button.tintColor=UIColor.labelColor;
-        UIView *dot=[[UIView alloc] initWithFrame:CGRectMake(29,8,6,6)];
+        UIView *dot=[[UIView alloc] initWithFrame:CGRectMake(27.5,11,6,6)];
         dot.layer.cornerRadius=3; dot.userInteractionEnabled=NO; dot.accessibilityElementsHidden=YES;
         dot.backgroundColor=UIColor.systemOrangeColor;
         dot.accessibilityIdentifier=@"honggo.appearance.mine.menu.badge";
         [button addSubview:dot];
         objc_setAssociatedObject(controller,&HGAMineMenuButtonKey,button,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    UIColor *menuTint=HGAAdaptivePageStyle(controller,titleBar)==UIUserInterfaceStyleDark ?
-        UIColor.whiteColor : UIColor.labelColor;
+    BOOL darkStyle=HGAAdaptivePageStyle(controller,titleBar)==UIUserInterfaceStyleDark;
+    UIColor *menuTint=darkStyle ? UIColor.whiteColor : UIColor.labelColor;
     if(![button.tintColor isEqual:menuTint])button.tintColor=menuTint;
     CGFloat x=CGRectGetMaxX(titleBar.bounds)-28,y=CGRectGetMaxY(titleBar.bounds)-22;
     UIView *neighbour=glyphs.firstObject;
@@ -943,10 +964,17 @@ static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMu
         y=CGRectGetMidY(occupied);
         if(fabs(x-CGRectGetMidX(occupied))<32)x=CGRectGetMidX(occupied)-40;
     }
+    CGAffineTransform savedTransform=button.transform;
+    if(!CGAffineTransformIsIdentity(savedTransform))button.transform=CGAffineTransformIdentity;
     CGRect frame=CGRectMake(x-22,y-22,44,44);
     if(!CGRectEqualToRect(button.frame,frame))button.frame=frame;
-    for(UIView *child in button.subviews)if([child.accessibilityIdentifier isEqual:@"honggo.appearance.mine.menu.badge"])
+    if(!CGAffineTransformIsIdentity(savedTransform))button.transform=savedTransform;
+    for(UIView *child in button.subviews)if([child.accessibilityIdentifier isEqual:@"honggo.appearance.mine.menu.badge"]) {
         child.hidden=source.integerValue!=2;
+        child.layer.borderWidth=1.0/MAX(1.0,button.traitCollection.displayScale);
+        child.layer.borderColor=(darkStyle ? [UIColor.blackColor colorWithAlphaComponent:0.45] :
+            [UIColor.whiteColor colorWithAlphaComponent:0.9]).CGColor;
+    }
     button.accessibilityValue=source.integerValue==2 ? @"有新消息" : nil;
     if(button.superview!=titleBar)[titleBar addSubview:button];
 }
@@ -1008,7 +1036,7 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
     HGAWatchMineTitleRenderer(controller,HGAMineHidesMore() ? renderer : nil);
     HGAUpdateMineMenu(controller,renderer ? titleBar : nil,targets);
     UIButton *menu=objc_getAssociatedObject(controller,&HGAMineMenuButtonKey);
-    if(menu.imageView)[targets addObject:menu.imageView];
+    if(menu.superview==titleBar)[targets addObject:menu];
     NSArray<UIView *> *backings=objc_getAssociatedObject(root,&HGAMineTitleGlassKey);
     if(!glass || !targets.count || targets.count>2 || backings.count!=targets.count) {
         for(UIView *backing in backings)[backing removeFromSuperview];
@@ -1027,13 +1055,16 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
     }
     for(NSUInteger index=0;index<targets.count;index++) {
         UIView *glyph=targets[index],*backing=backings[index];
-        CGRect ink=[glyph convertRect:glyph.bounds toView:titleBar];
-        CGRect frame=CGRectMake(CGRectGetMidX(ink)-18,CGRectGetMidY(ink)-18,36,36);
+        CGPoint center=(glyph==menu) ? menu.center :
+            CGPointMake(CGRectGetMidX([glyph convertRect:glyph.bounds toView:titleBar]),
+                        CGRectGetMidY([glyph convertRect:glyph.bounds toView:titleBar]));
+        CGRect frame=CGRectMake(center.x-18,center.y-18,36,36);
         if(!CGRectEqualToRect(backing.frame,frame))backing.frame=frame;
         // The Compose glyphs are clipped to 24pt. Use their title bar for the
         // glass so the original touch views, clipping and unread dot stay intact.
         if(backing.superview!=titleBar)[titleBar insertSubview:backing atIndex:0];
         HGAApplyFinderMaterial(backing,HGAVisible(backing) ? backing.bounds : CGRectZero,NO);
+        if(glyph==menu)HGAState(backing,NO).glass.flexTouchHost=menu;
     }
 }
 

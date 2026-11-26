@@ -64,6 +64,8 @@
 @implementation FQCShortVideoCommentListCollectionView @end
 @interface FQCShortVideoBottomToolBar : UIView @end
 @implementation FQCShortVideoBottomToolBar @end
+@interface FQCShortVideoNewEditorView : UIView @end
+@implementation FQCShortVideoNewEditorView @end
 @interface FQCShortVideoCommentCommonCell : UICollectionViewCell
 - (void)configTheme:(BOOL)dark;
 @end
@@ -316,6 +318,68 @@ static void RunCommentSheetAppearanceChecks(UIViewController *host) {
     if(dockWasVisible)Check(!dock.hidden,@"comment sheet cleanup restores Dock visibility");
     [panel.view removeFromSuperview];[panel removeFromParentViewController];[transition removeFromSuperview];
     HGAppearanceApply(@{@"panels.comment":@YES,@"panels.material":savedMaterial},nil);
+
+    // Floating bottom comment capsule (图五) and detached popup editor card (图六/图七).
+    FQCShortVideoBottomToolBar *richBar=[[FQCShortVideoBottomToolBar alloc] initWithFrame:CGRectMake(0,root.bounds.size.height-90,width,90)];
+    richBar.backgroundColor=UIColor.whiteColor;
+    UIVisualEffectView *barBlur=[[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial]];
+    barBlur.frame=richBar.bounds;[richBar addSubview:barBlur];
+    UIView *barCover=[[UIView alloc] initWithFrame:richBar.bounds];barCover.backgroundColor=UIColor.whiteColor;[richBar addSubview:barCover];
+    UIView *barHairline=[[UIView alloc] initWithFrame:CGRectMake(0,0,width,0.5)];barHairline.backgroundColor=UIColor.separatorColor;[richBar addSubview:barHairline];
+    UIView *innerPill=[[UIView alloc] initWithFrame:CGRectMake(16,10,width-112,36)];
+    innerPill.backgroundColor=UIColor.secondarySystemBackgroundColor;
+    UILabel *promptLabel=[[UILabel alloc] initWithFrame:CGRectMake(12,8,width-136,20)];
+    promptLabel.text=@"有趣评论千千万，不如你也来一条？";[innerPill addSubview:promptLabel];[richBar addSubview:innerPill];
+    UIButton *emojiBtn=[UIButton buttonWithType:UIButtonTypeCustom];
+    emojiBtn.frame=CGRectMake(width-44,14,28,28);[richBar addSubview:emojiBtn];
+    [root addSubview:richBar];Layout(richBar);
+    UIVisualEffectView *floatingBarGlass=(id)Find(richBar,@"honggo.appearance.comment.bar");
+    Check(floatingBarGlass && fabs(CGRectGetMinX(floatingBarGlass.frame)-12)<0.01 &&
+        fabs(CGRectGetWidth(floatingBarGlass.frame)-(width-24))<0.01 && fabs(CGRectGetHeight(floatingBarGlass.frame)-44)<0.01 &&
+        [richBar.backgroundColor isEqual:UIColor.clearColor] && [barCover.backgroundColor isEqual:UIColor.clearColor] &&
+        [innerPill.backgroundColor isEqual:UIColor.clearColor] && !barBlur.effect && barHairline.hidden,
+        @"comment bottom toolbar floats as an inset 44pt glass capsule while clearing full-width covers and inner pill fill");
+    HGAppearanceSet(@"panels.commentInputMaterial",@"blur",nil);Layout(richBar);Layout(floatingBarGlass);
+    Check([[floatingBarGlass valueForKey:@"style"] isEqual:@"blur"] &&
+        (UIAccessibilityIsReduceTransparencyEnabled() || [floatingBarGlass.effect isKindOfClass:UIBlurEffect.class]),
+        @"comment floating bar switches cleanly to blur glass style");
+    HGAppearanceSet(@"panels.commentFloatingBar",@NO,nil);Layout(richBar);
+    Check(!Find(richBar,@"honggo.appearance.comment.bar") && [richBar.backgroundColor isEqual:UIColor.whiteColor] &&
+        [innerPill.backgroundColor isEqual:UIColor.secondarySystemBackgroundColor] && barBlur.effect!=nil && !barHairline.hidden,
+        @"disabling the floating comment bar restores native full-width toolbar covers, blur and hairline");
+    HGAppearanceApply(@{@"panels.commentFloatingBar":@YES,@"panels.commentInputMaterial":@"liquid"},nil);
+    [richBar removeFromSuperview];
+
+    FQCShortVideoNewEditorView *popupEditor=[[FQCShortVideoNewEditorView alloc] initWithFrame:root.bounds];
+    UIView *editorScrim=[[UIView alloc] initWithFrame:popupEditor.bounds];
+    UIColor *editorScrimColor=[UIColor colorWithWhite:0 alpha:0.35];
+    editorScrim.backgroundColor=editorScrimColor;[popupEditor addSubview:editorScrim];
+    UIView *slidingBox=[[UIView alloc] initWithFrame:CGRectMake(0,444,width,512)];
+    slidingBox.backgroundColor=UIColor.whiteColor;slidingBox.clipsToBounds=YES;[popupEditor addSubview:slidingBox];
+    UIView *inputCard=[[UIView alloc] initWithFrame:CGRectMake(0,0,width,164)];
+    inputCard.backgroundColor=UIColor.whiteColor;inputCard.clipsToBounds=YES;[slidingBox addSubview:inputCard];
+    UITextView *textBox=[[UITextView alloc] initWithFrame:CGRectMake(16,12,width-32,56)];
+    textBox.backgroundColor=UIColor.systemGray6Color;[inputCard addSubview:textBox];
+    UIView *quickEmoji=[[UIView alloc] initWithFrame:CGRectMake(0,116,width,48)];
+    quickEmoji.backgroundColor=UIColor.whiteColor;[inputCard addSubview:quickEmoji];
+    [root addSubview:popupEditor];Layout(popupEditor);
+    UIVisualEffectView *detachedCardGlass=(id)Find(inputCard,@"honggo.appearance.comment.editor");
+    Check(detachedCardGlass && fabs(CGRectGetMinX(detachedCardGlass.frame)-12)<0.01 &&
+        fabs(CGRectGetWidth(detachedCardGlass.frame)-(width-24))<0.01 && fabs(CGRectGetHeight(detachedCardGlass.frame)-164)<0.01 &&
+        fabs(inputCard.transform.ty+8)<0.01 && !slidingBox.clipsToBounds &&
+        [slidingBox.backgroundColor isEqual:UIColor.clearColor] && [inputCard.backgroundColor isEqual:UIColor.clearColor] &&
+        [textBox.backgroundColor isEqual:UIColor.clearColor] && [editorScrim.backgroundColor isEqual:UIColor.clearColor],
+        @"popup comment editor detaches into a 12pt-inset rounded glass card lifted 8pt above the keyboard");
+    HGAppearanceSet(@"panels.commentInputMaterial",@"blur",nil);Layout(popupEditor);Layout(detachedCardGlass);
+    Check([[detachedCardGlass valueForKey:@"style"] isEqual:@"blur"],
+        @"detached popup comment editor switches between liquid glass and blur glass");
+    HGAppearanceSet(@"panels.commentDetachedInput",@NO,nil);Layout(popupEditor);
+    Check(!Find(inputCard,@"honggo.appearance.comment.editor") && CGAffineTransformIsIdentity(inputCard.transform) &&
+        slidingBox.clipsToBounds && [inputCard.backgroundColor isEqual:UIColor.whiteColor] &&
+        [textBox.backgroundColor isEqual:UIColor.systemGray6Color] && [editorScrim.backgroundColor isEqual:editorScrimColor],
+        @"disabling detached comment input restores original edge-to-edge white composer and keyboard alignment");
+    HGAppearanceApply(@{@"panels.commentDetachedInput":@YES,@"panels.commentInputMaterial":@"liquid"},nil);
+    [popupEditor removeFromSuperview];
 }
 static void RunFeedShareRouteChecks(void) {
     SSShortVideoRightInteractionShareViewManager *manager=[SSShortVideoRightInteractionShareViewManager new];

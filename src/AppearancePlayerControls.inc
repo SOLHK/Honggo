@@ -294,7 +294,74 @@ static BOOL HGAPlaybackShouldCoverButton(UIView *root,NSTimeInterval *outGrace) 
     }
     return NO;
 }
+static BOOL HGAPlaybackShouldSuppressLoadingSpinner(UIView *spinner,NSTimeInterval *outGrace) {
+    if(outGrace)*outGrace=0;
+    if(!HGAppearanceEnabled() || !spinner.window)return NO;
+    UIView *cell=HGAPlayerCanvas(spinner);
+    if(!cell)return NO;
+    BOOL playing=NO;
+    if(HGABoolGetter(cell,@"isPlaying",&playing) && playing)return YES;
+    if(HGAPlaybackCanvasIsScrollingOrDisplaced(cell))return YES;
+    CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
+    NSTimeInterval remaining=0;
+    NSNumber *cellStart=objc_getAssociatedObject(cell,&HGACellPlayStartKey);
+    if(cellStart)remaining=MAX(remaining,cellStart.doubleValue+0.85-now);
+    if(HGAPlaybackQualitySwitchActive())remaining=MAX(remaining,0.85);
+    if(remaining>0) {
+        if(outGrace)*outGrace=remaining;
+        return YES;
+    }
+    return NO;
+}
+static void HGAApplyLoadingSpinner(UIView *spinner) {
+    if(!spinner)return;
+    NSTimeInterval grace=0;
+    if(HGAPlaybackShouldSuppressLoadingSpinner(spinner,&grace)) {
+        if(![spinner.layer animationForKey:HGAPlaybackGraceOpacity]) {
+            CABasicAnimation *cover=[CABasicAnimation animationWithKeyPath:@"opacity"];
+            cover.fromValue=@0;
+            cover.toValue=@0;
+            cover.duration=0.001;
+            cover.fillMode=kCAFillModeBoth;
+            cover.removedOnCompletion=NO;
+            [spinner.layer addAnimation:cover forKey:HGAPlaybackGraceOpacity];
+        }
+        if(grace>0) {
+            HGAPlaybackButtonSuppression *state=objc_getAssociatedObject(spinner,&HGAPlaybackButtonSuppressKey);
+            if(!state) {
+                state=[HGAPlaybackButtonSuppression new];
+                objc_setAssociatedObject(spinner,&HGAPlaybackButtonSuppressKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+            CFAbsoluteTime deadline=CFAbsoluteTimeGetCurrent()+grace+0.04;
+            if(deadline>state.scheduledUntil+0.02) {
+                state.scheduledUntil=deadline;
+                NSUInteger gen=++state.generation;
+                __weak UIView *weakSpinner=spinner;
+                __weak HGAPlaybackButtonSuppression *weakState=state;
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)((grace+0.04)*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+                    HGAPlaybackButtonSuppression *liveState=weakState;
+                    UIView *liveSpinner=weakSpinner;
+                    if(!liveState || liveState.generation!=gen)return;
+                    liveState.scheduledUntil=0;
+                    if(liveSpinner && !HGAApplying)HGAApplyLoadingSpinner(liveSpinner);
+                });
+            }
+        }
+    } else if([spinner.layer animationForKey:HGAPlaybackGraceOpacity]) {
+        HGAPlaybackButtonSuppression *state=objc_getAssociatedObject(spinner,&HGAPlaybackButtonSuppressKey);
+        if(state){state.generation++;state.scheduledUntil=0;}
+        [spinner.layer removeAnimationForKey:HGAPlaybackGraceOpacity];
+    }
+}
+static void HGAUpdateCellLoadingSpinners(UIView *owner) {
+    Class loadingClass=objc_lookUpClass("FQVShortVideoLoadingView");
+    if(!loadingClass || !owner)return;
+    UIView *scope=HGAPlayerCanvas(owner) ?: owner;
+    for(UIView *child in HGADescendants(scope,64))
+        if([child isKindOfClass:loadingClass])HGAApplyLoadingSpinner(child);
+}
 static void HGAApplyPlaybackButton(UIView *root) {
+    HGAUpdateCellLoadingSpinners(root);
     UIButton *mounted=root.window ? (id)HGALazyControlSubview(root,"_playBtn","playBtn") : nil;
     if(![mounted isKindOfClass:UIButton.class])mounted=nil;
     NSTimeInterval grace=0;
