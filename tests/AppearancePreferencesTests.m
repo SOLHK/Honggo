@@ -124,7 +124,7 @@ int main(void) {@autoreleasepool {
     NSMutableSet *keys=[NSMutableSet set];
     NSMutableSet *onWhenEnabled=[NSMutableSet setWithArray:@[@"dock.enabled",@"player.finderGlass",@"player.finderSearch",@"player.finderRecognition",@"player.finderAI",@"player.mineGlass",@"player.episodeGlass",
         @"player.controlsGlass",@"player.commentMovesVideo",@"panels.episodes",@"panels.commentFloatingBar",
-        @"panels.commentDetachedInput",@"mine.show.publish",@"mine.show.theme"]];
+        @"panels.commentDetachedInput",@"mine.show.publish",@"mine.show.theme",@"player.homePreviewRepair"]];
     [onWhenEnabled addObjectsFromArray:[HGHostSettingsEntries() valueForKey:@"key"]];
     BOOL unique=YES,defaults=YES;
     for(NSDictionary *entry in HGAppearanceCatalog()) {
@@ -135,6 +135,14 @@ int main(void) {@autoreleasepool {
     Check(unique && keys.count>100,@"every visual option has one stable key");
     Check(defaults && [onWhenEnabled isSubsetOfSet:keys] && !HGAppearanceEnabled(),
         @"appearance remains opt-in with the new scoped defaults ready under its master switch");
+    Check(HGAppearanceFlag(@"player.homePreviewRepair") &&
+        [[HGAppearanceSearch(@"首页预览 错集") valueForKey:@"key"] isEqual:@[@"player.homePreviewRepair"]],
+        @"the preview episode setting defaults on and can be found by the reported symptom");
+    HGAppearanceSet(@"player.homePreviewRepair",@NO,nil);
+    Check(!HGAppearanceEnabled() && [HGAppearancePreset(@"glass")[@"player.homePreviewRepair"] isEqual:@NO] &&
+        [HGAppearanceParse(HGAppearanceExport(nil),nil)[@"player.homePreviewRepair"] isEqual:@NO],
+        @"an explicit preview opt-out survives appearance presets and configuration export");
+    HGAppearanceSet(@"player.homePreviewRepair",@YES,nil);
     Check([[HGAppearanceSearch(@" GLAss  conTROLS ") valueForKey:@"key"] isEqual:@[@"enabled"]] &&
         [[HGAppearanceSearch(@"glassControls") valueForKey:@"key"] isEqual:@[@"enabled"]] &&
         [[HGAppearanceSearch(@"player.controlsGlass") valueForKey:@"key"] isEqual:@[@"player.controlsGlass"]],

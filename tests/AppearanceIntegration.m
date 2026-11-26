@@ -565,6 +565,21 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
             }
         }
         if ([group isEqual:@"drama"]) {
+            BOOL savedMaster=HGAppearanceEnabled();
+            HGAppearanceSet(@"enabled",@NO,nil);
+            NSIndexPath *previewPath=HGMenuPath(detail,@"player.homePreviewRepair");
+            UISwitch *preview=previewPath ? (UISwitch *)[detail tableView:detail.tableView cellForRowAtIndexPath:previewPath].accessoryView : nil;
+            BOOL initiallyOn=[preview isKindOfClass:UISwitch.class] && preview.on;
+            if (previewPath) [detail tableView:detail.tableView didSelectRowAtIndexPath:previewPath];
+            BOOL disabled=!HGAppearanceFlag(@"player.homePreviewRepair") && !HGAppearanceEnabled();
+            if (previewPath) {
+                preview=(UISwitch *)[detail tableView:detail.tableView cellForRowAtIndexPath:previewPath].accessoryView;
+                preview.on=YES;
+                [preview sendActionsForControlEvents:UIControlEventValueChanged];
+            }
+            Check(initiallyOn && disabled && HGAppearanceFlag(@"player.homePreviewRepair") && !HGAppearanceEnabled(),
+                @"the drama page toggles preview episode matching off and back on with visual customization disabled");
+            HGAppearanceSet(@"enabled",@(savedMaster),nil);
             NSIndexPath *keywordPath=HGMenuPath(detail,@"video.blockedKeywords");
             if(keywordPath)[detail tableView:detail.tableView didSelectRowAtIndexPath:keywordPath];
             UIViewController *editor=navigation.topViewController;

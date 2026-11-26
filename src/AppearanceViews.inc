@@ -945,6 +945,7 @@ void HGAppearanceProcessView(UIView *view) {
         if([view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerSingleSeriesControlView")]) {
             HGRefreshVideoBackdropForPlayer(view);return;
         }
+        if(HGIsAlbumDetailControl(view)) HGRefreshVideoBackdropForPlayer(view);
         if([view isKindOfClass:objc_lookUpClass("SSShortVideoRecommendPeopleCardView")]) {
             HGASetHidden(view,HGAppearanceEnabled() && HGAppearanceFlag(@"player.hideFollowRecommendUsers"));
             return;

@@ -22,64 +22,136 @@
 @property(nonatomic) NSInteger vid;
 @end
 @implementation HGPreviewSegmentFixture @end
-@interface HGPreviewRouteFixture : NSObject
-@property(nonatomic,weak) id currentModel;
-@property(nonatomic,strong) HGPreviewSegmentFixture *segment;
-@property(nonatomic,copy) NSArray *videoList;
-@property(nonatomic,copy) NSString *vid;
-@end
-@implementation HGPreviewRouteFixture
-- (id)model { return self; }
-- (id)cellViewContext { return self; }
-- (id)listVCContext { return self; }
-- (id)seriesShortVideoModel { return self; }
-- (id)videoData { return self; }
-@end
 
-@interface SSClipVideoHighlightOpenSingleParams : NSObject
-@property(nonatomic,copy) NSString *vid;
-@property(nonatomic,strong) NSNumber *episodeIndexNumber;
+@interface SSShortVideoExtraInfoModel : NSObject
 @property(nonatomic,strong) id insertHighlightModel;
 @end
-@implementation SSClipVideoHighlightOpenSingleParams @end
+@implementation SSShortVideoExtraInfoModel @end
+@interface FQVShortVideoListStartModel : NSObject
+@property(nonatomic,copy) NSString *vid;
+@property(nonatomic) NSTimeInterval startTime;
+@end
+@implementation FQVShortVideoListStartModel @end
+@interface FQVPlayerModel : NSObject
+@property(nonatomic,copy) NSString *videoId;
+@property(nonatomic) NSTimeInterval currentPlaybackTime;
+@property(nonatomic) NSTimeInterval duration;
+@end
+@implementation FQVPlayerModel
+- (id)videoInfo {return self;}
+- (id)model {return self;}
+@end
+@interface HGPreviewRouteFixture : NSObject
+@property(nonatomic,weak) id currentPlayModel;
+@property(nonatomic,weak) id model;
+@property(nonatomic,strong) HGPreviewSegmentFixture *segment;
+@property(nonatomic,strong) FQVPlayerModel *vPlayer;
+@property(nonatomic,strong) SSShortVideoExtraInfoModel *extraInfoModel;
+@property(nonatomic,copy) NSArray *videoList;
+@property(nonatomic,copy) NSString *seriesId;
+@property(nonatomic,copy) NSString *vid;
+@property(nonatomic) BOOL isEpisodeModel;
+@property(nonatomic) BOOL isAlbumVideoType;
+@end
+@implementation HGPreviewRouteFixture
+- (id)cellViewContext {return self;}
+- (id)shortVideoModel {return self;}
+- (id)seriesShortVideoModel {return self;}
+- (id)videoData {return self;}
+@end
+@interface FQVShortVideoAreaModel : NSObject
+@property(nonatomic) NSUInteger area;
+@end
+@implementation FQVShortVideoAreaModel @end
+@interface FQVShortVideoOpenParams : NSObject
+@property(nonatomic,strong) FQVShortVideoAreaModel *fromAreaModel;
+@property(nonatomic) NSInteger quaPlayFrom;
+@property(nonatomic,copy) NSString *vid;
+@property(nonatomic,copy) NSString *seriesId;
+@property(nonatomic,strong) id episodeInfo;
+@property(nonatomic,strong) NSNumber *episodeIndexNumber;
+@property(nonatomic,strong) FQVShortVideoListStartModel *startModel;
+@property(nonatomic,copy) NSString *playFromStartVideoId;
+@property(nonatomic,copy) NSString *playFromStartGuideText;
+@property(nonatomic) BOOL forceInitModelUseProgress;
+@end
+@implementation FQVShortVideoOpenParams @end
 @interface SSShortVideoRcmdHighlightVideoHandler : NSObject @end
 @implementation SSShortVideoRcmdHighlightVideoHandler
 + (id)identifyClipVideoHighlightWithVideoDataModel:(HGPreviewRouteFixture *)model identifyTimeType:(NSUInteger)mode {
     return mode==1 ? model.segment : nil;
 }
-+ (id)openSingleParamsWithVideoDataModel:(HGPreviewRouteFixture *)model nextEpisode:(BOOL)next {
-    SSClipVideoHighlightOpenSingleParams *params=[SSClipVideoHighlightOpenSingleParams new];
-    params.vid=@"101";params.episodeIndexNumber=@1;params.insertHighlightModel=model;
-    return params;
+@end
+@interface SSShortVideoManager : NSObject
+@property(nonatomic) NSUInteger calls;
+@end
+@implementation SSShortVideoManager
+- (void)shortVideoListVCContext:(id)context willShowSingleShortVideoListVCWithParams:(FQVShortVideoOpenParams *)params feedType:(NSInteger)type {
+    self.calls++;
+    if (!params.episodeIndexNumber) params.episodeIndexNumber=@1;
+    if (!params.vid) params.vid=@"101";
 }
 @end
 
 static void RunPreviewEpisodeChecks(void) {
-    BOOL saved=HGAppearanceEnabled();
-    HGAppearanceSet(@"enabled",@YES,nil);
+    NSDictionary *saved=HGAppearanceValues();
+    HGAppearanceApply(@{@"enabled":@NO,@"player.homePreviewRepair":@YES},nil);
     HGPreviewRouteFixture *card=[HGPreviewRouteFixture new];
-    HGPreviewRouteFixture *episode=[HGPreviewRouteFixture new];
-    episode.vid=@"107";card.videoList=@[episode];card.currentModel=card;
+    card.currentPlayModel=card;card.model=card;card.seriesId=@"series";card.vid=@"editor-cut";
     card.segment=[HGPreviewSegmentFixture new];card.segment.vid=107;
-    SSClipVideoHighlightOpenSingleParams *(^open)(BOOL)=^(BOOL next) {
-        return (SSClipVideoHighlightOpenSingleParams *)[SSShortVideoRcmdHighlightVideoHandler
-            openSingleParamsWithVideoDataModel:card nextEpisode:next];
+    card.extraInfoModel=[SSShortVideoExtraInfoModel new];card.extraInfoModel.insertHighlightModel=@1;
+    card.vPlayer=[FQVPlayerModel new];card.vPlayer.videoId=card.vid;
+    card.vPlayer.currentPlaybackTime=7.25;card.vPlayer.duration=40;
+    FQVShortVideoListStartModel *history=[FQVShortVideoListStartModel new];history.vid=@"101";history.startTime=20;
+    FQVShortVideoOpenParams *(^make)(void)=^{
+        FQVShortVideoOpenParams *params=[FQVShortVideoOpenParams new];
+        params.fromAreaModel=[FQVShortVideoAreaModel new];params.fromAreaModel.area=11;
+        params.seriesId=@"series";params.startModel=history;params.forceInitModelUseProgress=YES;
+        params.playFromStartVideoId=@"101";params.playFromStartGuideText=@"restart";
+        return params;
     };
-    SSClipVideoHighlightOpenSingleParams *tap=open(NO);
-    Check([tap.vid isEqual:@"107"] && !tap.episodeIndexNumber && !tap.insertHighlightModel,
-        @"opening a mapped home preview selects its current segment's VID and releases conflicting history and inserted footage");
-    SSClipVideoHighlightOpenSingleParams *next=open(YES);
-    card.currentModel=episode;
-    SSClipVideoHighlightOpenSingleParams *reused=open(NO);
-    card.currentModel=card;card.segment.vid=999;
-    SSClipVideoHighlightOpenSingleParams *otherSeries=open(NO);
-    card.segment=nil;
-    SSClipVideoHighlightOpenSingleParams *noMapping=open(NO);
-    BOOL preserved=YES;
-    for (SSClipVideoHighlightOpenSingleParams *result in @[next,reused,otherSeries,noMapping])
-        preserved &= [result.vid isEqual:@"101"] && [result.episodeIndexNumber isEqual:@1] && result.insertHighlightModel==card;
-    Check(preserved,@"next episode, a reused player, a foreign VID and an unmapped edit all keep the host's original route");
-    HGAppearanceSet(@"enabled",@(saved),nil);
+    SSShortVideoManager *manager=[SSShortVideoManager new];
+    void (^open)(FQVShortVideoOpenParams *)=^(FQVShortVideoOpenParams *params) {
+        [manager shortVideoListVCContext:card willShowSingleShortVideoListVCWithParams:params feedType:0];
+    };
+    FQVShortVideoOpenParams *mapped=make();open(mapped);
+    Check([mapped.vid isEqual:@"107"] && !mapped.episodeIndexNumber && !mapped.startModel &&
+        !mapped.playFromStartVideoId && !mapped.playFromStartGuideText && !mapped.forceInitModelUseProgress &&
+        !card.extraInfoModel.insertHighlightModel && manager.calls==1,
+        @"a manual series capsule resolves its active author's segment before the episode list loads, with the appearance master off");
+    HGPreviewRouteFixture *episode=[HGPreviewRouteFixture new];episode.vid=@"107";episode.seriesId=card.seriesId;
+    card.videoList=@[episode];
+    FQVShortVideoOpenParams *loaded=make();open(loaded);
+    Check(loaded.episodeInfo==episode && [loaded.vid isEqual:@"107"] && !loaded.startModel,
+        @"a loaded matching episode supplies its own metadata without inheriting a different clip's playback clock");
+
+    FQVShortVideoOpenParams *selected=make();selected.episodeIndexNumber=@5;open(selected);
+    FQVShortVideoOpenParams *next=make();next.quaPlayFrom=901;open(next);
+    FQVShortVideoOpenParams *otherArea=make();otherArea.fromAreaModel.area=9;open(otherArea);
+    FQVShortVideoOpenParams *foreign=make();foreign.seriesId=@"another";open(foreign);
+    card.model=episode;FQVShortVideoOpenParams *stale=make();open(stale);card.model=card;
+    card.segment=nil;FQVShortVideoOpenParams *unmapped=make();open(unmapped);
+    HGAppearanceSet(@"player.homePreviewRepair",@NO,nil);HGAppearanceSet(@"enabled",@YES,nil);
+    card.segment=[HGPreviewSegmentFixture new];card.segment.vid=107;
+    FQVShortVideoOpenParams *disabled=make();open(disabled);
+    BOOL preserved=[selected.episodeIndexNumber isEqual:@5];
+    for (FQVShortVideoOpenParams *params in @[selected,next,otherArea,foreign,stale,unmapped,disabled])
+        preserved &= [params.vid isEqual:@"101"] && params.startModel==history && params.forceInitModelUseProgress;
+    Check(preserved && manager.calls==9,@"unmapped or stale edits, foreign series, explicit selections, next and disabled routes preserve the native launch");
+    HGAppearanceSet(@"player.homePreviewRepair",@YES,nil);
+    card.isAlbumVideoType=YES;card.vid=@"101";card.vPlayer.videoId=card.vid;
+    FQVShortVideoOpenParams *album=make();open(album);
+    Check([album.vid isEqual:@"101"] && [album.episodeIndexNumber isEqual:@1] &&
+        album.startModel!=history && [album.startModel.vid isEqual:@"101"] && album.startModel.startTime==7.25 &&
+        history.startTime==20 && !album.forceInitModelUseProgress && !album.playFromStartVideoId,
+        @"opening the identical album item resumes the live position using a separate VID-bound start model");
+    card.vPlayer.currentPlaybackTime=card.vPlayer.duration;
+    FQVShortVideoOpenParams *ended=make();open(ended);
+    card.vPlayer.currentPlaybackTime=7;card.vPlayer.videoId=@"other-clock";
+    FQVShortVideoOpenParams *foreignClock=make();open(foreignClock);
+    Check(ended.startModel==history && foreignClock.startModel==history && ended.forceInitModelUseProgress,
+        @"a finished album clip or a borrowed player's mismatched VID keeps native progress");
+    HGAppearanceApply(saved,nil);
 }
 
 static void RunAutoEnterSeriesChecks(void) {

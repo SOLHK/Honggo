@@ -14,6 +14,12 @@ void HGScheduleFeedLayoutRefresh(UIScrollView *feed);
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed);
 void HGRefreshVideoBackdropForCategoryPager(UIView *pager);
 void HGRefreshVideoBackdropForPlayer(UIView *view);
+static inline BOOL HGIsAlbumDetailControl(UIView *view) {
+    // The multi-series base is also subclassed by the outer derivative feed
+    // and profile controls; only the inner list and its album variant qualify.
+    return [view isMemberOfClass:NSClassFromString(@"FQVShortVideoVPlayerMultiSeriesControlView")] ||
+        [view isKindOfClass:NSClassFromString(@"FQVShortVideoVPlayerVideoListControlView")];
+}
 void HGVideoBackdropPrepareRendererTransfer(UIView *view);
 void HGAppearanceReclaimDockChrome(UIView *bar);
 NSDictionary *HGAppearanceDockDiagnosticState(UIWindow *window);

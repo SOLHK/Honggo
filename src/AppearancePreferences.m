@@ -204,6 +204,8 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         visibility(@"player.hideNowPlayingIsland",@"player",@"前台播放时显示红果灵动岛播放信息");
         visibility(@"player.disableEpisodeSwipe",@"player",@"左滑进入全集");
         visibility(@"player.disableAutoEnterSeries",@"drama",@"观看中自动进入全集");
+        [a addObject:HGADef(@"player.homePreviewRepair",@"drama",@"首页预览按当前片段选集",@"bool",@YES,
+            @{@"keywords":@"首页预览 推荐 错集 串集 剧集不一致 进入正片 进入全集"})];
         choice(@"player.separateProgress",@"player",@"合集与进度条分开布局",@[@"show",@"hide"],@[@"自动留出间距",@"原始布局"]);
         choice(@"player.material",@"player",@"播放控件材质",@[@"regular",@"clear",@"blur"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）"]);
         NSArray *roles = HGAppearanceRoles(), *titles = HGAppearanceRoleTitles();
@@ -459,6 +461,7 @@ BOOL HGAppearanceEnabled(void){return HGAppearanceFlag(@"enabled");}
 NSDictionary *HGAppearancePreset(NSString *name) {
     NSMutableDictionary *d=[NSMutableDictionary dictionary]; for(NSDictionary *def in HGAppearanceCatalog()) d[def[@"key"]]=def[@"default"];
     d[@"video.blockedKeywords"]=HGVideoBlockedKeywords();
+    d[@"player.homePreviewRepair"]=HGAppearanceValue(@"player.homePreviewRepair");
     if([name isEqual:@"glass"] || [name isEqual:@"focus"]) {
         d[@"dock.haptics"]=@(HGAppearanceFlag(@"dock.haptics"));
         for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.commentFloatingBar",@"panels.commentDetachedInput",@"panels.share",@"panels.longpress",@"panels.speed"])d[key]=@YES;

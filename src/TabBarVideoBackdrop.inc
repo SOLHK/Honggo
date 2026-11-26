@@ -229,6 +229,16 @@ static BOOL HGVideoBackdropCenteredPortrait(CGRect frame, CGRect viewport) {
         fabs(CGRectGetMidY(frame)-CGRectGetMidY(viewport))<=0.75;
 }
 
+// A detail HUD can reserve space for its episode controls below the picture.
+// The native width-fit portrait then sits above the screen's vertical center.
+static BOOL HGDetailInsetPortrait(CGRect picture, CGRect page) {
+    return CGRectGetHeight(picture)>CGRectGetWidth(picture) &&
+        fabs(CGRectGetMinX(picture)-CGRectGetMinX(page))<=0.75 &&
+        fabs(CGRectGetMaxX(picture)-CGRectGetMaxX(page))<=0.75 &&
+        CGRectGetMinY(picture)>=CGRectGetMinY(page)-0.75 &&
+        CGRectGetMaxY(picture)<=CGRectGetMaxY(page)+0.75;
+}
+
 // Measure the actual picture, which can extend beyond the native renderer
 // frame. Scaling from the frame instead can zoom a tall source unnecessarily.
 static CATransform3D HGVideoBackdropCoverTransform(CGSize picture, CGRect native, CGRect full) {
@@ -578,20 +588,22 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     [CATransaction begin]; [CATransaction setDisableActions:YES];
     for (UIView *renderer in player.subviews) {
         if (![renderer isKindOfClass:objc_lookUpClass("TTPlayerView")]) continue;
-        UIView *metal=HGVideoBackdropMetal(renderer,player,viewport);
+        CGRect native=[renderer convertRect:renderer.bounds toView:player];
+        BOOL detailPortrait=boundary==canvas && HGDetailInsetPortrait(native,full);
+        UIView *metal=HGVideoBackdropMetal(renderer,player,detailPortrait ? native : viewport);
         if (!metal) continue;
         CATransform3D current=renderer.layer.sublayerTransform;
         NSValue *previous=[self.portraitRenderers objectForKey:renderer];
         if (!CATransform3DIsIdentity(current) &&
             !(previous && CATransform3DEqualToTransform(current,previous.CATransform3DValue))) continue;
-        CGRect native=[renderer convertRect:renderer.bounds toView:player];
         CATransform3D transform=HGVideoBackdropCoverTransform(metal.bounds.size,native,full);
         if (!self.portraitRenderers) self.portraitRenderers=[NSMapTable weakToStrongObjectsMapTable];
         if (!previous || !CATransform3DEqualToTransform(previous.CATransform3DValue,transform))
             [self.portraitRenderers setObject:[NSValue valueWithCATransform3D:transform] forKey:renderer];
         if (!CATransform3DEqualToTransform(current,transform)) renderer.layer.sublayerTransform=transform;
         [active addObject:renderer];
-        if (extends || HGVideoBackdropCenteredPortrait(native,viewport))
+        if (extends || HGVideoBackdropCenteredPortrait(native,viewport) ||
+            (detailPortrait && !HGVideoBackdropSameRect(native,full,0.75)))
             [self releasePortraitClippingFrom:renderer to:boundary active:active];
         else if ([self.portraitClips containsObject:renderer]) {
             renderer.clipsToBounds=YES;
@@ -613,7 +625,8 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
             if (cover.contentMode!=UIViewContentModeScaleAspectFill) saved.contentMode=cover.contentMode;
         }
         CGRect nativeCover=[cover.superview convertRect:saved.frame toView:coordinateView];
-        if (HGVideoBackdropMatchesViewport(nativeCover,viewport) || HGVideoBackdropCenteredPortrait(nativeCover,viewport) ||
+        if ((boundary==canvas && HGDetailInsetPortrait(nativeCover,full)) ||
+            HGVideoBackdropMatchesViewport(nativeCover,viewport) || HGVideoBackdropCenteredPortrait(nativeCover,viewport) ||
             HGVideoBackdropMatchesViewport(nativeCover,coordinateView.bounds)) {
             saved.appliedFrame=[coordinateView convertRect:full toView:cover.superview];
             if (!self.portraitCovers) self.portraitCovers=[NSMapTable weakToStrongObjectsMapTable];
@@ -819,6 +832,13 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
 
 static char HGDetailOwnerTrayRectKey;
 
+static UIView *HGDetailPlaybackHUD(UIView *canvas) {
+    Class single=objc_lookUpClass("FQVShortVideoVPlayerSingleSeriesControlView");
+    for (UIView *child in canvas.subviews)
+        if ([child isKindOfClass:single] || HGIsAlbumDetailControl(child)) return child;
+    return nil;
+}
+
 - (void)refreshDetail:(UIView *)canvas {
     if (self.refreshing) return;
     UIViewController *owner = HGVideoBackdropOwner(canvas);
@@ -839,30 +859,32 @@ static char HGDetailOwnerTrayRectKey;
         return;
     }
     self.refreshing=YES;
-    UIView *tray=nil, *corners=nil, *hud=nil;
+    UIView *tray=nil, *corners=nil;
+    UIView *hud=HGDetailPlaybackHUD(canvas);
     UIView *player=HGVideoBackdropPlayer(canvas);
-    Class controlsClass = NSClassFromString(@"FQVShortVideoVPlayerSingleSeriesControlView");
     Class trayClass = NSClassFromString(@"FQVShortVideoPlayerBottomView");
-    for (UIView *child in canvas.subviews) {
-        if ([child isKindOfClass:controlsClass]) {
-            hud=child;
-            // The black strip is the reserved player viewport, including the
-            // frames during which the host animates the controls' alpha.
-            for (UIView *candidate in child.subviews)
-                if ([candidate isKindOfClass:trayClass]) { tray = candidate; break; }
-        }
-    }
+    for (UIView *candidate in hud.subviews)
+        if ([candidate isKindOfClass:trayClass]) { tray = candidate; break; }
     CGRect rawBottom = (tray && !CGRectIsEmpty(tray.bounds)) ? [tray convertRect:tray.bounds toView:canvas] : CGRectZero;
     BOOL alignedTray = rawBottom.size.height >= 44 && rawBottom.size.height <= 110 &&
         fabs(CGRectGetMinX(rawBottom) - CGRectGetMinX(canvas.bounds)) <= 0.75 &&
         fabs(CGRectGetWidth(rawBottom) - CGRectGetWidth(canvas.bounds)) <= 0.75 &&
         fabs(CGRectGetMaxY(rawBottom) - CGRectGetMaxY(canvas.bounds)) <= 0.75;
     CGRect bottom = alignedTray ? rawBottom : CGRectZero;
+    // The inner multi-series/album HUD publishes this reservation through
+    // bottomHeight without the single-series HUD's separate bottom tray.
+    if (!alignedTray && HGIsAlbumDetailControl(hud)) {
+        double height=0;
+        if (HGVideoBackdropReadDimension(hud,sel_registerName("bottomHeight"),&height) && height>=44 && height<=110)
+            bottom=CGRectMake(CGRectGetMinX(canvas.bounds),CGRectGetMaxY(canvas.bounds)-height,
+                CGRectGetWidth(canvas.bounds),height);
+    }
+    BOOL measuredReservation=!CGRectIsEmpty(bottom);
     CGRect viewport = canvas.bounds;
     viewport.size.height -= bottom.size.height;
     id model=HGReadObjectGetter(canvas,"model");
     BOOL portrait=HGVideoBackdropPortraitModel(model);
-    if(!alignedTray) {
+    if(CGRectIsEmpty(bottom)) {
         // If TTPlayerView is already sized to the reserved shorter detail viewport
         // before the shared tray finishes AutoLayout, adopt its exact frame on frame 0
         // so the video never starts with an 89pt bottom black bar and jumps later.
@@ -927,10 +949,13 @@ static char HGDetailOwnerTrayRectKey;
     BOOL validBottom=bottom.size.height>=44 && bottom.size.height<=110 &&
         HGVideoBackdropSameRect(bottom,CGRectMake(CGRectGetMinX(viewport),CGRectGetMaxY(viewport),
             viewport.size.width,bottom.size.height),0.75);
-    if(hud && tray && alignedTray)
-        objc_setAssociatedObject(owner,&HGDetailOwnerTrayRectKey,[NSValue valueWithCGRect:bottom],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    BOOL knownSingleSeries=hud || HGVideoBackdropSingleList(owner) || objc_getAssociatedObject(owner,&HGDetailOwnerTrayRectKey)!=nil;
-    BOOL fills=knownSingleSeries && (validBottom || CGRectIsEmpty(bottom)) &&
+    if(measuredReservation && validBottom) {
+        NSValue *cached=objc_getAssociatedObject(owner,&HGDetailOwnerTrayRectKey);
+        if(!cached || !CGRectEqualToRect(cached.CGRectValue,bottom))
+            objc_setAssociatedObject(owner,&HGDetailOwnerTrayRectKey,[NSValue valueWithCGRect:bottom],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    BOOL knownDetail=hud || HGVideoBackdropSingleList(owner) || objc_getAssociatedObject(owner,&HGDetailOwnerTrayRectKey)!=nil;
+    BOOL fills=knownDetail && (validBottom || CGRectIsEmpty(bottom)) &&
         [self fillPortraitInCanvas:canvas viewport:viewport full:canvas.bounds boundary:canvas active:active];
     [self restorePortraitExcept:active];
     if (fills) {
@@ -1133,12 +1158,9 @@ void HGRefreshVideoBackdropForPlayer(UIView *view) {
     }
     if (!canvas) return;
     if (!detail) {
-        Class control = NSClassFromString(@"FQVShortVideoVPlayerSingleSeriesControlView");
-        BOOL hasSingleSeriesControls = NO;
-        for (UIView *child in canvas.subviews) hasSingleSeriesControls |= [child isKindOfClass:control];
         UIViewController *owner = HGVideoBackdropOwner(canvas);
         if (!HGAppearanceEnabled() ||
-            (!hasSingleSeriesControls && !HGVideoBackdropSingleList(owner) &&
+            (!HGDetailPlaybackHUD(canvas) && !HGVideoBackdropSingleList(owner) &&
              !objc_getAssociatedObject(owner,&HGDetailOwnerTrayRectKey))) return;
         detail = [HGVideoBackdrop new];
         objc_setAssociatedObject(canvas, &HGDetailVideoBackdropKey, detail, OBJC_ASSOCIATION_RETAIN_NONATOMIC);

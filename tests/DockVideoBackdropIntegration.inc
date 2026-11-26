@@ -246,7 +246,50 @@ static HGBackdropRGB HGBackdropAverageColor(UIImage *image,UIWindow *window,CGRe
     result.red/=denominator;result.green/=denominator;result.blue/=denominator;result.valid=YES;
     return result;
 }
+@interface FQVShortVideoVPlayerVideoListControlView : FQVShortVideoVPlayerMultiSeriesControlView @end
+@implementation FQVShortVideoVPlayerVideoListControlView
+- (CGFloat)bottomHeight { return 89; }
+@end
+
+static void RunInnerAlbumBackdropChecks(UIView *root) {
+    UIViewController *parent=(UIViewController *)root.nextResponder;
+    UIViewController *album=[FQVShortVideoListViewController new];
+    [parent addChildViewController:album];album.view.frame=root.bounds;
+    [root addSubview:album.view];[album didMoveToParentViewController:parent];
+    FQVShortVideoPlayerCellView *canvas=[[FQVShortVideoPlayerCellView alloc] initWithFrame:album.view.bounds];
+    UIView *wrapper=[[UIView alloc] initWithFrame:canvas.bounds];
+    FQVPlayer *player=[[FQVPlayer alloc] initWithFrame:wrapper.bounds];
+    // 14.mp4 has an 880x1920 screen; the authored portrait is visible between
+    // y=77 and y=1656. Its gray captions and landscape inset are part of that picture.
+    CGFloat w=CGRectGetWidth(canvas.bounds),h=CGRectGetHeight(canvas.bounds);
+    CGRect original=CGRectMake(0,h*77/1920,w,h*(1656-77)/1920);
+    TTPlayerView *renderer=[[TTPlayerView alloc] initWithFrame:original];
+    for (UIView *sub in renderer.subviews.copy) [sub removeFromSuperview];
+    TTMetalView *metal=[[TTMetalView alloc] initWithFrame:renderer.bounds];
+    renderer.clipsToBounds=YES;
+    [renderer addSubview:metal];[player addSubview:renderer];[wrapper addSubview:player];[canvas addSubview:wrapper];
+    FQVShortVideoVPlayerVideoListControlView *hud=[[FQVShortVideoVPlayerVideoListControlView alloc] initWithFrame:canvas.bounds];
+    [canvas addSubview:hud];[album.view addSubview:canvas];Layout(hud);
+    CGRect painted=[metal.layer convertRect:metal.layer.bounds toLayer:canvas.layer];
+    CATransform3D fit=renderer.layer.sublayerTransform;
+    Check(CGRectGetMinY(painted)<=0.75 && CGRectGetMaxY(painted)>=h-0.75 &&
+        CGRectGetMinX(painted)<=0.75 && CGRectGetMaxX(painted)>=w-0.75 &&
+        fabs(fit.m11-fit.m22)<0.001 && CGRectEqualToRect(renderer.frame,original) &&
+        CGRectEqualToRect(hud.frame,canvas.bounds) && !renderer.clipsToBounds,
+        @"a width-fitted album episode fills its detail page without stretching the media or moving its controls");
+    [renderer removeFromSuperview];
+    Check(CATransform3DIsIdentity(renderer.layer.sublayerTransform) && renderer.clipsToBounds,
+        @"leaving album detail releases the picture transform and clip before renderer reuse");
+    renderer.frame=CGRectMake(0,CGRectGetMidY(original)-w*9/32,w,w*9/16);
+    metal.frame=renderer.bounds;
+    [player addSubview:renderer];HGRefreshVideoBackdropForPlayer(renderer);
+    Check(CATransform3DIsIdentity(renderer.layer.sublayerTransform) && renderer.clipsToBounds,
+        @"an actual landscape renderer retains its native aspect ratio and letterbox in the same album");
+    [album willMoveToParentViewController:nil];[album.view removeFromSuperview];[album removeFromParentViewController];
+}
+
 static void RunDetailVideoBackdropChecks(UIView *root) {
+    RunInnerAlbumBackdropChecks(root);
     FQVShortVideoPlayerCellView *canvas=[[FQVShortVideoPlayerCellView alloc] initWithFrame:root.bounds];
     canvas.clipsToBounds=YES;
     canvas.backgroundColor=[UIColor colorWithRed:0.12 green:0.14 blue:0.11 alpha:1];

@@ -2,44 +2,134 @@
 
 static NSInteger (*HGAOriginalPortraitFinishAction)(id,SEL,id);
 static BOOL (*HGAOriginalLandscapeInflowBlocked)(id,SEL,id);
-static id (*HGAOriginalHighlightOpenParams)(Class,SEL,id,BOOL);
+static void (*HGAOriginalPrepareSeries)(id,SEL,id,id,NSInteger);
 
-@protocol HGAHighlightOpenParams <NSObject>
-- (void)setVid:(NSString *)vid;
+@protocol HGAPreviewArea <NSObject>
+- (NSUInteger)area;
+@end
+@protocol HGAPreviewOpenParams <NSObject>
+- (id<HGAPreviewArea>)fromAreaModel;
+- (NSInteger)quaPlayFrom;
+- (id)episodeIndexNumber;
 - (void)setEpisodeIndexNumber:(NSNumber *)index;
-- (void)setInsertHighlightModel:(id)highlight;
+- (void)setVid:(NSString *)vid;
+- (void)setEpisodeInfo:(id)info;
+- (void)setSeriesId:(NSString *)seriesId;
+- (void)setForceInitModelUseProgress:(BOOL)useProgress;
+- (void)setStartModel:(id)model;
+- (void)setPlayFromStartVideoId:(NSString *)vid;
+- (void)setPlayFromStartGuideText:(NSString *)text;
 @end
 
-static id HGAHighlightOpenParamsForModel(Class handler,SEL cmd,id model,BOOL nextEpisode) {
-    id<HGAHighlightOpenParams> params=HGAOriginalHighlightOpenParams(handler,cmd,model,nextEpisode);
-    if (nextEpisode || !HGAppearanceEnabled() || ![params isKindOfClass:objc_lookUpClass("SSClipVideoHighlightOpenSingleParams")])
-        return params;
-    id cell=HGReadObjectGetter(model,"cellViewContext");
-    if (!model || HGReadObjectGetter(cell,"model")!=model ||
-        HGReadObjectGetter(HGReadObjectGetter(model,"listVCContext"),"currentModel")!=model) return params;
+@protocol HGAPreviewStart <NSObject>
+- (void)setVid:(NSString *)vid;
+- (void)setStartTime:(NSTimeInterval)time;
+@end
+@protocol HGAPreviewClock <NSObject>
+- (NSTimeInterval)currentPlaybackTime;
+- (NSTimeInterval)duration;
+@end
 
-    // 7.4.5.33 mode 1 reads this cell's live playback time. The native
-    // matcher locates the author-provided clip segment at that timestamp.
-    SEL identify=sel_registerName("identifyClipVideoHighlightWithVideoDataModel:identifyTimeType:");
-    id match=((id(*)(id,SEL,id,NSUInteger))objc_msgSend)(handler,identify,model,1);
-    SEL vid=sel_registerName("vid");
-    Method getter=class_getInstanceMethod(object_getClass(match),vid);
-    if (!getter || strcmp(method_getTypeEncoding(getter),"q16@0:8")) return params;
-    NSInteger target=((NSInteger(*)(id,SEL))objc_msgSend)(match,vid);
-    if (target<=0) return params;
-    NSString *targetVid=@(target).stringValue;
-    NSArray *episodes=HGReadObjectGetter(HGReadObjectGetter(model,"seriesShortVideoModel"),"videoList");
-    if (![episodes isKindOfClass:NSArray.class]) return params;
-    for (id episode in episodes) {
-        if (![targetVid isEqual:HGReadObjectGetter(HGReadObjectGetter(episode,"videoData"),"vid")]) continue;
-        // VID-only navigation is also used by the native highlight replay
-        // action. A history index or inserted preview can supersede that VID.
-        [params setVid:targetVid];
-        [params setEpisodeIndexNumber:nil];
-        [params setInsertHighlightModel:nil];
-        break;
+static BOOL HGAResumeSamePreview(UIView *cell,id<HGAPreviewOpenParams> params,NSString *target) {
+    id<HGAPreviewClock> clock=HGReadObjectGetter(HGReadObjectGetter(cell,"vPlayer"),"model");
+    if (![clock isKindOfClass:objc_lookUpClass("FQVPlayerModel")] ||
+        ![target isEqual:HGReadObjectGetter(HGReadObjectGetter(clock,"videoInfo"),"videoId")]) return NO;
+    NSTimeInterval time=clock.currentPlaybackTime, duration=clock.duration;
+    if (!isfinite(time) || !isfinite(duration) || time<=0 || time>=duration) return NO;
+    // A fresh start object leaves the feed's shared playback model and previous
+    // session intact. The native resolver consumes seconds for this exact VID.
+    id<HGAPreviewStart> live=[objc_lookUpClass("FQVShortVideoListStartModel") new];
+    [live setVid:target];
+    [live setStartTime:time];
+    [params setStartModel:live];
+    [params setForceInitModelUseProgress:NO];
+    [params setPlayFromStartVideoId:nil];
+    [params setPlayFromStartGuideText:nil];
+    return YES;
+}
+
+// SSShortVideoManager reads currentPlayModel here before it builds its final
+// player launch parameters. In portrait this resolves currentVideoDataModel;
+// the list's separate currentModel slot can describe another mixed-feed item.
+static NSString *HGARepairPreviewTarget(id model,id context,id<HGAPreviewOpenParams> params) {
+    if (!HGAppearanceFlag(@"player.homePreviewRepair")) return @"disabled";
+    id cell=HGReadObjectGetter(model,"cellViewContext");
+    if (!model || HGReadObjectGetter(context,"currentPlayModel")!=model || HGReadObjectGetter(cell,"model")!=model)
+        return @"inactive";
+    id series=HGReadObjectGetter(model,"seriesShortVideoModel");
+    NSString *destination=HGReadObjectGetter(params,"seriesId");
+    NSString *sourceSeries=HGReadObjectGetter(series,"seriesId");
+    id clip=HGReadObjectGetter(model,"shortVideoModel");
+    id info=HGReadObjectGetter(clip,"videoData");
+    NSString *sourceVid=HGReadObjectGetter(info,"vid");
+    NSString *requestedVid=HGReadObjectGetter(params,"vid");
+    if (!requestedVid.length) requestedVid=HGReadObjectGetter(HGReadObjectGetter(params,"episodeInfo"),"vid");
+    BOOL episode=NO, album=NO;
+    HGABoolGetter(model,@"isEpisodeModel",&episode);
+    HGABoolGetter(model,@"isAlbumVideoType",&album);
+    NSString *target=nil;
+    if (album && sourceVid.length && [sourceVid isEqual:requestedVid])
+        return HGAResumeSamePreview(cell,params,sourceVid) ? @"resumed" : @"same-item";
+    if (destination.length && sourceSeries.length && ![destination isEqual:sourceSeries]) return @"other-series";
+    if (episode &&
+        [HGReadObjectGetter(info,"seriesId") isEqual:destination ?: sourceSeries]) {
+        // A regular episode already carries its canonical VID and episode info.
+        target=sourceVid;
     }
-    return params;
+    BOOL isSegment=!target.length;
+    if (!target.length) {
+        // Mode 1 reads this cell's playback clock. The native matcher verifies
+        // membership when the episode list is available and can use an author's
+        // segment mapping before the list has loaded.
+        Class handler=objc_lookUpClass("SSShortVideoRcmdHighlightVideoHandler");
+        SEL identify=sel_registerName("identifyClipVideoHighlightWithVideoDataModel:identifyTimeType:");
+        id match=((id(*)(id,SEL,id,NSUInteger))objc_msgSend)(handler,identify,model,1);
+        SEL vid=sel_registerName("vid");
+        Method getter=class_getInstanceMethod(object_getClass(match),vid);
+        if (!getter || strcmp(method_getTypeEncoding(getter),"q16@0:8")) return @"unmapped";
+        NSInteger identifier=((NSInteger(*)(id,SEL))objc_msgSend)(match,vid);
+        if (identifier<=0) return @"unmapped";
+        target=@(identifier).stringValue;
+        info=nil;
+        for (id entry in HGReadObjectGetter(series,"videoList")) {
+            id candidate=HGReadObjectGetter(entry,"videoData");
+            if ([target isEqual:HGReadObjectGetter(candidate,"vid")]) { info=candidate; break; }
+        }
+    }
+    [params setVid:target];
+    [params setEpisodeIndexNumber:nil];
+    [params setEpisodeInfo:info];
+    if (!destination.length && sourceSeries.length) [params setSeriesId:sourceSeries];
+    BOOL resume=[target isEqual:sourceVid] && HGAResumeSamePreview(cell,params,target);
+    id start=HGReadObjectGetter(params,"startModel");
+    if (start && ![target isEqual:HGReadObjectGetter(start,"vid")]) [params setStartModel:nil];
+    NSString *fromStart=HGReadObjectGetter(params,"playFromStartVideoId");
+    if (fromStart && ![target isEqual:fromStart]) {
+        [params setPlayFromStartVideoId:nil];
+        [params setPlayFromStartGuideText:nil];
+    }
+    [params setForceInitModelUseProgress:NO];
+    id extra=HGReadObjectGetter(clip,"extraInfoModel");
+    if ([extra isKindOfClass:objc_lookUpClass("SSShortVideoExtraInfoModel")] && HGReadObjectGetter(extra,"insertHighlightModel"))
+        ((void(*)(id,SEL,id))objc_msgSend)(extra,sel_registerName("setInsertHighlightModel:"),nil);
+    return resume ? @"resumed" : (isSegment ? @"segment" : @"episode");
+}
+
+static void HGAPrepareSeries(id manager,SEL cmd,id context,id<HGAPreviewOpenParams> params,NSInteger feedType) {
+    BOOL relevant=[params isKindOfClass:objc_lookUpClass("FQVShortVideoOpenParams")] &&
+        [[params fromAreaModel] isKindOfClass:objc_lookUpClass("FQVShortVideoAreaModel")] &&
+        [params fromAreaModel].area==11 && ![params episodeIndexNumber] && [params quaPlayFrom]!=901;
+    id model=relevant ? HGReadObjectGetter(context,"currentPlayModel") : nil;
+    HGAOriginalPrepareSeries(manager,cmd,context,params,feedType);
+    if (relevant) {
+        NSString *result=HGARepairPreviewTarget(model,context,params);
+        HGLog(@"playback.preview-entry",@{@"result":result});
+    }
+}
+
+static BOOL HGAPreviewMethod(Class cls,NSString *name,const char *encoding) {
+    Method method=class_getInstanceMethod(cls,NSSelectorFromString(name));
+    return method && !strcmp(method_getTypeEncoding(method),encoding);
 }
 
 static NSInteger HGAPortraitFinishAction(id component,SEL cmd,id model) {
@@ -57,17 +147,25 @@ static BOOL HGALandscapeInflowBlocked(id source,SEL cmd,id model) {
 static void HGAInstallSeriesNavigation(void) {
     if (![[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] isEqual:@"7.4.5.33"]) return;
     Class handler=objc_lookUpClass("SSShortVideoRcmdHighlightVideoHandler");
-    Class params=objc_lookUpClass("SSClipVideoHighlightOpenSingleParams");
-    Method identify=class_getClassMethod(handler,sel_registerName("identifyClipVideoHighlightWithVideoDataModel:identifyTimeType:"));
-    BOOL canResolve=identify && !strcmp(method_getTypeEncoding(identify),"@32@0:8@16Q24");
-    for (NSString *name in @[@"setVid:",@"setEpisodeIndexNumber:",@"setInsertHighlightModel:"]) {
-        Method setter=class_getInstanceMethod(params,NSSelectorFromString(name));
-        if (!setter || strcmp(method_getTypeEncoding(setter),"v24@0:8@16")) canResolve=NO;
-    }
-    if (!HGAOriginalHighlightOpenParams && canResolve)
-        HGAOriginalHighlightOpenParams=(void *)HGInstallVerifiedHook(object_getClass(handler),
-            sel_registerName("openSingleParamsWithVideoDataModel:nextEpisode:"),"@28@0:8@16B24",
-            (IMP)HGAHighlightOpenParamsForModel,@"appearance");
+    Class params=objc_lookUpClass("FQVShortVideoOpenParams");
+    BOOL canResolve=HGAPreviewMethod(object_getClass(handler),@"identifyClipVideoHighlightWithVideoDataModel:identifyTimeType:","@32@0:8@16Q24") &&
+        HGAPreviewMethod(objc_lookUpClass("FQVShortVideoAreaModel"),@"area","Q16@0:8") &&
+        HGAPreviewMethod(params,@"quaPlayFrom","q16@0:8") &&
+        HGAPreviewMethod(params,@"setForceInitModelUseProgress:","v20@0:8B16") &&
+        HGAPreviewMethod(objc_lookUpClass("FQVShortVideoListStartModel"),@"setStartTime:","v24@0:8d16") &&
+        HGAPreviewMethod(objc_lookUpClass("FQVShortVideoListStartModel"),@"setVid:","v24@0:8@16") &&
+        HGAPreviewMethod(objc_lookUpClass("FQVPlayerModel"),@"currentPlaybackTime","d16@0:8") &&
+        HGAPreviewMethod(objc_lookUpClass("FQVPlayerModel"),@"duration","d16@0:8") &&
+        HGAPreviewMethod(objc_lookUpClass("SSShortVideoExtraInfoModel"),@"setInsertHighlightModel:","v24@0:8@16");
+    for (NSString *name in @[@"setVid:",@"setEpisodeIndexNumber:",@"setEpisodeInfo:",@"setSeriesId:",@"setStartModel:",
+                              @"setPlayFromStartVideoId:",@"setPlayFromStartGuideText:"])
+        canResolve=canResolve && HGAPreviewMethod(params,name,"v24@0:8@16");
+    for (NSString *name in @[@"fromAreaModel",@"episodeIndexNumber"])
+        canResolve=canResolve && HGAPreviewMethod(params,name,"@16@0:8");
+    if (!HGAOriginalPrepareSeries && canResolve)
+        HGAOriginalPrepareSeries=(void *)HGInstallVerifiedHook(objc_lookUpClass("SSShortVideoManager"),
+            sel_registerName("shortVideoListVCContext:willShowSingleShortVideoListVCWithParams:feedType:"),"v40@0:8@16@24q32",
+            (IMP)HGAPrepareSeries,@"appearance");
     Class portrait=objc_lookUpClass("FQVShortVideoListVCPlayComponent");
     if (portrait && !HGAOriginalPortraitFinishAction)
         HGAOriginalPortraitFinishAction=(void *)HGInstallVerifiedHook(portrait,

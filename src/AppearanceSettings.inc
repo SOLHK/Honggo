@@ -473,7 +473,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"内容过滤");
         HGAAddDefs(rows,@[@"video.blockedKeywords",@"player.hideFollowRecommendUsers"]);
         section(@"全集入口");
-        HGAAddDefs(rows,@[@"player.disableAutoEnterSeries"]);
+        HGAAddDefs(rows,@[@"player.homePreviewRepair",@"player.disableAutoEnterSeries"]);
         HGAAddDefs(rows,@[@"player.episodeGlass",@"player.episodeDockWidth",@"player.separateProgress"]);
         [rows addObject:HGARoleEntry(@"episodes")];
         section(@"剧集信息");
@@ -572,6 +572,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             cell.detailTextLabel.text=@"横屏播放宽画幅视频时铺满。竖屏短剧已默认等比铺满。";
         if([key isEqual:@"player.disableAutoEnterSeries"])
             cell.detailTextLabel.text=@"开启后，推荐视频播完时可自动进入全集。";
+        if([key isEqual:@"player.homePreviewRepair"])
+            cell.detailTextLabel.text=@"点首页预览下方的全集入口时，如果红果提供了当前片段对应的剧集，就打开那一集。关闭后沿用红果的选集方式。";
         if([key isEqual:@"gestures.cleanWhilePlaying"])
             cell.detailTextLabel.text=@"播放时隐藏控件，点按画面暂停后显示，继续播放时再次隐藏。";
         if([key isEqual:@"player.hideAIFictionNotice"])
@@ -611,7 +613,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 }
 - (void)save:(NSString *)key value:(id)value {
     NSError *error=nil;
-    BOOL autoEnableMaster=!HGAppearanceEnabled() && ![key isEqual:@"enabled"] &&
+    BOOL autoEnableMaster=!HGAppearanceEnabled() && ![key isEqual:@"enabled"] && ![key isEqual:@"player.homePreviewRepair"] &&
         (![self.group hasPrefix:@"setting."] || [key hasPrefix:@"mine.settings.show."]);
     NSString *area=@{@"dock.style":@"dock.enabled",@"player.headerStyle":@"player.headerGlass",
         @"player.actionStyle":@"player.rightGlass",
