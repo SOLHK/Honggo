@@ -25,6 +25,26 @@ static NSUInteger HGFixtureDockImpacts;
 }
 @end
 @implementation HGTestDockStoredPlatter @end
+@interface HGTestDockCopyPropertyPlatter : UIView
+@property(nonatomic) NSUInteger glassWrites;
+@property(nonatomic,strong) UIVisualEffect *backingEffect;
+@end
+@implementation HGTestDockCopyPropertyPlatter
+- (UIVisualEffect *)glassEffect {
+    if(@available(iOS 26.0,*)) {
+        if([self.backingEffect isKindOfClass:UIGlassEffect.class]) {
+            UIGlassEffect *copy=[UIGlassEffect effectWithStyle:UIGlassEffectStyleRegular];
+            copy.interactive=((UIGlassEffect *)self.backingEffect).interactive;
+            return copy;
+        }
+    }
+    return self.backingEffect;
+}
+- (void)setGlassEffect:(UIVisualEffect *)effect {
+    self.glassWrites++;
+    self.backingEffect=effect;
+}
+@end
 
 typedef struct {
     NSUInteger blue;
@@ -655,11 +675,16 @@ static void HGRunDockDragChecks(SSTabBarController *host,HGAAppearanceDock *dock
         if(HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
             !UIAccessibilityIsReduceMotionEnabled()) {
             UIVisualEffectView *pressLens=HGDockVisibleSelectionLens(selection);
+            SEL flexSel=NSSelectorFromString(@"_flexInteractionGestureView");
+            Method flexMethod=class_getInstanceMethod(UIVisualEffectView.class,flexSel);
+            BOOL routesFlex=!flexMethod || strcmp(method_getTypeEncoding(flexMethod),"@16@0:8")!=0 ||
+                ((UIView *(*)(id,SEL))[pressLens methodForSelector:flexSel])(pressLens,flexSel)==capsule;
             Check([pressLens.effect isKindOfClass:UIGlassEffect.class] && ((UIGlassEffect *)pressLens.effect).interactive &&
-                pressLens.alpha==1 && selection.alpha==1 && pressLens.superview==capsule &&
+                pressLens.alpha==1 && selection.alpha==1 && pressLens.superview==capsule && routesFlex &&
+                selection.bounds.size.height<=capsule.bounds.size.height*1.05 &&
                 [capsule.subviews indexOfObjectIdenticalTo:pressLens]>[capsule.subviews indexOfObjectIdenticalTo:theater] &&
                 !pressLens.userInteractionEnabled && CGAffineTransformIsIdentity(theater.titleLabel.transform),
-                @"a press samples the complete tab face below its moving glass without blocking the tab or scaling its content");
+                @"a press samples the complete tab face below its taut interactive glass lens without fish-eye inflation");
         }
     }
     [theater sendActionsForControlEvents:UIControlEventTouchCancel];
@@ -825,6 +850,15 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
             [stored->_glassEffect isKindOfClass:UIGlassEffect.class] && !((UIGlassEffect *)stored->_glassEffect).tintColor &&
             stored.overrideUserInterfaceStyle==UIUserInterfaceStyleUnspecified,
             @"an item platter with a stored glass effect accepts the actual untinted Clear effect over video");
+        HGTestDockCopyPropertyPlatter *copyPlatter=[HGTestDockCopyPropertyPlatter new];
+        copyPlatter.backingEffect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleRegular];
+        [probe setValue:copyPlatter forKey:@"systemPlatter"];
+        NSString *firstCopy=[probe applySystemMaterial:@"clear"];
+        NSString *secondCopy=[probe applySystemMaterial:@"clear"];
+        NSString *switchedCopy=[probe applySystemMaterial:@"regular"];
+        Check([firstCopy isEqual:@"clear-glass"] && [secondCopy isEqual:@"clear-glass"] &&
+            copyPlatter.glassWrites==2 && [switchedCopy isEqual:@"regular-glass"],
+            @"copy-on-read platter glassEffect is not rewritten on unchanged layouts and updates on style switches");
         UIView *factory=[UIView new];[probe setValue:factory forKey:@"systemPlatter"];
         Check([[probe applySystemMaterial:@"clear"] isEqual:@"factory-glass"] &&
             factory.overrideUserInterfaceStyle==UIUserInterfaceStyleUnspecified,

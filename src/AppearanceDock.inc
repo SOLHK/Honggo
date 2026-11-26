@@ -248,6 +248,26 @@ static NSArray *HGATabSymbols(void){return @[@"house",@"play.rectangle",@"bag",@
     self.titleLabel.center=CGPointMake(x,top+glyph.height+gap+titleHeight/2);
 }
 @end
+@interface HGADockTouchLens : UIVisualEffectView
+@property(nonatomic,weak) UIView *touchHost;
+@end
+@implementation HGADockTouchLens
+- (UIView *)_flexInteractionGestureView {
+    UIView *host=self.touchHost;
+    if(host.window && host.window==self.window)return host;
+    IMP inherited=class_getMethodImplementation(UIVisualEffectView.class,_cmd);
+    return ((UIView *(*)(id,SEL))inherited)(self,_cmd);
+}
+@end
+static UIVisualEffectView *HGADockMakeInteractiveLens(UIView *touchHost) {
+    Method flex=touchHost ? class_getInstanceMethod(UIVisualEffectView.class,sel_registerName("_flexInteractionGestureView")) : NULL;
+    if(flex && !strcmp(method_getTypeEncoding(flex),"@16@0:8")) {
+        HGADockTouchLens *lens=[[HGADockTouchLens alloc] initWithEffect:nil];
+        lens.touchHost=touchHost;
+        return lens;
+    }
+    return [[UIVisualEffectView alloc] initWithEffect:nil];
+}
 static BOOL HGADockLiquidSelection(void) {
     return [HGAppearanceString(@"dock.selectionStyle") isEqual:@"glass"];
 }
@@ -815,7 +835,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         UIVisualEffectView *backing=[surface isKindOfClass:UIVisualEffectView.class] ? (UIVisualEffectView *)surface : nil;
         Ivar slot=NULL;
         if(!backing && !hasSetter) {
-            Ivar ivar=class_getInstanceVariable(object_getClass(surface),"_glassEffect");
+            Ivar ivar=class_getInstanceVariable(object_getClass(surface),"_glassEffect") ?:
+                class_getInstanceVariable(object_getClass(surface),"glassEffect");
             const char *type=ivar ? ivar_getTypeEncoding(ivar) : NULL;
             if(type && *type=='@') {
                 id effect=object_getIvar(surface,ivar);
@@ -853,8 +874,16 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(backing) {
             surface=backing;current=backing.effect;
         }
-        if(surface!=self.customSystemPlatter || ![style isEqual:self.systemMaterialStyle] ||
-            ![current isEqual:self.installedSystemGlass]) {
+        // UIKit's platter glassEffect getter returns a copy whose -isEqual:
+        // uses pointer identity. Track platter ownership so ordinary layouts
+        // do not rewrite glassEffect and interrupt in-flight lens motion.
+        BOOL needsInstall=surface!=self.customSystemPlatter || ![style isEqual:self.systemMaterialStyle];
+        if(!needsInstall) {
+            if(backing)needsInstall=![backing.effect isKindOfClass:UIGlassEffect.class];
+            else if(slot)needsInstall=current!=self.installedSystemGlass;
+            else needsInstall=![current isKindOfClass:UIGlassEffect.class];
+        }
+        if(needsInstall) {
             UIGlassEffect *glass=[UIGlassEffect effectWithStyle:clear ? UIGlassEffectStyleClear : UIGlassEffectStyleRegular];
             glass.interactive=backing || ![current isKindOfClass:UIGlassEffect.class] || ((UIGlassEffect *)current).interactive;
             if(backing) {
@@ -931,15 +960,21 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         measured=[platter convertRect:platter.bounds toView:carrier];
         verticalScale=CGRectGetHeight(destination)/CGRectGetHeight(measured);
     }
-    // A native platter has a natural maximum width. Stretching beyond that
-    // width also stretches every symbol, corner and refracting lens.
+    // A native platter has a natural maximum width. When the screen-ratio slot
+    // exceeds that natural width (e.g. 3 tabs on a 440pt Pro Max screen), adopt
+    // UIKit's measured platter width and center the Dock group rather than
+    // discarding native Liquid Glass or stretching its symbols horizontally.
     CGFloat renderedWidth=CGRectGetWidth(measured)*verticalScale;
     CGFloat difference=CGRectGetWidth(destination)-renderedWidth;
     self.lastSystemPlatterClass=NSStringFromClass(platter.class);
     self.lastSystemPlatterMeasured=measured;
     self.lastSystemPlatterRenderedWidth=renderedWidth;
     CGFloat tolerance=MAX(1.5,2.0/MAX(1,self.traitCollection.displayScale));
-    if(renderedWidth<count*44 || fabs(difference)>tolerance)return NO;
+    if(renderedWidth<count*44 || difference<-tolerance)return NO;
+    if(difference>tolerance) {
+        destination.origin.x+=difference*0.5;
+        destination.size.width=renderedWidth;
+    }
     CGRect bounds=carrier.bounds;
     carrier.transform=CGAffineTransformMakeScale(verticalScale,verticalScale);
     carrier.center=CGPointMake(CGRectGetMidX(destination)-(CGRectGetMidX(measured)-CGRectGetMidX(bounds))*verticalScale,
@@ -955,7 +990,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     // UIKit's lens changes size and center during selection and attachment.
     // Measure the stable item hit areas instead of a presentation-time thumb.
     CGFloat width=CGRectGetWidth(self.capsule.bounds);
-    CGFloat edgeAllowance=MIN(6,width/keys.count*0.08);
+    CGFloat edgeAllowance=MIN(8,MAX(6,width/keys.count*0.10));
     NSMutableArray<NSValue *> *centers=[NSMutableArray array];
     CGFloat left=CGFLOAT_MAX,right=-CGFLOAT_MAX;
     NSArray<UIView *> *items=HGADockSystemItems(self.systemPlatter);
@@ -1581,17 +1616,20 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
 }
 - (void)placeSelection:(CGRect)frame {
-    if(!CGRectEqualToRect(self.selection.frame,frame))self.selection.frame=frame;
+    CGRect targetBounds=(CGRect){CGPointZero,frame.size};
+    CGPoint targetCenter=CGPointMake(CGRectGetMidX(frame),CGRectGetMidY(frame));
+    if(!CGRectEqualToRect(self.selection.bounds,targetBounds))self.selection.bounds=targetBounds;
+    if(!CGPointEqualToPoint(self.selection.center,targetCenter))self.selection.center=targetCenter;
     CGFloat radius=MIN(self.capsule.layer.cornerRadius,MIN(frame.size.width,frame.size.height)/2);
     if(self.selection.layer.cornerRadius!=radius)self.selection.layer.cornerRadius=radius;
     if(self.dragLens) {
-        CGRect targetBounds=(CGRect){CGPointZero,frame.size};
-        CGPoint targetCenter=CGPointMake(CGRectGetMidX(frame),CGRectGetMidY(frame));
         if(!CGRectEqualToRect(self.dragLens.bounds,targetBounds))self.dragLens.bounds=targetBounds;
         if(!CGPointEqualToPoint(self.dragLens.center,targetCenter))self.dragLens.center=targetCenter;
         [self updateDragLensCornersForRadius:radius];
     }
-    if(!CGRectEqualToRect(self.selectionHighlight.frame,self.selection.bounds))self.selectionHighlight.frame=self.selection.bounds;
+    if(!CGRectEqualToRect(self.selectionHighlight.bounds,targetBounds))self.selectionHighlight.bounds=targetBounds;
+    CGPoint highlightCenter=CGPointMake(targetBounds.size.width*0.5,targetBounds.size.height*0.5);
+    if(!CGPointEqualToPoint(self.selectionHighlight.center,highlightCenter))self.selectionHighlight.center=highlightCenter;
     if(self.selectionHighlight.layer.cornerRadius!=radius)self.selectionHighlight.layer.cornerRadius=radius;
 }
 - (void)endQuietLens {
@@ -1626,7 +1664,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.quietSelectionSources=thumbs;
         if(thumbs.count) {
             if(@available(iOS 26.0,*)) {
-                UIVisualEffectView *lens=[[UIVisualEffectView alloc] initWithEffect:nil];
+                UIVisualEffectView *lens=HGADockMakeInteractiveLens(self);
                 lens.accessibilityIdentifier=@"honggo.appearance.dock.quiet-lens";
                 lens.accessibilityElementsHidden=YES;lens.userInteractionEnabled=NO;
                 lens.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
@@ -1640,6 +1678,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         }
     }
     if(!self.quietDragLens)return NO;
+    if(self.quietDragLens.overrideUserInterfaceStyle!=self.capsule.overrideUserInterfaceStyle)
+        self.quietDragLens.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
     if(!CGRectEqualToRect(self.quietDragLens.frame,frame))self.quietDragLens.frame=frame;
     return YES;
 }
@@ -1683,9 +1723,9 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
                 self.dragHoveredTab=destination;
             }
             if(self.dragLens && !self.dragLens.hidden && !UIAccessibilityIsReduceMotionEnabled()) {
-                CGFloat norm=MIN(1.0,fabs(self.dragVelocityX)/1150.0);
-                CGAffineTransform stretch=norm>0.01 ?
-                    CGAffineTransformMakeScale(1.0+norm*0.085,1.0-norm*0.055) : CGAffineTransformIdentity;
+                CGFloat norm=MIN(1.0,fabs(self.dragVelocityX)/1400.0);
+                CGAffineTransform stretch=norm>0.02 ?
+                    CGAffineTransformMakeScale(1.0+norm*0.038,1.0-norm*0.024) : CGAffineTransformIdentity;
                 if(!CGAffineTransformEqualToTransform(self.dragLens.transform,stretch))
                     self.dragLens.transform=stretch;
             }
@@ -1732,12 +1772,20 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.dragLensIsCapsule=NO;self.dragLensCornerRadius=0;
         return;
     }
-    if(self.dragLens || CGRectIsEmpty(self.selection.bounds))return;
+    if(self.dragLens) {
+        if(self.dragLens.overrideUserInterfaceStyle!=self.capsule.overrideUserInterfaceStyle) {
+            self.dragLens.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
+            if(@available(iOS 17.0,*))[self.dragLens updateTraitsIfNeeded];
+        }
+        return;
+    }
+    if(CGRectIsEmpty(self.selection.bounds))return;
     if(@available(iOS 26.0,*)) {
         UIGlassEffect *effect=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
         effect.interactive=YES;
-        UIVisualEffectView *lens=[[UIVisualEffectView alloc] initWithEffect:nil];
+        UIVisualEffectView *lens=HGADockMakeInteractiveLens(self.capsule);
         lens.accessibilityIdentifier=@"honggo.appearance.dock.drag-lens";
+        lens.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
         lens.bounds=(CGRect){CGPointZero,self.selection.bounds.size};
         lens.center=self.selection.center;
         lens.layer.cornerCurve=kCACornerCurveContinuous;
@@ -1755,11 +1803,12 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 }
 - (void)showSelectionMotionMaterial {
     if(!HGADockLiquidSelection())return;
-    if(!self.motionMaterialPresented)[self prepareSelectionLens];
+    [self prepareSelectionLens];
     self.motionMaterialPresented=YES;
     if(self.dragLens) {
         [self.capsule bringSubviewToFront:self.dragLens];
         [self.dragLens.layer removeAnimationForKey:@"opacity"];
+        [self.selection.layer removeAnimationForKey:@"backgroundColor"];
         self.dragLens.alpha=1;
         self.dragLens.hidden=NO;
         if([self.dragLens.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")])
@@ -1772,12 +1821,12 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         UIAccessibilityIsReduceMotionEnabled())return;
     UIButton *previous=self.motionGlyph;
     self.motionGlyph=glyph;
-    [UIView animateWithDuration:glyph?0.26:0.38 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0
+    [UIView animateWithDuration:glyph?0.24:0.32 delay:0 usingSpringWithDamping:0.86 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
             previous.imageView.transform=CGAffineTransformIdentity;
             previous.titleLabel.transform=CGAffineTransformIdentity;
-            glyph.imageView.transform=CGAffineTransformMakeScale(1.18,1.18);
-            glyph.titleLabel.transform=CGAffineTransformMakeScale(1.08,1.08);
+            glyph.imageView.transform=CGAffineTransformMakeScale(1.14,1.14);
+            glyph.titleLabel.transform=CGAffineTransformMakeScale(1.06,1.06);
         } completion:nil];
 }
 - (NSString *)dockMotionMode {
@@ -1790,6 +1839,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 }
 - (void)pressTab:(UIButton *)button {
     if(self.selectionDragging || self.pressedTab==button || !button.enabled || button.hidden)return;
+    BOOL wasSettling=self.selectionSettling;
     self.selectionGeneration++;
     self.selectionSettling=NO;
     self.pressedTab=button;
@@ -1809,6 +1859,11 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         [self positionDragSelection:position];
         return;
     }
+    if(wasSettling && self.selection.layer.presentationLayer && !CGRectIsEmpty(self.selection.layer.presentationLayer.bounds)) {
+        [UIView performWithoutAnimation:^{
+            [self placeSelection:self.selection.layer.presentationLayer.frame];
+        }];
+    }
     if(!self.flatSegments && (self.selection.hidden || CGRectIsEmpty(self.selection.bounds))) {
         CGSize size=self.capsule.bounds.size;
         [self placeSelection:HGADockSelectionFrame(position,size.width,size.height,button.bounds.size.width,NO)];
@@ -1821,7 +1876,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
     [self showSelectionMotionMaterial];
     [self animateMotionGlyph:button];
-    [UIView animateWithDuration:0.32 delay:0 usingSpringWithDamping:0.68 initialSpringVelocity:0.35
+    [UIView animateWithDuration:0.28 delay:0 usingSpringWithDamping:0.84 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
             self.dragLens.transform=CGAffineTransformIdentity;
             [self positionDragSelection:position];
@@ -1859,24 +1914,28 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         CGFloat dx=CGRectGetMidX(resting)-CGRectGetMidX(self.selection.frame);
         if(fabs(dx)>2.0) {
             CGFloat toward=(dx>=0 ? releaseVelocity : -releaseVelocity)/MAX(40.0,fabs(dx));
-            springVelocity=MIN(5.5,MAX(-2.0,toward));
+            springVelocity=MIN(4.0,MAX(-1.5,toward));
         }
     }
-    BOOL fadeLens=self.dragLens && !self.dragLens.hidden;
+    BOOL fadeLens=self.dragLens && !self.dragLens.hidden &&
+        [self.dragLens.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")];
     if(fadeLens) {
-        [UIView animateWithDuration:0.20 delay:0.16
+        // Keep the pure refractive lens unclouded during travel, then crossfade
+        // smoothly into the recessed resting thumb as the spring lands.
+        [UIView animateWithDuration:0.16 delay:0.12
             options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionCurveEaseOut
             animations:^{
                 self.dragLens.alpha=0;
+                if(self.restingSelectionColor)self.selection.backgroundColor=self.restingSelectionColor;
             } completion:nil];
     }
-    [UIView animateWithDuration:0.40 delay:0 usingSpringWithDamping:0.70 initialSpringVelocity:springVelocity
+    [UIView animateWithDuration:0.32 delay:0 usingSpringWithDamping:0.84 initialSpringVelocity:springVelocity
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
         animations:^{
             if(!CGRectIsNull(resting))[self placeSelection:resting];
             self.dragLens.transform=CGAffineTransformIdentity;
             self.selectionHighlight.alpha=0;
-            if(self.restingSelectionColor)self.selection.backgroundColor=self.restingSelectionColor;
+            if(!fadeLens && self.restingSelectionColor)self.selection.backgroundColor=self.restingSelectionColor;
         } completion:^(BOOL finished){
             if(self.selectionGeneration!=generation)return;
             if(HGEnhancedDiagnostics() && startTs>0) {

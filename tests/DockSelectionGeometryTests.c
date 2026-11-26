@@ -7,9 +7,9 @@ static void near(double actual, double expected) {
 }
 
 int main(void) {
-    const double screens[] = {320, 393, 430};
+    const double screens[] = {320, 393, 430, 440};
     const double heights[] = {44, 58, 80};
-    for (unsigned screen = 0; screen < 3; screen++) {
+    for (unsigned screen = 0; screen < 4; screen++) {
         for (unsigned count = 1; count <= 4; count++) {
             double total = HGADockRowWidth(screens[screen], 0.90, 66, count, 4, true);
             double width = total - 66;
@@ -32,6 +32,7 @@ int main(void) {
                     if (count > 1) assert(rest.width >= slot && rest.width <= slot * 1.075 + 0.00001);
                     HGADockSelectionBounds held = HGADockSelectionBoundsForState(center,width,height,slot,true);
                     assert(held.width > rest.width && held.height > rest.height);
+                    assert(held.height <= height * 1.05);
                     assert(held.y < 0 && held.y + held.height > height);
                     assert(held.x >= 0 && held.x + held.width <= width + 0.00001);
                     if (i == 0) near(held.x, 0);

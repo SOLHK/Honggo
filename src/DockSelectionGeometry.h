@@ -22,13 +22,15 @@ static inline double HGADockRestingInset(double height) { return height * (4.0 /
 
 static inline HGADockSelectionBounds HGADockSelectionBoundsForState(
         double center,double capsuleWidth,double capsuleHeight,double slotWidth,bool pressed) {
-    const double inset=pressed ? 0 : HGADockRestingInset(capsuleHeight);
-    // The lifted lens stretches between neighboring tab centers, then rounds
-    // out over either glyph. The easing has zero slope at a center and halfway.
+    const double restingInset=HGADockRestingInset(capsuleHeight);
+    const double inset=pressed ? 0 : restingInset;
+    const double restingWidth=slotWidth+fmin(2*restingInset,slotWidth*0.075);
+    // Keep the lifted thumb taut around the capsule rim with a subtle liquid
+    // bridge between adjacent tab centers, avoiding fish-eye over-expansion.
     const double distance=pressed ? fabs(remainder(center-slotWidth*0.5,slotWidth))/(slotWidth*0.5) : 0;
     const double stretch=distance*distance*(3-2*distance);
-    const double width=fmin(pressed ? slotWidth*(1.12+0.17*stretch) : slotWidth+fmin(2*inset,slotWidth*0.075),capsuleWidth-2*inset);
-    const double height=pressed ? capsuleHeight*(1.12-0.075*stretch) : capsuleHeight-2*inset;
+    const double width=fmin(pressed ? restingWidth+slotWidth*(0.024+0.076*stretch) : restingWidth,capsuleWidth-2*inset);
+    const double height=pressed ? capsuleHeight*(1.036-0.022*stretch) : capsuleHeight-2*inset;
     // Slide the lifted lens inward at the ends, retaining its full width.
     const double left=fmax(inset,fmin(center-width*0.5,capsuleWidth-inset-width));
     return (HGADockSelectionBounds){left,(capsuleHeight-height)*0.5,width,height};

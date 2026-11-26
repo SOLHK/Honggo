@@ -644,7 +644,8 @@ void HGInstallAppearance(void) {
             }
             if([name isEqual:@"SSShortVideoLandscapeBizInteractionView"])
                 HGAHook(cls,sel_registerName("refreshUI"),"v16@0:8",NO);
-            if([name isEqual:@"SSHGBookStoreCategoryTitleCell"])
+            if([name isEqual:@"SSHGBookStoreCategoryTitleCell"] ||
+                ([name isEqual:@"FQRJXCategoryTitleCell"] && class_getInstanceMethod(cls,sel_registerName("reloadData:"))))
                 HGAHook(cls,sel_registerName("reloadData:"),"v24@0:8@16",NO);
             if([name isEqual:@"SSHGBookStoreCategoryTitleView"]) {
                 HGAHook(cls,sel_registerName("refreshState"),"v16@0:8",NO);

@@ -214,16 +214,74 @@ static void HGAApplyPageChromeIcons(UIView *owner,NSArray<UIView *> *candidates)
     }
 }
 
+static char HGAHistoryCellLayersKey;
+static void HGASetHistoryCellBackingHidden(UIView *cell,BOOL hide) {
+    if(![cell isKindOfClass:UICollectionViewCell.class])return;
+    UICollectionViewCell *item=(UICollectionViewCell *)cell;
+    HGASetGlassHostBackground(item,hide);
+    NSMapTable<CALayer *,NSNumber *> *saved=objc_getAssociatedObject(item,&HGAHistoryCellLayersKey);
+    if(!hide) {
+        for(CALayer *layer in saved.keyEnumerator.allObjects)
+            layer.hidden=[[saved objectForKey:layer] boolValue];
+        if(saved)objc_setAssociatedObject(item,&HGAHistoryCellLayersKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        HGAHidePageChromeTarget(item,@"historyCellBgView",nil);
+        HGAHidePageChromeTarget(item,@"historyCellBorderView",nil);
+        return;
+    }
+    if(!saved) {
+        saved=[NSMapTable weakToStrongObjectsMapTable];
+        objc_setAssociatedObject(item,&HGAHistoryCellLayersKey,saved,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    NSMutableArray<CALayer *> *candidates=[NSMutableArray array];
+    const char *layerGetters[]={"bgLayer","backgroundLayer","borderLayer"};
+    for(NSUInteger i=0;i<3;i++) {
+        id candidate=HGReadObjectGetter(item,layerGetters[i]);
+        if([candidate isKindOfClass:CALayer.class])[candidates addObject:candidate];
+    }
+    for(CALayer *sublayer in [item.contentView.layer.sublayers copy]) {
+        if(sublayer.delegate)continue;
+        BOOL painted=sublayer.cornerRadius>0 || sublayer.borderWidth>0 ||
+            (sublayer.backgroundColor && CGColorGetAlpha(sublayer.backgroundColor)>0.001);
+        if(painted && ![candidates containsObject:sublayer])[candidates addObject:sublayer];
+    }
+    for(CALayer *layer in candidates) {
+        if(![saved objectForKey:layer])[saved setObject:@(layer.hidden) forKey:layer];
+        if(!layer.hidden)layer.hidden=YES;
+    }
+    UIView *bgView=HGAViewGetter(item,"bgView",item) ?: HGAViewGetter(item,"backgroundView",item);
+    if(bgView==item || bgView==item.contentView || [bgView isKindOfClass:UILabel.class])bgView=nil;
+    UIView *borderView=HGAViewGetter(item,"borderView",item);
+    if(borderView==item || borderView==item.contentView || [borderView isKindOfClass:UILabel.class])borderView=nil;
+    HGAHidePageChromeTarget(item,@"historyCellBgView",bgView);
+    HGAHidePageChromeTarget(item,@"historyCellBorderView",borderView);
+}
+
+static CGFloat HGAHistoryActionCapsuleWidth(UIView *target) {
+    CGFloat width=CGRectGetWidth(target.bounds);
+    if(width<=0)return 0;
+    return (!target.clipsToBounds && width<45) ? 45 : width;
+}
+
 static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL enabled) {
-    if([target isKindOfClass:UICollectionViewCell.class])target=((UICollectionViewCell *)target).contentView;
+    BOOL isCell=[target isKindOfClass:UICollectionViewCell.class];
+    if(isCell) {
+        HGASetHistoryCellBackingHidden(target,enabled);
+        target=((UICollectionViewCell *)target).contentView;
+    }
     CGRect frame=enabled ? target.bounds : CGRectZero;
     if(enabled && !CGRectIsEmpty(frame)) {
-        CGFloat height=MIN(30,frame.size.height);
-        CGFloat width=frame.size.width;
-        if(circle)width=height=target.clipsToBounds ? MIN(height,width) : 30;
-        else if(width>=28 && width<=34 && !target.clipsToBounds)width+=4;
-        else if(width>=40)width-=4;
-        frame=CGRectInset(frame,(frame.size.width-width)/2,(frame.size.height-height)/2);
+        if(circle) {
+            CGFloat side=target.clipsToBounds ? MIN(30,MIN(frame.size.width,frame.size.height)) : 30;
+            frame=CGRectInset(frame,(frame.size.width-side)/2,(frame.size.height-side)/2);
+        } else {
+            // Keep 2pt vertical breathing room inside the 32pt clipped history
+            // strip so UIGlassEffect's specular rim is never sliced flat, and
+            // give right-side 30pt text controls matching horizontal capsules.
+            CGFloat height=MIN(28,frame.size.height);
+            CGFloat width=isCell ? (frame.size.width>=44 ? frame.size.width-2 : frame.size.width) :
+                HGAHistoryActionCapsuleWidth(target);
+            frame=CGRectInset(frame,(frame.size.width-width)/2,(frame.size.height-height)/2);
+        }
     }
     HGAApplyPageChromeMaterial(target,frame,HGALiquidButtonMaterial());
 }
@@ -1088,15 +1146,60 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
     } else if([view isKindOfClass:NSClassFromString(@"SSVideoFilterPanelEntranceView")]) {
         BOOL mine=enabled && HGAppearanceFlag(@"player.mineGlass") && HGAAncestorNamed(view,@"SSMyUser637TabsView");
         HGASetPageChromeCover(view,"backgroundView",mine);
+        UIView *toolbar=view.superview;
+        UIView *editButton=nil;
+        for(UIView *sibling in toolbar.subviews) {
+            if(![sibling isKindOfClass:NSClassFromString(@"FQReaderSaaSBaseButton")] ||
+                ![sibling isKindOfClass:UIButton.class])continue;
+            NSString *title=((UIButton *)sibling).currentTitle;
+            if([title isEqual:@"编辑"] || [title isEqual:@"完成"]){editButton=sibling;break;}
+        }
+        CGRect (^unshiftedFrame)(UIView *)=^CGRect(UIView *item) {
+            if(!item)return CGRectNull;
+            CGRect base=item.frame;
+            HGAViewState *state=HGAState(item,NO);
+            if(state.geometry && state.geometrySuperview==item.superview &&
+                CGAffineTransformEqualToTransform(item.transform,state.appliedTransform))
+                base.origin.x-=state.appliedTransform.tx-state.sourceTransform.tx;
+            return base;
+        };
+        CGRect filterBase=unshiftedFrame(view);
+        CGRect editBase=unshiftedFrame(editButton);
+        UIView *divider=nil;
+        if(mine && editButton && CGRectGetMinX(editBase)>CGRectGetMaxX(filterBase)) {
+            for(UIView *sibling in toolbar.subviews) {
+                if(sibling==view || sibling==editButton || [sibling isKindOfClass:UIControl.class])continue;
+                CGRect rect=sibling.frame;
+                if(CGRectGetWidth(rect)<=2.0 && CGRectGetHeight(rect)>=10.0 &&
+                    CGRectGetMidX(rect)>=CGRectGetMaxX(filterBase)-2.0 &&
+                    CGRectGetMidX(rect)<=CGRectGetMinX(editBase)+2.0) {
+                    divider=sibling;break;
+                }
+            }
+        }
+        HGAHidePageChromeTarget(view,@"historyDivider",mine ? divider : nil);
+        CGFloat filterShift=0,editShift=0;
+        if(mine && editButton && CGRectGetWidth(filterBase)<40 && CGRectGetWidth(editBase)<40) {
+            CGFloat filterPill=HGAHistoryActionCapsuleWidth(view);
+            CGFloat editPill=HGAHistoryActionCapsuleWidth(editButton);
+            CGFloat scrollRight=0;
+            for(UIView *sibling in toolbar.subviews) {
+                if([sibling isKindOfClass:UIScrollView.class])
+                    scrollRight=MAX(scrollRight,CGRectGetMaxX(sibling.frame));
+            }
+            CGFloat filterLeft=CGRectGetMidX(filterBase)-filterPill*0.5;
+            if(scrollRight>0 && filterLeft<scrollRight+1.0)
+                filterShift=(scrollRight+1.0)-filterLeft;
+            CGFloat filterRight=(CGRectGetMidX(filterBase)+filterShift)+filterPill*0.5;
+            CGFloat desiredEditCenter=filterRight+6.0+editPill*0.5;
+            editShift=desiredEditCenter-CGRectGetMidX(editBase);
+        }
+        HGASetGeometry(view,filterShift,0,1);
+        if(editButton)HGASetGeometry(editButton,editShift,0,1);
         NSMutableArray *targets=[NSMutableArray array];
         if(mine) {
             [targets addObject:view];
-            for(UIView *sibling in view.superview.subviews) {
-                if(![sibling isKindOfClass:NSClassFromString(@"FQReaderSaaSBaseButton")] ||
-                    ![sibling isKindOfClass:UIButton.class])continue;
-                NSString *title=((UIButton *)sibling).currentTitle;
-                if([title isEqual:@"编辑"] || [title isEqual:@"完成"]){[targets addObject:sibling];break;}
-            }
+            if(editButton)[targets addObject:editButton];
         }
         HGAUpdatePageChromeTargets(view,targets);
         for(UIView *target in targets)HGAApplyHistoryGlass(target,NO,YES);
