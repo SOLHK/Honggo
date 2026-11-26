@@ -402,6 +402,20 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     HGAppearanceSet(@"gestures.pinchClean",@(wasEnabled),nil);
     [navigation popToViewController:parent animated:NO];
     [window layoutIfNeeded];
+    BOOL savedMasterBeforeSubpage=HGAppearanceEnabled();
+    BOOL savedHideLive=HGAppearanceFlag(@"layout.channels.hide.live");
+    HGAppearanceApply(@{@"enabled":@NO,@"layout.channels.hide.live":@NO},nil);
+    HGOpenAppearance(parent,@"chrome.hide");
+    UITableViewController *chromeSubpage=(id)navigation.topViewController;
+    [chromeSubpage loadViewIfNeeded];
+    [window layoutIfNeeded];
+    NSIndexPath *hideLivePath=chromeSubpage!=parent ? HGMenuPath(chromeSubpage,@"layout.channels.hide.live") : nil;
+    if(hideLivePath)[chromeSubpage tableView:chromeSubpage.tableView didSelectRowAtIndexPath:hideLivePath];
+    Check(chromeSubpage!=parent && hideLivePath && HGAppearanceFlag(@"layout.channels.hide.live") && HGAppearanceEnabled(),
+        @"toggling a category subpage option while appearance master is off automatically enables appearance so changes take effect immediately");
+    HGAppearanceApply(@{@"enabled":@(savedMasterBeforeSubpage),@"layout.channels.hide.live":@(savedHideLive)},nil);
+    [navigation popToViewController:parent animated:NO];
+    [window layoutIfNeeded];
     HGOpenAppearance(parent, nil);
     UITableViewController *home = (id)navigation.topViewController;
     [home loadViewIfNeeded];

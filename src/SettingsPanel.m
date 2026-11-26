@@ -420,6 +420,10 @@ BOOL HGConfigurationBackupApply(NSDictionary *backup, NSError **error) {
     }
     if (appearance && !HGAppearanceApply(appearance, error)) return NO;
     if (features && !HGPreferencesApply(features, error)) return NO;
+    if ((HGIsEnabled(HGGlass) || HGIsEnabled(HGGlassControls) || HGAppearanceNeedsGlass()))
+        HGPrepareNativeGlass();
+    if (features)
+        [NSNotificationCenter.defaultCenter postNotificationName:@"Honggo.FeaturePreferencesDidChange" object:nil];
     HGAppearanceRefresh();
     return YES;
 }
@@ -664,7 +668,7 @@ static NSAttributedString *HGFormattedReleaseNotesBody(NSString *raw) {
     self.tableView.allowsSelection = self.currentOnly;
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    if (self.currentOnly) return self.entries.count ? 2 : 1;
+    if (self.currentOnly) return 1;
     return self.entries.count;
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -672,39 +676,22 @@ static NSAttributedString *HGFormattedReleaseNotesBody(NSString *raw) {
     return 1;
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if (self.currentOnly) return section == 0 ? @"本次版本更新内容" : @"全部版本历史";
+    if (self.currentOnly) return @"本次版本更新内容（点击卡片查看全部版本）";
     if (section == 0) return @"当前版本";
     if (section == 1) return @"历史版本记录";
     return nil;
 }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (self.currentOnly && section == 1)
-        return @"提示：如需随时查看全部历史版本的更新内容，请前往「Honggo 设置 → 作者与频道 → 当前版本」。";
+    if (self.currentOnly && section == 0)
+        return @"提示：点击上方更新内容卡片可进入三级弹窗查看全部版本的更新记录；也可在「Honggo 设置 → 作者与频道 → 当前版本」中查看。";
+    if (!self.currentOnly && self.entries.count && section == (NSInteger)self.entries.count - 1)
+        return [NSString stringWithFormat:@"提示：以上为全部 %lu 个版本的完整更新记录，点击右上角关闭按钮可返回上一层。",
+            (unsigned long)self.entries.count];
     return nil;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
     BOOL frostedSheet = self.navigationController.modalPresentationStyle == UIModalPresentationPageSheet &&
         self.navigationController.sheetPresentationController != nil;
-    if (self.currentOnly && path.section == 1) {
-        UITableViewCell *hint = [tableView dequeueReusableCellWithIdentifier:@"releaseHint"];
-        if (!hint) hint = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"releaseHint"];
-        UIListContentConfiguration *cfg = [UIListContentConfiguration subtitleCellConfiguration];
-        cfg.text = @"查看全部版本的更新内容";
-        cfg.textProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-        cfg.secondaryText = @"前往「设置 → 作者与频道 → 当前版本」查看完整记录";
-        cfg.secondaryTextProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
-        cfg.secondaryTextProperties.color = UIColor.secondaryLabelColor;
-        cfg.secondaryTextProperties.numberOfLines = 0;
-        cfg.textToSecondaryTextVerticalPadding = 4;
-        cfg.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(12, 16, 12, 16);
-        hint.contentConfiguration = cfg;
-        hint.accessibilityIdentifier = @"honggo.settings.releaseNotes.allHint";
-        hint.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        UIBackgroundConfiguration *bg = [UIBackgroundConfiguration listGroupedCellConfiguration];
-        if (frostedSheet) bg.backgroundColor = [UIColor.secondarySystemGroupedBackgroundColor colorWithAlphaComponent:0.65];
-        hint.backgroundConfiguration = bg;
-        return hint;
-    }
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"release"];
     if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"release"];
     NSArray *entry = self.entries[self.currentOnly ? 0 : path.section];
@@ -716,8 +703,17 @@ static NSAttributedString *HGFormattedReleaseNotesBody(NSString *raw) {
     content.textToSecondaryTextVerticalPadding = 8;
     content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(16, 18, 16, 18);
     cell.contentConfiguration = content;
-    cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    cell.accessoryType = UITableViewCellAccessoryNone;
+    if (self.currentOnly) {
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.accessibilityIdentifier = @"honggo.settings.releaseNotes.currentCard";
+        cell.accessibilityHint = @"点击打开三级弹窗查看全部版本的更新内容";
+    } else {
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.accessibilityIdentifier = [NSString stringWithFormat:@"honggo.settings.releaseNotes.item.%ld", (long)path.section];
+        cell.accessibilityHint = nil;
+    }
     UIBackgroundConfiguration *bg = [UIBackgroundConfiguration listGroupedCellConfiguration];
     if (frostedSheet) bg.backgroundColor = [UIColor.secondarySystemGroupedBackgroundColor colorWithAlphaComponent:0.68];
     cell.backgroundConfiguration = bg;
@@ -725,16 +721,30 @@ static NSAttributedString *HGFormattedReleaseNotesBody(NSString *raw) {
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path {
     [tableView deselectRowAtIndexPath:path animated:YES];
-    if (!self.currentOnly || path.section != 1) return;
+    if (!self.currentOnly || path.section != 0) return;
+    UIViewController *presenter = self.navigationController ?: self;
+    if (presenter.presentedViewController) return;
     HGReleaseNotesController *all = [[HGReleaseNotesController alloc] initWithStyle:UITableViewStyleInsetGrouped];
     all.currentOnly = NO;
-    if (self.navigationController) {
-        all.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
-            target:all action:@selector(closeNotes)];
-        [self.navigationController pushViewController:all animated:YES];
+    UINavigationController *level3 = [[UINavigationController alloc] initWithRootViewController:all];
+    level3.modalPresentationStyle = UIModalPresentationPageSheet;
+    UISheetPresentationController *sheet = level3.sheetPresentationController;
+    sheet.detents = @[UISheetPresentationControllerDetent.mediumDetent, UISheetPresentationControllerDetent.largeDetent];
+    sheet.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierLarge;
+    sheet.prefersGrabberVisible = YES;
+    UIBlurEffect *frost = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+    if (@available(iOS 26.1, *)) {
+        for (UISheetPresentationControllerDetent *detent in sheet.detents) detent.backgroundEffect = frost;
+    } else {
+        all.tableView.backgroundView = [[UIVisualEffectView alloc] initWithEffect:frost];
     }
+    [presenter presentViewController:level3 animated:YES completion:nil];
 }
-- (void)closeNotes { [self dismissViewControllerAnimated:YES completion:nil]; }
+- (void)closeNotes {
+    UIViewController *owner = self.navigationController ?: self;
+    if (owner.presentingViewController) [owner.presentingViewController dismissViewControllerAnimated:YES completion:nil];
+    else [owner dismissViewControllerAnimated:YES completion:nil];
+}
 @end
 
 static UIButton *HGSettingsCapsule(UIButtonConfiguration *style,NSString *title,
@@ -1020,8 +1030,16 @@ static UIBarButtonItem *HGSettingsCapsuleItem(UIButton *button,CGSize size) {
 }
 - (void)toggleChanged:(UISwitch *)toggle {
     HGFeature feature = (HGFeature)toggle.tag;
-    if (HGSetEnabled(feature, toggle.on))
+    if (HGSetEnabled(feature, toggle.on)) {
         HGLog(@"settings.toggle", @{@"feature": HGFeatureIdentifier(feature), @"enabled": @(toggle.on)});
+        if ((feature == HGGlass || feature == HGGlassControls) && toggle.on)
+            HGPrepareNativeGlass();
+        if (feature == HGGlassControls && toggle.on)
+            HGInstallControls();
+        [NSNotificationCenter.defaultCenter postNotificationName:@"Honggo.FeaturePreferencesDidChange" object:@(feature)];
+        if (feature == HGGlass || feature == HGGlassControls)
+            HGAppearanceRefresh();
+    }
 }
 - (UIViewController *)activePresenter:(UIViewController *)preferred {
     UIViewController *top = preferred.viewIfLoaded.window ? preferred :

@@ -399,6 +399,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGAHomeChannelPagerDidSettle(object);
             }
             else if(scrollComponent) {
+                HGARecordFeedScrollActivity(argument);
                 if(selector==@selector(scrollViewDidScroll:))HGARefreshBackdropDuringScroll(argument);
                 else HGARefreshBackdropAfterScroll(argument);
             }
@@ -422,6 +423,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGAHomeChannelPagerDidSettle(object);
                 }
             } else if(scrollComponent) {
+                HGARecordFeedScrollActivity(argument);
                 if(!animated)HGARefreshBackdropAfterScroll(argument);
             } else HGAppearanceProcessView(object);
         });
@@ -634,7 +636,7 @@ void HGInstallAppearance(void) {
         [classes addObjectsFromArray:HGALandscapeChromeClasses()];
         [classes addObject:@"FQVTransitionPlayerTopContentView"];
         [classes addObject:@"FQVShortVideoVPlayerSingleSeriesControlView"];
-        [classes addObjectsFromArray:@[@"SSShortVideoDistributionContentView",@"SSShortVideoDistributionContentBaseView"]];
+        [classes addObjectsFromArray:@[@"SSShortVideoDistributionContentView",@"SSShortVideoDistributionContentBaseView",@"SSShortVideoRecommendPeopleCardView"]];
         [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"FQVPlayer",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar",@"FQVShortVideoBaseInsertView"]];
         for (NSString *name in classes) {
             Class cls=NSClassFromString(name);

@@ -16,6 +16,7 @@ static NSUInteger nativeGameInitializations;
 @end
 @implementation HGKeywordFixtureAlbum @end
 @interface HGKeywordFixtureCell : NSObject
+@property(nonatomic) BOOL isRecommendPeople;
 @property(nonatomic,strong) id filterableSeriesVideoData,filterableEpisodeVideoData,derivateVideoData,albumInfo,bookData,tagInfo;
 @property(nonatomic,copy) NSString *title,*rawBookName,*videoDesc,*authorNickname,*bookName,*bookAbstract,*author,*text;
 @property(nonatomic,copy) NSArray *cellData,*categoryList,*tags;
@@ -38,7 +39,9 @@ static NSUInteger nativeGameInitializations;
 @implementation SSShortVideoRecommendOutterListDataSource
 - (NSInteger)nextLoadMoreCellId { return 75; }
 - (BOOL)canHandleVideoFeedCellViewData:(id)cell { return [cell isKindOfClass:HGKeywordFixtureCell.class]; }
-- (BOOL)isRecommendPeopleCellViewData:(id)cell { return NO; }
+- (BOOL)isRecommendPeopleCellViewData:(id)cell {
+    return [cell isKindOfClass:HGKeywordFixtureCell.class] && ((HGKeywordFixtureCell *)cell).isRecommendPeople;
+}
 - (void)updatePagingWithCellChangeResult:(SSShortVideoRecommendOutterCellChangeResult *)result {
     self.nextOffset=result.nextOffset;self.hasMore=result.hasMore;
 }
@@ -617,6 +620,23 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
     [self check:before==1 && done==1 && [source.built isEqual:@[keep]] && source.nextOffset==3 &&
         [source.requestedOffsets isEqual:@[@0,@1,@2]] name:@"consecutive fully blocked pages advance real host offsets and deliver one final page"];
+    HGAppearanceSet(@"video.blockedKeywords",@[],nil);
+    HGKeywordFixtureCell *recPeople=[HGKeywordFixtureCell new];
+    recPeople.isRecommendPeople=YES;
+    source.hasMore=NO;
+    [source reqVideoDataIfNeedWithCellViewDataArr:@[keep,recPeople] beforeBuild:nil completion:nil];
+    BOOL keptWhenFollowSwitchOff=[source.built isEqual:@[keep,recPeople]];
+    BOOL prevMaster=HGAppearanceEnabled();
+    NSUInteger reloadsBeforeFollow=page.reloads;
+    HGAppearanceApply(@{@"enabled":@YES,@"player.hideFollowRecommendUsers":@YES},nil);
+    [source reqVideoDataIfNeedWithCellViewDataArr:@[keep,recPeople] beforeBuild:nil completion:nil];
+    BOOL droppedWhenFollowSwitchOn=[source.built isEqual:@[keep]];
+    [source reqVideoDataIfNeedWithCellViewDataArr:@[recPeople] beforeBuild:nil completion:nil];
+    BOOL emptyEndOfFollowFeed=(source.built.count==0);
+    [self check:keptWhenFollowSwitchOff && droppedWhenFollowSwitchOn && emptyEndOfFollowFeed &&
+        page.reloads==reloadsBeforeFollow+1
+        name:@"follow-tab recommended users card is preserved by default and filtered cleanly when player.hideFollowRecommendUsers is enabled"];
+    HGAppearanceApply(@{@"enabled":@(prevMaster),@"player.hideFollowRecommendUsers":@NO},nil);
     [page feedHostWillDisappearForReason:1];[page.view removeFromSuperview];HGAppearanceSet(@"video.blockedKeywords",saved,nil);
 }
 - (void)check:(BOOL)passed name:(NSString *)name {

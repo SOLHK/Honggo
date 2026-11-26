@@ -61,7 +61,7 @@
     if (self.bottom) ((void (*)(id, SEL, BOOL))objc_msgSend)(self.bottom, @selector(setHidden:), YES);
 }
 @end
-static char HGMineClipKey, HGMineClipPendingKey;
+static char HGMineClipKey;
 static BOOL HGMineMovingViewport(UIView *view) {
     if (![view isKindOfClass:UIScrollView.class]) return NO;
     UIScrollView *scroll = (UIScrollView *)view;
@@ -77,16 +77,19 @@ static void HGApplyMineClip(UIScrollView *scroll) {
     NSMapTable<UIView *, HGMineClipRecord *> *records = objc_getAssociatedObject(scroll, &HGMineClipKey);
     UIView *root = scroll.superview;
     Class rootClass = objc_lookUpClass("SSMine737KMPRootView");
-    BOOL eligible = HGGlassEnabled && scroll.window && rootClass && [root isKindOfClass:rootClass] &&
+    BOOL eligible = (HGTabBarGlassActive() || HGAppearanceDockEnabled()) &&
+        scroll.window && rootClass && [root isKindOfClass:rootClass] &&
         CGAffineTransformIsIdentity(scroll.transform) && HGNear(scroll.frame.origin.x, 0) &&
         HGNear(scroll.frame.origin.y, 0) && HGNear(scroll.bounds.size.width, root.bounds.size.width) &&
         root.bounds.size.height >= scroll.bounds.size.height &&
         root.bounds.size.height - scroll.bounds.size.height <= 160;
     NSMutableArray<UIView *> *path = [NSMutableArray array];
+    UIViewController *mineOwner = nil;
     if (eligible) {
         [path addObject:scroll];
         UIResponder *owner = root.nextResponder;
         while (owner && ![owner isKindOfClass:UIViewController.class]) owner = owner.nextResponder;
+        mineOwner = (UIViewController *)owner;
         UIView *tabs = HGView(owner, "bottomView");
         UIView *leaf = HGView(tabs, "currentVCScrollView");
         if (leaf && [leaf isDescendantOfView:scroll]) {
@@ -119,6 +122,11 @@ static void HGApplyMineClip(UIScrollView *scroll) {
     for (UIView *view in records.keyEnumerator.allObjects) {
         if (![active containsObject:view]) { [[records objectForKey:view] restore:view]; [records removeObjectForKey:view]; }
     }
+    if (mineOwner) {
+        UIView *bar = HGView(HGContainingTabController(mineOwner), "customTabBar");
+        if ([bar isKindOfClass:HGTabBarClass] && bar.window && !bar.hidden && (bar.layer.mask || bar.clipsToBounds))
+            HGRefreshBar(bar);
+    }
     [CATransaction commit];
 }
 static void HGInstallMineClip(void) {
@@ -131,8 +139,10 @@ static void HGInstallMineClip(void) {
             original(scroll, sel); HGApplyMineClip(scroll);
         }));
     }
-    // Host coordination may move the pinned header without laying out the
-    // outer view. Coalesce a bounded visual-only update after its delegate.
+    // Host coordination moves the pinned header and inner list bounds on each
+    // scroll frame without always laying out the outer container. Update masks
+    // synchronously inside the same transaction so pull-down never lags a frame
+    // or leaves a host mask on SSTabBar.
     Class mine = objc_lookUpClass("SSMine737KMPViewController");
     SEL sel = sel_registerName("scrollViewDidScroll:");
     Method m = class_getInstanceMethod(mine, sel);
@@ -140,15 +150,7 @@ static void HGInstallMineClip(void) {
         void (*original)(id, SEL, id) = (void *)method_getImplementation(m);
         HGReplaceMethod(mine, sel, "v24@0:8@16", imp_implementationWithBlock(^(UIViewController *page, id sender) {
             original(page, sel, sender);
-            if (objc_getAssociatedObject(page, &HGMineClipPendingKey)) return;
-            objc_setAssociatedObject(page, &HGMineClipPendingKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            __weak UIViewController *weak = page;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                UIViewController *current = weak;
-                if (!current) return;
-                HGApplyMineClip((UIScrollView *)HGView(current, "scrollView"));
-                objc_setAssociatedObject(current, &HGMineClipPendingKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            });
+            HGApplyMineClip((UIScrollView *)HGView(page, "scrollView"));
         }));
     }
 }

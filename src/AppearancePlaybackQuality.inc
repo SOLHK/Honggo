@@ -27,10 +27,16 @@ static char HGAQualitySelectionKey;
 static NSHashTable *HGAQualityOwners;
 static __weak id HGALastPlayingQualityComponent;
 static CFAbsoluteTime HGAQualitySwitchActiveUntil;
+static CFAbsoluteTime HGALastFeedScrollActivityTime;
 static NSUInteger HGAQualityScheduleGeneration;
 
 static BOOL HGAPlaybackQualitySwitchActive(void) {
     return HGAQualitySwitchActiveUntil > CFAbsoluteTimeGetCurrent();
+}
+
+static void HGARecordFeedScrollActivity(id scroll) {
+    if([scroll isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class])
+        HGALastFeedScrollActivityTime = CFAbsoluteTimeGetCurrent();
 }
 
 static BOOL HGAAnyVideoFeedScrolling(void) {
@@ -39,12 +45,14 @@ static BOOL HGAAnyVideoFeedScrolling(void) {
     for(UIView *view in HGAManaged.allObjects) {
         if(!view.window || ![view isKindOfClass:feedClass] || ![view isKindOfClass:UIScrollView.class])continue;
         UIScrollView *scroll=(UIScrollView *)view;
-        // Defer only while the user's finger is actively dragging so intermediate
-        // cells never reconfigure; once finger lifts, apply immediately before
-        // first-frame reveal instead of tearing down an already playing stream.
-        if(scroll.tracking || scroll.dragging)return YES;
+        if(scroll.tracking || scroll.dragging || scroll.decelerating)return YES;
     }
     return NO;
+}
+
+static BOOL HGARecentlyScrolledVideoFeed(void) {
+    return HGALastFeedScrollActivityTime > 0 &&
+        (CFAbsoluteTimeGetCurrent() - HGALastFeedScrollActivityTime) < 0.55;
 }
 
 static BOOL HGAQualityMethod(id target,SEL selector,const char *encoding) {
@@ -133,18 +141,35 @@ static void HGASchedulePlaybackQuality(id component,id model,id cell) {
     if(!HGAppearanceFlag(@"player.highestQuality"))return;
     if(cell)model=HGReadObjectGetter(cell,"model");
     if(!model)return;
-    // Commit target resolution synchronously when stationary (cold launch or
-    // settled playback start) so TTVideoEngine starts at target quality before
-    // first frame. While a feed scroll gesture is in flight (UITrackingRunLoopMode),
-    // coalesce onto kCFRunLoopDefaultMode so intermediate swiped cells never
-    // stall 120Hz scrolling with stream reconfigurations.
-    if(!cell && NSThread.isMainThread && !HGAAnyVideoFeedScrolling()) {
+    BOOL feedScrolling=HGAAnyVideoFeedScrolling();
+    BOOL recentlySwiped=HGARecentlyScrolledVideoFeed();
+    // On stationary launch or settled direct entry (no recent feed swipe),
+    // commit target quality immediately. During or right after a feed swipe,
+    // let the preloaded segment start at 0ms without tearing down frame zero,
+    // then upgrade seamlessly once the viewer stays on the episode (~0.65s),
+    // cancelling intermediate swiped-past cells before any network request.
+    if(!cell && NSThread.isMainThread && !feedScrolling && !recentlySwiped) {
         HGAQualityScheduleGeneration++;
         HGAApplyPlaybackQuality(component,model);
         return;
     }
     NSUInteger generation=++HGAQualityScheduleGeneration;
     __weak id weakComponent=component,weakModel=model;
+    if(recentlySwiped) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.65*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+            if(HGAQualityScheduleGeneration!=generation)return;
+            if(HGAAnyVideoFeedScrolling()) {
+                CFRunLoopPerformBlock(CFRunLoopGetMain(),kCFRunLoopDefaultMode,^{
+                    if(HGAQualityScheduleGeneration!=generation)return;
+                    HGAApplyPlaybackQuality(weakComponent,weakModel);
+                });
+                CFRunLoopWakeUp(CFRunLoopGetMain());
+                return;
+            }
+            HGAApplyPlaybackQuality(weakComponent,weakModel);
+        });
+        return;
+    }
     CFRunLoopPerformBlock(CFRunLoopGetMain(),kCFRunLoopDefaultMode,^{
         if(HGAQualityScheduleGeneration!=generation)return;
         HGAApplyPlaybackQuality(weakComponent,weakModel);

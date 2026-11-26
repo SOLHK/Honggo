@@ -260,10 +260,10 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
     NSMapTable<UIView *,HGAEpisodeForegroundState *> *byView=[NSMapTable weakToStrongObjectsMapTable];
     for(HGAEpisodeForegroundState *s in previous)if(s.view)[byView setObject:s forKey:s.view];
 
-    NSMutableArray<UILabel *> *labels=[NSMutableArray array];
-    NSMutableArray<UIImageView *> *leadIcons=[NSMutableArray array];
-    UIImageView *trailingIcon=nil;
+    NSMutableArray<UIView *> *inlineItems=[NSMutableArray array];
+    NSMutableArray<UIImageView *> *candidateIcons=[NSMutableArray array];
     CGFloat glassW=CGRectGetWidth(glassFrame);
+    CGFloat maxLabelMaxX=0;
     for(UIView *node in HGADescendants(entry,48)) {
         if(node==entry || !CGAffineTransformIsIdentity(node.transform))continue;
         HGAEpisodeForegroundState *old=[byView objectForKey:node];
@@ -277,28 +277,35 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
             NSString *str=(old && old.ownsRichText && [lbl.attributedText isEqual:old.appliedRichText]) ?
                 old.sourceRichText.string : ((old && old.ownsText && [lbl.text isEqualToString:old.appliedText ?: @""]) ?
                 old.sourceText : (lbl.attributedText.string ?: lbl.text));
-            if(str.length && CGRectGetHeight(inGlass)>0)[labels addObject:lbl];
+            if(str.length && CGRectGetHeight(inGlass)>0) {
+                [inlineItems addObject:lbl];
+                maxLabelMaxX=MAX(maxLabelMaxX,CGRectGetMaxX(inGlass));
+            }
         } else if([node isKindOfClass:UIImageView.class] && ![(UIImageView *)node isAnimating] &&
-                  CGRectGetWidth(inGlass)>0 && CGRectGetWidth(inGlass)<=36 && CGRectGetHeight(inGlass)<=36) {
-            if(CGRectGetMinX(inGlass)<glassW*0.35)[leadIcons addObject:(UIImageView *)node];
-            else if(CGRectGetWidth(inGlass)<=18 && CGRectGetMaxX(inGlass)<=glassW-6 && CGRectGetMinX(inGlass)>glassW*0.75)
-                trailingIcon=(UIImageView *)node;
+                  CGRectGetWidth(inGlass)>0 && CGRectGetWidth(inGlass)<=36 &&
+                  CGRectGetHeight(inGlass)>0 && CGRectGetHeight(inGlass)<=36) {
+            [candidateIcons addObject:(UIImageView *)node];
         }
     }
-    if(!labels.count) {
+    if(!inlineItems.count) {
         HGARestoreEpisodeLabels(entry);
         return;
     }
 
-    [leadIcons sortUsingComparator:^NSComparisonResult(UIImageView *a,UIImageView *b) {
-        HGAEpisodeForegroundState *sa=[byView objectForKey:a],*sb=[byView objectForKey:b];
-        CGRect fa=(sa && sa.ownsFrame && CGRectEqualToRect(a.frame,sa.appliedFrame)) ? sa.sourceFrame : a.frame;
-        CGRect fb=(sb && sb.ownsFrame && CGRectEqualToRect(b.frame,sb.appliedFrame)) ? sb.sourceFrame : b.frame;
-        CGFloat xa=CGRectGetMinX([a.superview convertRect:fa toView:entry]);
-        CGFloat xb=CGRectGetMinX([b.superview convertRect:fb toView:entry]);
-        return xa<xb ? NSOrderedAscending : (xa>xb ? NSOrderedDescending : NSOrderedSame);
-    }];
-    [labels sortUsingComparator:^NSComparisonResult(UILabel *a,UILabel *b) {
+    UIImageView *trailingIcon=nil;
+    for(UIImageView *icon in candidateIcons) {
+        HGAEpisodeForegroundState *old=[byView objectForKey:icon];
+        CGRect baseFrame=(old && old.ownsFrame && CGRectEqualToRect(icon.frame,old.appliedFrame)) ? old.sourceFrame : icon.frame;
+        CGRect inGlass=CGRectOffset([icon.superview convertRect:baseFrame toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
+        if(CGRectGetWidth(inGlass)<=18 && CGRectGetMaxX(inGlass)<=glassW-6 &&
+           CGRectGetMinX(inGlass)>glassW*0.78 && CGRectGetMinX(inGlass)>=maxLabelMaxX-2.0) {
+            trailingIcon=icon;
+        } else if(CGRectGetMinX(inGlass)<glassW-12.0) {
+            [inlineItems addObject:icon];
+        }
+    }
+
+    [inlineItems sortUsingComparator:^NSComparisonResult(UIView *a,UIView *b) {
         HGAEpisodeForegroundState *sa=[byView objectForKey:a],*sb=[byView objectForKey:b];
         CGRect fa=(sa && sa.ownsFrame && CGRectEqualToRect(a.frame,sa.appliedFrame)) ? sa.sourceFrame : a.frame;
         CGRect fb=(sb && sb.ownsFrame && CGRectEqualToRect(b.frame,sb.appliedFrame)) ? sb.sourceFrame : b.frame;
@@ -307,24 +314,54 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
         return xa<xb ? NSOrderedAscending : (xa>xb ? NSOrderedDescending : NSOrderedSame);
     }];
 
-    CGFloat leadX=CGFLOAT_MAX;
-    for(UIImageView *icon in leadIcons) {
-        HGAEpisodeForegroundState *old=[byView objectForKey:icon];
-        CGRect base=(old && old.ownsFrame && CGRectEqualToRect(icon.frame,old.appliedFrame)) ? old.sourceFrame : icon.frame;
-        CGRect r=CGRectOffset([icon.superview convertRect:base toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
-        leadX=MIN(leadX,CGRectGetMinX(r));
+    CGFloat firstMinX=CGFLOAT_MAX;
+    for(UIView *item in inlineItems) {
+        HGAEpisodeForegroundState *old=[byView objectForKey:item];
+        CGRect base=(old && old.ownsFrame && CGRectEqualToRect(item.frame,old.appliedFrame)) ? old.sourceFrame : item.frame;
+        CGRect r=CGRectOffset([item.superview convertRect:base toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
+        firstMinX=MIN(firstMinX,CGRectGetMinX(r));
     }
-    for(UILabel *lbl in labels) {
-        HGAEpisodeForegroundState *old=[byView objectForKey:lbl];
-        CGRect base=(old && old.ownsFrame && CGRectEqualToRect(lbl.frame,old.appliedFrame)) ? old.sourceFrame : lbl.frame;
-        CGRect r=CGRectOffset([lbl.superview convertRect:base toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
-        leadX=MIN(leadX,CGRectGetMinX(r));
-    }
-    CGFloat padLeft=isfinite(leadX) ? MIN(18.0,MAX(12.0,leadX)) : 14.0;
+    CGFloat padLeft=isfinite(firstMinX) ? MIN(18.0,MAX(12.0,firstMinX)) : 14.0;
     CGFloat rightLimit=glassW-padLeft;
     if(trailingIcon) {
-        CGRect tr=CGRectOffset([trailingIcon.superview convertRect:trailingIcon.frame toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
+        HGAEpisodeForegroundState *old=[byView objectForKey:trailingIcon];
+        CGRect base=(old && old.ownsFrame && CGRectEqualToRect(trailingIcon.frame,old.appliedFrame)) ? old.sourceFrame : trailingIcon.frame;
+        CGRect tr=CGRectOffset([trailingIcon.superview convertRect:base toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
         rightLimit=MIN(rightLimit,CGRectGetMinX(tr)-6.0);
+    }
+
+    // Check whether the host's native inline layout already fits inside the
+    // capsule without icon/label overlap or label text truncation. When native
+    // layout is clean (e.g. centered "观看完整短剧 [▶] 全20集" inside 396pt),
+    // leave every native frame untouched so AutoLayout-managed icons never collide.
+    BOOL anyNativeOverlapOrOverflow=NO;
+    CGFloat prevNativeMaxX=-CGFLOAT_MAX;
+    for(UIView *item in inlineItems) {
+        HGAEpisodeForegroundState *old=[byView objectForKey:item];
+        CGRect base=(old && old.ownsFrame && CGRectEqualToRect(item.frame,old.appliedFrame)) ? old.sourceFrame : item.frame;
+        CGRect inGlass=CGRectOffset([item.superview convertRect:base toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
+        if(CGRectGetMinX(inGlass)<11.5 || CGRectGetMaxX(inGlass)>rightLimit+0.5 ||
+           CGRectGetMinX(inGlass)<prevNativeMaxX-0.5) {
+            anyNativeOverlapOrOverflow=YES;
+            break;
+        }
+        if([item isKindOfClass:UILabel.class]) {
+            UILabel *lbl=(UILabel *)item;
+            BOOL matchesRich=old && old.ownsRichText && [lbl.attributedText isEqual:old.appliedRichText];
+            BOOL matchesPlain=old && old.ownsText && [lbl.text isEqualToString:old.appliedText ?: @""];
+            NSAttributedString *baseRich=(matchesRich || matchesPlain) ? old.sourceRichText : lbl.attributedText;
+            NSString *baseText=(matchesRich || matchesPlain) ? old.sourceText : lbl.text;
+            CGFloat fullW=HGAEpisodeSingleLineWidth(lbl,baseRich,baseText);
+            if(fullW>CGRectGetWidth(inGlass)+1.5 || CGRectGetMinX(inGlass)+fullW>rightLimit+0.5) {
+                anyNativeOverlapOrOverflow=YES;
+                break;
+            }
+        }
+        prevNativeMaxX=CGRectGetMaxX(inGlass);
+    }
+    if(!anyNativeOverlapOrOverflow) {
+        HGARestoreEpisodeLabels(entry);
+        return;
     }
 
     NSMutableArray<HGAEpisodeForegroundState *> *active=[NSMutableArray array];
@@ -332,25 +369,41 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
     CGFloat cursorX=padLeft;
     BOOL needsAdjustment=NO;
 
-    for(UIImageView *icon in leadIcons) {
-        HGAEpisodeForegroundState *s=[byView objectForKey:icon] ?: [HGAEpisodeForegroundState new];
-        if(!s.ownsFrame || !CGRectEqualToRect(icon.frame,s.appliedFrame))s.sourceFrame=icon.frame;
-        s.view=icon;
-        CGRect inGlass=CGRectOffset([icon.superview convertRect:s.sourceFrame toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
-        if(CGRectGetMinX(inGlass)<cursorX-0.25) {
-            inGlass.origin.x=cursorX;
-            needsAdjustment=YES;
+    for(NSUInteger idx=0;idx<inlineItems.count;idx++) {
+        UIView *item=inlineItems[idx];
+        BOOL nextIsIcon=(idx+1<inlineItems.count) && [inlineItems[idx+1] isKindOfClass:UIImageView.class];
+        if([item isKindOfClass:UIImageView.class]) {
+            UIImageView *icon=(UIImageView *)item;
+            HGAEpisodeForegroundState *s=[byView objectForKey:icon] ?: [HGAEpisodeForegroundState new];
+            if(!s.ownsFrame || !CGRectEqualToRect(icon.frame,s.appliedFrame))s.sourceFrame=icon.frame;
+            if(!s.ownsHidden || !icon.hidden)s.sourceHidden=icon.hidden;
+            s.view=icon;
+            CGRect inGlass=CGRectOffset([icon.superview convertRect:s.sourceFrame toView:entry],-glassFrame.origin.x,-glassFrame.origin.y);
+            if(CGRectGetMinX(inGlass)<cursorX-0.25) {
+                inGlass.origin.x=cursorX;
+                needsAdjustment=YES;
+            }
+            if(CGRectGetMaxX(inGlass)>rightLimit+0.5) {
+                if(s.ownsFrame && CGRectEqualToRect(icon.frame,s.appliedFrame))icon.frame=s.sourceFrame;
+                s.ownsFrame=NO;s.ownsHidden=YES;
+                if(!icon.hidden)icon.hidden=YES;
+                needsAdjustment=YES;
+                [active addObject:s];
+                continue;
+            }
+            if(s.ownsHidden && icon.hidden)icon.hidden=s.sourceHidden;
+            s.ownsHidden=NO;
+            CGRect targetInEntry=CGRectOffset(inGlass,glassFrame.origin.x,glassFrame.origin.y);
+            CGRect targetFrame=[icon.superview convertRect:targetInEntry fromView:entry];
+            s.appliedFrame=targetFrame;s.ownsFrame=YES;
+            if(!CGRectEqualToRect(icon.frame,targetFrame))icon.frame=targetFrame;
+            cursorX=MAX(cursorX,CGRectGetMaxX(inGlass)+6.0);
+            [active addObject:s];
+            [visibleStates addObject:s];
+            continue;
         }
-        CGRect targetInEntry=CGRectOffset(inGlass,glassFrame.origin.x,glassFrame.origin.y);
-        CGRect targetFrame=[icon.superview convertRect:targetInEntry fromView:entry];
-        s.appliedFrame=targetFrame;s.ownsFrame=YES;
-        if(!CGRectEqualToRect(icon.frame,targetFrame))icon.frame=targetFrame;
-        cursorX=MAX(cursorX,CGRectGetMaxX(inGlass)+6.0);
-        [active addObject:s];
-        [visibleStates addObject:s];
-    }
 
-    for(UILabel *lbl in labels) {
+        UILabel *lbl=(UILabel *)item;
         HGAEpisodeForegroundState *s=[byView objectForKey:lbl] ?: [HGAEpisodeForegroundState new];
         s.view=lbl;
         if(!s.ownsFrame || !CGRectEqualToRect(lbl.frame,s.appliedFrame))s.sourceFrame=lbl.frame;
@@ -422,7 +475,7 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
         CGRect targetFrame=[lbl.superview convertRect:targetInEntry fromView:entry];
         s.appliedFrame=targetFrame;s.ownsFrame=YES;
         if(!CGRectEqualToRect(lbl.frame,targetFrame))lbl.frame=targetFrame;
-        cursorX=CGRectGetMaxX(inGlass)+2.0;
+        cursorX=CGRectGetMaxX(inGlass)+(nextIsIcon ? 6.0 : 2.0);
         [active addObject:s];
         [visibleStates addObject:s];
     }

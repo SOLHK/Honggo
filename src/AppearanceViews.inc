@@ -15,7 +15,7 @@ static BOOL HGAUsesNativeGlass(NSString *style) {
 @property(nonatomic) BOOL lightContourRim;
 @property(nonatomic) CGFloat materialCornerRadius;
 @property(nonatomic,strong) CALayer *gaussianBackdrop;
-@property(nonatomic,strong) CALayer *contourRimLayer;
+@property(nonatomic,strong) CAShapeLayer *contourRimLayer;
 @property(nonatomic,weak) UIView *flexTouchHost;
 - (void)requestMaterialRefresh;
 @end
@@ -136,22 +136,32 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
         !UIAccessibilityIsReduceTransparencyEnabled();
     if(wantsRim) {
         if(!self.contourRimLayer) {
-            self.contourRimLayer=[CALayer layer];
-            self.contourRimLayer.cornerCurve=kCACornerCurveContinuous;
+            self.contourRimLayer=[CAShapeLayer layer];
+            self.contourRimLayer.zPosition=1000;
         }
-        if(self.contourRimLayer.superlayer!=self.contentView.layer)
-            [self.contentView.layer insertSublayer:self.contourRimLayer atIndex:0];
-        CGRect rimBounds=self.contentView.bounds;
+        if(self.contourRimLayer.superlayer!=self.layer)
+            [self.layer addSublayer:self.contourRimLayer];
+        CGRect rimBounds=self.bounds;
+        CGFloat scale=MAX(1.0,self.traitCollection.displayScale);
+        CGFloat strokeW=MAX(0.85,2.0/scale);
+        CGRect strokeRect=CGRectInset(rimBounds,strokeW*0.5,strokeW*0.5);
         CGFloat rimRadius=self.materialCornerRadius>0 ?
             MIN(self.materialCornerRadius,MIN(rimBounds.size.width,rimBounds.size.height)*0.5) :
             MIN(rimBounds.size.width,rimBounds.size.height)*0.5;
-        CGFloat px=1.0/MAX(1.0,self.traitCollection.displayScale);
+        CGFloat strokeRadius=MAX(0,rimRadius-strokeW*0.5);
+        UIBezierPath *rimPath=[UIBezierPath bezierPathWithRoundedRect:strokeRect cornerRadius:strokeRadius];
+        UIBezierPath *shadowPath=[UIBezierPath bezierPathWithRoundedRect:rimBounds cornerRadius:rimRadius];
         [CATransaction begin];[CATransaction setDisableActions:YES];
         self.contourRimLayer.frame=rimBounds;
-        self.contourRimLayer.cornerRadius=rimRadius;
-        self.contourRimLayer.borderWidth=px;
-        self.contourRimLayer.borderColor=[UIColor colorWithWhite:0 alpha:0.115].CGColor;
-        self.contourRimLayer.backgroundColor=[UIColor colorWithWhite:0 alpha:0.025].CGColor;
+        self.contourRimLayer.path=rimPath.CGPath;
+        self.contourRimLayer.lineWidth=strokeW;
+        self.contourRimLayer.strokeColor=[UIColor colorWithWhite:0 alpha:0.22].CGColor;
+        self.contourRimLayer.fillColor=[UIColor colorWithWhite:0 alpha:0.035].CGColor;
+        self.contourRimLayer.shadowColor=UIColor.blackColor.CGColor;
+        self.contourRimLayer.shadowOpacity=self.clipsToBounds ? 0.0f : 0.08f;
+        self.contourRimLayer.shadowRadius=1.6;
+        self.contourRimLayer.shadowOffset=CGSizeMake(0,0.75);
+        self.contourRimLayer.shadowPath=shadowPath.CGPath;
         self.contourRimLayer.hidden=NO;
         [CATransaction commit];
     } else if(self.contourRimLayer) {
@@ -806,6 +816,10 @@ void HGAppearanceProcessView(UIView *view) {
         }
         if([view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerSingleSeriesControlView")]) {
             HGRefreshVideoBackdropForPlayer(view);return;
+        }
+        if([view isKindOfClass:objc_lookUpClass("SSShortVideoRecommendPeopleCardView")]) {
+            HGASetHidden(view,HGAppearanceEnabled() && HGAppearanceFlag(@"player.hideFollowRecommendUsers"));
+            return;
         }
         if(HGAIsCommentRow(view)) {
             HGAUpdateCommentRow(view);return;

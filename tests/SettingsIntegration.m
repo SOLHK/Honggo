@@ -397,30 +397,34 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         UITableView *table=notes.tableView;
         [table layoutIfNeeded];
         NSIndexPath *first=[NSIndexPath indexPathForRow:0 inSection:0];
-        NSIndexPath *hintPath=[NSIndexPath indexPathForRow:0 inSection:1];
-        UIListContentConfiguration *current=(id)[table.dataSource tableView:table cellForRowAtIndexPath:first].contentConfiguration;
-        UITableViewCell *hintCell=[table.dataSource tableView:table cellForRowAtIndexPath:hintPath];
-        NSString *footer=[table.dataSource tableView:table titleForFooterInSection:1];
-        [self check:[table numberOfSections]==2 && [table numberOfRowsInSection:0]==1 &&
+        UITableViewCell *currentCell=[table.dataSource tableView:table cellForRowAtIndexPath:first];
+        UIListContentConfiguration *current=(id)currentCell.contentConfiguration;
+        NSString *footer=[table.dataSource tableView:table titleForFooterInSection:0];
+        [self check:[table numberOfSections]==1 && [table numberOfRowsInSection:0]==1 &&
             [current.text isEqual:HGReleaseNotes().firstObject.firstObject] &&
             current.secondaryAttributedText.length>0 && [current.secondaryAttributedText.string containsString:@"• "] &&
-            [hintCell.accessibilityIdentifier isEqual:@"honggo.settings.releaseNotes.allHint"] &&
-            [footer containsString:@"作者与频道"]
-            name:@"top-left version button shows only the formatted current version and directs users to Author & Channel for full history"];
-        [notes tableView:table didSelectRowAtIndexPath:hintPath];
+            [currentCell.accessibilityIdentifier isEqual:@"honggo.settings.releaseNotes.currentCard"] &&
+            [footer containsString:@"点击上方更新内容卡片"] && [footer containsString:@"作者与频道"]
+            name:@"top-left version sheet displays only the current version card with bottom hint and no extra jump section"];
+        [notes tableView:table didSelectRowAtIndexPath:first];
         [self poll:^BOOL {
-            return notesNav.topViewController!=notes && !notesNav.transitionCoordinator;
-        } deadline:[NSDate dateWithTimeIntervalSinceNow:5] completion:^(BOOL pushedAll) {
-            UITableViewController *allNotes=(id)notesNav.topViewController;
+            UIViewController *level3=notesNav.presentedViewController;
+            return [level3 isKindOfClass:UINavigationController.class] && !level3.isBeingPresented;
+        } deadline:[NSDate dateWithTimeIntervalSinceNow:5] completion:^(BOOL openedLevel3) {
+            UINavigationController *level3Nav=(UINavigationController *)notesNav.presentedViewController;
+            UITableViewController *allNotes=(id)level3Nav.topViewController;
             UITableView *allTable=allNotes.tableView;
             NSInteger sections=[allTable numberOfSections];
             NSIndexPath *last=[NSIndexPath indexPathForRow:0 inSection:MAX(sections-1,0)];
             if(sections)[allTable scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:NO];
             [allTable layoutIfNeeded];
-            [self check:pushedAll && sections==(NSInteger)HGReleaseNotes().count &&
-                [allTable.indexPathsForVisibleRows containsObject:last]
-                name:@"full release history displays every version in well-formatted cards and scrolls to the earliest entry"];
-            [navigation dismissViewControllerAnimated:NO completion:completion];
+            NSString *allFooter=sections ? [allTable.dataSource tableView:allTable titleForFooterInSection:sections-1] : nil;
+            [self check:openedLevel3 && sections==(NSInteger)HGReleaseNotes().count &&
+                [allTable.indexPathsForVisibleRows containsObject:last] && [allFooter containsString:@"提示："]
+                name:@"tapping the current version card opens a level-3 modal sheet with all formatted historical versions and footer hint"];
+            [level3Nav.presentingViewController dismissViewControllerAnimated:NO completion:^{
+                [navigation dismissViewControllerAnimated:NO completion:completion];
+            }];
         }];
     }];
 }

@@ -151,7 +151,28 @@ static void RunEpisodeGlassChecks(UIView *root) {
         ![albumTitle.attributedText.string containsString:@"…"] &&
         symLeft>=10 && symRight>=10 && fabs(symRight-symLeft)<=2.0,
         @"content relayout separates overlapping lead icon from text, hides overflowing trailing characters cleanly, and equalizes left/right capsule margins");
-    [leadIcon removeFromSuperview];[albumTitle removeFromSuperview];[innerPlate removeFromSuperview];
+    // Reproduce 7.4.5.33 centered multi-episode drama capsule: "观看完整短剧  [▶]  全20集"
+    // inside 396pt wideGlass where the play icon sits BETWEEN two labels.
+    [leadIcon removeFromSuperview];[albumTitle removeFromSuperview];
+    UILabel *watchPrefix=[[UILabel alloc] initWithFrame:CGRectMake(118,12,88,20)];
+    watchPrefix.font=[UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    watchPrefix.text=@"观看完整短剧";
+    UIImageView *midPlayIcon=[[UIImageView alloc] initWithFrame:CGRectMake(212,14,16,16)];
+    midPlayIcon.image=[UIImage systemImageNamed:@"play.rectangle.fill"];
+    UILabel *epTotal=[[UILabel alloc] initWithFrame:CGRectMake(234,12,48,20)];
+    epTotal.font=[UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    epTotal.text=@"全20集";
+    [wideContent addSubview:watchPrefix];[wideContent addSubview:midPlayIcon];[wideContent addSubview:epTotal];
+    CGRect origPrefix=watchPrefix.frame,origPlay=midPlayIcon.frame,origTotal=epTotal.frame;
+    Layout(wideContent);Layout(wideEntry);
+    Check(CGRectEqualToRect(watchPrefix.frame,origPrefix) &&
+        CGRectEqualToRect(midPlayIcon.frame,origPlay) &&
+        CGRectEqualToRect(epTotal.frame,origTotal) &&
+        !CGRectIntersectsRect(watchPrefix.frame,midPlayIcon.frame) &&
+        !CGRectIntersectsRect(midPlayIcon.frame,epTotal.frame),
+        @"centered 观看完整短剧 [▶] 全20集 capsule preserves native non-overlapping order without colliding play icon into 剧");
+    [watchPrefix removeFromSuperview];[midPlayIcon removeFromSuperview];[epTotal removeFromSuperview];
+    [innerPlate removeFromSuperview];
     [wideContent addSubview:trailing];
     wideEntry.frame=nativeWideFrame;wideContent.frame=nativeWideFrame;
     HGAppearanceSet(@"player.episodeDockWidth",@NO,nil);

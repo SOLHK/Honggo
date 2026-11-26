@@ -99,6 +99,8 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         for(NSUInteger i=0;i<channelIDs.count;i++)
             flag([@"layout.channels.hide." stringByAppendingString:channelIDs[i]],@"chrome",
                 [@"隐藏顶部" stringByAppendingString:channelNames[i]]);
+        [a addObject:HGADef(@"player.hideFollowRecommendUsers",@"chrome",@"隐藏关注页推荐用户卡片",@"bool",@NO,
+            @{@"keywords":@"关注 推荐其他精选用户 关注内容已刷完 精选用户 换一个"})];
         [a addObject:HGADef(@"player.finderGlass",@"chrome",@"找剧搜索与快捷入口玻璃",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.finderAI",@"chrome",@"显示找剧 AI 入口",@"bool",@YES,nil)];
         [a addObject:HGADef(@"player.mineGlass",@"mine",@"我的页面控件玻璃",@"bool",@YES,nil)];
@@ -348,23 +350,26 @@ BOOL HGAppearanceApply(NSDictionary *values,NSError **error) {
         if(!value)return HGAError(error,@"存在未知设置、错误类型或超出范围的数值。");
         snapshot[key]=value;
     }
-    BOOL keywordsChanged=NO;
+    BOOL feedFilterChanged=NO;
     @synchronized(HGALock()) {
         NSDictionary *current=HGAppearanceValues();
-        keywordsChanged=snapshot[@"video.blockedKeywords"] &&
+        BOOL keywordsDiff=snapshot[@"video.blockedKeywords"] &&
             ![current[@"video.blockedKeywords"] isEqual:snapshot[@"video.blockedKeywords"]];
         NSMutableDictionary *merged=[current mutableCopy]; [merged addEntriesFromDictionary:snapshot];
         HGAUnifyLiquidMaterials(merged,snapshot[@"player.material"] && !snapshot[@"dock.material"] ? @"player.material" : @"dock.material");
         if ([merged[@"video.blockedKeywords"] count] && HGAConfigurationData(merged,nil).length>128*1024)
             return HGAError(error,@"关键词列表使配置超出 128 KiB 备份上限。请减少关键词后再保存。");
         if([merged[@"dock.hide.home"] boolValue] && [merged[@"dock.hide.theater"] boolValue] && [merged[@"dock.hide.store"] boolValue] && [merged[@"dock.hide.mine"] boolValue]) return HGAError(error,@"至少保留一个底栏导航项目。");
+        BOOL prevHideFollowRec=[current[@"enabled"] boolValue] && [current[@"player.hideFollowRecommendUsers"] boolValue];
+        BOOL nextHideFollowRec=[merged[@"enabled"] boolValue] && [merged[@"player.hideFollowRecommendUsers"] boolValue];
+        feedFilterChanged=keywordsDiff || (prevHideFollowRec!=nextHideFollowRec);
         // One persisted dictionary, after complete validation: no partial imports.
         [NSUserDefaults.standardUserDefaults setObject:merged.copy forKey:HGAStore];
         HGACachedValues=merged.copy;
     }
     void (^notify)(void)=^{
         [NSNotificationCenter.defaultCenter postNotificationName:HGAppearanceDidChangeNotification object:nil];
-        if(keywordsChanged)
+        if(feedFilterChanged)
             [NSNotificationCenter.defaultCenter postNotificationName:HGVideoBlockedKeywordsDidChangeNotification object:nil];
     };
     if(NSThread.isMainThread) notify(); else dispatch_async(dispatch_get_main_queue(),notify);

@@ -268,7 +268,14 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 - (void)saveKeywords {
     NSArray *lines=[self.editor.text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet];
     NSError *error=nil;
-    if (HGAppearanceSet(@"video.blockedKeywords",lines,&error)) {
+    NSMutableDictionary *payload=[@{@"video.blockedKeywords":lines} mutableCopy];
+    BOOL hasNonEmpty=NO;
+    for(NSString *line in lines) {
+        if([line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length){hasNonEmpty=YES;break;}
+    }
+    if(hasNonEmpty && !HGAppearanceEnabled())payload[@"enabled"]=@YES;
+    if (HGAppearanceApply(payload,&error)) {
+        if(HGAppearanceNeedsGlass())HGPrepareNativeGlass();
         [self.navigationController popViewControllerAnimated:YES];
         return;
     }
@@ -385,7 +392,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"dock.hide.home",@"dock.hide.theater",@"dock.hide.store",@"dock.hide.mine"]);
     } else if([self.group isEqual:@"chrome"]) {
         section(@"顶部导航");
-        HGAAddDefs(rows,@[@"player.headerGlass",@"player.headerStyle",@"player.headerSelectionStyle"]);
+        HGAAddDefs(rows,@[@"player.headerGlass",@"player.headerStyle",@"player.headerSelectionStyle",@"player.hideFollowRecommendUsers"]);
         [rows addObject:HGASubpage(@"@group.chrome.hide",@"顶部按钮与频道隐藏",@"菜单、频道与搜索")];
         section(@"找剧");
         HGAAddDefs(rows,@[@"player.finderGlass",@"player.finderAI"]);
@@ -412,7 +419,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         }
     } else if([self.group isEqual:@"chrome.hide"]) {
         HGAAddDefs(rows,@[@"layout.channels.hide.sidebar",@"layout.channels.hide.follow",@"layout.channels.hide.comic",
-            @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search"]);
+            @"layout.channels.hide.live",@"layout.channels.hide.recommend",@"layout.channels.hide.search",
+            @"player.hideFollowRecommendUsers"]);
     } else if([self.group isEqual:@"player"]) {
         section(@"播放与手势");
         HGAAddDefs(rows,@[@"player.fullscreen",@"player.highestQuality",@"player.hideNowPlayingIsland",
@@ -435,7 +443,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         }
     } else if([self.group isEqual:@"drama"]) {
         section(@"内容过滤");
-        HGAAddDefs(rows,@[@"video.blockedKeywords"]);
+        HGAAddDefs(rows,@[@"video.blockedKeywords",@"player.hideFollowRecommendUsers"]);
         section(@"全集入口");
         HGAAddDefs(rows,@[@"player.disableAutoEnterSeries"]);
         HGAAddDefs(rows,@[@"player.episodeGlass",@"player.episodeDockWidth",@"player.separateProgress"]);
@@ -548,6 +556,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             cell.detailTextLabel.text=@"关闭后，打开评论区时视频留在原位。";
         if([key isEqual:@"mine.show.theme"])
             cell.detailTextLabel.text=@"新版个人页在创建时读取此项，重新打开红果后生效。";
+        if([key isEqual:@"player.hideFollowRecommendUsers"])
+            cell.detailTextLabel.text=@"关注内容刷完后隐藏「为你推荐其他精选用户」推荐卡片。";
     }else if([kind isEqual:@"subpage"]) {
         cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;
         NSString *detail=row[@"detail"];
@@ -573,17 +583,25 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 }
 - (void)save:(NSString *)key value:(id)value {
     NSError *error=nil;
+    BOOL autoEnableMaster=!HGAppearanceEnabled() && ![key isEqual:@"enabled"] &&
+        ![self.group hasPrefix:@"setting."];
     NSString *area=@{@"dock.style":@"dock.enabled",@"player.headerStyle":@"player.headerGlass",
         @"player.actionStyle":@"player.rightGlass",
         @"panels.commentMaterial":@"panels.comment"}[key];
+    NSMutableDictionary *change=[@{key:value} mutableCopy];
+    if(autoEnableMaster)change[@"enabled"]=@YES;
     if(area) {
-        NSMutableDictionary *change=[@{area:@YES,key:value} mutableCopy];
+        change[area]=@YES;
         if([key isEqual:@"dock.style"] && [value isEqual:@"glass"] &&
             [@[@"blur",@"solid"] containsObject:HGAppearanceString(@"dock.material")])
             change[@"dock.material"]=@"regular";
-        HGAppearanceApply(change,&error);
-    } else HGAppearanceSet(key,value,&error);
-    if(error)[self message:@"设置未更改" detail:error.localizedDescription];
+    }
+    if(change.count>1)HGAppearanceApply(change,&error);
+    else HGAppearanceSet(key,value,&error);
+    if(!error) {
+        if(HGAppearanceNeedsGlass())HGPrepareNativeGlass();
+        if(autoEnableMaster)[self reloadRows];
+    } else [self message:@"设置未更改" detail:error.localizedDescription];
 }
 - (void)toggle:(UISwitch *)toggle {
     NSString *key=toggle.accessibilityIdentifier;[self save:key value:@(toggle.on)];toggle.on=HGAppearanceFlag(key);

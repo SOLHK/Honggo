@@ -138,6 +138,17 @@ int main(void) {@autoreleasepool {
         [HGAppearanceSearch(@"底部悬浮输入框").firstObject[@"key"] isEqual:@"panels.commentFloatingBar"] &&
         [HGAppearanceSearch(@"分离悬浮").firstObject[@"key"] isEqual:@"panels.commentDetachedInput"],
         @"comment floating bar, detached popup input and liquid/blur input material validate and remain searchable");
+    __block NSUInteger feedNotifies=0;
+    id feedToken=[NSNotificationCenter.defaultCenter addObserverForName:HGVideoBlockedKeywordsDidChangeNotification
+        object:nil queue:nil usingBlock:^(__unused NSNotification *n){ feedNotifies++; }];
+    Check(!HGAppearanceFlag(@"player.hideFollowRecommendUsers") &&
+        [HGAppearanceSearch(@"推荐其他精选用户").firstObject[@"key"] isEqual:@"player.hideFollowRecommendUsers"] &&
+        HGAppearanceApply(@{@"enabled":@YES,@"player.hideFollowRecommendUsers":@YES},nil) &&
+        feedNotifies==1 && HGAppearanceFlag(@"player.hideFollowRecommendUsers") &&
+        HGAppearanceApply(@{@"enabled":@NO,@"player.hideFollowRecommendUsers":@NO},nil) &&
+        feedNotifies==2,
+        @"follow-tab recommended users card switch is opt-in, searchable and notifies live feed filters");
+    [NSNotificationCenter.defaultCenter removeObserver:feedToken];
     Check(HGFlatTopStyle() && !HGFlatDockStyle() && !HGFlatPlayerStyle(),
         @"existing appearance settings start with flat top channels and glass dock and player actions");
     Check(HGAppearanceSet(@"dock.style",@"flat",nil) && HGFlatDockStyle() && HGFlatTopStyle() && !HGFlatPlayerStyle(),

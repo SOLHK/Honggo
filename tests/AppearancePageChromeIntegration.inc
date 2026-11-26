@@ -234,6 +234,15 @@ static void HGRunEpisodeSwipeDecisionChecks(void) {
         @"switching back restores both native gesture decisions without recreating the screens");
 }
 
+@interface FQTheaterHeaderBgView : UIView @end
+@implementation FQTheaterHeaderBgView @end
+
+@interface HGAMineProfileHandleFixture : NSObject
+@property(nonatomic,strong) UIView *titleBarView;
+@property(nonatomic,strong) UIView *contentView;
+@end
+@implementation HGAMineProfileHandleFixture @end
+
 @interface SSVideoSeriesFeedHeaderSearchView : UIView
 @property(nonatomic,strong) UIView *searchView;
 @property(nonatomic,strong) UIView *searchBgView;
@@ -1760,4 +1769,76 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceSet(@"dock.material",prevDockMaterial,nil);
     HGAppearanceLayoutDock(bar,host);
     HGAppearanceSet(@"player.mineGlass",@YES,nil);[wideMine removeFromSuperview];
+
+    // 7.4.5.33 Mine KMP profile "编辑资料" Compose pill & Light Mode 360-degree contour rim
+    SSMine737KMPViewController *profileMine=[SSMine737KMPViewController new];
+    [host addChildViewController:profileMine];
+    profileMine.view.frame=CGRectMake(0,0,440,260);[root addSubview:profileMine.view];
+    [profileMine didMoveToParentViewController:host];
+    HGAMineProfileHandleFixture *profileHandle=[HGAMineProfileHandleFixture new];
+    UIView *profileHeader=PageChromeControl(profileMine.view,CGRectMake(0,0,440,240));
+    profileHandle.contentView=profileHeader;
+    profileMine.minePageKMPHandle=(id)profileHandle;
+    UIView *profileRenderer=[[rendererClass alloc] initWithFrame:profileHeader.bounds];
+    [profileHeader addSubview:profileRenderer];
+    UIView *editProfile=[[glyphClass alloc] initWithFrame:CGRectMake(352,193,72,28)];
+    editProfile.clipsToBounds=YES;
+    Class graphicsClass=HGAPageFixtureViewClass("DanceUI._UIGraphicsView");
+    Class drawingClass=HGAPageFixtureViewClass("CGDrawingView");
+    UIView *editFill=[[graphicsClass alloc] initWithFrame:editProfile.bounds];
+    UIView *editText=[[drawingClass alloc] initWithFrame:CGRectMake(12,6,48,16)];
+    [editProfile addSubview:editText];
+    [editProfile addSubview:editFill];
+    [profileRenderer addSubview:editProfile];
+    HGAppearanceProcessController(profileMine);
+    UIView *editBacking=Find(editProfile,@"honggo.appearance.mine.editProfile");
+    UIView *editGlass=editBacking ? Find(editBacking,material) : nil;
+    Layout(editGlass);
+    CALayer *rimLayer=editGlass ? [editGlass valueForKey:@"contourRimLayer"] : nil;
+    Check(editBacking && editGlass && editFill.hidden && !editText.hidden && !editProfile.clipsToBounds &&
+        CGRectEqualToRect(editBacking.frame,CGRectMake(0,0,72,28)) &&
+        (!HGTestOpenGlass(editProfile) || (HGTestButtonGlass(editGlass) && rimLayer.superlayer==editGlass.layer && !rimLayer.hidden)),
+        @"Mine KMP profile Edit button hides its flat Compose fill, attaches an interactive Liquid Glass capsule and renders a full Light Mode contour rim");
+    HGAppearanceSet(@"player.mineGlass",@NO,nil);
+    HGAppearanceProcessController(profileMine);
+    Check(!editFill.hidden && editProfile.clipsToBounds && !Find(editProfile,material),
+        @"disabling Mine glass restores the native Compose Edit button fill and clipping");
+    HGAppearanceSet(@"player.mineGlass",@YES,nil);
+    [profileMine willMoveToParentViewController:nil];[profileMine.view removeFromSuperview];[profileMine removeFromParentViewController];
+
+    // 7.4.5.33 Theater pull-down header backdrop: keeps y=0..100 opaque when FQFeedListView slides up to y=70
+    FQTheaterViewController *pullTheater=[HGAObservedTheaterFixture new];
+    [host addChildViewController:pullTheater];
+    pullTheater.view.frame=CGRectMake(0,0,440,956);[root addSubview:pullTheater.view];
+    [pullTheater didMoveToParentViewController:host];
+    UIView *theaterContainer=[[UIView alloc] initWithFrame:pullTheater.view.bounds];
+    [pullTheater.view addSubview:theaterContainer];
+    FQTheaterHeaderBgView *theaterBg=[[FQTheaterHeaderBgView alloc] initWithFrame:CGRectMake(0,0,440,100)];
+    theaterBg.backgroundColor=UIColor.whiteColor;
+    [theaterContainer addSubview:theaterBg];
+    FQRJXCategoryListContainerView *theaterPager=[[FQRJXCategoryListContainerView alloc] initWithFrame:theaterContainer.bounds];
+    FQFeedListView *overscrolledFeed=[[FQFeedListView alloc] initWithFrame:CGRectMake(0,70,440,886)];
+    [theaterPager addSubview:overscrolledFeed];
+    [theaterContainer addSubview:theaterPager];
+    UIView *theaterHeaderRow=[[UIView alloc] initWithFrame:CGRectMake(0,62,440,38)];
+    theaterHeaderRow.clipsToBounds=YES;
+    [theaterContainer addSubview:theaterHeaderRow];
+    pullTheater.searchBgView=PageChromeControl(theaterHeaderRow,CGRectMake(12,0,368,38));
+    pullTheater.searchView=PageChromeControl(theaterHeaderRow,CGRectMake(12,0,300,38));
+    HGAppearanceProcessController(pullTheater);
+    UIView *headerBackdrop=Find(theaterContainer,@"honggo.appearance.finder.headerBackdrop");
+    NSUInteger pagerZ=[theaterContainer.subviews indexOfObjectIdenticalTo:theaterPager];
+    NSUInteger backdropZ=[theaterContainer.subviews indexOfObjectIdenticalTo:headerBackdrop];
+    NSUInteger rowZ=[theaterContainer.subviews indexOfObjectIdenticalTo:theaterHeaderRow];
+    Check(headerBackdrop && !headerBackdrop.userInteractionEnabled &&
+        CGRectEqualToRect(headerBackdrop.frame,CGRectMake(0,0,440,100)) &&
+        CGColorGetAlpha(headerBackdrop.backgroundColor.CGColor)>=0.99 &&
+        backdropZ>pagerZ && backdropZ<rowZ,
+        @"Theater pull-down places an opaque adaptive header backdrop above the overscrolled feed (y=70) and below the glass search bar (y=62..100)");
+    HGAppearanceSet(@"player.finderGlass",@NO,nil);
+    HGAppearanceProcessController(pullTheater);
+    Check(!Find(theaterContainer,@"honggo.appearance.finder.headerBackdrop"),
+        @"disabling Theater glass removes the pull-down header backdrop cleanly");
+    HGAppearanceSet(@"player.finderGlass",@YES,nil);
+    [pullTheater willMoveToParentViewController:nil];[pullTheater.view removeFromSuperview];[pullTheater removeFromParentViewController];
 }

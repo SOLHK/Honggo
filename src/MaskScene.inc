@@ -160,24 +160,6 @@ static void HGInstallMaskScenes(void) {
         });
         HGReplaceMethod(mine, sel, "v20@0:8B16", hook);
     }
-    SEL drag = sel_registerName("scrollViewDidEndDragging:willDecelerate:");
-    Method dm = class_getInstanceMethod(mine, drag);
-    if (dm && !strcmp(method_getTypeEncoding(dm), "v28@0:8@16B24")) {
-        void (*original)(id, SEL, id, BOOL) = (void *)method_getImplementation(dm);
-        HGReplaceMethod(mine, drag, "v28@0:8@16B24", imp_implementationWithBlock(^(UIViewController *page, id scroll, BOOL decelerate) {
-            original(page, drag, scroll, decelerate);
-            if (!decelerate) { HGCaptureMask(page, @"scroll.end", NO); HGSceneSettled(page, @"scroll.settled"); }
-        }));
-    }
-    SEL end = sel_registerName("scrollViewDidEndDecelerating:");
-    Method em = class_getInstanceMethod(mine, end);
-    if (em && !strcmp(method_getTypeEncoding(em), "v24@0:8@16")) {
-        void (*original)(id, SEL, id) = (void *)method_getImplementation(em);
-        HGReplaceMethod(mine, end, "v24@0:8@16", imp_implementationWithBlock(^(UIViewController *page, id scroll) {
-            original(page, end, scroll); HGCaptureMask(page, @"deceleration.end", NO);
-            HGSceneSettled(page, @"deceleration.settled");
-        }));
-    }
     static HGMaskSceneObserver *observer;
     observer = [HGMaskSceneObserver new];
     [NSNotificationCenter.defaultCenter addObserver:observer selector:@selector(screenshot:)

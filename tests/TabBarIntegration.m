@@ -1621,6 +1621,14 @@ static UIImage *HGWhiteImage(void) {
         HGBackgroundPathIsClear(bar.contentView, bar) && HGFullEffectAlpha(HGEffects(bar).firstObject)
         name:@"host ratio callbacks execute once and preserve glass compositing"];
 
+    CALayer *lateBarMask = [CALayer layer];
+    lateBarMask.frame = CGRectZero;
+    bar.layer.mask = lateBarMask;
+    [bar.layer setNeedsLayout];
+    [bar.layer layoutIfNeeded];
+    [self check:bar.layer.mask == nil && HGFullEffectAlpha(HGEffects(bar).firstObject)
+        name:@"a host CALayer mask set on SSTabBar without layoutSubviews is cleared before display"];
+
     UIImageView *lateBackground = [[UIImageView alloc] initWithImage:HGWhiteImage()];
     lateBackground.frame = bar.contentView.frame;
     [bar.backgroundImageView removeFromSuperview];

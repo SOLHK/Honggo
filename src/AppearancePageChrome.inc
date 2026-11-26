@@ -535,8 +535,10 @@ static CGSize HGAFinderShortcutSize(id cell,SEL cmd,UICollectionView *collection
 }
 
 static IMP HGAOriginalFinderRowHeight,HGAOriginalFinderSectionInset,HGAOriginalFinderHeaderHeight;
+static IMP HGAOriginalTheaterHeaderBgLayout;
 static NSHashTable<UICollectionView *> *HGAFinderLists;
 static NSUInteger HGAFinderLayoutMask;
+static void HGAReconcileTheaterHeaderBackdropForView(UIView *view);
 
 static void HGARefreshFinderRowLayout(void) {
     NSUInteger mask=0;
@@ -596,6 +598,11 @@ static CGFloat HGAFinderHeaderHeight(id coordinator,SEL cmd,BOOL visible) {
     return ((CGFloat (*)(id,SEL,BOOL))HGAOriginalFinderHeaderHeight)(coordinator,cmd,visible);
 }
 
+static void HGATheaterHeaderBgLayout(UIView *bgView,SEL cmd) {
+    ((void (*)(id,SEL))HGAOriginalTheaterHeaderBgLayout)(bgView,cmd);
+    if(bgView.window)HGAReconcileTheaterHeaderBackdropForView(bgView);
+}
+
 static void HGAInstallFinderShortcutHook(void) {
     if(HGAOriginalGoldenPositionSize)return;
     HGAFinderLists=[NSHashTable weakObjectsHashTable];
@@ -607,6 +614,9 @@ static void HGAInstallFinderShortcutHook(void) {
         "{UIEdgeInsets=dddd}40@0:8@16@24q32",(IMP)HGAFinderSectionInset,@"appearance");
     HGAOriginalFinderHeaderHeight=HGInstallVerifiedHook(objc_lookUpClass("FQTheaterLayoutCoordinator"),
         sel_registerName("_calculateHeaderHeightWithTabContainerVisible:"),"d20@0:8B16",(IMP)HGAFinderHeaderHeight,@"appearance");
+    Class headerBg=objc_lookUpClass("FQTheaterHeaderBgView");
+    if([headerBg isSubclassOfClass:UIView.class] && !HGAOriginalTheaterHeaderBgLayout)
+        HGAOriginalTheaterHeaderBgLayout=HGInstallVerifiedHook(headerBg,@selector(layoutSubviews),"v16@0:8",(IMP)HGATheaterHeaderBgLayout,@"appearance");
     Class type=NSClassFromString(@"SSVideoDistributionGoldenPositionCell");
     SEL selector=@selector(collectionView:layout:sizeForItemAtIndexPath:);
     Method method=class_getInstanceMethod(type,selector);
@@ -873,12 +883,13 @@ static BOOL HGAIsMineKMPController(UIViewController *controller) {
 @property(nonatomic) BOOL queued;
 @end
 @implementation HGAMineTitleWatch @end
-static char HGAMineTitleWatchKey;
+static char HGAMineTitleWatchKey,HGAMineProfileWatchKey;
 static IMP HGAMineTitleDidAdd,HGAMineTitleWillRemove;
 static void HGAMineTitleGlyphsChanged(UIView *renderer,SEL cmd,UIView *item) {
     IMP original=cmd==@selector(didAddSubview:) ? HGAMineTitleDidAdd : HGAMineTitleWillRemove;
     ((void (*)(id,SEL,id))original)(renderer,cmd,item);
-    HGAMineTitleWatch *watch=objc_getAssociatedObject(renderer,&HGAMineTitleWatchKey);
+    HGAMineTitleWatch *watch=objc_getAssociatedObject(renderer,&HGAMineTitleWatchKey) ?:
+        objc_getAssociatedObject(renderer,&HGAMineProfileWatchKey);
     if(!watch || watch.queued || ![NSStringFromClass(item.class) isEqual:@"DanceUI._InheritedView"])return;
     watch.queued=YES;
     dispatch_async(dispatch_get_main_queue(),^{
@@ -886,13 +897,13 @@ static void HGAMineTitleGlyphsChanged(UIView *renderer,SEL cmd,UIView *item) {
         if(watch.renderer.window && watch.page.viewIfLoaded.window)HGAppearanceProcessController(watch.page);
     });
 }
-static void HGAWatchMineTitleRenderer(UIViewController *page,UIView *renderer) {
-    HGAMineTitleWatch *watch=objc_getAssociatedObject(page,&HGAMineTitleWatchKey);
+static void HGAWatchMineComposeRenderer(UIViewController *page,UIView *renderer,const void *watchKey) {
+    HGAMineTitleWatch *watch=objc_getAssociatedObject(page,watchKey);
     if(watch.renderer==renderer)return;
-    if(watch.renderer)objc_setAssociatedObject(watch.renderer,&HGAMineTitleWatchKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if(watch.renderer)objc_setAssociatedObject(watch.renderer,watchKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     watch.renderer=nil;
     if(!renderer) {
-        objc_setAssociatedObject(page,&HGAMineTitleWatchKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(page,watchKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return;
     }
     Class cls=objc_lookUpClass("DanceUICompose.ComposeRenderingUIViewImpl");
@@ -901,8 +912,11 @@ static void HGAWatchMineTitleRenderer(UIViewController *page,UIView *renderer) {
     if(!HGAMineTitleDidAdd || !HGAMineTitleWillRemove)return;
     if(!watch)watch=[HGAMineTitleWatch new];
     watch.page=page;watch.renderer=renderer;
-    objc_setAssociatedObject(page,&HGAMineTitleWatchKey,watch,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(renderer,&HGAMineTitleWatchKey,watch,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(page,watchKey,watch,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(renderer,watchKey,watch,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static void HGAWatchMineTitleRenderer(UIViewController *page,UIView *renderer) {
+    HGAWatchMineComposeRenderer(page,renderer,&HGAMineTitleWatchKey);
 }
 
 @interface HGAMineMenuButton : UIButton
@@ -921,7 +935,7 @@ static void HGAWatchMineTitleRenderer(UIViewController *page,UIView *renderer) {
 }
 @end
 
-static char HGAMineShortcutMaskKey,HGAMineTitleGlassKey;
+static char HGAMineShortcutMaskKey,HGAMineTitleGlassKey,HGAMineEditProfileGlassKey;
 static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMutableArray<UIView *> *glyphs) {
     UIButton *button=objc_getAssociatedObject(controller,&HGAMineMenuButtonKey);
     NSNumber *source=objc_getAssociatedObject(controller,&HGAMineEntryStateKey);
@@ -1014,8 +1028,55 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
         }
     }
     BOOL glass=enabled && HGAppearanceFlag(@"player.mineGlass");
+    id kmpHandle=HGReadObjectGetter(controller,"minePageKMPHandle");
+    UIView *profileContent=glass ? HGAViewGetter(kmpHandle,"contentView",root) : nil;
+    UIView *profileRenderer=nil,*editTarget=nil,*editGraphicsBg=nil;
+    for(UIView *node in HGADescendants(profileContent,32)) {
+        if(![NSStringFromClass(node.class) isEqual:@"DanceUICompose.ComposeRenderingUIViewImpl"] ||
+            !HGAVisible(node))continue;
+        profileRenderer=node;
+        CGFloat edge=CGRectGetMaxX(node.bounds);
+        for(UIView *item in node.subviews) {
+            CGRect rect=item.frame;
+            if(![NSStringFromClass(item.class) isEqual:@"DanceUI._InheritedView"] || !HGAVisible(item) ||
+               rect.size.width<60 || rect.size.width>108 || rect.size.height<24 || rect.size.height>36 ||
+               CGRectGetMaxX(rect)<edge-32 || CGRectGetMinY(rect)<100)continue;
+            UIView *graphicsBg=nil,*drawingText=nil;
+            for(UIView *sub in item.subviews) {
+                NSString *subCls=NSStringFromClass(sub.class);
+                if([subCls isEqual:@"DanceUI._UIGraphicsView"] &&
+                   fabs(CGRectGetWidth(sub.bounds)-CGRectGetWidth(item.bounds))<2 &&
+                   fabs(CGRectGetHeight(sub.bounds)-CGRectGetHeight(item.bounds))<2)graphicsBg=sub;
+                else if([subCls isEqual:@"CGDrawingView"] || [sub isKindOfClass:UILabel.class])drawingText=sub;
+            }
+            if(graphicsBg && drawingText){editTarget=item;editGraphicsBg=graphicsBg;break;}
+        }
+        if(editTarget)break;
+    }
+    HGAWatchMineComposeRenderer(controller,glass ? profileRenderer : nil,&HGAMineProfileWatchKey);
+    HGAHidePageChromeTarget(root,@"mineProfileEditBg",glass ? editGraphicsBg : nil);
+    HGASetHistoryUnclipped(root,editTarget ? @[editTarget] : nil,glass && editTarget!=nil);
+    UIView *editBacking=objc_getAssociatedObject(root,&HGAMineEditProfileGlassKey);
+    if(glass && editTarget) {
+        if(!editBacking) {
+            editBacking=[UIView new];
+            editBacking.accessibilityIdentifier=@"honggo.appearance.mine.editProfile";
+            editBacking.userInteractionEnabled=NO;
+            editBacking.accessibilityElementsHidden=YES;
+            objc_setAssociatedObject(root,&HGAMineEditProfileGlassKey,editBacking,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if(!CGRectEqualToRect(editBacking.frame,editTarget.bounds))editBacking.frame=editTarget.bounds;
+        if(editBacking.superview!=editTarget)[editTarget insertSubview:editBacking atIndex:0];
+        HGAApplyFinderMaterial(editBacking,HGAVisible(editBacking) ? editBacking.bounds : CGRectZero,NO);
+        HGAState(editBacking,NO).glass.flexTouchHost=editTarget;
+    } else if(editBacking) {
+        HGARemoveGlass(editBacking);
+        [editBacking removeFromSuperview];
+        objc_setAssociatedObject(root,&HGAMineEditProfileGlassKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
     UIView *titleBar=glass || HGAMineHidesMore() ?
-        HGAViewGetter(HGReadObjectGetter(controller,"minePageKMPHandle"),"titleBarView",root) : nil;
+        HGAViewGetter(kmpHandle,"titleBarView",root) : nil;
     NSMutableArray<UIView *> *targets=[NSMutableArray array];
     UIView *renderer=nil;
     for(UIView *node in HGADescendants(titleBar,28)) {
@@ -1259,6 +1320,7 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
             }
         }
         HGAHidePageChromeTarget(view,@"historyDivider",mine ? divider : nil);
+        HGASetHistoryUnclipped(toolbar ?: view,toolbar ? @[toolbar] : nil,mine && toolbar!=nil);
         NSMutableArray *targets=[NSMutableArray array];
         if(mine) {
             [targets addObject:view];
@@ -1300,6 +1362,97 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
     }
 }
 
+static char HGAFinderHeaderBackdropKey;
+static void HGAUpdateTheaterHeaderBackdrop(UIViewController *controller,UIView *root,UIView *field,BOOL active) {
+    UIView *backdrop=objc_getAssociatedObject(root,&HGAFinderHeaderBackdropKey);
+    if(!active || !root.window || !field || ![field isDescendantOfView:root]) {
+        [backdrop removeFromSuperview];
+        if(backdrop)objc_setAssociatedObject(root,&HGAFinderHeaderBackdropKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    Class pagerCls=objc_lookUpClass("FQRJXCategoryListContainerView");
+    Class feedCls=objc_lookUpClass("FQFeedListView");
+    Class headerBgCls=objc_lookUpClass("FQTheaterHeaderBgView");
+    UIView *headerBar=nil,*hostContainer=nil,*listBranch=nil,*headerBg=nil;
+    for(UIView *cursor=field;cursor && cursor!=root;cursor=cursor.superview) {
+        UIView *parent=cursor.superview;
+        if(!parent)break;
+        NSUInteger headerIdx=[parent.subviews indexOfObjectIdenticalTo:cursor];
+        if(headerIdx==NSNotFound)continue;
+        UIView *foundList=nil,*foundBg=nil;
+        for(NSUInteger i=0;i<headerIdx;i++) {
+            UIView *sibling=parent.subviews[i];
+            if((pagerCls && [sibling isKindOfClass:pagerCls]) || (feedCls && [sibling isKindOfClass:feedCls]))
+                foundList=sibling;
+            else if(headerBgCls && [sibling isKindOfClass:headerBgCls])
+                foundBg=sibling;
+        }
+        if(foundList) {
+            headerBar=cursor;hostContainer=parent;listBranch=foundList;headerBg=foundBg;
+            break;
+        }
+    }
+    if(!hostContainer || !listBranch || !headerBar) {
+        [backdrop removeFromSuperview];
+        if(backdrop)objc_setAssociatedObject(root,&HGAFinderHeaderBackdropKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    CGRect searchInHost=[field convertRect:field.bounds toView:hostContainer];
+    CGRect barInHost=[headerBar convertRect:headerBar.bounds toView:hostContainer];
+    CGFloat bottomY=CGRectGetMaxY(searchInHost);
+    UIView *tabContainer=HGAViewGetter(controller,"tabContainer",root);
+    if(tabContainer && !tabContainer.hidden && tabContainer.alpha>0.01 && [tabContainer isDescendantOfView:hostContainer]) {
+        CGRect tabInHost=[tabContainer convertRect:tabContainer.bounds toView:hostContainer];
+        CGFloat visibleMaxY=headerBar.clipsToBounds && [tabContainer isDescendantOfView:headerBar] ?
+            MIN(CGRectGetMaxY(barInHost),CGRectGetMaxY(tabInHost)) : CGRectGetMaxY(tabInHost);
+        if(visibleMaxY>bottomY && visibleMaxY<=bottomY+56)bottomY=visibleMaxY;
+    }
+    if(headerBar.clipsToBounds && CGRectGetMaxY(barInHost)>=CGRectGetMinY(searchInHost)+24)
+        bottomY=MIN(bottomY,CGRectGetMaxY(barInHost));
+    if(bottomY<=1 || CGRectGetWidth(hostContainer.bounds)<=1) {
+        [backdrop removeFromSuperview];
+        return;
+    }
+    if(!backdrop) {
+        backdrop=[UIView new];
+        backdrop.accessibilityIdentifier=@"honggo.appearance.finder.headerBackdrop";
+        backdrop.userInteractionEnabled=NO;
+        backdrop.accessibilityElementsHidden=YES;
+        objc_setAssociatedObject(root,&HGAFinderHeaderBackdropKey,backdrop,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    BOOL dark=HGAAdaptivePageStyle(controller,root)==UIUserInterfaceStyleDark;
+    UIColor *fill=nil;
+    if(headerBg.backgroundColor) {
+        UIColor *resolved=[headerBg.backgroundColor resolvedColorWithTraitCollection:
+            [UITraitCollection traitCollectionWithUserInterfaceStyle:dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight]];
+        if(CGColorGetAlpha(resolved.CGColor)>=0.95)fill=resolved;
+    }
+    if(!fill)fill=dark ? [UIColor colorWithRed:0.07 green:0.07 blue:0.08 alpha:1.0] : UIColor.whiteColor;
+    if(![backdrop.backgroundColor isEqual:fill])backdrop.backgroundColor=fill;
+    CGRect targetFrame=CGRectMake(0,0,CGRectGetWidth(hostContainer.bounds),bottomY);
+    if(!CGRectEqualToRect(backdrop.frame,targetFrame))backdrop.frame=targetFrame;
+    NSUInteger listIdx=[hostContainer.subviews indexOfObjectIdenticalTo:listBranch];
+    NSUInteger backIdx=[hostContainer.subviews indexOfObjectIdenticalTo:backdrop];
+    NSUInteger barIdx=[hostContainer.subviews indexOfObjectIdenticalTo:headerBar];
+    if(backdrop.superview!=hostContainer || backIdx==NSNotFound || backIdx<listIdx || backIdx>barIdx)
+        [hostContainer insertSubview:backdrop aboveSubview:listBranch];
+}
+
+static void HGAReconcileTheaterHeaderBackdropForView(UIView *view) {
+    UIViewController *theater=nil;
+    Class theaterCls=NSClassFromString(@"FQTheaterViewController");
+    for(UIView *node=view;node;node=node.superview) {
+        UIResponder *resp=node.nextResponder;
+        if([resp isKindOfClass:theaterCls]){theater=(UIViewController *)resp;break;}
+    }
+    if(!theater || !theater.isViewLoaded)return;
+    UIView *root=theater.view;
+    BOOL active=HGAppearanceEnabled() && HGAppearanceFlag(@"player.finderGlass") && root.window!=nil;
+    UIView *search=HGAViewGetter(theater,"searchView",root) ?: HGAViewGetter(theater,"searchButtonView",root);
+    UIView *field=HGAViewGetter(theater,"searchBgView",root) ?: search;
+    HGAUpdateTheaterHeaderBackdrop(theater,root,field,active);
+}
+
 static void HGAApplyFinderChrome(UIViewController *controller) {
     UIView *root=controller.view;
     BOOL enabled=HGAppearanceEnabled(),glass=enabled && HGAppearanceFlag(@"player.finderGlass");
@@ -1328,7 +1481,10 @@ static void HGAApplyFinderChrome(UIViewController *controller) {
         HGARestoreGeometry(recognitionContent);
         HGAApplyFinderSearch(root,nil,nil,nil,nil,nil,NO);
         HGAApplyPageChromeIcons(root,nil);
-        if(theater)HGAApplyFinderAIInk(root,nil,nil,aiArt);
+        if(theater) {
+            HGAApplyFinderAIInk(root,nil,nil,aiArt);
+            HGAUpdateTheaterHeaderBackdrop(controller,root,nil,NO);
+        }
         return;
     }
     UIView *search=HGAViewGetter(controller,"searchView",root) ?: HGAViewGetter(controller,"searchButtonView",root);
@@ -1339,6 +1495,7 @@ static void HGAApplyFinderChrome(UIViewController *controller) {
     UIView *assistant=HGAViewGetter(controller,theater ? "aiSearchEntranceView" : "searchAiButtonView",root);
     UIView *divider=recognition ? HGAViewGetter(recognitionContent,"separatorView",recognition) : nil;
     HGAApplyFinderSearch(root,field,recognition,assistant,recognitionContent,divider,glass);
+    if(theater)HGAUpdateTheaterHeaderBackdrop(controller,root,field,glass);
     NSMutableArray<UIView *> *icons=[NSMutableArray array];
     if(glass) {
         UIView *searchIcon=[search isKindOfClass:UIButton.class] ? ((UIButton *)search).imageView :

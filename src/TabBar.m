@@ -14,7 +14,15 @@ BOOL HGAppearanceDockIsMutating(UIView *bar);
 // below use per-instance subclasses instead of UIKit base class hooks.
 static Class HGTabBarClass;
 static BOOL HGGlassEnabled;
+static NSHashTable<UIView *> *HGMountedTabBars;
 static char HGStateKey, HGObservedOwnerKey, HGObservedBaseKey;
+
+static BOOL HGTabBarGlassActive(void) {
+    HGGlassEnabled = HGIsEnabled(HGGlass);
+    return HGGlassEnabled;
+}
+static UIViewController *HGContainingTabController(UIViewController *page);
+static void HGRefreshBar(UIView *bar);
 // The home feed and tab controller both mutate geometry during the same
 // native transition. Publish ownership before invoking either original.
 @interface HGSidebarTransition : NSObject
@@ -48,6 +56,7 @@ static void (*HGOriginalBarAdd)(id, SEL, UIView *);
 static void (*HGOriginalBarHidden)(id, SEL, BOOL);
 static void (*HGOriginalBarAlpha)(id, SEL, CGFloat);
 static void (*HGOriginalBarTraits)(id, SEL, id);
+static void (*HGOriginalBarLayoutSublayers)(id, SEL, CALayer *);
 static void (*HGOriginalMineLayout)(id, SEL);
 static void (*HGOriginalMineAppear)(id, SEL, BOOL);
 static void (*HGOriginalMallMount)(id, SEL);
@@ -923,7 +932,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
             self.customDock = customDock;
         }
         if (!customDock) HGAppearanceRestoreDock(bar);
-        if ((!HGGlassEnabled && !customDock) || !bar.window || bar.hidden) {
+        if ((!HGTabBarGlassActive() && !customDock) || !bar.window || bar.hidden) {
             HGAppearanceRestoreDock(bar);
             if (bar.window && HGAppearanceEnabled()) {
                 [self.videoBackdrop refreshFeed];
@@ -1069,6 +1078,8 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
 
 static HGTabState *HGState(UIView *bar) {
     if (![bar isKindOfClass:HGTabBarClass]) return nil;
+    if (!HGMountedTabBars) HGMountedTabBars = [NSHashTable weakObjectsHashTable];
+    [HGMountedTabBars addObject:bar];
     HGTabState *state = objc_getAssociatedObject(bar, &HGStateKey);
     if (!state) {
         state = [HGTabState new];
@@ -1086,8 +1097,10 @@ static void HGRefreshTabBar(UIViewController *controller) {
     if (HGFeedSidebarOwnsLayout(controller.viewIfLoaded.window)) return;
     UIView *bar = HGView(controller, "customTabBar");
     if (![bar isKindOfClass:HGTabBarClass] || HGFeedSidebarOwnsLayout(bar.window)) return;
+    if (!HGMountedTabBars) HGMountedTabBars = [NSHashTable weakObjectsHashTable];
+    [HGMountedTabBars addObject:bar];
     HGAttachSettings(bar);
-    if (HGGlassEnabled || HGAppearanceDockEnabled()) {
+    if (HGTabBarGlassActive() || HGAppearanceDockEnabled() || objc_getAssociatedObject(bar, &HGStateKey)) {
         HGTabState *state = HGState(bar);
         state.controller = controller;
         [state refresh];
@@ -1200,7 +1213,7 @@ static void HGRefreshMine(UIViewController *page) {
 }
 static void HGMallMount(UIViewController *page, SEL cmd) {
     HGOriginalMallMount(page, cmd);
-    if (!NSThread.isMainThread || (!HGGlassEnabled && !HGAppearanceDockEnabled())) return;
+    if (!NSThread.isMainThread || (!HGTabBarGlassActive() && !HGAppearanceDockEnabled())) return;
     UIView *root = page.viewIfLoaded;
     if (!root.window || HGView(page, "mallView").superview != root) return;
     // The host attaches the mall after reserving the entire native tab bar.
@@ -1209,7 +1222,7 @@ static void HGMallMount(UIViewController *page, SEL cmd) {
 }
 static void HGReconcileTheaterListBottom(UIView *list, BOOL scheduleLayout) {
     UIWindow *window = list.window;
-    if (!window || list.hidden || (!HGGlassEnabled && !HGAppearanceDockEnabled())) return;
+    if (!window || list.hidden || (!HGTabBarGlassActive() && !HGAppearanceDockEnabled())) return;
     CGRect frame = [list convertRect:list.bounds toView:window];
     if (fabs(CGRectGetMinX(frame) - CGRectGetMinX(window.bounds)) > 2 ||
         fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(window.bounds)) > 2 ||
@@ -1257,12 +1270,22 @@ static void HGSetAppearance(id self, SEL cmd) {
     HGRefreshTabBar(self);
 }
 static void HGRefreshBar(UIView *bar) {
-    if (!HGFeedSidebarOwnsLayout(bar.window)) [HGState(bar) refresh];
+    if (HGFeedSidebarOwnsLayout(bar.window)) return;
+    if (!HGMountedTabBars) HGMountedTabBars = [NSHashTable weakObjectsHashTable];
+    [HGMountedTabBars addObject:bar];
+    if (!HGTabBarGlassActive() && !HGAppearanceDockEnabled() && !HGAppearanceEnabled() &&
+        !objc_getAssociatedObject(bar, &HGStateKey)) return;
+    [HGState(bar) refresh];
 }
 static void HGResetRatio(id self, SEL cmd, double ratio) {
     HGOriginalResetRatio(self, cmd, ratio);
     if (HGAppearanceDockEnabled()) HGAppearanceReclaimDockChrome(self);
-    if (HGGlassEnabled || HGAppearanceDockEnabled()) HGRefreshBar(self);
+    if (HGTabBarGlassActive() || HGAppearanceDockEnabled()) HGRefreshBar(self);
+}
+static void HGBarLayoutSublayers(UIView *self, SEL cmd, CALayer *layer) {
+    HGOriginalBarLayoutSublayers(self, cmd, layer);
+    if (layer == self.layer && layer.mask && (HGTabBarGlassActive() || HGAppearanceDockEnabled()))
+        HGRefreshBar(self);
 }
 static void HGBarLayout(id self, SEL cmd) {
     HGOriginalBarLayout(self, cmd);
@@ -1331,7 +1354,7 @@ static void HGSettleSidebarAppearance(HGSidebarTransition *transition, UIWindow 
 static void (*HGOriginalSidebarTap)(UIViewController *, SEL);
 static void HGSidebarTap(UIViewController *page, SEL cmd) {
     UIWindow *window = NSThread.isMainThread ? page.viewIfLoaded.window : nil;
-    if (!window || (!HGGlassEnabled && !HGAppearanceEnabled())) {
+    if (!window || (!HGTabBarGlassActive() && !HGAppearanceEnabled())) {
         HGOriginalSidebarTap(page, cmd);
         return;
     }
@@ -1352,7 +1375,7 @@ static void HGSidebarTap(UIViewController *page, SEL cmd) {
 static void (*HGOriginalToggleSidebar)(UIViewController *, SEL, BOOL, id, double);
 static void HGToggleSidebar(UIViewController *page, SEL cmd, BOOL opening, id type, double duration) {
     UIWindow *window = NSThread.isMainThread ? page.viewIfLoaded.window : nil;
-    if (!window || (!HGGlassEnabled && !HGAppearanceEnabled())) {
+    if (!window || (!HGTabBarGlassActive() && !HGAppearanceEnabled())) {
         HGOriginalToggleSidebar(page, cmd, opening, type, duration);
         return;
     }
@@ -1453,22 +1476,40 @@ BOOL HGInstallTabBar(void) {
                 (IMP)HGTheaterOcclusionChanged);
         }
         HGOriginalResetRatio = (void (*)(id, SEL, double))HGReplaceMethod(HGTabBarClass, sel_registerName("resetBlurVisualViewWithRatio:"), "v24@0:8d16", (IMP)HGResetRatio);
-        if (HGGlassEnabled) {
-            Class mine = objc_lookUpClass("SSMine737KMPViewController");
+        Class mine = objc_lookUpClass("SSMine737KMPViewController");
+        if ([mine isSubclassOfClass:UIViewController.class]) {
             HGOriginalMineLayout = (void (*)(id, SEL))HGReplaceMethod(mine,
                 @selector(viewDidLayoutSubviews), "v16@0:8", (IMP)HGMineLayout);
             HGOriginalMineAppear = (void (*)(id, SEL, BOOL))HGReplaceMethod(mine,
                 @selector(viewDidAppear:), "v20@0:8B16", (IMP)HGMineAppear);
-            HGOriginalBarLayout = (void (*)(id, SEL))HGReplaceMethod(HGTabBarClass, selectors[1], encodings[1], (IMP)HGBarLayout);
-            HGOriginalBarMove = (void (*)(id, SEL))HGReplaceMethod(HGTabBarClass, selectors[2], encodings[2], (IMP)HGBarMove);
-            HGOriginalBarAdd = (void (*)(id, SEL, UIView *))HGReplaceMethod(HGTabBarClass, selectors[3], encodings[3], (IMP)HGBarAdd);
-            HGOriginalBarHidden = (void (*)(id, SEL, BOOL))HGReplaceMethod(HGTabBarClass, @selector(setHidden:), "v20@0:8B16", (IMP)HGBarHidden);
-            HGOriginalBarAlpha = (void (*)(id, SEL, CGFloat))HGReplaceMethod(HGTabBarClass, @selector(setAlpha:), "v24@0:8d16", (IMP)HGBarAlpha);
-            HGOriginalBarTraits = (void (*)(id, SEL, id))HGReplaceMethod(HGTabBarClass, sel_registerName("traitCollectionDidChange:"), "v24@0:8@16", (IMP)HGBarTraits);
-            HGOriginalSetAppearance = (void (*)(id, SEL))HGReplaceMethod(controller, sel_registerName("setCustomTabBarAppearance"), "v16@0:8", (IMP)HGSetAppearance);
         }
-        if (HGGlassEnabled) HGInstallMineClip();
+        HGOriginalBarLayout = (void (*)(id, SEL))HGReplaceMethod(HGTabBarClass, selectors[1], encodings[1], (IMP)HGBarLayout);
+        HGOriginalBarMove = (void (*)(id, SEL))HGReplaceMethod(HGTabBarClass, selectors[2], encodings[2], (IMP)HGBarMove);
+        HGOriginalBarAdd = (void (*)(id, SEL, UIView *))HGReplaceMethod(HGTabBarClass, selectors[3], encodings[3], (IMP)HGBarAdd);
+        HGOriginalBarHidden = (void (*)(id, SEL, BOOL))HGReplaceMethod(HGTabBarClass, @selector(setHidden:), "v20@0:8B16", (IMP)HGBarHidden);
+        HGOriginalBarAlpha = (void (*)(id, SEL, CGFloat))HGReplaceMethod(HGTabBarClass, @selector(setAlpha:), "v24@0:8d16", (IMP)HGBarAlpha);
+        HGOriginalBarTraits = (void (*)(id, SEL, id))HGReplaceMethod(HGTabBarClass, sel_registerName("traitCollectionDidChange:"), "v24@0:8@16", (IMP)HGBarTraits);
+        HGOriginalBarLayoutSublayers = (void (*)(id, SEL, CALayer *))HGReplaceMethod(HGTabBarClass,
+            @selector(layoutSublayersOfLayer:), "v24@0:8@16", (IMP)HGBarLayoutSublayers);
+        HGOriginalSetAppearance = (void (*)(id, SEL))HGReplaceMethod(controller, sel_registerName("setCustomTabBarAppearance"), "v16@0:8", (IMP)HGSetAppearance);
+        HGInstallMineClip();
         HGInstallMaskScenes();
+        static dispatch_once_t prefOnce;
+        dispatch_once(&prefOnce, ^{
+            void (^refreshBars)(NSNotification *) = ^(NSNotification *note) {
+                HGTabBarGlassActive();
+                for (UIView *bar in HGMountedTabBars.allObjects) {
+                    if (!bar.window) continue;
+                    HGTabState *state = objc_getAssociatedObject(bar, &HGStateKey);
+                    if (state.controller) HGRefreshTabBar(state.controller);
+                    else HGRefreshBar(bar);
+                }
+            };
+            [NSNotificationCenter.defaultCenter addObserverForName:HGAppearanceDidChangeNotification
+                object:nil queue:NSOperationQueue.mainQueue usingBlock:refreshBars];
+            [NSNotificationCenter.defaultCenter addObserverForName:@"Honggo.FeaturePreferencesDidChange"
+                object:nil queue:NSOperationQueue.mainQueue usingBlock:refreshBars];
+        });
         installed = YES;
         return YES;
     }

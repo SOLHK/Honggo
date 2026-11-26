@@ -446,17 +446,29 @@ static BOOL HGFeedCellMatchesKeywords(id root, NSArray<NSString *> *keywords, BO
     return NO;
 }
 
-static NSArray *HGFilterKeywordFeedPage(NSArray *cells, NSArray<NSString *> *keywords) {
-    if (!keywords.count || ![cells isKindOfClass:NSArray.class]) return cells;
-    BOOL matchesAlbumBadge=HGFeedTextHasKeyword(@"合集",keywords);
-    NSMutableIndexSet *hidden=nil;
-    for (NSUInteger i=0;i<cells.count;i++) {
-        if (!HGFeedCellMatchesKeywords(cells[i],keywords,matchesAlbumBadge)) continue;
-        if (!hidden) hidden=[NSMutableIndexSet indexSet];
+static BOOL HGIsFilteredRecommendPeopleCell(id<HGKeywordFeedSource> source, id cell) {
+    if (!cell || !HGAppearanceEnabled() || !HGAppearanceFlag(@"player.hideFollowRecommendUsers")) return NO;
+    if (source && [source isRecommendPeopleCellViewData:cell]) return YES;
+    NSString *clsName = NSStringFromClass(object_getClass(cell));
+    return [clsName containsString:@"RecommendPeople"];
+}
+
+static NSArray *HGFilterFeedPageForSource(id<HGKeywordFeedSource> source, NSArray *cells, NSArray<NSString *> *keywords) {
+    if (![cells isKindOfClass:NSArray.class] || !cells.count) return cells;
+    BOOL hideRecUsers = HGAppearanceEnabled() && HGAppearanceFlag(@"player.hideFollowRecommendUsers");
+    if (!keywords.count && !hideRecUsers) return cells;
+    BOOL matchesAlbumBadge = keywords.count && HGFeedTextHasKeyword(@"合集",keywords);
+    NSMutableIndexSet *hidden = nil;
+    for (NSUInteger i = 0; i < cells.count; i++) {
+        id cell = cells[i];
+        BOOL drop = (hideRecUsers && HGIsFilteredRecommendPeopleCell(source, cell)) ||
+            (keywords.count && HGFeedCellMatchesKeywords(cell, keywords, matchesAlbumBadge));
+        if (!drop) continue;
+        if (!hidden) hidden = [NSMutableIndexSet indexSet];
         [hidden addIndex:i];
     }
     if (!hidden) return cells;
-    NSMutableArray *kept=[cells mutableCopy];
+    NSMutableArray *kept = [cells mutableCopy];
     [kept removeObjectsAtIndexes:hidden];
     return kept;
 }
@@ -502,7 +514,7 @@ static void HGKeywordPageFinished(UIViewController<HGKeywordFeedPage> *page, SEL
 
 static void HGBuildKeywordFeedPage(id<HGKeywordFeedSource> source, SEL cmd, NSArray *cells, id beforeBuild, id completion) {
     HGKeywordFeedBuilder original=(HGKeywordFeedBuilder)atomic_load_explicit(&HGKeywordFeedHook.original,memory_order_acquire);
-    NSArray *kept=HGFilterKeywordFeedPage(cells,HGVideoBlockedKeywords());
+    NSArray *kept=HGFilterFeedPageForSource(source,cells,HGVideoBlockedKeywords());
     if (kept==cells || kept.count || ![source hasMore]) {
         original(source,cmd,kept,beforeBuild,completion);
         return;
@@ -536,7 +548,7 @@ static void HGBuildKeywordFeedPage(id<HGKeywordFeedSource> source, SEL cmd, NSAr
         }
         [source updatePagingWithCellChangeResult:result];
         if (!more || nextOffset<=offset || !next.count) {
-            original(source,cmd,HGFilterKeywordFeedPage(next,HGVideoBlockedKeywords()),beforeBuild,completion);
+            original(source,cmd,HGFilterFeedPageForSource(source,next,HGVideoBlockedKeywords()),beforeBuild,completion);
             return;
         }
         // Cached results may call back synchronously. Start the next pass on
