@@ -68,12 +68,6 @@ static void RunAutoEnterSeriesChecks(void) {
 @property(nonatomic,strong) id model;
 @end
 @implementation HGAQualityCellFixture @end
-@interface FQVShortVideoListVCScrollComponent : NSObject
-- (void)scrollViewDidScroll:(UIScrollView *)scroll;
-@end
-@implementation FQVShortVideoListVCScrollComponent
-- (void)scrollViewDidScroll:(UIScrollView *)scroll {}
-@end
 @interface HGAScrollingFeedFixture : FQVCollectionView
 @property(nonatomic) BOOL simulatingScroll;
 @end
@@ -155,7 +149,7 @@ static void RunPlaybackQualityChecks(void) {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.03,false);
         Check(afterNext==6 && ctx.changes==6 && ctx.currentResolution==2,
             @"swiping back up to an already-configured cached episode never tears down or re-requests its stream");
-        FQVShortVideoListVCScrollComponent *scrollComp=[FQVShortVideoListVCScrollComponent new];
+        id<UIScrollViewDelegate> scrollComp=[objc_lookUpClass("FQVShortVideoListVCScrollComponent") new];
         [scrollComp scrollViewDidScroll:scrollingFeed];
         NSObject *flickedEpisode=[NSObject new],*landedEpisode=[NSObject new];
         ctx.currentResolution=2;
@@ -167,7 +161,6 @@ static void RunPlaybackQualityChecks(void) {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.75,false);
         Check(instantStartWithoutBlocking && ctx.changes==7 && ctx.currentResolution==4,
             @"a real feed swipe plays the preloaded stream immediately at frame zero without stalling and coalesces the upgrade until playback settles");
-        HGALastFeedScrollActivityTime=0;
         [scrollingFeed removeFromSuperview];
     }
     HGAppearanceSet(@"player.highestQuality",@(saved),nil);
