@@ -752,8 +752,10 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     UITraitCollection *traits=self.capsule.traitCollection;
     BOOL darkDock=self.capsule.overrideUserInterfaceStyle==UIUserInterfaceStyleDark ||
         traits.userInterfaceStyle==UIUserInterfaceStyleDark;
-    UIColor *selected=darkDock ? UIColor.whiteColor : [UIColor.labelColor resolvedColorWithTraitCollection:traits];
-    CGFloat normalAlpha=traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.90 : (darkDock ? 0.78 : 0.62);
+    UITraitCollection *inkTraits=(darkDock && traits.userInterfaceStyle!=UIUserInterfaceStyleDark) ?
+        [UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark] : traits;
+    UIColor *selected=[UIColor.labelColor resolvedColorWithTraitCollection:inkTraits];
+    CGFloat normalAlpha=traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.90 : 0.62;
     UIColor *normal=[selected colorWithAlphaComponent:normalAlpha];
     BOOL videoClear=HGASelectedTab(self.hostController)==0 && [HGAppearanceString(@"dock.material") isEqual:@"clear"];
     if(videoClear) {
