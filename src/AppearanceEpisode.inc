@@ -401,7 +401,7 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
                 s.ownsRichText=NO;s.appliedRichText=nil;
             }
             CGFloat measuredW=HGAEpisodeSingleLineWidth(lbl,s.ownsRichText ? s.appliedRichText : baseRich,nil);
-            inGlass.size.width=MIN(availW,MAX(1.0,measuredW+1.0));
+            inGlass.size.width=MIN(availW,MAX(1.0,measuredW+2.0));
         } else {
             NSString *clippedText=trimmed ? [full substringToIndex:fitLen] : full;
             if(trimmed) {
@@ -412,7 +412,7 @@ static void HGAApplyEpisodeLabels(UIView *entry,CGRect glassFrame,BOOL enabled) 
                 s.ownsText=NO;s.appliedText=nil;
             }
             CGFloat measuredW=HGAEpisodeSingleLineWidth(lbl,nil,clippedText);
-            inGlass.size.width=MIN(availW,MAX(1.0,measuredW+1.0));
+            inGlass.size.width=MIN(availW,MAX(1.0,measuredW+2.0));
         }
         s.ownsBreakMode=YES;
         s.appliedBreakMode=NSLineBreakByClipping;

@@ -792,8 +792,8 @@ void HGAppearanceProcessView(UIView *view) {
         if([name isEqual:@"FQVShortVideoLoadingView"]) {
             HGAApplyLoadingSpinner(view);return;
         }
-        if([name isEqual:@"SSShortVideoDistributionContentView"] ||
-           [name isEqual:@"SSShortVideoDistributionContentBaseView"]) {
+        if([view isKindOfClass:objc_lookUpClass("SSShortVideoDistributionContentBaseView")] ||
+           [view isKindOfClass:objc_lookUpClass("SSShortVideoDistributionContentView")]) {
             for(UIView *parent=view.superview;parent;parent=parent.superview) {
                 if([HGARole(parent) isEqual:@"episodes"] && !HGAHasRoleAncestor(parent,@"episodes")) {
                     BOOL epStyled=HGAppearanceEnabled() && parent.window && HGAppearanceFlag(@"player.episodeGlass") &&

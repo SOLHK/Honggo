@@ -134,8 +134,9 @@ static void RunEpisodeGlassChecks(UIView *root) {
     // with the label and slicing the trailing character against the capsule border.
     [albumCount removeFromSuperview];
     leadIcon.frame=CGRectMake(14,15,16,16);
-    albumTitle.frame=CGRectMake(20,12,260,20);
-    albumTitle.attributedText=[[NSAttributedString alloc] initWithString:@"合集 · 《国产战争电影合集》更新至第88集"
+    albumTitle.frame=CGRectMake(20,12,380,20);
+    NSString *overflowingAlbum=@"合集 · 《国产经典抗战与历史战争电影合集》更新至第128集 · 全260集";
+    albumTitle.attributedText=[[NSAttributedString alloc] initWithString:overflowingAlbum
         attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:14 weight:UIFontWeightMedium],
                      NSParagraphStyleAttributeName:clipStyle}];
     Layout(wideContent);
@@ -145,7 +146,8 @@ static void RunEpisodeGlassChecks(UIView *root) {
     CGFloat symLeft=CGRectGetMinX(iconInGlass);
     CGFloat symRight=CGRectGetWidth(wideGlass.bounds)-CGRectGetMaxX(titleInGlass);
     Check(CGRectGetMinX(titleInGlass)>=CGRectGetMaxX(iconInGlass)+5.0 &&
-        albumTitle.attributedText.length<[@"合集 · 《国产战争电影合集》更新至第88集" length] &&
+        albumTitle.attributedText.length>0 &&
+        albumTitle.attributedText.length<overflowingAlbum.length &&
         ![albumTitle.attributedText.string containsString:@"…"] &&
         symLeft>=10 && symRight>=10 && fabs(symRight-symLeft)<=2.0,
         @"content relayout separates overlapping lead icon from text, hides overflowing trailing characters cleanly, and equalizes left/right capsule margins");

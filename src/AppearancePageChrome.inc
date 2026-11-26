@@ -941,13 +941,13 @@ static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMu
         button=[HGAMineMenuButton buttonWithType:UIButtonTypeCustom primaryAction:open];
         button.accessibilityIdentifier=@"honggo.appearance.mine.menu";
         button.accessibilityLabel=@"菜单";
-        UIImageSymbolConfiguration *icon=[UIImageSymbolConfiguration configurationWithPointSize:15.5 weight:UIImageSymbolWeightMedium];
+        UIImageSymbolConfiguration *icon=[UIImageSymbolConfiguration configurationWithPointSize:15.0 weight:UIImageSymbolWeightMedium];
         UIImage *menuImage=[[UIImage systemImageNamed:@"line.3.horizontal" withConfiguration:icon]
             imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
         [button setImage:menuImage forState:UIControlStateNormal];
         button.imageView.contentMode=UIViewContentModeCenter;
         button.tintColor=UIColor.labelColor;
-        UIView *dot=[[UIView alloc] initWithFrame:CGRectMake(27.5,11,6,6)];
+        UIView *dot=[[UIView alloc] initWithFrame:CGRectMake(28,8,6,6)];
         dot.layer.cornerRadius=3; dot.userInteractionEnabled=NO; dot.accessibilityElementsHidden=YES;
         dot.backgroundColor=UIColor.systemOrangeColor;
         dot.accessibilityIdentifier=@"honggo.appearance.mine.menu.badge";
@@ -977,6 +977,7 @@ static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMu
     }
     button.accessibilityValue=source.integerValue==2 ? @"有新消息" : nil;
     if(button.superview!=titleBar)[titleBar addSubview:button];
+    [button layoutIfNeeded];
 }
 
 static void HGAApplyMineKMPChrome(UIViewController *controller) {
