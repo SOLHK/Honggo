@@ -116,12 +116,19 @@
 - (void)scrubChannels:(UIPanGestureRecognizer *)gesture;
 - (CGFloat)segmentForPageOffset:(CGFloat)page;
 @end
-@interface HGAHeaderToolButton (HGATestPressFixture)
+@protocol HGATestHeaderToolPress <NSObject>
 - (void)animatePressState:(BOOL)pressed offset:(CGPoint)offset;
 @end
 
 static void HGWaitForHeaderChannelLensToSettle(UIView *header) {
-    id state=objc_getAssociatedObject(header,&HGAHeaderInsetKey);
+    id state=nil;
+    for(UIView *sub in header.subviews) {
+        if([sub isKindOfClass:UIControl.class] && [sub.accessibilityIdentifier isEqual:@"honggo.appearance.material"]) {
+            for(id target in [(UIControl *)sub allTargets])
+                if([target respondsToSelector:@selector(scrubChannels:)]) { state=target; break; }
+            if(state)break;
+        }
+    }
     if(!state)return;
     [CATransaction flush];
     CFTimeInterval deadline=CACurrentMediaTime()+0.75;
@@ -634,18 +641,19 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             [menu sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
             [searchButton sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
             if (!UIAccessibilityIsReduceMotionEnabled()) {
+                NSString *savedStyle=HGAppearanceString(@"player.headerStyle");
                 HGAppearanceSet(@"player.headerStyle",@"glass",nil);
                 Layout(header);
                 CGRect menuRest=menu.bounds;
                 CGPoint menuCenter=menu.center;
-                [(HGAHeaderToolButton *)menu animatePressState:YES offset:CGPointMake(2,-1)];
+                [(id<HGATestHeaderToolPress>)menu animatePressState:YES offset:CGPointMake(2,-1)];
                 Layout(header);
                 BOOL inflated=menu.transform.a>1.10 && CGSizeEqualToSize(menu.bounds.size,menuRest.size) &&
                     CGPointEqualToPoint(menu.center,menuCenter);
-                [(HGAHeaderToolButton *)menu animatePressState:NO offset:CGPointZero];
+                [(id<HGATestHeaderToolPress>)menu animatePressState:NO offset:CGPointZero];
                 Check(inflated && CGAffineTransformIsIdentity(menu.transform),
                     @"top side circle buttons spring-inflate with magnetic follow on hold, preserve bounds across layout, and restore to rest");
-                HGAppearanceSet(@"player.headerStyle",@"flat",nil);
+                HGAppearanceSet(@"player.headerStyle",savedStyle,nil);
                 Layout(header);
             }
         }
