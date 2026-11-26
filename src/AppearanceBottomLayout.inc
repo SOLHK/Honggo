@@ -160,9 +160,20 @@ static void HGAReconcileCategoryEpisodes(UIView *pager) {
     }
 }
 
+static BOOL HGAIsFullWindowCategoryPager(UIView *pager) {
+    UIWindow *window = pager.window;
+    if (!window) return NO;
+    CGRect rect = [pager convertRect:pager.bounds toView:window];
+    CGRect bounds = window.bounds;
+    return fabs(CGRectGetMinX(rect) - CGRectGetMinX(bounds)) <= 1.0 &&
+        fabs(CGRectGetMaxX(rect) - CGRectGetMaxX(bounds)) <= 1.0 &&
+        fabs(CGRectGetMinY(rect) - CGRectGetMinY(bounds)) <= 1.0 &&
+        fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 1.0;
+}
+
 static void HGACategoryPagerDidScroll(UIView *pager, UIScrollView *scroll) {
     if (!NSThread.isMainThread || !pager.window || !HGAppearanceEnabled() ||
-        HGFeedSidebarOwnsLayout(pager.window)) return;
+        HGFeedSidebarOwnsLayout(pager.window) || !HGAIsFullWindowCategoryPager(pager)) return;
     if (![scroll isKindOfClass:UIScrollView.class]) return;
     CGFloat width = CGRectGetWidth(scroll.bounds);
     if (width < 1.0) return;
@@ -178,7 +189,7 @@ static void HGACategoryPagerDidScroll(UIView *pager, UIScrollView *scroll) {
 }
 
 static void HGAResumeCategoryFeeds(UIView *pager) {
-    if (!NSThread.isMainThread) return;
+    if (!NSThread.isMainThread || !HGAIsFullWindowCategoryPager(pager)) return;
     objc_setAssociatedObject(pager, &HGCategoryScrollBucketKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     HGRefreshVideoBackdropForCategoryPager(pager);
     HGAReconcileCategoryEpisodes(pager);
@@ -233,6 +244,18 @@ static void HGAResumeSettledHUDs(UIScrollView *feed) {
         BOOL current = HGABottomCanvasIsCurrent(control, &currentFeed, NULL, NULL);
         if (currentFeed != feed || current) [pending removeObject:control];
         if (currentFeed == feed && current) [control setNeedsLayout];
+    }
+    Class cellClass = objc_lookUpClass("FQVShortVideoPlayerCellView");
+    Class hudClass = objc_lookUpClass("FQVShortVideoVPlayerControlView");
+    if (cellClass && hudClass && !HGAApplying) {
+        for (UIView *sub in feed.subviews) {
+            if (![sub isKindOfClass:UICollectionViewCell.class] || sub.hidden) continue;
+            for (UIView *canvas in ((UICollectionViewCell *)sub).contentView.subviews) {
+                if (![canvas isKindOfClass:cellClass] || canvas.hidden) continue;
+                for (UIView *child in canvas.subviews)
+                    if ([child isKindOfClass:hudClass] && child.window) HGAApplyPlaybackButton(child);
+            }
+        }
     }
 }
 static void HGAUpdateBottomInfoGroups(HGABottomLayoutState *state,UIView *info,

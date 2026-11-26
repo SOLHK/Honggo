@@ -1095,7 +1095,7 @@ static void HGRefreshTabBar(UIViewController *controller) {
 }
 void HGRefreshVideoBackdropForCategoryPager(UIView *pager) {
     if (!NSThread.isMainThread || !pager.window || !HGAppearanceEnabled() ||
-        HGFeedSidebarOwnsLayout(pager.window)) return;
+        HGFeedSidebarOwnsLayout(pager.window) || !HGVideoBackdropFullWindow(pager, pager.window)) return;
     UIResponder *responder = pager.nextResponder;
     while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
     for (UIViewController *controller = (UIViewController *)responder; controller; controller = controller.parentViewController) {

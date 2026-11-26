@@ -748,7 +748,11 @@ void HGAppearanceProcessView(UIView *view) {
         }
         if([name isEqual:@"FQVShortVideoPlayerCellView"]){
             HGAUpdateFictionNotice(view);
-            for(UIView *child in HGADescendants(view,100))if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
+            if((HGAppearanceFlag(@"player.fullscreen") && view.window && HGAPlayerLandscapeSize(view.window.bounds.size)) ||
+               HGAPlayerState(view,NO).hasChildFill) {
+                for(UIView *child in HGADescendants(view,100))
+                    if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"])HGAApplyFullScreen(child);
+            }
             HGAApplyTypography(view);HGRefreshVideoBackdropForPlayer(view);return;
         }
         if([view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerSingleSeriesControlView")]) {

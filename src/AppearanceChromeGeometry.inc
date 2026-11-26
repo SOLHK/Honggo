@@ -186,9 +186,13 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     source.isAccessibilityElement=NO;
 }
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
-    if (self.toolPressed) return CGRectContainsPoint(CGRectInset(self.bounds,-28,-28),point);
-    return [super pointInside:point withEvent:event] &&
-        [[UIBezierPath bezierPathWithOvalInRect:self.bounds] containsPoint:point];
+    CGRect bounds=self.bounds;
+    if (self.toolPressed) return CGRectContainsPoint(CGRectInset(bounds,-28,-28),point);
+    if (![super pointInside:point withEvent:event]) return NO;
+    CGFloat rx=bounds.size.width*0.5, ry=bounds.size.height*0.5;
+    if (rx<=0 || ry<=0) return NO;
+    CGFloat dx=(point.x-CGRectGetMidX(bounds))/rx, dy=(point.y-CGRectGetMidY(bounds))/ry;
+    return dx*dx+dy*dy<=1.0;
 }
 - (void)animatePressState:(BOOL)pressed offset:(CGPoint)offset {
     self.toolPressed=pressed;
@@ -510,6 +514,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
 - (void)finishChannelMotion {
     [self.pageCoasting invalidate];
     self.pageCoasting=nil;
+    BOOL wasDragged=self.railDragging;
     CGFloat releaseVelocity=self.railVelocityX;
     self.railVelocityX=0;
     self.railDragging=NO;
@@ -536,6 +541,10 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         return;
     }
     if (selected==NSNotFound) selected=self.previewOrigin;
+    if ([self hasChannelButtons] && selected>=0 && selected<(NSInteger)self.channelIndices.count &&
+        control.selectedSegmentIndex!=selected) {
+        control.selectedSegmentIndex=selected;
+    }
     if (UIAccessibilityIsReduceMotionEnabled()) {
         [UIView performWithoutAnimation:^{
             lens.transform=CGAffineTransformIdentity;
@@ -560,14 +569,15 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     }
     BOOL fadeRefraction=self.channelRefraction && !self.channelRefraction.hidden;
     if (fadeRefraction) {
-        [UIView animateWithDuration:0.18 delay:0.12
+        [UIView animateWithDuration:wasDragged ? 0.18 : 0.14 delay:wasDragged ? 0.10 : 0.04
             options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionCurveEaseOut
             animations:^{
                 self.channelRefraction.alpha=0;
                 lens.backgroundColor=[UIColor colorWithWhite:1 alpha:0.16];
             } completion:nil];
     }
-    [UIView animateWithDuration:0.38 delay:0 usingSpringWithDamping:0.76 initialSpringVelocity:springVelocity
+    [UIView animateWithDuration:wasDragged ? 0.36 : 0.26 delay:0
+        usingSpringWithDamping:wasDragged ? 0.76 : 0.82 initialSpringVelocity:springVelocity
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
         lens.transform=CGAffineTransformIdentity;
         [self positionLensForSegment:selected lifted:NO];
@@ -1648,7 +1658,7 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
         for (UIView *hit in (glassButtons ?: @[control])) {
             UILongPressGestureRecognizer *scrub=[[UILongPressGestureRecognizer alloc] initWithTarget:state action:@selector(scrubChannels:)];
             scrub.minimumPressDuration=0;
-            scrub.delaysTouchesBegan=YES;
+            scrub.delaysTouchesBegan=(glassButtons==nil);
             scrub.cancelsTouchesInView=YES;
             scrub.delegate=state;
             [hit addGestureRecognizer:scrub];

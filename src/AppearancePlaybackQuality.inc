@@ -27,9 +27,21 @@ static char HGAQualitySelectionKey;
 static NSHashTable *HGAQualityOwners;
 static __weak id HGALastPlayingQualityComponent;
 static CFAbsoluteTime HGAQualitySwitchActiveUntil;
+static NSUInteger HGAQualityScheduleGeneration;
 
 static BOOL HGAPlaybackQualitySwitchActive(void) {
     return HGAQualitySwitchActiveUntil > CFAbsoluteTimeGetCurrent();
+}
+
+static BOOL HGAAnyVideoFeedScrolling(void) {
+    Class feedClass=objc_lookUpClass("FQVCollectionView");
+    if(!feedClass || !HGAManaged.count)return NO;
+    for(UIView *view in HGAManaged.allObjects) {
+        if(!view.window || ![view isKindOfClass:feedClass] || ![view isKindOfClass:UIScrollView.class])continue;
+        UIScrollView *scroll=(UIScrollView *)view;
+        if(scroll.tracking || scroll.dragging || scroll.decelerating)return YES;
+    }
+    return NO;
 }
 
 static BOOL HGAQualityMethod(id target,SEL selector,const char *encoding) {
@@ -100,27 +112,28 @@ static void HGAApplyPlaybackQuality(id component,id model) {
     ((void(*)(id,SEL,NSUInteger,id))objc_msgSend)(engine,configure,selected,completion);
 }
 
-static void HGAPrimeCellPlaybackQuality(UIView *cell) {
-    if(!NSThread.isMainThread || !cell || !HGALastPlayingQualityComponent || !HGAppearanceFlag(@"player.highestQuality"))return;
-    id model=HGReadObjectGetter(cell,"model");
-    if(model)HGAApplyPlaybackQuality(HGALastPlayingQualityComponent,model);
-}
-
 static void HGASchedulePlaybackQuality(id component,id model,id cell) {
     if(!cell && model && NSThread.isMainThread)HGALastPlayingQualityComponent=component;
     if(!HGAppearanceFlag(@"player.highestQuality"))return;
     if(cell)model=HGReadObjectGetter(cell,"model");
     if(!model)return;
-    // Commit target resolution synchronously at playback start on the main
-    // thread so TTVideoEngine never decodes 200-400ms of 720P and then stalls
-    // mid-playback to switch to 1080P. Keep cell ready-to-display async so
-    // prefetched/outgoing neighbour cells reconcile after model updates settle.
-    if(!cell && NSThread.isMainThread) {
+    // Commit target resolution synchronously when stationary (cold launch or
+    // settled playback start) so TTVideoEngine starts at target quality before
+    // first frame. While a feed scroll gesture is in flight (UITrackingRunLoopMode),
+    // coalesce onto kCFRunLoopDefaultMode so intermediate swiped cells never
+    // stall 120Hz scrolling with stream reconfigurations.
+    if(!cell && NSThread.isMainThread && !HGAAnyVideoFeedScrolling()) {
+        HGAQualityScheduleGeneration++;
         HGAApplyPlaybackQuality(component,model);
         return;
     }
+    NSUInteger generation=++HGAQualityScheduleGeneration;
     __weak id weakComponent=component,weakModel=model;
-    dispatch_async(dispatch_get_main_queue(),^{ HGAApplyPlaybackQuality(weakComponent,weakModel); });
+    CFRunLoopPerformBlock(CFRunLoopGetMain(),kCFRunLoopDefaultMode,^{
+        if(HGAQualityScheduleGeneration!=generation)return;
+        HGAApplyPlaybackQuality(weakComponent,weakModel);
+    });
+    CFRunLoopWakeUp(CFRunLoopGetMain());
 }
 static void HGARefreshPlaybackQualityPreference(void) {
     static BOOL previous;

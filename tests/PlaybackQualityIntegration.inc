@@ -68,6 +68,12 @@ static void RunAutoEnterSeriesChecks(void) {
 @property(nonatomic,strong) id model;
 @end
 @implementation HGAQualityCellFixture @end
+@interface HGAScrollingFeedFixture : FQVCollectionView
+@property(nonatomic) BOOL simulatingScroll;
+@end
+@implementation HGAScrollingFeedFixture
+- (BOOL)isDragging { return self.simulatingScroll || [super isDragging]; }
+@end
 static void RunPlaybackQualityChecks(void) {
     BOOL saved=HGAppearanceFlag(@"player.highestQuality");
     HGAppearanceSet(@"player.highestQuality",@YES,nil);
@@ -107,5 +113,32 @@ static void RunPlaybackQualityChecks(void) {
     [component dataModelDidPlay:ctx.currentVideoDataModel];CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.04,false);
     Check(attempted && ctx.changes==4 && ctx.currentResolution==4,
         @"enabling applies to active playback and a failed switch retries on the next native event");
+    UIWindow *activeWindow=nil;
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if([scene isKindOfClass:UIWindowScene.class]) {
+            activeWindow=((UIWindowScene *)scene).windows.firstObject;
+            if(activeWindow)break;
+        }
+    }
+    if(activeWindow) {
+        HGAScrollingFeedFixture *scrollingFeed=[[HGAScrollingFeedFixture alloc] initWithFrame:activeWindow.bounds
+            collectionViewLayout:[UICollectionViewFlowLayout new]];
+        [activeWindow addSubview:scrollingFeed];
+        HGAppearanceProcessView(scrollingFeed);
+        scrollingFeed.simulatingScroll=YES;
+        ctx.currentResolution=9;
+        NSObject *swipedPast=[NSObject new];
+        ctx.currentVideoDataModel=swipedPast;
+        [component dataModelDidPlay:swipedPast];
+        BOOL deferredWhileDragging=(ctx.changes==4 && ctx.currentResolution==9);
+        NSObject *settledEpisode=[NSObject new];
+        ctx.currentVideoDataModel=settledEpisode;
+        [component dataModelDidPlay:settledEpisode];
+        scrollingFeed.simulatingScroll=NO;
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.04,false);
+        Check(deferredWhileDragging && ctx.changes==5 && ctx.currentResolution==4,
+            @"active feed dragging defers and coalesces resolution switches onto default runloop mode without stalling intermediate swipes");
+        [scrollingFeed removeFromSuperview];
+    }
     HGAppearanceSet(@"player.highestQuality",@(saved),nil);
 }

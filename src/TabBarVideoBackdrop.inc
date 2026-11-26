@@ -33,6 +33,7 @@ typedef struct {
 @property(nonatomic, strong) NSMapTable<CAGradientLayer *, NSNumber *> *portraitGradients;
 @property(nonatomic, weak) UICollectionViewCell *frontPortraitCell;
 @property(nonatomic, strong) NSMapTable<UIImageView *, NSNumber *> *cornerAlpha;
+@property(nonatomic) CGRect lastCornerFrame;
 @property(nonatomic, weak) UIView *detailTray;
 @property(nonatomic, strong) UIColor *detailTrayPaint;
 @property(nonatomic, strong) NSMutableArray<HGVideoBackdrop *> *peers;
@@ -411,6 +412,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     for (UIImageView *image in self.cornerAlpha)
         if (image.alpha == 0) image.alpha = [[self.cornerAlpha objectForKey:image] doubleValue];
     [self.cornerAlpha removeAllObjects];
+    self.lastCornerFrame = CGRectNull;
 }
 
 - (void)updateCornerImages:(NSArray<UIView *> *)siblings frame:(CGRect)frame {
@@ -418,6 +420,15 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     // (FQVShortVideoListVCUIComponent setupCornerRadiusImageView). They stay
     // at the old bottom edge even when a live renderer or matching matte
     // now continues through the dock strip.
+    if (self.cornerAlpha.count == 2 && !CGRectIsNull(self.lastCornerFrame) &&
+        HGVideoBackdropSameRect(self.lastCornerFrame, frame, 0.25)) {
+        UIView *expectedParent = siblings.firstObject.superview;
+        BOOL intact = expectedParent != nil;
+        for (UIImageView *cached in self.cornerAlpha) {
+            if (cached.superview != expectedParent || cached.alpha != 0) { intact = NO; break; }
+        }
+        if (intact) return;
+    }
     CGRect leftFrame = CGRectMake(CGRectGetMinX(frame), CGRectGetMaxY(frame)-12, 12, 12);
     CGRect rightFrame = CGRectOffset(leftFrame, CGRectGetWidth(frame)-12, 0);
     UIImageView *left = nil, *right = nil;
@@ -443,6 +454,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         [self.cornerAlpha setObject:@(image.alpha) forKey:image];
         image.alpha = 0;
     }
+    self.lastCornerFrame = frame;
 }
 
 - (void)restoreClipping {
@@ -878,6 +890,13 @@ static char HGDetailOwnerTrayRectKey;
     [self updateFeed];
 }
 
+- (void)refreshSingleFeed {
+    if (self.refreshing) return;
+    self.refreshing = YES;
+    [self updateFeed];
+    self.refreshing = NO;
+}
+
 - (void)refreshFeed {
     if (self.refreshing) return;
     self.refreshing = YES;
@@ -988,7 +1007,7 @@ BOOL HGVideoBackdropRefreshForFeed(UIScrollView *feed) {
     HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
     HGVideoBackdrop *owner = link.owner;
     if (!owner) return NO;
-    if (HGAppearanceEnabled()) [owner refreshFeed];
+    if (HGAppearanceEnabled()) [owner refreshSingleFeed];
     else [owner restore];
     return owner.feed == feed;
 }

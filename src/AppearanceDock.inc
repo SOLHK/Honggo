@@ -456,13 +456,34 @@ static void HGADockSetInkEdge(UIButton *button,UIColor *edge) {
     }else if(layer.shadowOpacity)layer.shadowOpacity=0;
 }
 
+static NSString *HGADockColorCacheToken(UIColor *color) {
+    if(!color)return @"none";
+    CGFloat r=0,g=0,b=0,a=0;
+    if([color getRed:&r green:&g blue:&b alpha:&a])
+        return [NSString stringWithFormat:@"%.3f,%.3f,%.3f,%.3f",r,g,b,a];
+    return [NSString stringWithFormat:@"%p",color];
+}
+
 static UIImage *HGADockSystemImage(NSString *symbol,NSString *caption,CGFloat size,UIColor *color,BOOL selected,UIColor *edge) {
+    static NSCache<NSString *,UIImage *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once,^{
+        cache=[NSCache new];
+        cache.countLimit=64;
+    });
+    NSString *cacheKey=[NSString stringWithFormat:@"%@|%@|%.2f|%@|%d|%@",
+        symbol ?: @"",caption ?: @"",size,HGADockColorCacheToken(color),selected,HGADockColorCacheToken(edge)];
+    UIImage *cached=[cache objectForKey:cacheKey];
+    if(cached)return cached;
     UIImageSymbolConfiguration *config=[UIImageSymbolConfiguration configurationWithPointSize:size weight:UIImageSymbolWeightMedium];
     UIImage *glyph=symbol ? [UIImage systemImageNamed:symbol withConfiguration:config] : nil;
     if(selected && glyph)
         glyph=[UIImage systemImageNamed:[symbol stringByAppendingString:@".fill"] withConfiguration:config] ?: glyph;
     glyph=[glyph imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal];
-    if(!caption && !edge)return glyph;
+    if(!caption && !edge) {
+        if(glyph)[cache setObject:glyph forKey:cacheKey];
+        return glyph;
+    }
     // The floating provider can collapse its title slot independently of the
     // image when the feed scrolls. Put the complete tab face inside the lens.
     UIFont *font=[UIFont systemFontOfSize:glyph ? 11 : 15 weight:selected ? UIFontWeightSemibold : UIFontWeightRegular];
@@ -478,12 +499,18 @@ static UIImage *HGADockSystemImage(NSString *symbol,NSString *caption,CGFloat si
         [glyph drawAtPoint:CGPointMake((canvas.width-glyphSize.width)/2,pad)];
         [caption drawAtPoint:CGPointMake((canvas.width-text.width)/2,titleY+pad) withAttributes:ink];
     }];
-    return [face imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+    UIImage *result=[face imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+    if(result)[cache setObject:result forKey:cacheKey];
+    return result;
 }
 static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
-    return HGAVisible(capsule) && CGRectContainsPoint(capsule.bounds,point) &&
-        [[UIBezierPath bezierPathWithRoundedRect:capsule.bounds cornerRadius:capsule.layer.cornerRadius]
-            containsPoint:point];
+    CGRect bounds=capsule.bounds;
+    if(!HGAVisible(capsule) || !CGRectContainsPoint(bounds,point))return NO;
+    CGFloat r=MIN(capsule.layer.cornerRadius,MIN(bounds.size.width,bounds.size.height)*0.5);
+    if(r<=0.5)return YES;
+    CGFloat dx=MAX(0,MAX(bounds.origin.x+r-point.x,point.x-(CGRectGetMaxX(bounds)-r)));
+    CGFloat dy=MAX(0,MAX(bounds.origin.y+r-point.y,point.y-(CGRectGetMaxY(bounds)-r)));
+    return dx*dx+dy*dy<=r*r;
 }
 @implementation HGAAppearanceDock
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -666,6 +693,15 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 - (BOOL)resolveTargets {
     UIView *content=HGAViewGetter(self.hostBar,"contentView",self.hostBar);
     if(!content || content==self.hostBar)return NO;
+    if(self.targets.count) {
+        BOOL cachedValid=YES;
+        for(NSString *key in HGATabIDs()) {
+            if(HGAppearanceFlag([@"dock.hide." stringByAppendingString:key]))continue;
+            UIControl *existing=[self.targets objectForKey:key];
+            if(!existing || ![existing isDescendantOfView:content]){cachedValid=NO;break;}
+        }
+        if(cachedValid)return YES;
+    }
     [self.targets removeAllObjects];
     for(UIView *node in HGADescendants(content,180)) {
         if(![node isKindOfClass:UILabel.class])continue;
@@ -1148,12 +1184,13 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
             carrier.alpha=0.001;carrier.userInteractionEnabled=NO;
             __weak HGAAppearanceDock *weakSelf=self;
             __weak UIView *weakCarrier=carrier;
-            dispatch_async(dispatch_get_main_queue(),^{
+            CFRunLoopPerformBlock(CFRunLoopGetMain(),kCFRunLoopCommonModes,^{
                 HGAAppearanceDock *dock=weakSelf;
                 if(!dock || [dock systemDockCarrier]!=weakCarrier)return;
                 dock.systemWarmupPending=NO;dock.systemWarmupComplete=YES;
                 if(dock.window)[dock refresh];
             });
+            CFRunLoopWakeUp(CFRunLoopGetMain());
             self.systemDockSyncing=NO;
             return NO;
         }
@@ -1176,15 +1213,16 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
 - (void)tabBar:(UITabBar *)tabBar didSelectItem:(UITabBarItem *)item {
     if(!self.systemDockActive || self.quietSystemTouches || self.systemDockSyncing || self.systemTabController || tabBar!=self.systemTabBar ||
         !item.enabled || ![tabBar.items containsObject:item])return;
+    self.systemHostSelection=item.tag;
     [self activateTabAtIndex:item.tag animation:@"uikit-tabbar"];
-    self.systemHostSelection=NSIntegerMin;
 }
 
 - (void)tabBarController:(UITabBarController *)controller didSelectTab:(UITab *)tab previousTab:(UITab *)previousTab API_AVAILABLE(ios(18.0)) {
     if(!self.systemDockActive || self.quietSystemTouches || self.systemDockSyncing || controller!=self.systemTabController ||
         ![controller.tabs containsObject:tab] || ![tab.userInfo isKindOfClass:NSNumber.class])return;
-    [self activateTabAtIndex:[tab.userInfo integerValue] animation:@"uikit-controller"];
-    self.systemHostSelection=NSIntegerMin;
+    NSInteger index=[tab.userInfo integerValue];
+    self.systemHostSelection=index;
+    [self activateTabAtIndex:index animation:@"uikit-controller"];
 }
 - (void)claimHostChrome {
     UIView *bar=self.hostBar;
@@ -1401,7 +1439,7 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     self.expandButton.hidden=self.expand.hidden;
     self.capsule.hidden=self.collapsed;
     self.selectionPan.enabled=(!useSystem || self.quietSystemTouches) && !self.hidden && !self.collapsed && !UIAccessibilityIsVoiceOverRunning();
-    self.dockTouch.enabled=!self.hidden && !UIAccessibilityIsVoiceOverRunning();
+    self.dockTouch.enabled=(!useSystem || self.quietSystemTouches || self.collapsed) && !self.hidden && !UIAccessibilityIsVoiceOverRunning();
     self.capsule.layer.cornerRadius=radius;
     self.capsule.layer.borderWidth=!flat && !useSystem && translucent && !classicBlur && !nativeGlass ? 0.5 : 0;
     self.capsule.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
@@ -2215,7 +2253,8 @@ static void HGARefreshSheetDockVisibility(UIWindow *window) {
         dock.hidden=covered;
         dock.selectionPan.enabled=!covered && (!dock.systemDockActive || dock.quietSystemTouches) &&
             !dock.collapsed && !UIAccessibilityIsVoiceOverRunning();
-        dock.dockTouch.enabled=!covered && !UIAccessibilityIsVoiceOverRunning();
+        dock.dockTouch.enabled=!covered && (!dock.systemDockActive || dock.quietSystemTouches || dock.collapsed) &&
+            !UIAccessibilityIsVoiceOverRunning();
         if(!covered && !dock.systemDockActive) {
             dock.failedSystemProbe=nil;
             [dock refresh];

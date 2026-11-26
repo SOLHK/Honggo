@@ -54,15 +54,18 @@ static BOOL HGAGestureChromeCovered(UIView *view) {
 @interface FQVShortVideoPlayerCellView (HGAAutoCleanFixture)
 - (void)playWithType:(NSInteger)reason;
 - (void)resumeWithType:(NSInteger)reason;
+- (void)pauseWhenPlayNext;
 @end
 @implementation FQVShortVideoPlayerCellView (HGAAutoCleanFixture)
 - (void)playWithType:(NSInteger)reason {}
 - (void)resumeWithType:(NSInteger)reason {}
+- (void)pauseWhenPlayNext {}
 @end
 
 @interface HGAAutoCleanCellFixture : FQVShortVideoPlayerCellView
 @property(nonatomic,strong) HGAAutoCleanContextFixture *listVCContext;
 @property(nonatomic,strong) UIView *vPlayerControlView;
+@property(nonatomic) BOOL isPlaying;
 @property(nonatomic) BOOL isUserPlaying;
 @end
 @implementation HGAAutoCleanCellFixture @end
@@ -156,8 +159,10 @@ static void RunTransientPauseFlashChecks(UIView *root) {
     HGAppearanceApply(@{@"enabled":@YES,@"gestures.cleanWhilePlaying":@NO,@"player.rightGlass":@YES,@"player.actionStyle":@"glass"},nil);
     HGAAutoCleanCellFixture *cell=[[HGAAutoCleanCellFixture alloc] initWithFrame:CGRectMake(0,0,360,640)];
     cell.isUserPlaying=YES;
+    cell.isPlaying=NO;
     cell.model=[NSObject new];
     FQVShortVideoVPlayerControlView *hud=[[FQVShortVideoVPlayerControlView alloc] initWithFrame:cell.bounds];
+    cell.vPlayerControlView=hud;
     UIButton *play=[UIButton buttonWithType:UIButtonTypeCustom];
     play.frame=CGRectMake(156,296,48,48);
     [play setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
@@ -167,14 +172,38 @@ static void RunTransientPauseFlashChecks(UIView *root) {
     [root addSubview:cell];
     [cell playWithType:0];
     HGAppearanceProcessView(hud);
-    BOOL suppressedTransientFlash=(fabs(play.alpha)<0.001);
-    FQVShortVideoListVCControlViewComponent *tap=[FQVShortVideoListVCControlViewComponent new];
+    CABasicAnimation *graceCover=(id)[play.layer animationForKey:@"honggo.playback.grace.opacity"];
+    BOOL suppressedTransientFlash=([graceCover.keyPath isEqual:@"opacity"] && [graceCover.toValue isEqual:@0] &&
+        fabs(play.alpha-1.0)<0.001);
+    // Simulate host hiding _playBtn via alpha=0 once playback starts, then grace expiring:
+    // releasing the presentation cover must NEVER overwrite host alpha=0 back to 1.0!
+    play.alpha=0.0;
     cell.isUserPlaying=NO;
+    HGAppearanceProcessView(hud);
+    BOOL preservesHostZeroAlphaAfterGrace=(![play.layer animationForKey:@"honggo.playback.grace.opacity"] &&
+        fabs(play.alpha)<0.001);
+    // Simulate host calling pauseWhenPlayNext (alpha=1) while cell is displaced in a vertical feed swipe:
+    FQVCollectionView *feed=[[FQVCollectionView alloc] initWithFrame:CGRectMake(0,0,360,640)
+        collectionViewLayout:[UICollectionViewFlowLayout new]];
+    [root addSubview:feed];
+    UICollectionViewCell *wrapperCell=[[UICollectionViewCell alloc] initWithFrame:CGRectMake(0,-120,360,640)];
+    [wrapperCell.contentView addSubview:cell];
+    [feed addSubview:wrapperCell];
+    play.alpha=1.0;
+    [cell pauseWhenPlayNext];
+    BOOL suppressedOutgoingSwipePause=([play.layer animationForKey:@"honggo.playback.grace.opacity"]!=nil &&
+        fabs(play.alpha-1.0)<0.001);
+    wrapperCell.frame=CGRectMake(0,0,360,640);
+    FQVShortVideoListVCControlViewComponent *tap=[FQVShortVideoListVCControlViewComponent new];
+    tap.currentVideoDataModel=cell.model;
     [tap controlView:hud singleTapPlay:NO model:cell.model];
-    BOOL revealedOnUserPause=(fabs(play.alpha-1.0)<0.001 && Find(play,@"honggo.appearance.material")!=nil);
-    Check(suppressedTransientFlash && revealedOnUserPause,
-        @"startup/episode-switch handoff suppresses transient center playBtn flashes while isUserPlaying=YES and reveals immediately on manual pause");
+    BOOL revealedOnUserPause=(![play.layer animationForKey:@"honggo.playback.grace.opacity"] &&
+        fabs(play.alpha-1.0)<0.001 && Find(play,@"honggo.appearance.material")!=nil);
+    Check(suppressedTransientFlash && preservesHostZeroAlphaAfterGrace &&
+        suppressedOutgoingSwipePause && revealedOnUserPause,
+        @"playback grace covers transient/scroll playBtn flashes via presentation opacity, never overwrites host alpha=0 to 1, and reveals immediately on manual pause");
     [cell removeFromSuperview];
+    [feed removeFromSuperview];
     HGAppearanceApply(saved,nil);
 }
 static void RunPlayerGestureChecks(UIView *root) {

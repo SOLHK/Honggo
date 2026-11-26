@@ -958,7 +958,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     UILongPressGestureRecognizer *hold=nil;
                     for (UIGestureRecognizer *g in buttons.firstObject.gestureRecognizers)
                         if ([g isKindOfClass:UILongPressGestureRecognizer.class]) hold=(id)g;
-                    Check(hold && hold.minimumPressDuration==0,@"the rail tracks from initial contact without waiting for pan velocity");
+                    Check(hold && hold.minimumPressDuration==0 && !hold.delaysTouchesBegan,
+                        @"the rail tracks from initial contact without gesture touch-delay buffering");
                     sample.fixtureState=UIGestureRecognizerStateBegan;
                     sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.25,CGRectGetMidY(group.bounds));
                     [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
@@ -1018,9 +1019,10 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.75,CGRectGetHeight(group.bounds)+16);
                     sample.fixtureState=UIGestureRecognizerStateEnded;
                     [scrubber scrubChannels:sample];
+                    BOOL selectedImmediatelyOnRelease=(channels.selectedIndex==3 && buttons[1].selected && !buttons[0].selected);
                     HGWaitForHeaderChannelLensToSettle(header);
-                    Check(channels.selectedIndex==3 && buttons[1].selected,
-                        @"releasing a horizontal channel scrub with natural vertical thumb drift still commits the target channel");
+                    Check(selectedImmediatelyOnRelease && channels.selectedIndex==3 && buttons[1].selected,
+                        @"releasing a horizontal channel scrub commits and highlights the target channel immediately without waiting for spring settle");
                     [buttons[0] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                     HGWaitForHeaderChannelLensToSettle(header);
                     sample.fixtureState=UIGestureRecognizerStateChanged;

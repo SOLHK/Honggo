@@ -222,17 +222,18 @@ static UIView *HGALazyControlSubview(UIView *owner,const char *ivarName,const ch
 }
 
 // 7.4.5.33 exposes the portrait player's playBtn as a lazy UIButton getter that
-// constructs and mounts the center button on first read. Read its ivar directly
-// so cold-launch network buffering never flashes a premature center pause icon,
-// and suppress transient non-user startup/switch flashes while isUserPlaying=YES.
+// constructs and mounts the center button on first read, and hides it via
+// alpha=0 during active playback. Read its ivar directly and hold only its
+// layer presentation opacity at 0 during non-user startup/scroll handoffs so
+// host-owned alpha=0/1 state is never overwritten.
 @interface HGAPlaybackButtonSuppression : NSObject
-@property(nonatomic) CGFloat sourceAlpha;
-@property(nonatomic) BOOL suppressed;
 @property(nonatomic) NSUInteger generation;
+@property(nonatomic) CFAbsoluteTime scheduledUntil;
 @end
 @implementation HGAPlaybackButtonSuppression @end
 static char HGAPlaybackButtonKey,HGAPlaybackButtonSuppressKey,HGACellPlayStartKey,HGACellUserPausedKey;
 static CFAbsoluteTime HGAPlaybackLaunchTimestamp;
+static NSString * const HGAPlaybackGraceOpacity = @"honggo.playback.grace.opacity";
 
 static void HGARecordCellPlaybackStart(UIView *cell) {
     if(!cell)return;
@@ -249,51 +250,87 @@ static void HGARecordUserTapPlay(UIView *hud,BOOL play) {
     }
 }
 static void HGARestorePlaybackButtonAlpha(UIButton *button) {
+    if(!button)return;
     HGAPlaybackButtonSuppression *state=objc_getAssociatedObject(button,&HGAPlaybackButtonSuppressKey);
-    if(!state)return;
-    state.generation++;
-    if(state.suppressed && fabs(button.alpha)<0.001)button.alpha=state.sourceAlpha;
-    state.suppressed=NO;
+    if(state) {
+        state.generation++;
+        state.scheduledUntil=0;
+    }
+    if([button.layer animationForKey:HGAPlaybackGraceOpacity])
+        [button.layer removeAnimationForKey:HGAPlaybackGraceOpacity];
 }
-static NSTimeInterval HGAPlaybackButtonGraceRemaining(UIView *root) {
-    if(!HGAppearanceEnabled() || !root.window)return 0;
+static BOOL HGAPlaybackCanvasIsScrollingOrDisplaced(UIView *cell) {
+    Class feedClass=objc_lookUpClass("FQVCollectionView");
+    for(UIView *node=cell.superview;node && node!=cell.window;node=node.superview) {
+        if(![node isKindOfClass:UIScrollView.class])continue;
+        UIScrollView *scroll=(UIScrollView *)node;
+        if(scroll.tracking || scroll.dragging || scroll.decelerating)return YES;
+        if(feedClass && [scroll isKindOfClass:feedClass] && !CGRectIsEmpty(scroll.bounds)) {
+            CGRect inFeed=[cell convertRect:cell.bounds toView:scroll];
+            if(fabs(CGRectGetMinY(inFeed)-CGRectGetMinY(scroll.bounds))>1.5)return YES;
+        }
+    }
+    return NO;
+}
+static BOOL HGAPlaybackShouldCoverButton(UIView *root,NSTimeInterval *outGrace) {
+    if(outGrace)*outGrace=0;
+    if(!HGAppearanceEnabled() || !root.window)return NO;
     UIView *cell=HGAPlayerCanvas(root);
-    if(!cell || [objc_getAssociatedObject(cell,&HGACellUserPausedKey) boolValue])return 0;
+    if(!cell || [objc_getAssociatedObject(cell,&HGACellUserPausedKey) boolValue])return NO;
+    BOOL playing=NO;
+    if(HGABoolGetter(cell,@"isPlaying",&playing) && playing)return YES;
+    if(HGAPlaybackCanvasIsScrollingOrDisplaced(cell))return YES;
     BOOL userPlaying=NO;
-    if(!HGABoolGetter(cell,@"isUserPlaying",&userPlaying) || !userPlaying)return 0;
+    if(!HGABoolGetter(cell,@"isUserPlaying",&userPlaying) || !userPlaying)return NO;
     if(!HGAPlaybackLaunchTimestamp)HGAPlaybackLaunchTimestamp=CFAbsoluteTimeGetCurrent();
     CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
     NSTimeInterval remaining=MAX(0,HGAPlaybackLaunchTimestamp+2.4-now);
     NSNumber *cellStart=objc_getAssociatedObject(cell,&HGACellPlayStartKey);
     if(cellStart)remaining=MAX(remaining,cellStart.doubleValue+1.25-now);
     if(HGAPlaybackQualitySwitchActive())remaining=MAX(remaining,0.65);
-    return remaining>0 ? remaining : 0;
+    if(remaining>0) {
+        if(outGrace)*outGrace=remaining;
+        return YES;
+    }
+    return NO;
 }
 static void HGAApplyPlaybackButton(UIView *root) {
     UIButton *mounted=root.window ? (id)HGALazyControlSubview(root,"_playBtn","playBtn") : nil;
     if(![mounted isKindOfClass:UIButton.class])mounted=nil;
-    NSTimeInterval grace=mounted ? HGAPlaybackButtonGraceRemaining(root) : 0;
+    NSTimeInterval grace=0;
+    BOOL shouldCover=mounted ? HGAPlaybackShouldCoverButton(root,&grace) : NO;
     if(mounted) {
-        if(grace>0) {
-            HGAPlaybackButtonSuppression *state=objc_getAssociatedObject(mounted,&HGAPlaybackButtonSuppressKey);
-            if(!state) {
-                state=[HGAPlaybackButtonSuppression new];
-                state.sourceAlpha=1.0;
-                objc_setAssociatedObject(mounted,&HGAPlaybackButtonSuppressKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if(shouldCover) {
+            if(![mounted.layer animationForKey:HGAPlaybackGraceOpacity]) {
+                CABasicAnimation *cover=[CABasicAnimation animationWithKeyPath:@"opacity"];
+                cover.fromValue=@0;
+                cover.toValue=@0;
+                cover.duration=0.001;
+                cover.fillMode=kCAFillModeBoth;
+                cover.removedOnCompletion=NO;
+                [mounted.layer addAnimation:cover forKey:HGAPlaybackGraceOpacity];
             }
-            if(!state.suppressed || fabs(mounted.alpha)>=0.001)
-                state.sourceAlpha=mounted.alpha>0.01 ? mounted.alpha : 1.0;
-            state.suppressed=YES;
-            if(fabs(mounted.alpha)>=0.001)mounted.alpha=0;
-            NSUInteger gen=++state.generation;
-            __weak UIView *weakRoot=root;
-            __weak HGAPlaybackButtonSuppression *weakState=state;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)((grace+0.04)*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
-                HGAPlaybackButtonSuppression *liveState=weakState;
-                UIView *liveRoot=weakRoot;
-                if(!liveState || liveState.generation!=gen)return;
-                if(liveRoot.window && !HGAApplying)HGAApplyPlaybackButton(liveRoot);
-            });
+            if(grace>0) {
+                HGAPlaybackButtonSuppression *state=objc_getAssociatedObject(mounted,&HGAPlaybackButtonSuppressKey);
+                if(!state) {
+                    state=[HGAPlaybackButtonSuppression new];
+                    objc_setAssociatedObject(mounted,&HGAPlaybackButtonSuppressKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                }
+                CFAbsoluteTime deadline=CFAbsoluteTimeGetCurrent()+grace+0.04;
+                if(deadline>state.scheduledUntil+0.02) {
+                    state.scheduledUntil=deadline;
+                    NSUInteger gen=++state.generation;
+                    __weak UIView *weakRoot=root;
+                    __weak HGAPlaybackButtonSuppression *weakState=state;
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)((grace+0.04)*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+                        HGAPlaybackButtonSuppression *liveState=weakState;
+                        UIView *liveRoot=weakRoot;
+                        if(!liveState || liveState.generation!=gen)return;
+                        liveState.scheduledUntil=0;
+                        if(liveRoot.window && !HGAApplying)HGAApplyPlaybackButton(liveRoot);
+                    });
+                }
+            }
         } else {
             HGARestorePlaybackButtonAlpha(mounted);
         }

@@ -883,10 +883,12 @@ static void HGRunDockSystemAdapterChecks(SSTabBarController *host) {
     if(carrier && carrier.alpha>0.9) {
         UITabBar *native=[dock valueForKey:@"systemTabBar"];
         UITabBarController *managed=[dock valueForKey:@"systemTabController"];
+        UIGestureRecognizer *dockPointer=[dock valueForKey:@"dockTouch"];
         Check([native isKindOfClass:UITabBar.class] && native.window==dock.window &&
             !Find(capsule,@"honggo.appearance.material") && manual.hidden && native.layer.speed==1 &&
+            !dockPointer.enabled &&
             fabs(carrier.transform.a-carrier.transform.d)<0.001,
-            @"the mounted UIKit floating Dock owns both selection and visible tab controls");
+            @"the mounted UIKit floating Dock owns both selection and visible tab controls without root-view touch-delay interception");
         NSArray *videoFaces=[dock valueForKey:@"systemItemSignature"];
         Check(native.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark &&
             [native.tintColor isEqual:[UIColor.labelColor resolvedColorWithTraitCollection:native.traitCollection]],

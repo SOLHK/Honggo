@@ -6,6 +6,7 @@
 @property(nonatomic) CATransform3D source;
 @property(nonatomic) CATransform3D applied;
 @property(nonatomic) BOOL ownsFill;
+@property(nonatomic) BOOL hasChildFill;
 @property(nonatomic) BOOL releasedClipping;
 @property(nonatomic) BOOL sourceClipping;
 @property(nonatomic) BOOL yieldedToHost;
@@ -89,7 +90,8 @@ static void HGAPreparePlayerTransfer(UIView *view,SEL selector) {
     state.transferFlags|=selector==@selector(willMoveToSuperview:)?1u:2u;
     state.generation++;state.transition=nil;state.yieldedToHost=NO;
     HGARestorePlayerFill(view);
-    if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"])
+    if([NSStringFromClass(view.class) isEqual:@"FQVShortVideoPlayerCellView"] && state.hasChildFill) {
+        state.hasChildFill=NO;
         for(UIView *child in HGADescendants(view,100))
             if([NSStringFromClass(child.class) isEqual:@"TTPlayerView"]) {
                 HGAPlayerFillState *childState=HGAPlayerState(child,YES);
@@ -97,6 +99,7 @@ static void HGAPreparePlayerTransfer(UIView *view,SEL selector) {
                 childState.transition=nil;childState.yieldedToHost=NO;
                 HGARestorePlayerFill(child);
             }
+    }
 }
 static void HGAFinishPlayerTransfer(UIView *view,SEL selector) {
     HGAPlayerFillState *state=HGAPlayerState(view,NO);
@@ -178,6 +181,7 @@ static void HGAApplyFullScreen(UIView *render) {
     if(fabs(zoom-1)<0.001 && fabs(x)<0.001 && fabs(y)<0.001) {HGARestorePlayerFill(render);return;}
     CATransform3D next=CATransform3DMakeScale(zoom,zoom,1);next.m41=x;next.m42=y;
     state.source=source;state.applied=next;state.ownsFill=YES;state.parent=render.superview;
+    HGAPlayerState(canvas,YES).hasChildFill=YES;
     [CATransaction begin];[CATransaction setDisableActions:YES];
     if(!CATransform3DEqualToTransform(render.layer.sublayerTransform,next))render.layer.sublayerTransform=next;
     // The original view rect stays native; release only this renderer's crop
@@ -192,6 +196,8 @@ static void HGAApplyFullScreen(UIView *render) {
 static void HGAResetPlayerFillState(UIView *canvas) {
     HGAPlayerFillState *state=HGAPlayerState(canvas,NO);
     state.contentModel=nil;state.tracksModel=NO;
+    if(!state.hasChildFill)return;
+    state.hasChildFill=NO;
     for(UIView *render in HGADescendants(canvas,100))
         if([NSStringFromClass(render.class) isEqual:@"TTPlayerView"]) {
             HGAPlayerFillState *fill=HGAPlayerState(render,NO);

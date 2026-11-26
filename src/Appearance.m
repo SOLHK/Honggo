@@ -173,6 +173,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL automaticCleanTap=[className isEqual:@"FQVShortVideoListVCControlViewComponent"] &&
         selector==sel_registerName("controlView:singleTapPlay:model:");
     BOOL playbackStateChanged=selector==sel_registerName("playerPlaybackStateDidChanged:");
+    BOOL pauseNext=playerCanvas && selector==sel_registerName("pauseWhenPlayNext");
     BOOL backdropChange=playerCanvas && (selector==sel_registerName("refreshBgColor") ||
         selector==sel_registerName("refreshCoverImageView"));
     BOOL firstPicture=playerCanvas && selector==sel_registerName("vPlayerReadyToDisPlay:");
@@ -288,6 +289,13 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGRefreshVideoBackdropForPlayer(renderer);
                 return;
             }
+            if(pauseNext) {
+                if([(UIView *)object window] && !HGAApplying) {
+                    UIView *hud=HGAViewGetter(object,"vPlayerControlView",object);
+                    if([hud isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerControlView")])HGAApplyPlaybackButton(hud);
+                }
+                return;
+            }
             if(backdropChange) {
                 if(!HGAApplying)HGRefreshVideoBackdropForPlayer(object);
                 return;
@@ -319,9 +327,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     } else if (firstPicture && !strcmp(encoding,"v24@0:8@16")) {
         replacement=imp_implementationWithBlock(^(UIView *cell,UIView *player) {
             // This native delegate hides the series cover immediately.
-            // Commit target resolution and real renderer geometry before that handoff.
+            // Commit real renderer geometry before that handoff.
             if(NSThread.isMainThread && cell.window && !HGAApplying) {
-                HGAPrimeCellPlaybackQuality(cell);
                 Class mediaClass=objc_lookUpClass("FQVPlayer");
                 UIView *media=[player isKindOfClass:mediaClass] ? player : HGReadObjectGetter(cell,"vPlayer");
                 HGRefreshVideoBackdropForPlayer([media isKindOfClass:mediaClass] && [media isDescendantOfView:cell] ? media : cell);
@@ -711,6 +718,8 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName("vPlayerReadyToDisPlay:"),"v24@0:8@16",NO);
                 HGAHook(cls,sel_registerName("playWithType:"),"v24@0:8q16",NO);
                 HGAHook(cls,sel_registerName("resumeWithType:"),"v24@0:8q16",NO);
+                if(class_getInstanceMethod(cls,sel_registerName("pauseWhenPlayNext")))
+                    HGAHook(cls,sel_registerName("pauseWhenPlayNext"),"v16@0:8",NO);
             }
             if([name isEqual:@"FQCShortVideoDanmakuEntranceView"])
                 HGAHook(cls,sel_registerName("refreshIcon"),"v16@0:8",NO);
