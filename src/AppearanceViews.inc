@@ -286,8 +286,8 @@ static void HGAApplyAdaptiveControlInk(UIView *view,UIUserInterfaceStyle appeara
             UIColor *baseColor=(ownedColor || ownedRich) ? entry.sourceColor : label.textColor;
             NSAttributedString *baseText=(ownedColor || ownedRich) ? entry.sourceText : label.attributedText;
             CGFloat white=0,alpha=0;
-            BOOL changedRich=NO;
-            NSMutableAttributedString *rewritten=nil;
+            __block BOOL changedRich=NO;
+            __block NSMutableAttributedString *rewritten=nil;
             if(baseText.length) {
                 [baseText enumerateAttribute:NSForegroundColorAttributeName inRange:NSMakeRange(0,baseText.length) options:0
                     usingBlock:^(id value,NSRange range,__unused BOOL *stop) {
