@@ -1036,7 +1036,7 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
     HGAWatchMineTitleRenderer(controller,HGAMineHidesMore() ? renderer : nil);
     HGAUpdateMineMenu(controller,renderer ? titleBar : nil,targets);
     UIButton *menu=objc_getAssociatedObject(controller,&HGAMineMenuButtonKey);
-    if(menu.superview==titleBar)[targets addObject:menu];
+    if(menu && titleBar && menu.superview==titleBar)[targets addObject:menu];
     NSArray<UIView *> *backings=objc_getAssociatedObject(root,&HGAMineTitleGlassKey);
     if(!glass || !targets.count || targets.count>2 || backings.count!=targets.count) {
         for(UIView *backing in backings)[backing removeFromSuperview];

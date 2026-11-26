@@ -1,6 +1,7 @@
 #import "Community.h"
 // Real UIKit integration checks with a controlled host, not the Hongguo IPA.
 #import "Honggo.h"
+#import "AppearancePreferences.h"
 #import "ReleaseNotes.h"
 #import <dispatch/dispatch.h>
 #import <math.h>
