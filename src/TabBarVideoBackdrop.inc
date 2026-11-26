@@ -85,6 +85,13 @@ static BOOL HGVideoBackdropFullWindow(UIView *view, UIWindow *window) {
         fabs(CGRectGetMaxY(rect) - CGRectGetMaxY(bounds)) <= 0.75;
 }
 
+static BOOL HGVideoBackdropSameRect(CGRect a, CGRect b, CGFloat tolerance) {
+    return fabs(CGRectGetMinX(a)-CGRectGetMinX(b)) <= tolerance &&
+        fabs(CGRectGetMinY(a)-CGRectGetMinY(b)) <= tolerance &&
+        fabs(CGRectGetMaxX(a)-CGRectGetMaxX(b)) <= tolerance &&
+        fabs(CGRectGetMaxY(a)-CGRectGetMaxY(b)) <= tolerance;
+}
+
 static BOOL HGVideoBackdropHorizontalWindowSlice(UIView *view, UIWindow *window) {
     if (!view || !window) return NO;
     CGRect rect = [view convertRect:view.bounds toView:window];
@@ -201,13 +208,6 @@ static BOOL HGVideoBackdropHasLetterbox(UIView *canvas) {
         }
     }
     return NO;
-}
-
-static BOOL HGVideoBackdropSameRect(CGRect a, CGRect b, CGFloat tolerance) {
-    return fabs(CGRectGetMinX(a)-CGRectGetMinX(b)) <= tolerance &&
-        fabs(CGRectGetMinY(a)-CGRectGetMinY(b)) <= tolerance &&
-        fabs(CGRectGetMaxX(a)-CGRectGetMaxX(b)) <= tolerance &&
-        fabs(CGRectGetMaxY(a)-CGRectGetMaxY(b)) <= tolerance;
 }
 
 static BOOL HGVideoBackdropMatchesViewport(CGRect candidate, CGRect viewport) {
