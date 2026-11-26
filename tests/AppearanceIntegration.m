@@ -42,15 +42,25 @@
 - (UIImageView *)likeIcon {return self.iconImageView;}
 - (void)likeBtnClicked {self.taps++;}
 @end
+@interface HGACollectFixtureModel : NSObject
+@property(nonatomic,copy) NSString *vid;
+@property(nonatomic) BOOL isCollected;
+@end
+@implementation HGACollectFixtureModel
+@end
 @interface SSShortVideoRightInteractionCollectView : HGAActionFixture
 @property(nonatomic) BOOL isCollected;
 @property(nonatomic) BOOL playedStockStar;
+@property(nonatomic,strong) HGACollectFixtureModel *model;
 - (void)starBtnClicked;
-- (void)refreshUIWithModel:(id)model animated:(BOOL)animated;
+- (void)refreshUIWithModel:(HGACollectFixtureModel *)model animated:(BOOL)animated;
 @end
 @implementation SSShortVideoRightInteractionCollectView
-- (void)starBtnClicked {self.taps++;self.isCollected=!self.isCollected;}
-- (void)refreshUIWithModel:(id)model animated:(BOOL)animated { self.playedStockStar=animated; }
+- (void)starBtnClicked {self.taps++;}
+- (void)refreshUIWithModel:(HGACollectFixtureModel *)model animated:(BOOL)animated {
+    _model=model;
+    self.playedStockStar=animated;
+}
 @end
 @interface SSShortVideoRightInteractionCommentView : HGAActionFixture
 @property(nonatomic,weak) id delegate;
@@ -747,21 +757,41 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     HGAppearanceSet(@"player.collectGlyph",@"sparkles",nil);
     [collect refreshUIWithModel:nil animated:YES];
     Check(!collect.playedStockStar,@"the alternate symbol avoids a transient stock star animation");
+    collect.isCollected=NO;
     for (NSString *style in @[@"glass",@"flat"]) {
-        HGAppearanceSet(@"player.actionStyle",style,nil);Layout(collect);
-        collect.isCollected=NO;Layout(collect);
+        HGAppearanceSet(@"player.actionStyle",style,nil);
+        HGACollectFixtureModel *initial=[HGACollectFixtureModel new];
+        initial.vid=style;
+        [collect refreshUIWithModel:initial animated:NO];
         UIImage *outline=collect.iconImageView.image;
         Check(HGAActionPixelAlpha(outline,19,20)==0 && [collect.iconImageView.tintColor isEqual:UIColor.whiteColor],
             @"the alternate favorite has transparent centers when unselected");
+        Check(!Find(collect,@"honggo.appearance.material"),@"the alternate favorite has no glass backing");
         NSUInteger taps=collect.taps;
-        [collect starBtnClicked];Layout(collect);
-        Check(collect.taps==taps+1 && HGAActionPixelAlpha(collect.iconImageView.image,19,20)>240 &&
+        [collect starBtnClicked];
+        Check(collect.taps==taps+1 && collect.iconImageView.image==outline &&
+            ![collect.iconImageView.layer animationForKey:@"honggo.collect.pulse"],
+            @"the original tap waits for the host model to change");
+        [collect refreshUIWithModel:initial animated:YES];
+        Check(collect.iconImageView.image==outline && ![collect.iconImageView.layer animationForKey:@"honggo.collect.pulse"],
+            @"an unchanged host result never plays the fill animation");
+        [collect starBtnClicked];
+        HGACollectFixtureModel *confirmed=[HGACollectFixtureModel new];
+        confirmed.vid=initial.vid;
+        confirmed.isCollected=YES;
+        [collect refreshUIWithModel:confirmed animated:YES];
+        Check(!collect.isCollected && HGAActionPixelAlpha(collect.iconImageView.image,19,20)>240 &&
             [collect.iconImageView.tintColor isEqual:UIColor.systemBlueColor] &&
             (UIAccessibilityIsReduceMotionEnabled() || [collect.iconImageView.layer animationForKey:@"honggo.collect.pulse"]),
-            @"a native favorite tap fills the constellation blue and animates once");
-        [collect starBtnClicked];Layout(collect);
+            @"the host model's selection fills the constellation blue and animates despite the stale view property");
+        [collect refreshUIWithModel:initial animated:YES];
         Check(collect.iconImageView.image==outline && ![collect.iconImageView.layer animationForKey:@"honggo.collect.pulse"],
             @"removing a favorite restores its outline and stops the previous pulse");
+        confirmed.vid=[style stringByAppendingString:@"-reused"];
+        [collect refreshUIWithModel:confirmed animated:YES];
+        Check([collect.iconImageView.tintColor isEqual:UIColor.systemBlueColor] &&
+            ![collect.iconImageView.layer animationForKey:@"honggo.collect.pulse"],
+            @"a reused view adopts the new video's selection without replaying the animation");
     }
     HGAppearanceApply(@{@"player.actionStyle":actionStyle,@"player.collectGlyph":@"star"},nil);
     [collect refreshUIWithModel:nil animated:YES];

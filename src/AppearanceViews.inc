@@ -569,9 +569,10 @@ static BOOL HGAHasRoleAncestor(UIView *view,NSString *role) {
 @property(nonatomic) UIViewContentMode contentMode;
 @property(nonatomic) UIViewContentMode appliedContentMode;
 @property(nonatomic) BOOL ownsContentMode;
-@property(nonatomic,weak) id sparkleTapModel;
-@property(nonatomic) BOOL awaitingSparkle;
-@property(nonatomic) BOOL hasSparkleAnimation;
+@property(nonatomic,strong) id sparkleIdentity;
+@property(nonatomic,strong) id sparkleTapIdentity;
+@property(nonatomic,strong) id sparkleAnimationIdentity;
+@property(nonatomic) BOOL sparkleSelected;
 @end
 @implementation HGAIconState @end
 static char HGAIconKey;
@@ -579,7 +580,7 @@ static NSString *const HGASparklePulse=@"honggo.collect.pulse";
 static NSString *const HGASparkleFill=@"honggo.collect.fill";
 static void HGARestoreIcon(UIView *root) {
     HGAIconState *s=objc_getAssociatedObject(root,&HGAIconKey);
-    if(s.hasSparkleAnimation) {
+    if(s.sparkleAnimationIdentity) {
         [s.imageView.layer removeAnimationForKey:HGASparklePulse];
         [s.imageView.layer removeAnimationForKey:HGASparkleFill];
     }
@@ -659,9 +660,9 @@ static UIImage *HGASparkleImage(BOOL filled) {
                     [p addQuadCurveToPoint:CGPointMake(x,y+s) controlPoint:CGPointMake(x+k,y+k)];
                     [p addQuadCurveToPoint:CGPointMake(x-s,y) controlPoint:CGPointMake(x-k,y+k)];
                     [p addQuadCurveToPoint:CGPointMake(x,y-s) controlPoint:CGPointMake(x-k,y-k)];
-                    [p closePath]; p.lineWidth=i==0 ? 1.85 : 1.35; p.lineJoinStyle=kCGLineJoinRound;
+                    [p closePath]; p.lineWidth=1.4; p.lineJoinStyle=kCGLineJoinRound;
                     if (variant) [p fill];
-                    [p stroke];
+                    else [p stroke];
                 }
             }] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
         }
@@ -669,14 +670,25 @@ static UIImage *HGASparkleImage(BOOL filled) {
     return images[filled ? 1 : 0];
 }
 
-static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat,BOOL sparkles) {
+static id HGACollectIdentity(id model) {
+    id vid=HGReadObjectGetter(model,"vid");
+    return [vid isKindOfClass:NSString.class] && [vid length] ? vid : model;
+}
+
+static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat,BOOL sparkles,BOOL animateSparkles) {
     if(![@[@"like",@"collect",@"comment",@"share"] containsObject:role])return;
     if(!HGAppearanceEnabled() || (!flat && !sparkles) || !root.window) {HGARestoreIcon(root);return;}
     BOOL selected=NO;
-    if([role isEqual:@"like"] || [role isEqual:@"collect"]) {
-        NSString *getter=[role isEqual:@"like"]?@"isLiked":@"isCollected";
-        if(!HGABoolGetter(root,getter,&selected) &&
-            !HGABoolGetter(HGReadObjectGetter(root,"model"),getter,&selected)) {
+    BOOL collect=[role isEqual:@"collect"];
+    id model=collect ? HGReadObjectGetter(root,"model") : nil;
+    if([role isEqual:@"like"] || collect) {
+        // The host's refresh assigns _model directly. Its separate Boolean
+        // on the view is not updated by the success callback.
+        BOOL known=collect ? (HGABoolGetter(model,@"isCollected",&selected) ||
+            HGABoolGetter(root,@"isCollected",&selected)) :
+            (HGABoolGetter(root,@"isLiked",&selected) ||
+             HGABoolGetter(HGReadObjectGetter(root,"model"),@"isLiked",&selected));
+        if(!known) {
             HGARestoreIcon(root);
             HGRecordCapability([@"appearance.icon." stringByAppendingString:role],
                 @{@"module":@"appearance",@"state":@"unavailable",@"reason":@"verified host selection getter unavailable; native image retained"});
@@ -695,26 +707,26 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat,BOOL sparkles) {
     if(!state){state=[HGAIconState new];state.imageView=icon;state.source=icon.image;state.tint=icon.tintColor;
         objc_setAssociatedObject(root,&HGAIconKey,state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     else if(icon.image!=state.applied && ![icon.image isEqual:state.applied])state.source=icon.image;
-    BOOL pulse=NO;
-    id model=(state.awaitingSparkle || state.hasSparkleAnimation) ? HGReadObjectGetter(root,"model") : nil;
-    if (state.awaitingSparkle) {
-        if (!sparkles || model!=state.sparkleTapModel || selected) {
-            pulse=sparkles && selected && model==state.sparkleTapModel;
-            state.awaitingSparkle=NO;
-        }
-    }
-    if (state.hasSparkleAnimation && (!sparkles || !selected || model!=state.sparkleTapModel)) {
+    id identity=sparkles ? HGACollectIdentity(model) : nil;
+    if (state.sparkleTapIdentity && ![state.sparkleTapIdentity isEqual:identity]) state.sparkleTapIdentity=nil;
+    if (state.sparkleAnimationIdentity && (!selected || ![state.sparkleAnimationIdentity isEqual:identity])) {
         [icon.layer removeAnimationForKey:HGASparklePulse];
         [icon.layer removeAnimationForKey:HGASparkleFill];
-        state.sparkleTapModel=nil;
-        state.hasSparkleAnimation=NO;
+        state.sparkleAnimationIdentity=nil;
     }
+    state.sparkleIdentity=identity;
+    state.sparkleSelected=selected;
     UIColor *color=sparkles && selected ? UIColor.systemBlueColor : HGAActionIconColor(role,selected);
-    if (pulse && !UIAccessibilityIsReduceMotionEnabled()) {
-        state.hasSparkleAnimation=YES;
+    CGFloat side=MAX(icon.bounds.size.width,icon.bounds.size.height);
+    if (side>0) {
+        CGFloat scale=sparkles ? MIN(1,requested/side) : (flat && !heart ? MIN(1.5,requested/side) : 1);
+        HGASetGeometry(icon,0,0,scale);
+    }
+    if (animateSparkles && identity && selected && !UIAccessibilityIsReduceMotionEnabled()) {
+        state.sparkleAnimationIdentity=identity;
+        CGFloat scale=hypot(icon.transform.a,icon.transform.b);
         CATransition *fill=[CATransition animation]; fill.type=kCATransitionFade; fill.duration=.16;
         [icon.layer addAnimation:fill forKey:HGASparkleFill];
-        CGFloat scale=hypot(icon.transform.a,icon.transform.b);
         CAKeyframeAnimation *pop=[CAKeyframeAnimation animationWithKeyPath:@"transform.scale"];
         pop.values=@[@(scale*.86),@(scale*1.15),@(scale)];
         pop.keyTimes=@[@0,@.45,@1]; pop.duration=.32;
@@ -729,13 +741,6 @@ static void HGAApplyIcon(UIView *root,NSString *role,BOOL flat,BOOL sparkles) {
     if(icon.contentMode!=state.appliedContentMode)icon.contentMode=state.appliedContentMode;
     if(icon.image!=image && ![icon.image isEqual:image])icon.image=image;
     state.applied=icon.image;
-    // Bound the longest side, not the shortest one: the host sometimes gives
-    // bookmark/share image views a tall rectangle. Scaling their shortest side
-    // made those glyphs and their glass discs visibly larger than the heart.
-    // The host attaches its one-tap recognizer to likeIcon itself. Center the
-    // smaller heart artwork in that original touch surface.
-    CGFloat side=MAX(icon.bounds.size.width,icon.bounds.size.height);
-    if(side>0)HGASetGeometry(icon,0,0,(flat && !heart) ? MIN(1.5,requested/side) : 1);
 }
 
 @interface HGATextState : NSObject
@@ -995,11 +1000,11 @@ void HGAppearanceProcessView(UIView *view) {
         if(episode)HGAApplyEpisodeCorners(view,episodeStyled,episodeRadius);
         BOOL sparkles=enabled && outer && [role isEqual:@"collect"] &&
             [HGAppearanceString(@"player.collectGlyph") isEqual:@"sparkles"];
-        HGAApplyIcon(view,role,flat,sparkles);
+        HGAApplyIcon(view,role,flat,sparkles,NO);
         if(header) {
             HGAApplyHeaderSeparatedGlass(view,glass,enabled && outer && !headerShowsFinder && !view.hidden,
                 HGAppearanceString(@"player.material"));
-        } else if(episodeStyled || ((glass || (flat && ![role isEqual:@"avatar"] && ![role isEqual:@"more"])) && !view.hidden)) {
+        } else if(episodeStyled || (!sparkles && (glass || (flat && ![role isEqual:@"avatar"] && ![role isEqual:@"more"])) && !view.hidden)) {
             CGRect glassFrame=episode ? episodeFrame : view.bounds;
             CGFloat radius=episode ? MIN(episodeFrame.size.width,episodeFrame.size.height)/2 : 20;
             if(action) {

@@ -302,12 +302,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     } else if ([className isEqual:@"SSShortVideoRightInteractionCollectView"] && selector==sel_registerName("starBtnClicked") && !strcmp(encoding,"v16@0:8")) {
         replacement=imp_implementationWithBlock(^(UIView *button) {
             HGAIconState *s=objc_getAssociatedObject(button,&HGAIconKey);
-            BOOL selected=NO;
-            if(s && HGAppearanceEnabled() && [HGAppearanceString(@"player.collectGlyph") isEqual:@"sparkles"] &&
-               HGABoolGetter(button,@"isCollected",&selected)) {
-                s.awaitingSparkle=!selected;
-                s.sparkleTapModel=HGReadObjectGetter(button,"model");
-            }
+            if(s.sparkleIdentity) s.sparkleTapIdentity=s.sparkleSelected ? nil : s.sparkleIdentity;
             ((void(*)(id,SEL))original)(button,selector);
         });
     } else if (!strcmp(encoding,"v16@0:8")) {
@@ -458,9 +453,22 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             if(categoryPager) HGATraceCategoryCallback(selector, @"enter");
             // The host animation draws a five-point star over the image. Use
             // its static redraw when the user has chosen the alternate glyph.
-            BOOL nativeAnimation=animated && !(collectRefresh && HGAppearanceEnabled() &&
-                [HGAppearanceString(@"player.collectGlyph") isEqual:@"sparkles"]);
-            ((void(*)(id,SEL,id,BOOL))original)(object,selector,argument,nativeAnimation);
+            BOOL sparkles=collectRefresh && NSThread.isMainThread && HGAppearanceEnabled() &&
+                [HGAppearanceString(@"player.collectGlyph") isEqual:@"sparkles"];
+            BOOL animateSparkles=NO;
+            if(sparkles) {
+                HGAIconState *state=objc_getAssociatedObject(object,&HGAIconKey);
+                id identity=HGACollectIdentity(argument);
+                BOOL selected=NO,fromTap=NO;
+                HGABoolGetter(argument,@"isClickCollectBtn",&fromTap);
+                if(HGABoolGetter(argument,@"isCollected",&selected) && selected &&
+                    [state.sparkleIdentity isEqual:identity] && !state.sparkleSelected) {
+                    animateSparkles=animated || fromTap || [state.sparkleTapIdentity isEqual:identity];
+                }
+                // A failed or successful native result ends this request.
+                if(animateSparkles || (animated || fromTap)) state.sparkleTapIdentity=nil;
+            }
+            ((void(*)(id,SEL,id,BOOL))original)(object,selector,argument,animated && !sparkles);
             if(categoryPager) {
                 HGATraceCategoryCallback(selector, @"return");
                 if(!animated) {
@@ -469,7 +477,11 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 }
             } else if(scrollComponent) {
                 if(!animated)HGARefreshBackdropAfterScroll(argument);
-            } else HGAppearanceProcessView(object);
+            } else {
+                if(animateSparkles && [object window] && ![object isHidden])
+                    HGAApplyIcon(object,@"collect",NO,YES,YES);
+                HGAppearanceProcessView(object);
+            }
         });
     } else if (categoryPager && !strcmp(encoding,"v24@0:8q16")) {
         replacement=imp_implementationWithBlock(^(id object, NSInteger index) {

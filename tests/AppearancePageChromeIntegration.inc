@@ -1,10 +1,25 @@
-static BOOL HGTestPageGlassButton(UIView *surface) {
-    if(![surface isKindOfClass:UIButton.class])return NO;
-    UIButton *button=(UIButton *)surface;
-    return button.configuration && button.configuration.cornerStyle==UIButtonConfigurationCornerStyleCapsule &&
-        NSDirectionalEdgeInsetsEqualToDirectionalEdgeInsets(button.configuration.background.backgroundInsets,
-            NSDirectionalEdgeInsetsMake(2,2,2,2)) && CGRectGetHeight(button.bounds)>=43.99 &&
-        !button.userInteractionEnabled && !button.isAccessibilityElement && button.accessibilityElementsHidden;
+static BOOL HGTestPageGlassSurface(UIView *surface,UIView *touchHost) {
+    if(![surface isKindOfClass:UIVisualEffectView.class] || surface.userInteractionEnabled ||
+        surface.isAccessibilityElement || !surface.accessibilityElementsHidden ||
+        !CGAffineTransformIsIdentity(surface.transform) ||
+        [surface valueForKey:@"flexTouchHost"]!=touchHost)return NO;
+    Layout(surface);
+    UIVisualEffectView *effectView=(UIVisualEffectView *)surface;
+    if(@available(iOS 26.0,*)) {
+        if(HGTestOpenGlass(surface)) {
+            UIView *gestureHost=((UIView *(*)(id,SEL))objc_msgSend)(surface,sel_registerName("_flexInteractionGestureView"));
+            return HGTestButtonGlass(surface) && ((UIGlassEffect *)effectView.effect).interactive &&
+                gestureHost==touchHost &&
+                [surface.cornerConfiguration isEqual:UICornerConfiguration.capsuleConfiguration] &&
+                ![surface valueForKey:@"contourRimLayer"];
+        }
+    }
+    if(!surface.clipsToBounds ||
+        !HGTestMaterialRadius(surface,MIN(CGRectGetWidth(surface.bounds),CGRectGetHeight(surface.bounds))/2))return NO;
+    UIColor *background=effectView.contentView.backgroundColor;
+    return UIAccessibilityIsReduceTransparencyEnabled() ?
+        !effectView.effect && background && CGColorGetAlpha(background.CGColor)==1 :
+        [effectView.effect isKindOfClass:UIBlurEffect.class];
 }
 
 @interface FQRJXCategoryTitleCell : UICollectionViewCell
@@ -1268,19 +1283,19 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     UIView *searchGlass=Find(finder.searchBgView,material);
     UIView *recognitionGlass=Find(finder.imageSearchContainer,material);
     UIView *assistantGlass=Find(finder.aiSearchEntranceView,material);
-    CGFloat chromePixel=1/MAX(1,finder.view.traitCollection.displayScale);
     CGRect searchSurface=[searchGlass convertRect:searchGlass.bounds toView:finder.view];
     CGRect recognitionSurface=[recognitionGlass convertRect:recognitionGlass.bounds toView:finder.view];
     Check(searchGlass && recognitionGlass && assistantGlass && !Find(finder.searchView,material) &&
-        fabs(CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)-7-2*chromePixel)<0.01 &&
-        fabs(CGRectGetWidth(assistantGlass.frame)-(28-2*chromePixel))<0.01 &&
-        fabs(CGRectGetHeight(assistantGlass.frame)-(28-2*chromePixel))<0.01 &&
+        fabs(CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)-7)<0.01 &&
+        CGRectGetHeight(searchGlass.frame)==34 && CGRectGetHeight(recognitionGlass.frame)==34 &&
+        CGRectGetWidth(assistantGlass.frame)==34 && CGRectGetHeight(assistantGlass.frame)==34 &&
         CGRectEqualToRect(finder.searchBgView.frame,nativeSearchField) &&
         CGRectEqualToRect(finder.imageSearchContainer.frame,nativeRecognition) &&
         finder.normalImageSearchView.separatorView.hidden,
         @"finder search and recognition have separate glass with a seven-point gap and an independent round AI control");
-    Check(HGTestPageGlassButton(searchGlass) && HGTestPageGlassButton(recognitionGlass) &&
-        HGTestPageGlassButton(assistantGlass),@"Finder mounts three configured UIKit buttons under the original input and gestures");
+    Check(HGTestPageGlassSurface(searchGlass,finder.view) && HGTestPageGlassSurface(recognitionGlass,finder.view) &&
+        HGTestPageGlassSurface(assistantGlass,finder.view),
+        @"Finder mounts full-size system glass behind its original input and gestures");
     UIImageView *aiGlyph=(id)Find(finder.aiSearchEntranceView,@"honggo.appearance.finder.ai");
     UIColor *light=[camera.tintColor resolvedColorWithTraitCollection:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
     UIColor *dark=[aiGlyph.tintColor resolvedColorWithTraitCollection:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark]];
@@ -1315,7 +1330,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         fabs(CGRectGetMaxX(moved)-CGRectGetMaxX(finder.aiSearchEntranceView.frame))<0.01 &&
         CGRectEqualToRect(moved,finder.imageSearchContainer.frame) &&
         (recognitionHit==finder.imageSearchContainer || [recognitionHit isDescendantOfView:finder.imageSearchContainer]) &&
-        fabs(CGRectGetMaxX(searchGlass.frame)-CGRectGetMinX(moved)+7+chromePixel)<0.01,
+        fabs(CGRectGetMaxX(searchGlass.frame)-CGRectGetMinX(moved)+7)<0.01,
         @"hiding AI shifts native recognition to the vacated slot and fills the search gap without cumulative movement");
     HGAppearanceSet(@"player.finderAI",@YES,nil);
     HGAppearanceProcessController(finder);
@@ -1324,8 +1339,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         @"showing AI restores the original recognition layout and native entrance");
     finder.imageSearchContainer.hidden=YES;
     HGAppearanceProcessController(finder);
-    Check(fabs(CGRectGetMinX(searchGlass.frame)-chromePixel)<0.01 &&
-        fabs(CGRectGetWidth(searchGlass.frame)-CGRectGetWidth(finder.searchBgView.bounds)+2*chromePixel)<0.01 &&
+    Check(CGRectEqualToRect(searchGlass.frame,finder.searchBgView.bounds) &&
         !Find(finder.imageSearchContainer,material) && !finder.normalImageSearchView.separatorView.hidden,
         @"finder restores the full search surface when its recognition tool is unavailable");
     finder.imageSearchContainer.hidden=NO;
@@ -1370,6 +1384,9 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     finder.aiSearchEntranceView.frame=CGRectMake(392,1,36,36);
     [finder.searchBgView addSubview:finder.imageSearchContainer];
     finder.imageSearchContainer.frame=CGRectMake(297.6666667,0,58.3333333,38);
+    finder.searchBgView.clipsToBounds=YES;
+    finder.imageSearchContainer.clipsToBounds=YES;
+    finder.aiSearchEntranceView.clipsToBounds=YES;
     finder.normalImageSearchView.frame=CGRectMake(0,7.3333333,58.3333333,23.6666667);
     camera.frame=CGRectMake(12.3333333,3.6666667,16,16);
     UILabel *recognitionText=[[UILabel alloc] initWithFrame:CGRectMake(30.3333333,2,28,19.6666667)];
@@ -1394,11 +1411,9 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
             (CGRectGetMinX(recognitionSurface)-CGRectGetMaxX(searchSurface)))<0.01 &&
         fabs(CGRectGetMidY(searchSurface)-CGRectGetMidY(recognitionSurface))<0.01 &&
         fabs(CGRectGetMidY(aiSurface)-CGRectGetMidY(recognitionSurface))<0.01 &&
-        fabs(CGRectGetHeight(searchSurface)-(30-2*chromePixel))<0.01 &&
-        CGRectGetMaxY(searchSurface)<=CGRectGetMaxY(finder.searchBgView.frame)-4 &&
-        fabs(CGRectGetHeight(recognitionSurface)-CGRectGetHeight(searchSurface))<0.01 &&
-        fabs(CGRectGetHeight(aiSurface)-CGRectGetHeight(searchSurface))<0.01,
-        @"the nested theatre search, recognition and AI surfaces have equal gaps and aligned heights");
+        CGRectGetHeight(searchSurface)==38 && CGRectGetHeight(recognitionSurface)==38 &&
+        CGRectGetHeight(aiSurface)==36 && CGRectGetWidth(aiSurface)==36,
+        @"the nested theatre glass keeps the native 38pt capsules and 36pt AI disc with even gaps");
     Check(recognitionGlass && CGRectGetMaxX(ink)<CGRectGetMaxX(recognitionGlass.frame)-5 &&
         fabs(CGRectGetMidX(ink)-CGRectGetMidX(recognitionGlass.frame))<0.1,
         @"the nested theatre centers camera and recognition text inside the capsule");
@@ -1424,6 +1439,13 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         }
     }
     Check(finderButtonsIndependent,@"all eight Finder visibility combinations preserve recognition hit-testing inside the search field and restore the host search tap");
+    BOOL finderRimsOpen=!finder.searchBgView.clipsToBounds && !finder.imageSearchContainer.clipsToBounds &&
+        !finder.aiSearchEntranceView.clipsToBounds;
+    HGAppearanceSet(@"player.finderGlass",@NO,nil);
+    Check(finderRimsOpen && finder.searchBgView.clipsToBounds && finder.imageSearchContainer.clipsToBounds &&
+        finder.aiSearchEntranceView.clipsToBounds,
+        @"Finder opens the native glass rim paths and restores the host clips when disabled");
+    HGAppearanceSet(@"player.finderGlass",@YES,nil);
     HGAppearanceSet(@"finder.hide.category.novels",@YES,nil);
     HGAppearanceSet(@"finder.hide.shortcut.filter",@YES,nil);
     Check(novels.hidden && !films.hidden && filterShortcut.hidden && !((UIView *)shortcuts[1]).hidden,
@@ -1553,7 +1575,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     BOOL moonGlass=NO,menuGlass=NO;
     for(UIView *backing in titleBar.subviews) {
         UIView *glass=Find(backing,material);
-        if(!HGTestPageGlassButton(glass) || backing.userInteractionEnabled)continue;
+        if(!HGTestPageGlassSurface(glass,titleBar) || backing.userInteractionEnabled)continue;
         CGRect frame=[glass convertRect:glass.bounds toView:titleBar];
         moonGlass|=CGRectEqualToRect(frame,CGRectMake(354,66,36,36));
         menuGlass|=CGRectEqualToRect(frame,CGRectMake(394,66,36,36));
@@ -1668,6 +1690,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
 
     SSMyUser637TabsView *mine=[[SSMyUser637TabsView alloc] initWithFrame:CGRectMake(0,230,290,80)];
     [root addSubview:mine];mine.searchBtn=[[UIButton alloc] initWithFrame:CGRectMake(255,7,25,25)];
+    mine.searchBtn.clipsToBounds=YES;
     [mine addSubview:mine.searchBtn];
     UIView *toolbar=PageChromeControl(mine,CGRectMake(0,40,285,38));
     UIScrollView *categoryWrapper=[[UIScrollView alloc] initWithFrame:CGRectMake(0,0,190,34)];
@@ -1685,17 +1708,16 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     FQRJXCategoryTitleCell *unwatched=PageChromeTitle(categories,@"未看完",110);
     Layout(filter);Layout(mine);
     UIView *mineSearchGlass=Find(mine.searchBtn,material);
-    BOOL history=mineSearchGlass && CGAffineTransformIsIdentity(mine.searchBtn.transform) &&
+    BOOL history=mineSearchGlass && !mine.searchBtn.clipsToBounds && CGAffineTransformIsIdentity(mine.searchBtn.transform) &&
         mineSearchGlass.frame.size.height==30 && mineSearchGlass.frame.size.width==30 &&
         Find(filter,material) && filter.backgroundView.hidden && Find(edit,material) &&
         Find(all,material) && Find(watched,material) && Find(unwatched,material);
     for (UIView *target in @[mine.searchBtn, filter, edit, all, watched, unwatched]) {
         UIView *surface=Find(target,material);
-        Layout(surface);
-        history &= HGTestPageGlassButton(surface);
+        history &= HGTestPageGlassSurface(surface,target);
     }
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
-    Check(history && !Find(mine,material) && !filter.backgroundView.hidden,
+    Check(history && mine.searchBtn.clipsToBounds && !Find(mine,material) && !filter.backgroundView.hidden,
         @"Mine chrome follows native history controls and replaces and restores the filter background image");
     HGAppearanceSet(@"player.mineGlass",@YES,nil);[mine removeFromSuperview];
 
@@ -1755,6 +1777,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         fabs(CGRectGetWidth(watchedPill.frame)-68)<0.01 && fabs(CGRectGetHeight(watchedPill.frame)-28)<0.01 &&
         wideDivider.hidden && fabs(CGRectGetWidth(filterInBar)-44)<0.01 && fabs(CGRectGetHeight(filterInBar)-28)<0.01 &&
         fabs(CGRectGetWidth(editInBar)-44)<0.01 && fabs(CGRectGetHeight(editInBar)-28)<0.01 &&
+        HGTestPageGlassSurface(allPill,wideAll) && HGTestPageGlassSurface(watchedPill,wideWatched) &&
+        HGTestPageGlassSurface(filterPill,wideFilter) && HGTestPageGlassSurface(editPill,wideEdit) &&
         CGAffineTransformIsIdentity(wideFilter.transform) && CGAffineTransformIsIdentity(wideEdit.transform) &&
         CGRectEqualToRect(wideFilter.frame,CGRectMake(339.5,6,30,32)) &&
         CGRectEqualToRect(wideEdit.frame,CGRectMake(394,6,30,32)) &&
@@ -1830,16 +1854,14 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceProcessController(profileMine);
     UIView *editBacking=Find(editProfile,@"honggo.appearance.mine.editProfile");
     UIView *editGlass=editBacking ? Find(editBacking,material) : nil;
-    Layout(editGlass);
-    UIGestureRecognizer *editPress=[editGlass valueForKey:@"press"];
-    Check(editBacking && HGTestPageGlassButton(editGlass) && editFill.hidden && !editText.hidden && !editProfile.clipsToBounds &&
+    Check(editBacking && HGTestPageGlassSurface(editGlass,profileHeader) && editFill.hidden && !editText.hidden && !editProfile.clipsToBounds &&
         CGRectEqualToRect(editBacking.frame,CGRectMake(0,0,72,28)) &&
-        editPress.view==profileHeader && !editPress.cancelsTouchesInView &&
+        CGRectEqualToRect(editGlass.frame,editBacking.bounds) &&
         [profileHeader hitTest:editProfile.center withEvent:nil]!=editGlass,
-        @"the device's Compose Edit label keeps its original hit owner above a configured glass button");
+        @"the device's Compose Edit label keeps its original hit owner above a full-size glass capsule");
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
     HGAppearanceProcessController(profileMine);
-    Check(!editFill.hidden && editProfile.clipsToBounds && !Find(editProfile,material) && !editPress.view,
+    Check(!editFill.hidden && editProfile.clipsToBounds && !Find(editProfile,material) && !editGlass.superview,
         @"disabling Mine glass restores the native Compose Edit button fill and clipping");
     HGAppearanceSet(@"player.mineGlass",@YES,nil);
     [profileMine willMoveToParentViewController:nil];[profileMine.view removeFromSuperview];[profileMine removeFromParentViewController];

@@ -75,8 +75,8 @@ static UIView *HGAHistoryFilter(UIView *toolbar) {
     return nil;
 }
 
-// Compose, collection cells and the theatre cue row own their taps. Observe the
-// press without recognizing a gesture so UIKit can highlight its glass button.
+// The landscape controls own their taps. Observe the press without
+// recognizing a gesture so UIKit can highlight the backing button.
 #import <UIKit/UIGestureRecognizerSubclass.h>
 @interface HGAPageButtonPress : UIGestureRecognizer
 @property(nonatomic,weak) UIButton *button;
@@ -105,7 +105,7 @@ static UIView *HGAHistoryFilter(UIView *toolbar) {
 - (void)dealloc { [_press.view removeGestureRecognizer:_press]; }
 @end
 
-static char HGAPageButtonKey,HGAPageButtonMaterialKey;
+static char HGAPageButtonMaterialKey;
 static void HGAConfigurePageButton(UIButton *button,NSString *style,UIImage *image) {
     NSString *previous=objc_getAssociatedObject(button,&HGAPageButtonMaterialKey);
     if ([previous isEqual:style] || (!previous && !style)) return;
@@ -129,46 +129,17 @@ static void HGAConfigurePageButton(UIButton *button,NSString *style,UIImage *ima
     objc_setAssociatedObject(button,&HGAPageButtonMaterialKey,style,OBJC_ASSOCIATION_COPY_NONATOMIC);
 }
 
-static void HGAApplyNativePageButton(UIView *target,CGRect frame,UIView *pressHost) {
-    HGAPageGlassButton *button=objc_getAssociatedObject(target,&HGAPageButtonKey);
+static void HGAApplyPageButtonGlass(UIView *target,CGRect frame,UIView *pressHost) {
     if (!target.window || target.hidden || CGRectIsEmpty(frame)) {
-        if (button) {
-            [button.press.view removeGestureRecognizer:button.press];
-            [button removeFromSuperview];
-            objc_setAssociatedObject(target,&HGAPageButtonKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            HGASetGlassHostBackground(target,NO);
-            HGAApplyAdaptiveControlInk(target,UIUserInterfaceStyleLight,NO);
-        }
+        HGARemoveGlass(target);
         return;
     }
-    if (!button) {
-        button=[[HGAPageGlassButton alloc] initWithFrame:frame];
-        button.accessibilityIdentifier=@"honggo.appearance.material";
-        button.isAccessibilityElement=NO;
-        button.accessibilityElementsHidden=YES;
-        button.userInteractionEnabled=NO;
-        button.press=[[HGAPageButtonPress alloc] initWithTarget:nil action:NULL];
-        button.press.button=button;
-        button.press.cancelsTouchesInView=NO;
-        button.press.delaysTouchesEnded=NO;
-        objc_setAssociatedObject(target,&HGAPageButtonKey,button,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    HGAConfigurePageButton(button,HGALiquidButtonMaterial(),nil);
+    // Catalogue and profile controls keep their own taps. Lay out their UIKit
+    // glass directly at the host size so its compositor can draw the full rim.
     UIUserInterfaceStyle appearance=HGAAdaptivePageStyle(HGAOwner(target),target);
-    if (button.overrideUserInterfaceStyle!=appearance) button.overrideUserInterfaceStyle=appearance;
-    // The system background clips to its layout bounds. Lay the glass out at
-    // normal control height with room for its edge, then fit that whole button
-    // into the compact host slot. Host text, hit areas and frames stay native.
-    CGFloat scale=MIN(1,CGRectGetHeight(frame)/44.0);
-    CGRect bounds=CGRectMake(0,0,CGRectGetWidth(frame)/scale,CGRectGetHeight(frame)/scale);
-    CGPoint center=CGPointMake(CGRectGetMidX(frame),CGRectGetMidY(frame));
-    CGAffineTransform transform=CGAffineTransformMakeScale(scale,scale);
-    if (!CGRectEqualToRect(button.bounds,bounds)) button.bounds=bounds;
-    if (!CGPointEqualToPoint(button.center,center)) button.center=center;
-    if (!CGAffineTransformEqualToTransform(button.transform,transform)) button.transform=transform;
-    HGASetGlassHostBackground(target,YES);
-    if (button.superview!=target) [target insertSubview:button atIndex:0];
-    if (pressHost && button.press.view!=pressHost) [pressHost addGestureRecognizer:button.press];
+    CGFloat radius=MIN(CGRectGetWidth(frame),CGRectGetHeight(frame))/2;
+    HGAInstallButtonGlassWithAppearance(target,HGALiquidButtonMaterial(),frame,radius,appearance);
+    HGAState(target,NO).glass.flexTouchHost=pressHost;
     HGAApplyAdaptiveControlInk(target,appearance,YES);
 }
 
@@ -182,10 +153,7 @@ static void HGAApplyPageChromeMaterial(UIView *target,CGRect frame,NSString *sty
 static void HGAApplyPageChrome(UIView *target,BOOL enabled) {
     if([target isKindOfClass:UICollectionViewCell.class])target=((UICollectionViewCell *)target).contentView;
     if(enabled)HGAApplyPageChromeMaterial(target,target.bounds,HGAppearanceString(@"player.material"));
-    else if(target) {
-        HGAApplyNativePageButton(target,CGRectZero,nil);
-        HGARemoveGlass(target);
-    }
+    else if(target)HGARemoveGlass(target);
 }
 
 static char HGAPageChromeHiddenKey;
@@ -230,9 +198,11 @@ static void HGAUpdatePageChromeTargets(UIView *owner,NSArray<UIView *> *targets)
     for(UIView *target in targets)[previous addObject:target];
 }
 
+static void HGASetPageChromeUnclipped(UIView *owner,NSArray<UIView *> *candidates);
 static void HGAApplyPageChromeTargets(UIView *owner,NSArray<UIView *> *targets) {
     HGAUpdatePageChromeTargets(owner,targets);
-    for(UIView *target in targets)HGAApplyNativePageButton(target,target.bounds,target);
+    HGASetPageChromeUnclipped(owner,targets);
+    for(UIView *target in targets)HGAApplyPageButtonGlass(target,target.bounds,target);
 }
 
 static BOOL HGAFinderControlReady(UIView *view) {
@@ -248,28 +218,6 @@ static void HGAApplyFinderMaterial(UIView *target,CGRect frame,BOOL shortcut) {
     }
     CGFloat radius=CGRectGetHeight(frame)/2;
     HGAInstallAdaptiveButtonGlass(target,HGALiquidButtonMaterial(),frame,shortcut ? MIN(radius,24) : radius);
-}
-
-static CGRect HGAFinderSearchSurface(UIView *target,CGRect frame) {
-    if(!target.window || CGRectIsEmpty(frame))return CGRectZero;
-    // The nested recognition slot often starts at a fractional point. All
-    // three capsules share one pixel grid, including on a 2x display.
-    CGRect screen=[target convertRect:frame toView:target.window];
-    CGFloat scale=MAX(1,target.traitCollection.displayScale);
-    CGFloat left=round(CGRectGetMinX(screen)*scale)+1;
-    CGFloat top=round(CGRectGetMinY(screen)*scale)+1;
-    CGFloat right=round(CGRectGetMaxX(screen)*scale)-1;
-    CGFloat bottom=round(CGRectGetMaxY(screen)*scale)-1;
-    // Subtract pixel coordinates before converting back to points. A disc
-    // with equal pixel spans gets equal dimensions at every window position.
-    CGRect fitted=CGRectMake(left/scale,top/scale,MAX(0,right-left)/scale,MAX(0,bottom-top)/scale);
-    return [target convertRect:fitted fromView:target.window];
-}
-
-static void HGAApplyFinderSearchMaterial(UIView *target,CGRect frame) {
-    BOOL circle=fabs(CGRectGetWidth(frame)-CGRectGetHeight(frame))<0.01;
-    frame=CGRectInset(frame,circle ? 3 : 0,3);
-    HGAApplyNativePageButton(target,HGAFinderSearchSurface(target,frame),target.superview);
 }
 
 @interface HGAPageChromeIcon : NSObject
@@ -360,25 +308,24 @@ static void HGASetHistoryCellBackingHidden(UIView *cell,BOOL hide) {
     HGAHidePageChromeTarget(item,@"historyCellBorderView",borderView);
 }
 
-static char HGAHistoryUnclippedKey;
-static void HGASetHistoryUnclipped(UIView *owner,NSArray<UIView *> *candidates,BOOL unclip) {
-    if(!owner)return;
-    NSMapTable<UIView *,NSNumber *> *saved=objc_getAssociatedObject(owner,&HGAHistoryUnclippedKey);
-    if(!unclip) {
-        for(UIView *view in saved.keyEnumerator.allObjects)
-            if(!view.clipsToBounds && [[saved objectForKey:view] boolValue])view.clipsToBounds=YES;
-        if(saved)objc_setAssociatedObject(owner,&HGAHistoryUnclippedKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        return;
+static char HGAPageChromeUnclippedKey;
+static void HGASetPageChromeUnclipped(UIView *owner,NSArray<UIView *> *candidates) {
+    NSHashTable<UIView *> *saved=objc_getAssociatedObject(owner,&HGAPageChromeUnclippedKey);
+    for(UIView *view in saved.allObjects) {
+        if([candidates containsObject:view])continue;
+        view.clipsToBounds=YES;
+        [saved removeObject:view];
     }
     for(UIView *view in candidates) {
-        if(![view isKindOfClass:UIView.class])continue;
+        if(!view.clipsToBounds)continue;
         if(!saved) {
-            saved=[NSMapTable weakToStrongObjectsMapTable];
-            objc_setAssociatedObject(owner,&HGAHistoryUnclippedKey,saved,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            saved=NSHashTable.weakObjectsHashTable;
+            objc_setAssociatedObject(owner,&HGAPageChromeUnclippedKey,saved,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
-        if(![saved objectForKey:view])[saved setObject:@(view.clipsToBounds) forKey:view];
-        if(view.clipsToBounds)view.clipsToBounds=NO;
+        [saved addObject:view];
+        view.clipsToBounds=NO;
     }
+    if(saved && !saved.count)objc_setAssociatedObject(owner,&HGAPageChromeUnclippedKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static CGFloat HGAHistoryActionCapsuleWidth(UIView *target) {
@@ -393,10 +340,10 @@ static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL enabled) {
     if(isCell) {
         UIView *content=((UICollectionViewCell *)target).contentView;
         HGASetHistoryCellBackingHidden(target,enabled);
-        HGASetHistoryUnclipped(target,content ? @[target,content] : @[target],enabled);
+        HGASetPageChromeUnclipped(target,enabled ? @[target,content] : nil);
         target=content;
     } else if(target) {
-        HGASetHistoryUnclipped(target,@[target],enabled);
+        HGASetPageChromeUnclipped(target,enabled ? @[target] : nil);
     }
     CGRect frame=enabled ? target.bounds : CGRectZero;
     if(enabled && !CGRectIsEmpty(frame)) {
@@ -413,7 +360,7 @@ static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL enabled) {
             frame=CGRectInset(frame,(frame.size.width-width)/2,(frame.size.height-height)/2);
         }
     }
-    HGAApplyNativePageButton(target,frame,pressHost);
+    HGAApplyPageButtonGlass(target,frame,pressHost);
 }
 
 static char HGAFinderMovedKey;
@@ -518,6 +465,7 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *cue,UIView 
         HGAHidePageChromeTarget(owner,@"finderRecognitionDivider",nil);
         HGAUpdatePageChromeTargets(owner,nil);
         HGASetFinderSearchHidden(owner,nil,nil,nil,nil,NO);
+        HGASetPageChromeUnclipped(owner,nil);
         HGAApplyAdaptiveControlInk(owner,UIUserInterfaceStyleLight,NO);
         return;
     }
@@ -545,8 +493,8 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *cue,UIView 
         if(recognition.superview==field && !hideAI && HGAFinderControlReady(assistant)) {
             CGRect ai=[assistant convertRect:assistant.bounds toView:field];
             CGFloat remaining=CGRectGetMinX(ai)-CGRectGetMaxX(button);
-            // Match the additional breathing room around the round AI button.
-            if(remaining>=6 && remaining<=16)gap=remaining+2;
+            // Match the gap between recognition and the AI disc.
+            if(remaining>=6 && remaining<=16)gap=remaining;
         }
         CGFloat edge=CGRectGetMinX(button)-gap;
         if(edge>CGRectGetMidX(searchFrame) &&
@@ -562,7 +510,7 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *cue,UIView 
         UIView *parent=recognitionContent.superview;
         CGRect ink=CGRectUnion([recognitionLabel convertRect:recognitionLabel.bounds toView:parent],
             [recognitionIcon convertRect:recognitionIcon.bounds toView:parent]);
-        CGRect surface=[recognition convertRect:HGAFinderSearchSurface(recognition,recognition.bounds) toView:parent];
+        CGRect surface=[recognition convertRect:recognition.bounds toView:parent];
         HGAViewState *state=HGAState(recognitionContent,NO);
         CGFloat applied=state.geometry && state.geometrySuperview==parent &&
             CGAffineTransformEqualToTransform(recognitionContent.transform,state.appliedTransform) ?
@@ -571,20 +519,24 @@ static void HGAApplyFinderSearch(UIView *owner,UIView *field,UIView *cue,UIView 
         HGASetGeometry(recognitionContent,separate && CGRectGetWidth(ink)<CGRectGetWidth(recognition.bounds) &&
             fabs(offset)<=12 ? offset : 0,0,1);
     }
+    NSMutableArray<UIView *> *unclipped=[NSMutableArray array];
     for(UIView *target in targets) {
-        CGRect frame=target==field ? searchFrame : target.bounds;
-        if(separate && recognition.superview==field) {
-            // The nested theatre search uses a 38pt host row. Bring the edge
-            // of its glass inside the host and align it with the 36pt AI disc.
-            if(target==field)frame=CGRectInset(frame,1,1);
-            if(target==recognition)frame=CGRectInset(frame,0,1);
+        if(!HGAFinderControlReady(target)) {
+            HGARemoveGlass(target);
+            continue;
         }
+        CGRect frame=target==field ? searchFrame : target.bounds;
         if(target==assistant) {
             CGFloat side=MIN(frame.size.width,frame.size.height);
             frame=CGRectInset(frame,(frame.size.width-side)/2,(frame.size.height-side)/2);
         }
-        HGAApplyFinderSearchMaterial(target,frame);
+        CGRect rim=CGRectInset(frame,-2,-2);
+        for(UIView *parent=target;parent && parent!=owner && ![parent isKindOfClass:UIScrollView.class];parent=parent.superview)
+            if(!CGRectContainsRect(parent.bounds,[target convertRect:rim toView:parent]) &&
+                ![unclipped containsObject:parent])[unclipped addObject:parent];
+        HGAApplyPageButtonGlass(target,frame,target.superview);
     }
+    HGASetPageChromeUnclipped(owner,unclipped);
     if(recognitionContent && recognitionContent!=recognition)
         HGAApplyAdaptiveControlInk(recognitionContent,HGAAdaptivePageStyle(HGAOwner(owner),owner),glass);
     if(field && field.superview && field.superview!=owner)
@@ -1222,7 +1174,7 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
     }
     HGAWatchMineComposeRenderer(controller,glass ? profileRenderer : nil,&HGAMineProfileWatchKey);
     HGAHidePageChromeTarget(root,@"mineProfileEditBg",glass ? editGraphicsBg : nil);
-    HGASetHistoryUnclipped(root,editTarget ? @[editTarget] : nil,glass && editTarget!=nil);
+    HGASetPageChromeUnclipped(root,glass && editTarget ? @[editTarget] : nil);
     UIView *editBacking=objc_getAssociatedObject(root,&HGAMineEditProfileGlassKey);
     if(glass && editTarget) {
         if(!editBacking) {
@@ -1234,9 +1186,9 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
         }
         if(!CGRectEqualToRect(editBacking.frame,editTarget.bounds))editBacking.frame=editTarget.bounds;
         if(editBacking.superview!=editTarget)[editTarget insertSubview:editBacking atIndex:0];
-        HGAApplyNativePageButton(editBacking,editBacking.bounds,profileContent);
+        HGAApplyPageButtonGlass(editBacking,editBacking.bounds,profileContent);
     } else if(editBacking) {
-        HGAApplyNativePageButton(editBacking,CGRectZero,nil);
+        HGARemoveGlass(editBacking);
         [editBacking removeFromSuperview];
         objc_setAssociatedObject(root,&HGAMineEditProfileGlassKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
@@ -1266,7 +1218,7 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
     NSArray<UIView *> *backings=objc_getAssociatedObject(root,&HGAMineTitleGlassKey);
     if(!glass || !targets.count || targets.count>2 || backings.count!=targets.count) {
         for(UIView *backing in backings) {
-            HGAApplyNativePageButton(backing,CGRectZero,nil);
+            HGARemoveGlass(backing);
             [backing removeFromSuperview];
         }
         if(backings)objc_setAssociatedObject(root,&HGAMineTitleGlassKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1291,7 +1243,7 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
         // The Compose glyphs are clipped to 24pt. Use their title bar for the
         // glass so the original touch views, clipping and unread dot stay intact.
         if(backing.superview!=titleBar)[titleBar insertSubview:backing atIndex:0];
-        HGAApplyNativePageButton(backing,backing.bounds,titleBar);
+        HGAApplyPageButtonGlass(backing,backing.bounds,titleBar);
     }
 }
 
@@ -1369,7 +1321,7 @@ static void HGAApplyHistoryCategoryClipping(UIView *categories,BOOL enabled) {
     UIView *collection=HGAViewGetter(categories,"collectionView",categories);
     NSMutableArray<UIView *> *views=[NSMutableArray arrayWithObject:categories];
     if(collection && collection!=categories)[views addObject:collection];
-    HGASetHistoryUnclipped(categories,views,unclip);
+    HGASetPageChromeUnclipped(categories,unclip ? views : nil);
 }
 
 static void HGAApplyChannelIndicators(UIView *categories,BOOL enabled) {
@@ -1485,7 +1437,7 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
             }
         }
         HGAHidePageChromeTarget(view,@"historyDivider",mine ? divider : nil);
-        HGASetHistoryUnclipped(toolbar ?: view,toolbar ? @[toolbar] : nil,mine && toolbar!=nil);
+        if(toolbar)HGASetPageChromeUnclipped(toolbar,mine ? @[toolbar] : nil);
         NSMutableArray *targets=[NSMutableArray array];
         if(mine) {
             [targets addObject:view];
