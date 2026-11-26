@@ -264,6 +264,9 @@ static void RunInnerAlbumBackdropChecks(UIView *root) {
     CGFloat w=CGRectGetWidth(canvas.bounds),h=CGRectGetHeight(canvas.bounds);
     CGRect original=CGRectMake(0,h*77/1920,w,h*(1656-77)/1920);
     TTPlayerView *renderer=[[TTPlayerView alloc] initWithFrame:original];
+    // UIKit derives frame from bounds and center. Snapshot its actual value
+    // before attachment so the comparison measures Honggo's ownership only.
+    CGRect nativeFrame=renderer.frame;
     for (UIView *sub in renderer.subviews.copy) [sub removeFromSuperview];
     TTMetalView *metal=[[TTMetalView alloc] initWithFrame:renderer.bounds];
     renderer.clipsToBounds=YES;
@@ -272,11 +275,15 @@ static void RunInnerAlbumBackdropChecks(UIView *root) {
     [canvas addSubview:hud];[album.view addSubview:canvas];Layout(hud);
     CGRect painted=[metal.layer convertRect:metal.layer.bounds toLayer:canvas.layer];
     CATransform3D fit=renderer.layer.sublayerTransform;
-    Check(CGRectGetMinY(painted)<=0.75 && CGRectGetMaxY(painted)>=h-0.75 &&
+    BOOL covers=CGRectGetMinY(painted)<=0.75 && CGRectGetMaxY(painted)>=h-0.75 &&
         CGRectGetMinX(painted)<=0.75 && CGRectGetMaxX(painted)>=w-0.75 &&
-        fabs(fit.m11-fit.m22)<0.001 && CGRectEqualToRect(renderer.frame,original) &&
-        CGRectEqualToRect(hud.frame,canvas.bounds) && !renderer.clipsToBounds,
-        @"a width-fitted album episode fills its detail page without stretching the media or moving its controls");
+        fabs(fit.m11-fit.m22)<0.001 && !renderer.clipsToBounds;
+    BOOL keptGeometry=CGRectEqualToRect(renderer.frame,nativeFrame) && CGRectEqualToRect(hud.frame,canvas.bounds);
+    if (!covers || !keptGeometry) NSLog(@"ALBUM_DETAIL painted=%@ page=%@ scale=(%.5f,%.5f) clip=%d renderer=%@ native=%@ hud=%@",
+        NSStringFromCGRect(painted),NSStringFromCGRect(canvas.bounds),fit.m11,fit.m22,renderer.clipsToBounds,
+        NSStringFromCGRect(renderer.frame),NSStringFromCGRect(nativeFrame),NSStringFromCGRect(hud.frame));
+    Check(covers,@"the width-fitted album episode covers the whole detail page with one uniform scale");
+    Check(keptGeometry,@"filling the album detail page leaves both native renderer and controls at their original frames");
     [renderer removeFromSuperview];
     Check(CATransform3DIsIdentity(renderer.layer.sublayerTransform) && renderer.clipsToBounds,
         @"leaving album detail releases the picture transform and clip before renderer reuse");
