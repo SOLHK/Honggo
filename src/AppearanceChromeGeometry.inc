@@ -125,7 +125,14 @@ API_AVAILABLE(ios(26.0))
 @property(nonatomic,copy) NSArray<NSString *> *channelTitles;
 @property(nonatomic,weak) UIPanGestureRecognizer *observedPagePan;
 @property(nonatomic) BOOL scrubbingRail;
+@property(nonatomic) BOOL railDragging;
+@property(nonatomic) CGFloat railTouchStartX;
 @property(nonatomic) CGFloat railContactPosition;
+@property(nonatomic) CGFloat railLastX;
+@property(nonatomic) CFTimeInterval railLastTimestamp;
+@property(nonatomic) CGFloat railVelocityX;
+@property(nonatomic) NSInteger railHoveredSegment;
+@property(nonatomic,strong) UISelectionFeedbackGenerator *selectionFeedback;
 @property(nonatomic,weak) UILabel *liftedTitle;
 @property(nonatomic,strong) UIView *channelLens;
 @property(nonatomic,strong) HGAAppearanceMaterial *channelRefraction;
@@ -163,6 +170,8 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
 @property(nonatomic) BOOL previousAccessibilityElement;
 @property(nonatomic,copy) NSString *glassStyle;
 @property(nonatomic,strong) UIImageView *menuGlyph;
+@property(nonatomic) BOOL toolPressed;
+- (void)animatePressState:(BOOL)pressed offset:(CGPoint)offset;
 @end
 @implementation HGAHeaderToolButton
 @synthesize source=_source;
@@ -177,8 +186,67 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     source.isAccessibilityElement=NO;
 }
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+    if (self.toolPressed) return CGRectContainsPoint(CGRectInset(self.bounds,-28,-28),point);
     return [super pointInside:point withEvent:event] &&
         [[UIBezierPath bezierPathWithOvalInRect:self.bounds] containsPoint:point];
+}
+- (void)animatePressState:(BOOL)pressed offset:(CGPoint)offset {
+    self.toolPressed=pressed;
+    if (UIAccessibilityIsReduceMotionEnabled()) {
+        if (!CGAffineTransformIsIdentity(self.transform)) self.transform=CGAffineTransformIdentity;
+        return;
+    }
+    CGAffineTransform target=CGAffineTransformIdentity;
+    if (pressed) {
+        CGFloat scale=[self.glassStyle isEqual:@"flat"] ? 1.06 : 1.14;
+        target=CGAffineTransformConcat(CGAffineTransformMakeScale(scale,scale),
+            CGAffineTransformMakeTranslation(offset.x,offset.y));
+    }
+    [UIView animateWithDuration:pressed ? 0.24 : 0.38 delay:0
+        usingSpringWithDamping:pressed ? 0.60 : 0.58 initialSpringVelocity:pressed ? 0.40 : 0
+        options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
+        animations:^{ self.transform=target; } completion:nil];
+}
+- (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    BOOL began=[super beginTrackingWithTouch:touch withEvent:event];
+    if (began) [self animatePressState:YES offset:CGPointZero];
+    return began;
+}
+- (BOOL)continueTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    BOOL tracking=[super continueTrackingWithTouch:touch withEvent:event];
+    if (!tracking || UIAccessibilityIsReduceMotionEnabled()) {
+        if (self.toolPressed) [self animatePressState:NO offset:CGPointZero];
+        return tracking;
+    }
+    CGPoint p=[touch locationInView:self];
+    if (!CGRectContainsPoint(CGRectInset(self.bounds,-28,-28),p)) {
+        if (self.toolPressed) [self animatePressState:NO offset:CGPointZero];
+        return YES;
+    }
+    CGFloat dx=p.x-CGRectGetMidX(self.bounds), dy=p.y-CGRectGetMidY(self.bounds);
+    CGPoint pull=CGPointMake(4.0*tanh(dx/22.0),4.0*tanh(dy/22.0));
+    if (!self.toolPressed) [self animatePressState:YES offset:pull];
+    else {
+        CGFloat scale=[self.glassStyle isEqual:@"flat"] ? 1.06 : 1.14;
+        self.transform=CGAffineTransformConcat(CGAffineTransformMakeScale(scale,scale),
+            CGAffineTransformMakeTranslation(pull.x,pull.y));
+    }
+    return YES;
+}
+- (void)endTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    [self animatePressState:NO offset:CGPointZero];
+    [super endTrackingWithTouch:touch withEvent:event];
+}
+- (void)cancelTrackingWithEvent:(UIEvent *)event {
+    [self animatePressState:NO offset:CGPointZero];
+    [super cancelTrackingWithEvent:event];
+}
+- (void)willMoveToWindow:(UIWindow *)newWindow {
+    if (!newWindow) {
+        self.toolPressed=NO;
+        self.transform=CGAffineTransformIdentity;
+    }
+    [super willMoveToWindow:newWindow];
 }
 @end
 
@@ -231,10 +299,33 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     CGFloat fraction=index-left;
     CGFloat slot=CGRectGetWidth(a)+(CGRectGetWidth(b)-CGRectGetWidth(a))*fraction;
     CGFloat center=CGRectGetMidX(a)+(CGRectGetMidX(b)-CGRectGetMidX(a))*fraction;
-    CGFloat inset=lifted ? 3 : 4;
     CGRect bounds=control.bounds;
-    CGFloat width=MAX(0,slot-2*inset), height=MAX(0,CGRectGetHeight(bounds)-2*inset);
-    return [control convertRect:CGRectMake(center-width/2,CGRectGetMinY(bounds)+inset,width,height)
+    if (!lifted || ![self hasChannelButtons]) {
+        CGFloat inset=lifted ? 3 : 4;
+        CGFloat width=MAX(0,slot-2*inset), height=MAX(0,CGRectGetHeight(bounds)-2*inset);
+        return [control convertRect:CGRectMake(center-width/2,CGRectGetMinY(bounds)+inset,width,height)
+            toView:self.channelLens.superview];
+    }
+    CGFloat dist=fabs(index-round(index))*2.0;
+    CGFloat stretch=dist*dist*(3.0-2.0*dist);
+    if (!self.scrubbingRail) {
+        CGFloat inset=2.0;
+        CGFloat width=MIN(CGRectGetWidth(bounds)-2*inset,MAX(0,(slot-2*inset)+slot*(0.10*stretch)));
+        CGFloat height=MAX(0,CGRectGetHeight(bounds)-2*inset);
+        CGFloat x=MAX(CGRectGetMinX(bounds)+inset,MIN(center-width*0.5,CGRectGetMaxX(bounds)-inset-width));
+        return [control convertRect:CGRectMake(x,CGRectGetMidY(bounds)-height*0.5,width,height)
+            toView:self.channelLens.superview];
+    }
+    // Match Dock's Liquid Glass selection lens: press/long-press swells the
+    // droplet slightly above the capsule rim and stretches fluidly between tabs.
+    CGFloat height=CGRectGetHeight(bounds)*(1.14-0.05*stretch);
+    CGFloat baseWidth=slot+4.0;
+    CGFloat maxWidth=CGRectGetWidth(bounds)+4.0;
+    CGFloat width=MIN(maxWidth,baseWidth+slot*(0.18*stretch));
+    CGFloat minX=CGRectGetMinX(bounds)-2.0;
+    CGFloat maxX=CGRectGetMaxX(bounds)+2.0-width;
+    CGFloat x=MAX(minX,MIN(center-width*0.5,maxX));
+    return [control convertRect:CGRectMake(x,CGRectGetMidY(bounds)-height*0.5,width,height)
         toView:self.channelLens.superview];
 }
 - (void)prepareChannelLens {
@@ -278,25 +369,67 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     self.channelLens=lens;
 }
 - (void)positionLensForSegment:(CGFloat)index lifted:(BOOL)lifted {
-    CGRect frame=[self lensFrameAtSegment:index lifted:lifted && !self.glassSelection];
+    CGRect frame=[self lensFrameAtSegment:index lifted:lifted];
     UIView *lens=self.channelLens;
-    if (!CGRectEqualToRect(lens.frame,frame)) lens.frame=frame;
+    CGRect targetBounds=(CGRect){CGPointZero,frame.size};
+    CGPoint targetCenter=CGPointMake(CGRectGetMidX(frame),CGRectGetMidY(frame));
+    if (!CGRectEqualToRect(lens.bounds,targetBounds)) lens.bounds=targetBounds;
+    if (!CGPointEqualToPoint(lens.center,targetCenter)) lens.center=targetCenter;
     CGFloat radius=CGRectGetHeight(frame)/2;
     if (lens.layer.cornerRadius!=radius) lens.layer.cornerRadius=radius;
-    if (self.channelRefraction && !CGRectEqualToRect(self.channelRefraction.frame,lens.bounds))
-        self.channelRefraction.frame=lens.bounds;
+    if (self.channelRefraction && !CGRectEqualToRect(self.channelRefraction.frame,targetBounds))
+        self.channelRefraction.frame=targetBounds;
     self.channelRefraction.materialCornerRadius=radius;
-    if (self.channelRefraction && self.channelRefraction.hidden==lifted) {
-        self.channelRefraction.hidden=!lifted;
-        lens.backgroundColor=lifted ? UIColor.clearColor : [UIColor colorWithWhite:1 alpha:0.16];
+    if (self.channelRefraction) {
+        if (lifted) {
+            [self.channelRefraction.layer removeAnimationForKey:@"opacity"];
+            self.channelRefraction.alpha=1;
+            self.channelRefraction.hidden=NO;
+            lens.backgroundColor=UIColor.clearColor;
+            lens.layer.borderWidth=0;
+        } else if (!self.channelLensSettling) {
+            self.channelRefraction.hidden=YES;
+            self.channelRefraction.alpha=1;
+            lens.backgroundColor=[UIColor colorWithWhite:1 alpha:0.16];
+            lens.layer.borderWidth=0;
+        }
+    } else if ([self hasChannelButtons]) {
+        lens.backgroundColor=[UIColor colorWithWhite:1 alpha:lifted ? 0.24 : 0.16];
+        lens.layer.borderWidth=lifted ? 0.5 : 0;
+        if (lifted) lens.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.32].CGColor;
     }
     if(self.channelRefraction.window && !self.channelRefraction.effect)[self.channelRefraction layoutIfNeeded];
+}
+- (void)prepareSelectionHaptics {
+    if (!self.selectionFeedback) self.selectionFeedback=[UISelectionFeedbackGenerator new];
+    [self.selectionFeedback prepare];
+}
+- (void)emitSelectionHaptic {
+    if (!self.selectionFeedback) self.selectionFeedback=[UISelectionFeedbackGenerator new];
+    [self.selectionFeedback selectionChanged];
+    [self.selectionFeedback prepare];
+}
+- (void)setRailPressed:(BOOL)pressed {
+    if (@available(iOS 26.0,*)) {
+        if (![self hasChannelButtons]) return;
+        UIView *rail=((HGAHeaderGlassChannels *)self.channelControl).rail;
+        if (!rail) return;
+        if (UIAccessibilityIsReduceMotionEnabled()) {
+            if (!CGAffineTransformIsIdentity(rail.transform)) rail.transform=CGAffineTransformIdentity;
+            return;
+        }
+        CGAffineTransform target=pressed ? CGAffineTransformMakeScale(1.014,1.032) : CGAffineTransformIdentity;
+        [UIView animateWithDuration:pressed ? 0.24 : 0.36 delay:0
+            usingSpringWithDamping:pressed ? 0.68 : 0.72 initialSpringVelocity:pressed ? 0.25 : 0
+            options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
+            animations:^{ rail.transform=target; } completion:nil];
+    }
 }
 - (void)liftTitle:(UILabel *)title {
     UILabel *previous=self.liftedTitle;
     if (title==previous) return;
     self.liftedTitle=title;
-    [UIView animateWithDuration:title ? 0.26 : 0.38 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0
+    [UIView animateWithDuration:title ? 0.24 : 0.36 delay:0 usingSpringWithDamping:title ? 0.74 : 0.80 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
             previous.transform=CGAffineTransformIdentity;
             title.transform=CGAffineTransformMakeScale(1.08,1.08);
@@ -309,6 +442,7 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     if (segment==NSNotFound) return;
     if (control.selectedSegmentIndex!=segment) control.selectedSegmentIndex=segment;
     if ([self hasChannelButtons]) {
+        self.channelLens.transform=CGAffineTransformIdentity;
         [self positionLensForSegment:segment lifted:NO];
         self.channelLens.hidden=NO;
     }
@@ -326,16 +460,18 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         self.channelLensSettling=NO;
         self.channelLensTracking=YES;
         [UIView performWithoutAnimation:^{
+            self.channelLens.transform=CGAffineTransformIdentity;
             if (self.channelLens.hidden) [self positionLensForSegment:origin lifted:NO];
             self.channelLens.hidden=NO;
             if (![self hasChannelButtons] && control.selectedSegmentIndex!=UISegmentedControlNoSegment)
                 control.selectedSegmentIndex=UISegmentedControlNoSegment;
         }];
-        if (animated && !self.glassSelection) {
-            [UIView animateWithDuration:0.33 delay:0 usingSpringWithDamping:0.84 initialSpringVelocity:0 options:UIViewAnimationOptionBeginFromCurrentState|
-                UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionCurveEaseOut animations:^{
-                [self positionLensForSegment:index lifted:YES];
-            } completion:nil];
+        if (animated) {
+            [UIView animateWithDuration:0.30 delay:0 usingSpringWithDamping:0.74 initialSpringVelocity:0.20
+                options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
+                animations:^{
+                    [self positionLensForSegment:index lifted:YES];
+                } completion:nil];
         } else {
             [self.channelLens.layer removeAllAnimations];
             [UIView performWithoutAnimation:^{[self positionLensForSegment:index lifted:YES];}];
@@ -345,8 +481,11 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         [UIView performWithoutAnimation:^{[self positionLensForSegment:index lifted:YES];}];
     }
     if (@available(iOS 26.0,*)) {
-        if (!self.glassSelection && [self hasChannelButtons])
-            [self liftTitle:((HGAHeaderGlassChannels *)control).buttons[(NSUInteger)lround(index)].titleLabel];
+        if ([self hasChannelButtons]) {
+            UILabel *targetLabel=self.scrubbingRail ?
+                ((HGAHeaderGlassChannels *)control).buttons[(NSUInteger)lround(index)].titleLabel : nil;
+            [self liftTitle:targetLabel];
+        }
     }
 }
 - (UIView *)pageCategoryContainer {
@@ -371,6 +510,10 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
 - (void)finishChannelMotion {
     [self.pageCoasting invalidate];
     self.pageCoasting=nil;
+    CGFloat releaseVelocity=self.railVelocityX;
+    self.railVelocityX=0;
+    self.railDragging=NO;
+    [self setRailPressed:NO];
     UIView *lens=self.channelLens;
     if (!self.channelLensTracking) return;
     self.channelLensTracking=NO;
@@ -384,22 +527,49 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     NSInteger selected=[self hostSegment];
     UIControl<HGAHeaderSelecting> *control=self.channelControl;
     if (!control.window) {
+        lens.transform=CGAffineTransformIdentity;
         lens.hidden=YES;
+        if (self.channelRefraction) {
+            self.channelRefraction.hidden=YES;
+            self.channelRefraction.alpha=1;
+        }
         return;
     }
     if (selected==NSNotFound) selected=self.previewOrigin;
-    if (self.glassSelection) {
+    if (UIAccessibilityIsReduceMotionEnabled()) {
         [UIView performWithoutAnimation:^{
+            lens.transform=CGAffineTransformIdentity;
+            self.channelLensSettling=NO;
             [self positionLensForSegment:selected lifted:NO];
             control.selectedSegmentIndex=selected;
+            lens.hidden=![self hasChannelButtons];
         }];
         [control.superview setNeedsLayout];
         return;
     }
     NSUInteger generation=++self.channelMotionGeneration;
     self.channelLensSettling=YES;
-    [UIView animateWithDuration:0.42 delay:0 usingSpringWithDamping:0.87 initialSpringVelocity:0
+    CGRect restingTarget=[self lensFrameAtSegment:selected lifted:NO];
+    CGFloat springVelocity=0;
+    if (fabs(releaseVelocity)>10.0) {
+        CGFloat dx=CGRectGetMidX(restingTarget)-lens.center.x;
+        if (fabs(dx)>2.0) {
+            CGFloat toward=(dx>=0 ? releaseVelocity : -releaseVelocity)/MAX(32.0,fabs(dx));
+            springVelocity=MIN(4.0,MAX(-1.5,toward));
+        }
+    }
+    BOOL fadeRefraction=self.channelRefraction && !self.channelRefraction.hidden;
+    if (fadeRefraction) {
+        [UIView animateWithDuration:0.18 delay:0.12
+            options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionCurveEaseOut
+            animations:^{
+                self.channelRefraction.alpha=0;
+                lens.backgroundColor=[UIColor colorWithWhite:1 alpha:0.16];
+            } completion:nil];
+    }
+    [UIView animateWithDuration:0.38 delay:0 usingSpringWithDamping:0.76 initialSpringVelocity:springVelocity
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
+        lens.transform=CGAffineTransformIdentity;
         [self positionLensForSegment:selected lifted:NO];
     } completion:^(BOOL finished){
         if(self.channelMotionGeneration!=generation || self.channelLens!=lens)return;
@@ -407,6 +577,11 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         NSInteger resting=[self hostSegment];
         if(resting==NSNotFound)resting=selected;
         [UIView performWithoutAnimation:^{
+            lens.transform=CGAffineTransformIdentity;
+            if(self.channelRefraction) {
+                self.channelRefraction.hidden=YES;
+                self.channelRefraction.alpha=1;
+            }
             if(control.selectedSegmentIndex!=resting)control.selectedSegmentIndex=resting;
             lens.hidden=![self hasChannelButtons];
             if (!lens.hidden) [self positionLensForSegment:resting lifted:NO];
@@ -480,7 +655,16 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     if (!control.window || !self.channelIndices.count) return;
     CGPoint p=[pan locationInView:control];
     CGFloat position=[self segmentAtX:p.x];
-    if (pan.state==UIGestureRecognizerStateBegan) self.railContactPosition=position;
+    if (pan.state==UIGestureRecognizerStateBegan) {
+        self.railContactPosition=position;
+        self.railTouchStartX=p.x;
+        self.railDragging=NO;
+        self.railLastX=p.x;
+        self.railLastTimestamp=CACurrentMediaTime();
+        self.railVelocityX=0;
+        self.railHoveredSegment=lround(position);
+        [self prepareSelectionHaptics];
+    }
     if (self.scrubbingRail || pan.state==UIGestureRecognizerStateBegan) {
         // Anchor the initial lift to the button. Blend the small grab offset
         // away as the finger travels so a stationary hold cannot jump sideways.
@@ -488,19 +672,63 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         position+=(round(contact)-contact)*MAX(0,1-fabs(position-contact)/0.35);
     }
     if (pan.state==UIGestureRecognizerStateBegan || pan.state==UIGestureRecognizerStateChanged) {
-        if (!self.scrubbingRail) {
+        BOOL wasScrubbing=self.scrubbingRail;
+        if (!wasScrubbing) {
             [self.pageCoasting invalidate];
             self.pageCoasting=nil;
             // A new rail contact takes over a preview started by the page pan.
             // Let its first sample lift at the touched button immediately.
             self.channelLensTracking=NO;
+            if (pan.state==UIGestureRecognizerStateChanged) {
+                self.railContactPosition=position;
+                self.railTouchStartX=p.x;
+                self.railDragging=YES;
+                self.railLastX=p.x;
+                self.railLastTimestamp=CACurrentMediaTime();
+                self.railVelocityX=0;
+                self.railHoveredSegment=lround(position);
+            }
         }
         self.scrubbingRail=YES;
-        BOOL began=pan.state==UIGestureRecognizerStateBegan;
-        [self previewSegment:began ? round(position) : position liftAnimated:began];
+        [self setRailPressed:YES];
+        if (pan.state==UIGestureRecognizerStateBegan) {
+            [self previewSegment:round(position) liftAnimated:YES];
+            return;
+        }
+        if (!self.railDragging) {
+            // Ignore capacitive micro-jitter during stationary taps and holds so
+            // the initial Liquid Glass inflation/glide spring runs uninterrupted.
+            if (fabs(p.x-self.railTouchStartX)<=6.0) return;
+            self.railDragging=YES;
+        }
+        CFTimeInterval now=CACurrentMediaTime();
+        CFTimeInterval dt=self.railLastTimestamp>0 ? now-self.railLastTimestamp : 0;
+        if (dt>0.001 && dt<0.12) {
+            CGFloat vx=(p.x-self.railLastX)/dt;
+            self.railVelocityX=self.railVelocityX*0.55+vx*0.45;
+        } else if (dt>=0.12) {
+            self.railVelocityX=0;
+        }
+        self.railLastX=p.x;
+        self.railLastTimestamp=now;
+        NSInteger hovered=MIN((NSInteger)self.channelIndices.count-1,MAX(0,lround(position)));
+        if (hovered!=self.railHoveredSegment) {
+            self.railHoveredSegment=hovered;
+            [self emitSelectionHaptic];
+        }
+        if ([self hasChannelButtons] && !UIAccessibilityIsReduceMotionEnabled()) {
+            CGFloat norm=MIN(1.0,fabs(self.railVelocityX)/1100.0);
+            CGAffineTransform stretch=norm>0.02 ?
+                CGAffineTransformMakeScale(1.0+norm*0.045,1.0-norm*0.028) : CGAffineTransformIdentity;
+            if (!CGAffineTransformEqualToTransform(self.channelLens.transform,stretch))
+                self.channelLens.transform=stretch;
+        }
+        [self previewSegment:position liftAnimated:NO];
     } else {
+        BOOL dragged=self.railDragging;
         self.scrubbingRail=NO;
-        if (pan.state==UIGestureRecognizerStateEnded && CGRectContainsPoint(control.bounds,p)) {
+        CGRect commitZone=CGRectInset(control.bounds,dragged ? -24 : -8,dragged ? -44 : -12);
+        if (pan.state==UIGestureRecognizerStateEnded && CGRectContainsPoint(commitZone,p)) {
             NSInteger index=MIN((NSInteger)self.channelIndices.count-1,MAX(0,lround(position)));
             [self selectHeaderSegment:index];
         }
@@ -524,6 +752,14 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         if (self.previewOrigin==NSNotFound) self.previewOrigin=next;
         self.channelLensSettling=NO;
         self.channelLensTracking=YES;
+        if (self.previewOrigin!=next && [self hasChannelButtons]) {
+            [UIView performWithoutAnimation:^{
+                BOOL wasScrubbing=self.scrubbingRail;
+                self.scrubbingRail=YES;
+                [self positionLensForSegment:self.previewOrigin lifted:YES];
+                self.scrubbingRail=wasScrubbing;
+            }];
+        }
     }
     [self selectHeaderSegment:next];
     if (shouldSettle) {
@@ -1205,6 +1441,8 @@ static HGAAppearanceMaterial *HGAMakeHeaderCircleGlass(NSString *identifier,UIVi
 }
 
 static void HGARemoveHeaderToolButton(HGAHeaderToolButton *button) {
+    button.toolPressed=NO;
+    button.transform=CGAffineTransformIdentity;
     button.source=nil;
     [button removeFromSuperview];
 }
@@ -1241,7 +1479,14 @@ static void HGAApplyHeaderTool(UIView *header,HGAHeaderInsetState *state,UIView 
         }
         button.source=source;
         button.accessibilityLabel=source.accessibilityLabel ?: (sidebar ? @"菜单" : @"搜索");
-        if (!CGRectEqualToRect(button.frame,frame)) button.frame=frame;
+        if (CGAffineTransformIsIdentity(button.transform)) {
+            if (!CGRectEqualToRect(button.frame,frame)) button.frame=frame;
+        } else {
+            CGSize targetSize=frame.size;
+            CGPoint targetCenter=CGPointMake(CGRectGetMidX(frame),CGRectGetMidY(frame));
+            if (!CGSizeEqualToSize(button.bounds.size,targetSize)) button.bounds=(CGRect){CGPointZero,targetSize};
+            if (!CGPointEqualToPoint(button.center,targetCenter)) button.center=targetCenter;
+        }
         button.layer.zPosition=source ? -1 : 0;
         if (sidebar && !source && !button.menuGlyph) {
             UIImageSymbolConfiguration *ink=[UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightRegular];
@@ -1306,8 +1551,14 @@ static void HGARemoveHeaderChannelControl(HGAHeaderInsetState *state) {
     [state.observedPagePan removeTarget:state action:@selector(followPagePan:)];
     state.observedPagePan=nil;
     state.scrubbingRail=NO;
+    state.railDragging=NO;
+    state.railVelocityX=0;
     state.liftedTitle.transform=CGAffineTransformIdentity;
     state.liftedTitle=nil;
+    if (@available(iOS 26.0,*)) {
+        if ([state hasChannelButtons])
+            ((HGAHeaderGlassChannels *)state.channelControl).rail.transform=CGAffineTransformIdentity;
+    }
     [state.channelLens removeFromSuperview];
     state.channelLens=nil;
     state.channelRefraction=nil;

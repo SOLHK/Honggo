@@ -116,6 +116,18 @@
 - (void)scrubChannels:(UIPanGestureRecognizer *)gesture;
 - (CGFloat)segmentForPageOffset:(CGFloat)page;
 @end
+@interface HGAHeaderToolButton (HGATestPressFixture)
+- (void)animatePressState:(BOOL)pressed offset:(CGPoint)offset;
+@end
+
+static void HGWaitForHeaderChannelLensToSettle(UIView *header) {
+    id state=objc_getAssociatedObject(header,&HGAHeaderInsetKey);
+    if(!state)return;
+    [CATransaction flush];
+    CFTimeInterval deadline=CACurrentMediaTime()+0.75;
+    while([[state valueForKey:@"channelLensSettling"] boolValue] && CACurrentMediaTime()<deadline)
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.02,false);
+}
 @implementation HGATestChannelPan
 - (UIGestureRecognizerState)state { return self.fixtureState; }
 - (CGPoint)translationInView:(UIView *)view { return self.fixtureTravel; }
@@ -621,6 +633,21 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         if (nativeTools) {
             [menu sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
             [searchButton sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+            if (!UIAccessibilityIsReduceMotionEnabled()) {
+                HGAppearanceSet(@"player.headerStyle",@"glass",nil);
+                Layout(header);
+                CGRect menuRest=menu.bounds;
+                CGPoint menuCenter=menu.center;
+                [(HGAHeaderToolButton *)menu animatePressState:YES offset:CGPointMake(2,-1)];
+                Layout(header);
+                BOOL inflated=menu.transform.a>1.10 && CGSizeEqualToSize(menu.bounds.size,menuRest.size) &&
+                    CGPointEqualToPoint(menu.center,menuCenter);
+                [(HGAHeaderToolButton *)menu animatePressState:NO offset:CGPointZero];
+                Check(inflated && CGAffineTransformIsIdentity(menu.transform),
+                    @"top side circle buttons spring-inflate with magnetic follow on hold, preserve bounds across layout, and restore to rest");
+                HGAppearanceSet(@"player.headerStyle",@"flat",nil);
+                Layout(header);
+            }
         }
         Check(toolOwner.menuTaps==1 && toolOwner.searchTaps==1,
             @"each top button runs its verified native action one time");
@@ -935,16 +962,25 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     Check(refraction.superview==lens && !refraction.hidden && !rail.hidden && [rail.superview.subviews indexOfObject:rail]<[rail.superview.subviews indexOfObject:lens] &&
                         [group.subviews indexOfObject:rail.superview]<[group.subviews indexOfObject:buttons[0].superview] &&
                         HGTestFullGlassEffect(refraction) && [(UIGlassEffect *)refraction.effect isInteractive] && routesTouch &&
-                        CGRectGetHeight(lens.frame)==restingHeight && CGAffineTransformIsIdentity(firstTitle.transform) &&
+                        CGRectGetHeight(lens.bounds)>restingHeight+6 && firstTitle.titleLabel.transform.a>1.04 &&
                         channels.nativeSelections==before,
-                        @"touch-down activates native refraction on the title hit surface without resizing the selected slot or label");
+                        @"touch-down and long-press inflate the native Liquid Glass droplet above the rail with coordinated title lift");
+                    // Capacitive micro-jitter (< 6pt) during a hold must not cancel the live inflation spring.
+                    sample.fixtureState=UIGestureRecognizerStateChanged;
+                    sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.25+2.0,CGRectGetMidY(group.bounds));
+                    [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
+                    Check(!UIView.areAnimationsEnabled || lens.layer.animationKeys.count>0,
+                        @"sub-6pt thumb micro-jitter preserves the in-flight Liquid Glass press spring");
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
                     [(id<HGATestChannelPaging>)hold.delegate scrubChannels:sample];
-                    Check(refraction.hidden && CGColorGetAlpha(lens.backgroundColor.CGColor)>0 && channels.nativeSelections==before,
-                        @"cancelling the hold immediately restores the recessed selection without selecting another channel");
+                    HGWaitForHeaderChannelLensToSettle(header);
+                    Check(refraction.hidden && CGColorGetAlpha(lens.backgroundColor.CGColor)>0 &&
+                        CGAffineTransformIsIdentity(firstTitle.titleLabel.transform) && channels.nativeSelections==before,
+                        @"cancelling the hold springs back to the recessed selection without selecting another channel");
                 }
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
                 [buttons[1] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                HGWaitForHeaderChannelLensToSettle(header);
                 if (!buttons[1].selected || buttons[0].selected || channels.selectedIndex!=3 ||
                     channels.nativeSelections!=before+1 || pageScroll.contentOffset.x!=3*pageWidth || !sameRail())
                     NSLog(@"HEADER_ACTIVATE selected=%d/%d host=%ld calls=%ld offset=%.1f expected=%.1f mounted=%d rail=%d",
@@ -955,18 +991,30 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sameRail() && Find(group,@"honggo.appearance.header.swipeLens")==lens,
                     @"glass channel activation selects the originally visible host page exactly once");
                 [buttons[0] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                HGWaitForHeaderChannelLensToSettle(header);
                 if (!UIAccessibilityIsReduceMotionEnabled()) {
                     id<HGATestChannelPaging> scrubber=nil;
                     for (UIGestureRecognizer *gesture in buttons.firstObject.gestureRecognizers)
                         if ([gesture.delegate respondsToSelector:@selector(scrubChannels:)]) scrubber=(id)gesture.delegate;
                     sample.fixtureState=UIGestureRecognizerStateChanged;
-                    sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.66,CGRectGetMidY(group.bounds));
+                    sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.50,CGRectGetMidY(group.bounds));
                     [scrubber scrubChannels:sample];
+                    CGFloat midStretchWidth=CGRectGetWidth(lens.bounds);
+                    sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.75,CGRectGetMidY(group.bounds));
+                    [scrubber scrubChannels:sample];
+                    CGFloat centeredWidth=CGRectGetWidth(lens.bounds);
                     Check(scrubber && sameRail() && !lens.hidden && !refraction.hidden &&
-                        CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds),
-                        @"scrubbing the glass channel moves the active native refraction over the fixed rail");
-                    sample.fixtureState=UIGestureRecognizerStateCancelled;
+                        CGRectGetMidX(lens.frame)>CGRectGetMidX(group.bounds) && midStretchWidth>centeredWidth+2.0,
+                        @"scrubbing the glass channel stretches the Liquid Glass droplet across the mid-gap and contracts over the next channel");
+                    // Releasing with natural vertical thumb drift (y = +50pt below top edge of 38pt rail) still commits the dragged channel.
+                    sample.fixtureLocation=CGPointMake(CGRectGetWidth(group.bounds)*0.75,CGRectGetHeight(group.bounds)+16);
+                    sample.fixtureState=UIGestureRecognizerStateEnded;
                     [scrubber scrubChannels:sample];
+                    HGWaitForHeaderChannelLensToSettle(header);
+                    Check(channels.selectedIndex==3 && buttons[1].selected,
+                        @"releasing a horizontal channel scrub with natural vertical thumb drift still commits the target channel");
+                    [buttons[0] sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+                    HGWaitForHeaderChannelLensToSettle(header);
                     sample.fixtureState=UIGestureRecognizerStateChanged;
                     sample.fixtureTravel=CGPointMake(-pageWidth*0.25,0);
                     [channelPaging page:sample];
@@ -980,6 +1028,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
                     [scrubber scrubChannels:sample];
                     [channelPaging page:sample];
+                    HGWaitForHeaderChannelLensToSettle(header);
                 }
             }
             HGAppearanceApply(@{@"player.headerStyle":@"flat",@"player.headerSelectionStyle":@"plain"},nil);
@@ -1107,6 +1156,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                     aligned &= pressed;
                     sample.fixtureState=UIGestureRecognizerStateCancelled;
                     [scrubber scrubChannels:sample];
+                    HGWaitForHeaderChannelLensToSettle(header);
                     aligned &= rail==Find(strip,@"honggo.appearance.header.channelRail") && [rail valueForKey:@"materialSignature"]==track && (!glass || glass.hidden);
                 }
             }

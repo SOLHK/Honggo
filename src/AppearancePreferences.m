@@ -10,6 +10,7 @@ static NSString *const HGAR15GeometryMigration = @"Honggo.Appearance.r15Geometry
 static NSString *const HGADockWidthMigration = @"Honggo.Appearance.dockWidthMigrated";
 static NSString *const HGAR20GeometryMigration = @"Honggo.Appearance.r20GeometryMigrated";
 static NSString *const HGABalancedDockMigration = @"Honggo.Appearance.balancedDockMigrated";
+static NSString *const HGAHeaderLiquidSelectionMigration = @"Honggo.Appearance.headerLiquidSelectionMigrated";
 const double HGADockDefaultWidth = 0.90;
 static const double HGADockDefaultHeight = 58;
 static const double HGADockDefaultIconSize = 24;
@@ -291,6 +292,16 @@ NSDictionary *HGAppearanceValues(void) {
                 stored=updated;
             }
             [NSUserDefaults.standardUserDefaults setBool:YES forKey:HGABalancedDockMigration];
+        }
+        if(![NSUserDefaults.standardUserDefaults boolForKey:HGAHeaderLiquidSelectionMigration]) {
+            if([stored[@"player.headerStyle"] isEqual:@"glass"] &&
+                (!stored[@"player.headerSelectionStyle"] || [stored[@"player.headerSelectionStyle"] isEqual:@"plain"])) {
+                NSMutableDictionary *updated=[stored mutableCopy];
+                updated[@"player.headerSelectionStyle"]=@"glass";
+                [NSUserDefaults.standardUserDefaults setObject:updated forKey:HGAStore];
+                stored=updated;
+            }
+            [NSUserDefaults.standardUserDefaults setBool:YES forKey:HGAHeaderLiquidSelectionMigration];
         }
         NSMutableDictionary *values=[NSMutableDictionary dictionary];
         for(NSDictionary *def in HGAppearanceCatalog()) { id value=stored[def[@"key"]];

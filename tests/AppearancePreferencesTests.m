@@ -89,10 +89,24 @@ static void CheckBalancedDockMigration(void) {
     Check(HGAppearanceNumber(@"dock.height")==70 && HGAppearanceNumber(@"dock.width")==0.94,
         @"choosing beta9 dimensions after migration remains possible");
 }
+static void CheckHeaderLiquidSelectionMigration(void) {
+    NSString *migration=@"Honggo.Appearance.headerLiquidSelectionMigrated";
+    NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
+    [defaults removeObjectForKey:migration];
+    SeedR14Appearance(@{@"enabled":@YES,@"player.headerGlass":@YES,@"player.headerStyle":@"glass",
+        @"player.headerSelectionStyle":@"plain"});
+    Check([HGAppearanceString(@"player.headerSelectionStyle") isEqual:@"glass"] && [defaults boolForKey:migration],
+        @"persisted glass top bar upgrades its default plain selection to liquid glass once");
+    HGAppearanceSet(@"player.headerSelectionStyle",@"plain",nil);
+    [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:defaults];
+    Check([HGAppearanceString(@"player.headerSelectionStyle") isEqual:@"plain"],
+        @"choosing plain top channel selection after migration survives reload");
+}
 int main(void) {@autoreleasepool {
     CheckR15GeometryMigration();
     CheckR20GeometryMigration();
     CheckBalancedDockMigration();
+    CheckHeaderLiquidSelectionMigration();
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];

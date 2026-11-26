@@ -440,6 +440,7 @@ static void HGAApplyPlayerNavigation(id component) {
             CGFloat width=MAX(height,CGRectGetWidth(content[i])+14);
             CGRect pill=CGRectMake(CGRectGetMidX(content[i])-width/2,centerY-height/2,width,height);
             HGAInstallButtonGlass(target,style,[bar convertRect:pill toView:target],height/2);
+            if(i==0 && back)HGAState(target,NO).glass.flexTouchHost=back;
             [targets addObject:target];
         }
         HGAPlayerChromeTargets(component,targets,nil);

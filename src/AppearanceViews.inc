@@ -14,6 +14,7 @@ static BOOL HGAUsesNativeGlass(NSString *style) {
 @property(nonatomic) BOOL untintedGlass;
 @property(nonatomic) CGFloat materialCornerRadius;
 @property(nonatomic,strong) CALayer *gaussianBackdrop;
+@property(nonatomic,weak) UIView *flexTouchHost;
 - (void)requestMaterialRefresh;
 @end
 // Only the backing pixels enter this filter. Comment text, avatars and the
@@ -53,6 +54,12 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
 }
 
 @implementation HGAAppearanceMaterial
+- (UIView *)_flexInteractionGestureView {
+    UIView *host=self.flexTouchHost;
+    if(host.window && host.window==self.window && host.userInteractionEnabled)return host;
+    IMP inherited=class_getMethodImplementation(UIVisualEffectView.class,_cmd);
+    return ((UIView *(*)(id,SEL))inherited)(self,_cmd);
+}
 - (void)setMaterialCornerRadius:(CGFloat)radius {
     if(fabs(_materialCornerRadius-radius)<0.001)return;
     _materialCornerRadius=radius;
@@ -233,6 +240,7 @@ static void HGAInstallGlassInRect(UIView *view,NSString *style,CGRect frame,CGFl
         state.glass.clipsToBounds=YES;
     }
     HGAAppearanceMaterial *glass=state.glass;
+    glass.flexTouchHost=view;
     if(![glass.style isEqual:style] || fabs(glass.overlayOpacity-opacity)>0.001) {
         glass.style=style;glass.overlayOpacity=opacity;glass.materialSignature=nil;[glass setNeedsLayout];
     }
