@@ -749,11 +749,12 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
 - (BOOL)syncSystemItems:(NSArray<NSString *> *)keys content:(NSString *)content iconSize:(CGFloat)size {
     UITraitCollection *traits=self.capsule.traitCollection;
     UIColor *selected=[UIColor.labelColor resolvedColorWithTraitCollection:traits];
-    UIColor *normal=[UIColor.secondaryLabelColor resolvedColorWithTraitCollection:traits];
+    CGFloat normalAlpha=traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.90 : 0.62;
+    UIColor *normal=[selected colorWithAlphaComponent:normalAlpha];
     BOOL videoClear=HGASelectedTab(self.hostController)==0 && [HGAppearanceString(@"dock.material") isEqual:@"clear"];
     if(videoClear) {
         selected=UIColor.whiteColor;
-        normal=[UIColor.whiteColor colorWithAlphaComponent:traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.94 : 0.84];
+        normal=[UIColor.whiteColor colorWithAlphaComponent:traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.94 : 0.78];
     }
     UIColor *edge=videoClear ? [UIColor colorWithWhite:0 alpha:0.78] : nil;
     NSMutableArray<NSNumber *> *enabled=[NSMutableArray arrayWithCapacity:keys.count];
@@ -820,9 +821,12 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
 }
 
+static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
+
 - (NSString *)applySystemMaterial:(NSString *)style {
     if(@available(iOS 26.0,*)) {
         UIView *surface=self.systemPlatter;
+        if(!surface)return @"factory-glass";
         BOOL clear=[style isEqual:@"clear"];
         SEL setter=sel_registerName("setGlassEffect:");
         Method method=class_getInstanceMethod(object_getClass(surface),setter);
@@ -845,7 +849,27 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
                 }
             }
         }
+        BOOL hasKVC=NO;
         if(!backing && !hasSetter && !slot) {
+            if(!HGASystemPlatterKVCProbe)HGASystemPlatterKVCProbe=[NSMutableDictionary dictionary];
+            NSString *className=NSStringFromClass(object_getClass(surface));
+            NSNumber *probed=className ? HGASystemPlatterKVCProbe[className] : nil;
+            if(!probed || probed.boolValue) {
+                @try {
+                    id kvcEffect=[surface valueForKey:@"glassEffect"];
+                    if([kvcEffect isKindOfClass:UIVisualEffect.class]) {
+                        current=kvcEffect;
+                        hasKVC=YES;
+                        if(className)HGASystemPlatterKVCProbe[className]=@YES;
+                    } else if(!probed && className) {
+                        HGASystemPlatterKVCProbe[className]=@NO;
+                    }
+                } @catch (__unused NSException *exception) {
+                    if(className)HGASystemPlatterKVCProbe[className]=@NO;
+                }
+            }
+        }
+        if(!backing && !hasSetter && !slot && !hasKVC) {
             // The item platter on iOS 27 can have a separate backing view
             // directly under the tab bar or nested inside the platter itself.
             // Match only full-platter effects; never replace the moving selection lens.
@@ -855,7 +879,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
                 UIVisualEffectView *candidate=(id)child;
                 if(candidate.effect && (!backing || child.bounds.size.width>backing.bounds.size.width))backing=candidate;
             }
-            if(!backing && surface) {
+            if(!backing) {
                 CGRect platterBounds=surface.bounds;
                 for(UIView *child in HGADockSystemSubviews(surface)) {
                     if(![child isKindOfClass:UIVisualEffectView.class] || child.hidden || child.alpha<0.05)continue;
@@ -881,7 +905,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         if(!needsInstall) {
             if(backing)needsInstall=![backing.effect isKindOfClass:UIGlassEffect.class];
             else if(slot)needsInstall=current!=self.installedSystemGlass;
-            else needsInstall=![current isKindOfClass:UIGlassEffect.class];
+            else needsInstall=![self.installedSystemGlass isKindOfClass:UIGlassEffect.class];
         }
         if(needsInstall) {
             UIGlassEffect *glass=[UIGlassEffect effectWithStyle:clear ? UIGlassEffectStyleClear : UIGlassEffectStyleRegular];
@@ -894,13 +918,24 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
                 object_setIvar(surface,slot,glass);
                 self.installedSystemGlass=object_getIvar(surface,slot);
                 [surface setNeedsLayout];[surface setNeedsDisplay];
-            }else {
+            }else if(hasSetter) {
                 ((void(*)(id,SEL,id))objc_msgSend)(surface,setter,glass);
-                self.installedSystemGlass=HGReadObjectGetter(surface,"glassEffect");
+                id readback=HGReadObjectGetter(surface,"glassEffect");
+                self.installedSystemGlass=[readback isKindOfClass:UIGlassEffect.class] ? readback : glass;
                 [surface setNeedsLayout];
+            }else {
+                @try {
+                    [surface setValue:glass forKey:@"glassEffect"];
+                    id readback=[surface valueForKey:@"glassEffect"];
+                    self.installedSystemGlass=[readback isKindOfClass:UIGlassEffect.class] ? readback : glass;
+                    [surface setNeedsLayout];
+                } @catch (__unused NSException *exception) {
+                    NSString *className=NSStringFromClass(object_getClass(surface));
+                    if(className)HGASystemPlatterKVCProbe[className]=@NO;
+                    return @"factory-glass";
+                }
             }
-            if(![self.installedSystemGlass isKindOfClass:UIGlassEffect.class] ||
-                (current && self.installedSystemGlass==current))
+            if(![self.installedSystemGlass isKindOfClass:UIGlassEffect.class])
                 return @"factory-glass";
             self.customSystemPlatter=surface;self.systemMaterialStyle=style;
         }
@@ -1062,7 +1097,6 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     selected:(NSInteger)selected style:(NSString *)style requestedFrame:(CGRect)requested {
     // A failed mount is cached for this geometry and tab configuration, so a
     // legacy UIKit provider is not recreated on every host layout callback.
-    BOOL requireClear=[style isEqual:@"clear"];
     NSArray *probe=@[keys,content,style,[NSValue valueWithCGSize:self.bounds.size],
         [NSValue valueWithCGSize:requested.size],[NSValue valueWithNonretainedObject:self.window],
         [NSValue valueWithNonretainedObject:self.hostBar.superview]];
@@ -1123,17 +1157,12 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
     self.systemDockSyncing=NO;
     NSString *material=active ? [self applySystemMaterial:style] : style;
-    // A read-only factory platter supplies its default material. The single-
-    // surface Dock below can honor Clear directly, including native refraction.
-    if(active && requireClear && [material isEqual:@"factory-glass"]) {
-        [self removeSystemDock];
-        active=NO;material=style;
-        failure=@"Clear material requires a writable platter";
-    }
+    // Keep UIKit's real floating platter even when an OS revision makes its
+    // internal glassEffect read-only; native UITabBar owns genuine Liquid Glass
+    // refraction and continuous finger-tracking lens physics without double-glass artifacts.
     if(!active)self.failedSystemProbe=probe;
     NSString *mode=active ? (self.systemTabController?@"uikit-controller":@"uikit-tabbar") : @"compatibility";
-    NSString *reason=active ? (HGAppearanceFlag(@"dock.haptics") ? @"UIKit receives the original touch" :
-        @"UIKit platter with quiet touch routing") : failure;
+    NSString *reason=active ? @"UIKit receives the original touch" : failure;
     [self recordDockRenderer:mode reason:reason material:material];
     return active;
 }
@@ -1316,9 +1345,10 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
             [self recordDockRenderer:flat?@"flat":@"compatibility" reason:reason material:flat?@"flat":style];
         }
     }
-    self.quietSystemTouches=useSystem && !haptics;
+    if(self.quietDragLens)[self endQuietLens];
+    self.quietSystemTouches=NO;
     UIView *systemCarrier=[self systemDockCarrier];
-    if(systemCarrier.accessibilityElementsHidden!=self.quietSystemTouches)systemCarrier.accessibilityElementsHidden=self.quietSystemTouches;
+    if(systemCarrier.accessibilityElementsHidden)systemCarrier.accessibilityElementsHidden=NO;
     CGRect actual=useSystem ? self.systemCapsuleFrame : expanded;
     CGRect capsuleFrame=self.collapsed ? compact : actual;
     BOOL capsuleChanged=!CGRectEqualToRect(self.capsule.frame,capsuleFrame);
@@ -1343,8 +1373,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     if(flat){HGARemoveGlass(self.extra);HGARemoveGlass(self.expand);}
     UISegmentedControl *extraTrack=HGADockFlatBacking(self.extra,flat ? 1 : 0);
     HGADockFlatBacking(self.expand,flat ? 1 : 0);
-    UIView *extraContent=flat ? self.extra : HGADockMaterialContent(self.extra,style,circle/2,fill,haptics);
-    UIView *expandContent=flat ? self.expand : HGADockMaterialContent(self.expand,style,22,fill,haptics);
+    UIView *extraContent=flat ? self.extra : HGADockMaterialContent(self.extra,style,circle/2,fill,YES);
+    UIView *expandContent=flat ? self.expand : HGADockMaterialContent(self.expand,style,22,fill,YES);
     // UIKit can adapt dynamic label colors to the material's own background
     // when the foreground belongs to the visual effect's contentView.
     if(self.extraSelection.superview!=extraContent)[extraContent insertSubview:self.extraSelection atIndex:0];
@@ -1382,7 +1412,8 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.dragLens && !self.dragLens.hidden && [self.dragLens.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")];
     if(!opticalLensActive)self.selection.backgroundColor=selectionBg;
     self.selection.layer.borderWidth=liquidSelection && !nativeSelection ? 0.5 : 0;
-    self.selectionHighlight.backgroundColor=nativeSelection ? UIColor.clearColor : [UIColor colorWithWhite:1 alpha:0.16];
+    self.selectionHighlight.backgroundColor=nativeSelection ?
+        [UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.10:0.06] : [UIColor colorWithWhite:1 alpha:0.16];
     self.selectionHighlight.layer.borderWidth=nativeSelection ? 0 : 1;
     self.selection.layer.borderColor=selectionEdge.CGColor;
     CGRect selectedFrame=CGRectNull;
@@ -1765,9 +1796,11 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     self.motionGlyph=nil;
 }
 - (void)prepareSelectionLens {
-    NSString *style=HGAppearanceString(@"dock.material");
-    if(!HGADockLiquidSelection() || !HGNativeGlassConfigured() || UIAccessibilityIsReduceTransparencyEnabled() ||
-        (!self.flatSegments && ![style isEqual:@"regular"] && ![style isEqual:@"clear"])) {
+    // Never stack a second UIGlassEffect lens inside a glass capsule: nested
+    // Clear/Regular backdrop layers double-refract background covers and warp glyphs.
+    // Reserve the moving optical lens strictly for the non-glass flat segment track.
+    if(!self.flatSegments || !HGADockLiquidSelection() || !HGNativeGlassConfigured() ||
+        UIAccessibilityIsReduceTransparencyEnabled()) {
         [self.dragLens removeFromSuperview];self.dragLens=nil;
         self.dragLensIsCapsule=NO;self.dragLensCornerRadius=0;
         return;
@@ -1876,7 +1909,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
     [self showSelectionMotionMaterial];
     [self animateMotionGlyph:button];
-    [UIView animateWithDuration:0.28 delay:0 usingSpringWithDamping:0.84 initialSpringVelocity:0
+    [UIView animateWithDuration:0.34 delay:0 usingSpringWithDamping:0.80 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
             self.dragLens.transform=CGAffineTransformIdentity;
             [self positionDragSelection:position];
@@ -1929,7 +1962,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
                 if(self.restingSelectionColor)self.selection.backgroundColor=self.restingSelectionColor;
             } completion:nil];
     }
-    [UIView animateWithDuration:0.32 delay:0 usingSpringWithDamping:0.84 initialSpringVelocity:springVelocity
+    [UIView animateWithDuration:0.34 delay:0 usingSpringWithDamping:0.82 initialSpringVelocity:springVelocity
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
         animations:^{
             if(!CGRectIsNull(resting))[self placeSelection:resting];

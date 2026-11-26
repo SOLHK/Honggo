@@ -1591,15 +1591,18 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceSet(@"player.mineGlass",@YES,nil);[mine removeFromSuperview];
 
     // 7.4.5.33 wide-screen Mine -> History capture: left cells carry host pill
-    // bgLayers inside a 32pt clipped strip, while right Filter | Edit buttons
-    // are narrow 30x32 text controls separated by a 0.5pt divider.
+    // bgLayers inside a clipped inner collection (28pt) and outer scroll strip (32pt),
+    // while right Filter | Edit buttons are narrow 30x32 text controls separated by a 0.5pt divider.
     SSMyUser637TabsView *wideMine=[[SSMyUser637TabsView alloc] initWithFrame:CGRectMake(0,240,440,120)];
     [root addSubview:wideMine];
     UIView *wideBar=PageChromeControl(wideMine,CGRectMake(0,50,440,42));
     UIScrollView *wideScroll=[[UIScrollView alloc] initWithFrame:CGRectMake(0,6,331.5,32)];
     wideScroll.clipsToBounds=YES;[wideBar addSubview:wideScroll];
-    FQRJXCategoryTitleView *wideCats=[[FQRJXCategoryTitleView alloc] initWithFrame:wideScroll.bounds];
-    [wideScroll addSubview:wideCats];
+    SSHGBookStoreCategoryTitleView *wideCats=[[SSHGBookStoreCategoryTitleView alloc] initWithFrame:CGRectMake(0,1,331.5,30)];
+    wideCats.clipsToBounds=YES;[wideScroll addSubview:wideCats];
+    UICollectionView *wideCollection=[[UICollectionView alloc] initWithFrame:CGRectMake(0,1,331.5,28)
+        collectionViewLayout:[UICollectionViewFlowLayout new]];
+    wideCollection.clipsToBounds=YES;wideCats.collectionView=wideCollection;[wideCats addSubview:wideCollection];
     SSVideoFilterPanelEntranceView *wideFilter=[[SSVideoFilterPanelEntranceView alloc] initWithFrame:CGRectMake(339.5,6,30,32)];
     wideFilter.backgroundView=[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"rectangle.fill"]];
     wideFilter.backgroundView.frame=wideFilter.bounds;[wideFilter addSubview:wideFilter.backgroundView];
@@ -1609,37 +1612,52 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     [wideBar addSubview:wideDivider];
     FQReaderSaaSBaseButton *wideEdit=[[FQReaderSaaSBaseButton alloc] initWithFrame:CGRectMake(394,6,30,32)];
     [wideEdit setTitle:@"编辑" forState:UIControlStateNormal];[wideBar addSubview:wideEdit];
-    FQRJXCategoryTitleCell *wideAll=[[FQRJXCategoryTitleCell alloc] initWithFrame:CGRectMake(16,0,56,32)];
-    wideAll.bgLayer=[CALayer layer];wideAll.bgLayer.frame=wideAll.bounds;wideAll.bgLayer.cornerRadius=16;
+    FQRJXCategoryTitleCell *wideAll=[[FQRJXCategoryTitleCell alloc] initWithFrame:CGRectMake(16,0,56,28)];
+    wideAll.clipsToBounds=YES;wideAll.contentView.clipsToBounds=YES;
+    wideAll.bgLayer=[CALayer layer];wideAll.bgLayer.frame=wideAll.bounds;wideAll.bgLayer.cornerRadius=14;
     wideAll.bgLayer.backgroundColor=[UIColor colorWithWhite:0 alpha:0.06].CGColor;
     [wideAll.contentView.layer insertSublayer:wideAll.bgLayer atIndex:0];
     wideAll.titleLabel=[[UILabel alloc] initWithFrame:wideAll.contentView.bounds];
-    [wideAll.contentView addSubview:wideAll.titleLabel];[wideCats addSubview:wideAll];
+    [wideAll.contentView addSubview:wideAll.titleLabel];[wideCollection addSubview:wideAll];
     [wideAll reloadData:@"全部"];
-    FQRJXCategoryTitleCell *wideWatched=[[FQRJXCategoryTitleCell alloc] initWithFrame:CGRectMake(78,0,70,32)];
-    wideWatched.bgLayer=[CALayer layer];wideWatched.bgLayer.frame=wideWatched.bounds;wideWatched.bgLayer.cornerRadius=16;
+    FQRJXCategoryTitleCell *wideWatched=[[FQRJXCategoryTitleCell alloc] initWithFrame:CGRectMake(78,0,70,28)];
+    wideWatched.clipsToBounds=YES;wideWatched.contentView.clipsToBounds=YES;
+    wideWatched.bgLayer=[CALayer layer];wideWatched.bgLayer.frame=wideWatched.bounds;wideWatched.bgLayer.cornerRadius=14;
     wideWatched.bgLayer.borderWidth=1;
     [wideWatched.contentView.layer insertSublayer:wideWatched.bgLayer atIndex:0];
     wideWatched.titleLabel=[[UILabel alloc] initWithFrame:wideWatched.contentView.bounds];
-    [wideWatched.contentView addSubview:wideWatched.titleLabel];[wideCats addSubview:wideWatched];
+    [wideWatched.contentView addSubview:wideWatched.titleLabel];[wideCollection addSubview:wideWatched];
     [wideWatched reloadData:@"已看完"];
-    Layout(wideFilter);Layout(wideMine);
+    for(NSUInteger pass=0;pass<12;pass++) {
+        wideFilter.frame=CGRectMake(339.5,6,30,32);
+        wideEdit.frame=CGRectMake(394,6,30,32);
+        Layout(wideBar);Layout(wideFilter);Layout(wideCats);Layout(wideMine);
+    }
     UIView *allPill=Find(wideAll,material),*watchedPill=Find(wideWatched,material);
     UIView *filterPill=Find(wideFilter,material),*editPill=Find(wideEdit,material);
+    CGRect allInScroll=[allPill convertRect:allPill.bounds toView:wideScroll];
     CGRect filterInBar=[filterPill convertRect:filterPill.bounds toView:wideBar];
     CGRect editInBar=[editPill convertRect:editPill.bounds toView:wideBar];
     Check(wideAll.bgLayer.hidden && wideWatched.bgLayer.hidden &&
-        fabs(CGRectGetWidth(allPill.bounds)-54)<0.01 && fabs(CGRectGetHeight(allPill.bounds)-28)<0.01 &&
-        fabs(CGRectGetWidth(watchedPill.bounds)-68)<0.01 && fabs(CGRectGetHeight(watchedPill.bounds)-28)<0.01 &&
-        wideDivider.hidden && fabs(CGRectGetWidth(filterInBar)-45)<0.01 && fabs(CGRectGetHeight(filterInBar)-28)<0.01 &&
-        fabs(CGRectGetWidth(editInBar)-45)<0.01 && fabs(CGRectGetHeight(editInBar)-28)<0.01 &&
+        wideScroll.clipsToBounds && !wideCats.clipsToBounds && !wideCollection.clipsToBounds &&
+        !wideAll.clipsToBounds && !wideAll.contentView.clipsToBounds &&
+        CGRectGetMinY(allInScroll)>=2.5 && CGRectGetMaxY(allInScroll)<=CGRectGetHeight(wideScroll.bounds)-2.5 &&
+        fabs(CGRectGetWidth(allPill.bounds)-54)<0.01 && fabs(CGRectGetHeight(allPill.bounds)-26)<0.01 &&
+        fabs(CGRectGetWidth(watchedPill.bounds)-68)<0.01 && fabs(CGRectGetHeight(watchedPill.bounds)-26)<0.01 &&
+        wideDivider.hidden && fabs(CGRectGetWidth(filterInBar)-44)<0.01 && fabs(CGRectGetHeight(filterInBar)-26)<0.01 &&
+        fabs(CGRectGetWidth(editInBar)-44)<0.01 && fabs(CGRectGetHeight(editInBar)-26)<0.01 &&
+        CGAffineTransformIsIdentity(wideFilter.transform) && CGAffineTransformIsIdentity(wideEdit.transform) &&
+        CGRectEqualToRect(wideFilter.frame,CGRectMake(339.5,6,30,32)) &&
+        CGRectEqualToRect(wideEdit.frame,CGRectMake(394,6,30,32)) &&
         CGRectGetMinX(filterInBar)>=CGRectGetMaxX(wideScroll.frame)+0.5 &&
-        fabs(CGRectGetMinX(editInBar)-CGRectGetMaxX(filterInBar)-6.0)<0.01,
-        @"wide Mine history hides native cell bgLayers on reloadData and shapes right Filter/Edit into matching 28pt capsules");
+        CGRectGetMinX(editInBar)>=CGRectGetMaxX(filterInBar)+6.0,
+        @"wide Mine history unclips inner cell/collection rims inside the 32pt strip and shapes Filter/Edit into 26pt capsules without transform drift");
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
     Check(!wideAll.bgLayer.hidden && !wideWatched.bgLayer.hidden && !wideDivider.hidden &&
+        wideCats.clipsToBounds && wideCollection.clipsToBounds && wideAll.clipsToBounds && wideAll.contentView.clipsToBounds &&
+        CGAffineTransformIsIdentity(wideFilter.transform) && CGAffineTransformIsIdentity(wideEdit.transform) &&
         CGRectEqualToRect(wideFilter.frame,CGRectMake(339.5,6,30,32)) &&
         CGRectEqualToRect(wideEdit.frame,CGRectMake(394,6,30,32)) && !Find(wideMine,material),
-        @"disabling Mine glass restores history cell bgLayers, divider and native Filter/Edit frames");
+        @"disabling Mine glass restores history cell bgLayers, inner clipping, divider and native Filter/Edit frames");
     HGAppearanceSet(@"player.mineGlass",@YES,nil);[wideMine removeFromSuperview];
 }

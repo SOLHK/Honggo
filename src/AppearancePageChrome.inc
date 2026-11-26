@@ -256,17 +256,40 @@ static void HGASetHistoryCellBackingHidden(UIView *cell,BOOL hide) {
     HGAHidePageChromeTarget(item,@"historyCellBorderView",borderView);
 }
 
+static char HGAHistoryUnclippedKey;
+static void HGASetHistoryUnclipped(UIView *owner,NSArray<UIView *> *candidates,BOOL unclip) {
+    if(!owner)return;
+    NSMapTable<UIView *,NSNumber *> *saved=objc_getAssociatedObject(owner,&HGAHistoryUnclippedKey);
+    if(!unclip) {
+        for(UIView *view in saved.keyEnumerator.allObjects)
+            if(!view.clipsToBounds && [[saved objectForKey:view] boolValue])view.clipsToBounds=YES;
+        if(saved)objc_setAssociatedObject(owner,&HGAHistoryUnclippedKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    for(UIView *view in candidates) {
+        if(![view isKindOfClass:UIView.class])continue;
+        if(!saved) {
+            saved=[NSMapTable weakToStrongObjectsMapTable];
+            objc_setAssociatedObject(owner,&HGAHistoryUnclippedKey,saved,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if(![saved objectForKey:view])[saved setObject:@(view.clipsToBounds) forKey:view];
+        if(view.clipsToBounds)view.clipsToBounds=NO;
+    }
+}
+
 static CGFloat HGAHistoryActionCapsuleWidth(UIView *target) {
     CGFloat width=CGRectGetWidth(target.bounds);
     if(width<=0)return 0;
-    return (!target.clipsToBounds && width<45) ? 45 : width;
+    return (!target.clipsToBounds && width<44) ? 44 : width;
 }
 
 static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL enabled) {
     BOOL isCell=[target isKindOfClass:UICollectionViewCell.class];
     if(isCell) {
+        UIView *content=((UICollectionViewCell *)target).contentView;
         HGASetHistoryCellBackingHidden(target,enabled);
-        target=((UICollectionViewCell *)target).contentView;
+        HGASetHistoryUnclipped(target,content ? @[target,content] : @[target],enabled);
+        target=content;
     }
     CGRect frame=enabled ? target.bounds : CGRectZero;
     if(enabled && !CGRectIsEmpty(frame)) {
@@ -274,10 +297,10 @@ static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL enabled) {
             CGFloat side=target.clipsToBounds ? MIN(30,MIN(frame.size.width,frame.size.height)) : 30;
             frame=CGRectInset(frame,(frame.size.width-side)/2,(frame.size.height-side)/2);
         } else {
-            // Keep 2pt vertical breathing room inside the 32pt clipped history
-            // strip so UIGlassEffect's specular rim is never sliced flat, and
-            // give right-side 30pt text controls matching horizontal capsules.
-            CGFloat height=MIN(28,frame.size.height);
+            // Keep 3pt vertical breathing room inside the 32pt clipped history
+            // strip so UIGlassEffect's outer specular rim is never sliced flat,
+            // and give right-side 30pt text controls matching 26pt capsules.
+            CGFloat height=MIN(26,frame.size.height);
             CGFloat width=isCell ? (frame.size.width>=44 ? frame.size.width-2 : frame.size.width) :
                 HGAHistoryActionCapsuleWidth(target);
             frame=CGRectInset(frame,(frame.size.width-width)/2,(frame.size.height-height)/2);
@@ -1066,7 +1089,20 @@ static void HGAUpdateFinderCategories(UIView *categories,BOOL enabled) {
     }
 }
 
+static void HGAApplyHistoryCategoryClipping(UIView *categories,BOOL enabled) {
+    if(!categories)return;
+    UIView *wrapper=categories.superview;
+    BOOL mine=enabled && HGAppearanceFlag(@"player.mineGlass") && HGAAncestorNamed(categories,@"SSMyUser637TabsView");
+    BOOL unclip=mine && wrapper.clipsToBounds && CGRectGetHeight(wrapper.bounds)>=30 &&
+        HGAHistoryFilter(wrapper.superview)!=nil;
+    UIView *collection=HGAViewGetter(categories,"collectionView",categories);
+    NSMutableArray<UIView *> *views=[NSMutableArray arrayWithObject:categories];
+    if(collection && collection!=categories)[views addObject:collection];
+    HGASetHistoryUnclipped(categories,views,unclip);
+}
+
 static void HGAApplyChannelIndicators(UIView *categories,BOOL enabled) {
+    HGAApplyHistoryCategoryClipping(categories,enabled);
     HGAUpdateFinderCategories(categories,enabled);
     id indicators=HGReadObjectGetter(categories,"indicators");
     if(![indicators isKindOfClass:NSArray.class] || ![indicators count])return;
@@ -1102,8 +1138,9 @@ static void HGAApplyChannelOrHistoryTitle(UIView *cell,BOOL enabled) {
     HGASetHidden(cell,(home && HGATopChannelHidden(title)) || (finder && HGAFinderCategoryHidden(title)));
 
     BOOL history=NO;
+    UIView *categories=HGAAncestorNamed(cell,@"FQRJXCategoryTitleView");
+    if(categories)HGAApplyHistoryCategoryClipping(categories,enabled);
     if(mine && [@[@"全部",@"已看完",@"未看完"] containsObject:title ?: @""]) {
-        UIView *categories=HGAAncestorNamed(cell,@"FQRJXCategoryTitleView");
         // The native history filters are in a nested horizontal row with the
         // filter entrance sharing its toolbar. The top Mine tabs lack it.
         history=HGAHistoryFilter(categories.superview.superview)!=nil;
@@ -1154,17 +1191,16 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
             NSString *title=((UIButton *)sibling).currentTitle;
             if([title isEqual:@"编辑"] || [title isEqual:@"完成"]){editButton=sibling;break;}
         }
-        CGRect (^unshiftedFrame)(UIView *)=^CGRect(UIView *item) {
-            if(!item)return CGRectNull;
-            CGRect base=item.frame;
-            HGAViewState *state=HGAState(item,NO);
-            if(state.geometry && state.geometrySuperview==item.superview &&
-                CGAffineTransformEqualToTransform(item.transform,state.appliedTransform))
-                base.origin.x-=state.appliedTransform.tx-state.sourceTransform.tx;
-            return base;
-        };
-        CGRect filterBase=unshiftedFrame(view);
-        CGRect editBase=unshiftedFrame(editButton);
+        // Never apply CGAffineTransform shifts to Filter or Edit: when the host
+        // sets item.frame while a non-identity transform is active, UIKit shifts
+        // item.center and invalidates parent layout inside CA::Transaction::commit(),
+        // causing a synchronous layout loop. Centered 44pt capsules inside the
+        // native 30x32 unclipped controls already stay clear of the scroll strip
+        // and symmetric around the 0.5pt divider.
+        HGARestoreGeometry(view);
+        if(editButton)HGARestoreGeometry(editButton);
+        CGRect filterBase=view.frame;
+        CGRect editBase=editButton ? editButton.frame : CGRectNull;
         UIView *divider=nil;
         if(mine && editButton && CGRectGetMinX(editBase)>CGRectGetMaxX(filterBase)) {
             for(UIView *sibling in toolbar.subviews) {
@@ -1178,24 +1214,6 @@ static void HGAApplyNativePageChrome(UIView *view,NSString *name,BOOL enabled) {
             }
         }
         HGAHidePageChromeTarget(view,@"historyDivider",mine ? divider : nil);
-        CGFloat filterShift=0,editShift=0;
-        if(mine && editButton && CGRectGetWidth(filterBase)<40 && CGRectGetWidth(editBase)<40) {
-            CGFloat filterPill=HGAHistoryActionCapsuleWidth(view);
-            CGFloat editPill=HGAHistoryActionCapsuleWidth(editButton);
-            CGFloat scrollRight=0;
-            for(UIView *sibling in toolbar.subviews) {
-                if([sibling isKindOfClass:UIScrollView.class])
-                    scrollRight=MAX(scrollRight,CGRectGetMaxX(sibling.frame));
-            }
-            CGFloat filterLeft=CGRectGetMidX(filterBase)-filterPill*0.5;
-            if(scrollRight>0 && filterLeft<scrollRight+1.0)
-                filterShift=(scrollRight+1.0)-filterLeft;
-            CGFloat filterRight=(CGRectGetMidX(filterBase)+filterShift)+filterPill*0.5;
-            CGFloat desiredEditCenter=filterRight+6.0+editPill*0.5;
-            editShift=desiredEditCenter-CGRectGetMidX(editBase);
-        }
-        HGASetGeometry(view,filterShift,0,1);
-        if(editButton)HGASetGeometry(editButton,editShift,0,1);
         NSMutableArray *targets=[NSMutableArray array];
         if(mine) {
             [targets addObject:view];
