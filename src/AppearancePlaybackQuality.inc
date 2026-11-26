@@ -1,195 +1,49 @@
-// The 7.4.5.33 quality menu maps the current player's supported engine IDs to
-// display labels. IDs need not sort in display-resolution order.
-static NSNumber *HGAHighestMenuResolution(NSArray *supported,NSDictionary *labels,NSArray *options) {
-    if(![supported isKindOfClass:NSArray.class] || ![labels isKindOfClass:NSDictionary.class] ||
-        ![options isKindOfClass:NSArray.class])return nil;
+// The list builds a fresh resolution item for preloading, initial playback and
+// live history reconciliation. Only the first two ask the item for its final
+// preload resolution. The live reconciliation reads forceResolutionTypeNumber.
+static char HGAFeedResolutionLabelsKey;
+
+static void HGATagFeedResolutionItem(id item,id component) {
+    if(!item || !HGAppearanceFlag(@"player.highestQuality"))return;
+    id context=HGReadObjectGetter(component,"listVCContext");
+    BOOL hasEntrance=NO;
+    if(!HGABoolGetter(HGReadObjectGetter(context,"config"),@"enableResolutionEntrance",&hasEntrance) || !hasEntrance)return;
+    Class experiments=objc_lookUpClass("FQVShortVideoABTestHelper");
+    SEL control=sel_registerName("shortVideoResolutionControl");
+    Method method=class_getClassMethod(experiments,control);
+    if(!method || strcmp(method_getTypeEncoding(method),"Q16@0:8") ||
+        !((NSUInteger(*)(id,SEL))objc_msgSend)(experiments,control))return;
+
+    // The native menu maps the player's supported IDs through this dictionary.
+    // The incoming asset supplies its own supported IDs when the host selects a stream.
+    id labels=HGReadObjectGetter(component,"videoAllowResolutionDict");
+    if([labels isKindOfClass:NSDictionary.class])
+        objc_setAssociatedObject(item,&HGAFeedResolutionLabelsKey,labels,OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+static NSUInteger HGAInitialFeedResolution(id item,NSArray *supported,id model,NSUInteger native) {
+    NSDictionary *labels=objc_getAssociatedObject(item,&HGAFeedResolutionLabelsKey);
+    if(!labels || !HGAppearanceFlag(@"player.highestQuality") || ![supported isKindOfClass:NSArray.class] ||
+        ![model isKindOfClass:objc_lookUpClass("TTVideoEngineModel")] || model!=HGReadObjectGetter(item,"videoModel"))return native;
+    // Keep downloaded streams, explicit selections, and bytes already preloaded
+    // at another resolution. The host writes the preload decision back to the
+    // episode and subsequently exposes it as forceResolutionTypeNumber.
+    if(HGReadObjectGetter(item,"forceResolutionTypeNumber") || HGReadObjectGetter(item,"resolutionTypeNumberWithCache"))
+        return native;
+
     NSInteger highest=0;
-    NSNumber *choice=nil;
+    NSUInteger choice=native;
+    // FQVPlayer filters the engine's playable IDs to these five menu entries.
+    NSArray *menuIDs=@[@0,@1,@8,@2,@3];
     for(NSNumber *identifier in supported) {
-        if(![identifier isKindOfClass:NSNumber.class])continue;
+        if(![menuIDs containsObject:identifier])continue;
         NSString *label=labels[identifier];
-        if(![label isKindOfClass:NSString.class] || ![options containsObject:label])continue;
+        if(![label isKindOfClass:NSString.class])continue;
         NSInteger lines=label.integerValue;
         if(lines>highest && [label isEqualToString:[NSString stringWithFormat:@"%ldP",(long)lines]]) {
             highest=lines;
-            choice=identifier;
+            choice=identifier.unsignedIntegerValue;
         }
     }
     return choice;
-}
-
-@interface HGAPlaybackQualitySelection : NSObject
-@property(nonatomic,weak) id model;
-@property(nonatomic,weak) id player;
-@end
-@implementation HGAPlaybackQualitySelection @end
-static char HGAQualitySelectionKey;
-static NSHashTable *HGAQualityOwners;
-static __weak id HGALastPlayingQualityComponent;
-static CFAbsoluteTime HGAQualitySwitchActiveUntil;
-static CFAbsoluteTime HGALastFeedScrollActivityTime;
-static NSUInteger HGAQualityScheduleGeneration;
-
-static BOOL HGAPlaybackQualitySwitchActive(void) {
-    return HGAQualitySwitchActiveUntil > CFAbsoluteTimeGetCurrent();
-}
-
-static void HGARecordFeedScrollActivity(id scroll) {
-    if([scroll isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class])
-        HGALastFeedScrollActivityTime = CFAbsoluteTimeGetCurrent();
-}
-
-static BOOL HGAAnyVideoFeedScrolling(void) {
-    Class feedClass=objc_lookUpClass("FQVCollectionView");
-    if(!feedClass || !HGAManaged.count)return NO;
-    for(UIView *view in HGAManaged.allObjects) {
-        if(!view.window || ![view isKindOfClass:feedClass] || ![view isKindOfClass:UIScrollView.class])continue;
-        UIScrollView *scroll=(UIScrollView *)view;
-        if(scroll.tracking || scroll.dragging || scroll.decelerating)return YES;
-    }
-    return NO;
-}
-
-static BOOL HGARecentlyScrolledVideoFeed(void) {
-    return HGALastFeedScrollActivityTime > 0 &&
-        (CFAbsoluteTimeGetCurrent() - HGALastFeedScrollActivityTime) < 0.55;
-}
-
-static BOOL HGAQualityMethod(id target,SEL selector,const char *encoding) {
-    Method method=class_getInstanceMethod(object_getClass(target),selector);
-    return method && strcmp(method_getTypeEncoding(method),encoding)==0;
-}
-
-static NSMapTable<id,HGAPlaybackQualitySelection *> *HGAQualitySelections(id context,BOOL create) {
-    if(!context)return nil;
-    NSMapTable *table=objc_getAssociatedObject(context,&HGAQualitySelectionKey);
-    if(!table && create) {
-        table=[NSMapTable weakToStrongObjectsMapTable];
-        objc_setAssociatedObject(context,&HGAQualitySelectionKey,table,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    return table;
-}
-
-static void HGAApplyPlaybackQuality(id component,id model) {
-    if(!HGAppearanceFlag(@"player.highestQuality"))return;
-    id context=HGReadObjectGetter(component,"listVCContext");
-    if(!model || HGReadObjectGetter(context,"currentVideoDataModel")!=model)return;
-    id player=HGReadObjectGetter(context,"currentPlayer");
-    if(!player)return;
-    NSMapTable<id,HGAPlaybackQualitySelection *> *selections=HGAQualitySelections(context,NO);
-    HGAPlaybackQualitySelection *last=[selections objectForKey:model];
-    // Preserve cached buffers and manual per-episode quality choices across
-    // up/down swipes: never re-trigger stream reconfiguration for an episode
-    // already configured in this list session.
-    if(last)return;
-
-    // Asking for the actual menu item preserves scene, account and asset
-    // eligibility. This getter builds option data without presenting the sheet.
-    id share=HGReadObjectGetter(context,"shareComponent");
-    id menu=HGReadObjectGetter(share,"resolutionItem");
-    if(!menu)return;
-    id playerComponent=HGReadObjectGetter(context,"playerComponent");
-    NSNumber *choice=HGAHighestMenuResolution(HGReadObjectGetter(player,"supportedResolutionTypes"),
-        HGReadObjectGetter(playerComponent,"videoAllowResolutionDict"),HGReadObjectGetter(menu,"options"));
-    if(!choice)return;
-    id engine=HGReadObjectGetter(player,"videoEngine");
-    SEL current=sel_registerName("currentResolution");
-    SEL configure=sel_registerName("configResolution:completion:");
-    SEL rate=sel_registerName("playRate");
-    SEL update=sel_registerName("updateDropFrameStrategyWithPlayRate:resolutionType:");
-    if(!HGAQualityMethod(engine,configure,"v32@0:8Q16@?24") || !HGAQualityMethod(player,current,"Q16@0:8") ||
-        !HGAQualityMethod(player,rate,"f16@0:8") || !HGAQualityMethod(player,update,"v28@0:8f16Q20"))return;
-    selections=HGAQualitySelections(context,YES);
-    last=[HGAPlaybackQualitySelection new];
-    last.player=player;last.model=model;
-    [selections setObject:last forKey:model];
-    if(!HGAQualityOwners)HGAQualityOwners=[NSHashTable weakObjectsHashTable];
-    [HGAQualityOwners addObject:context];
-    NSUInteger selected=choice.unsignedIntegerValue;
-    if(((NSUInteger(*)(id,SEL))objc_msgSend)(player,current)==selected)return;
-
-    // Use the same engine operation and success callback as manual selection,
-    // without writing the host's per-series/global manual choice history.
-    HGAQualitySwitchActiveUntil=CFAbsoluteTimeGetCurrent()+1.25;
-    __weak id weakContext=context;
-    __weak HGAPlaybackQualitySelection *weakSelection=last;
-    void (^completion)(BOOL,NSUInteger)=^(BOOL success,NSUInteger actual) {
-        if(HGEnhancedDiagnostics())HGLog(@"playback.default-quality",@{@"requested":@(selected),
-            @"applied":@(actual),@"success":@(success)});
-        dispatch_async(dispatch_get_main_queue(),^{
-            HGAQualitySwitchActiveUntil=0;
-            HGAPlaybackQualitySelection *selection=weakSelection;
-            id owner=weakContext;
-            NSMapTable *liveTable=HGAQualitySelections(owner,NO);
-            if(!owner || !selection || !selection.model || [liveTable objectForKey:selection.model]!=selection)return;
-            if(!success) {
-                [liveTable removeObjectForKey:selection.model];
-                return;
-            }
-            id live=selection.player;
-            if(!live || HGReadObjectGetter(owner,"currentPlayer")!=live ||
-                HGReadObjectGetter(owner,"currentVideoDataModel")!=selection.model)return;
-            float speed=((float(*)(id,SEL))objc_msgSend)(live,rate);
-            ((void(*)(id,SEL,float,NSUInteger))objc_msgSend)(live,update,speed,actual);
-        });
-    };
-    ((void(*)(id,SEL,NSUInteger,id))objc_msgSend)(engine,configure,selected,completion);
-}
-
-static void HGASchedulePlaybackQuality(id component,id model,id cell) {
-    if(!cell && model && NSThread.isMainThread)HGALastPlayingQualityComponent=component;
-    if(!HGAppearanceFlag(@"player.highestQuality"))return;
-    if(cell)model=HGReadObjectGetter(cell,"model");
-    if(!model)return;
-    BOOL feedScrolling=HGAAnyVideoFeedScrolling();
-    BOOL recentlySwiped=HGARecentlyScrolledVideoFeed();
-    // On stationary launch or settled direct entry (no recent feed swipe),
-    // commit target quality immediately. During or right after a feed swipe,
-    // let the preloaded segment start at 0ms without tearing down frame zero,
-    // then upgrade seamlessly once the viewer stays on the episode (~0.65s),
-    // cancelling intermediate swiped-past cells before any network request.
-    if(!cell && NSThread.isMainThread && !feedScrolling && !recentlySwiped) {
-        HGAQualityScheduleGeneration++;
-        HGAApplyPlaybackQuality(component,model);
-        return;
-    }
-    NSUInteger generation=++HGAQualityScheduleGeneration;
-    __weak id weakComponent=component,weakModel=model;
-    if(recentlySwiped) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.65*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
-            if(HGAQualityScheduleGeneration!=generation)return;
-            if(HGAAnyVideoFeedScrolling()) {
-                CFRunLoopPerformBlock(CFRunLoopGetMain(),kCFRunLoopDefaultMode,^{
-                    if(HGAQualityScheduleGeneration!=generation)return;
-                    HGAApplyPlaybackQuality(weakComponent,weakModel);
-                });
-                CFRunLoopWakeUp(CFRunLoopGetMain());
-                return;
-            }
-            HGAApplyPlaybackQuality(weakComponent,weakModel);
-        });
-        return;
-    }
-    CFRunLoopPerformBlock(CFRunLoopGetMain(),kCFRunLoopDefaultMode,^{
-        if(HGAQualityScheduleGeneration!=generation)return;
-        HGAApplyPlaybackQuality(weakComponent,weakModel);
-    });
-    CFRunLoopWakeUp(CFRunLoopGetMain());
-}
-static void HGARefreshPlaybackQualityPreference(void) {
-    static BOOL previous;
-    BOOL enabled=HGAppearanceFlag(@"player.highestQuality");
-    if(enabled==previous)return;
-    previous=enabled;
-    if(enabled) {
-        id component=HGALastPlayingQualityComponent;
-        id context=HGReadObjectGetter(component,"listVCContext");
-        BOOL playing=NO;
-        if(HGABoolGetter(context,@"isVideoPlaying",&playing) && playing)
-            HGASchedulePlaybackQuality(component,HGReadObjectGetter(context,"currentVideoDataModel"),nil);
-    }else {
-        for(id owner in HGAQualityOwners)
-            objc_setAssociatedObject(owner,&HGAQualitySelectionKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [HGAQualityOwners removeAllObjects];
-    }
 }

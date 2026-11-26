@@ -189,7 +189,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL sharePresentation=[className isEqual:@"SSShortVideoSharePanelPresenter"] &&
         selector==sel_registerName("presentationMode");
     BOOL playerNavigation=[className isEqual:@"FQVShortVideoListVCNavBarComponent"];
-    BOOL qualityPlayback=[className isEqual:@"FQVShortVideoListVCPlayComponent"];
+    BOOL playComponent=[className isEqual:@"FQVShortVideoListVCPlayComponent"];
     BOOL scrubClipping=[className isEqual:@"FQVShortVideoVPlayerControlView"] &&
         selector==sel_registerName("handleOutterFeedClipBounds:");
     BOOL episode=[HGAViewRoles()[className] isEqual:@"episodes"];
@@ -203,10 +203,17 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             NSInteger mode=((NSInteger(*)(id,SEL))original)(presenter,selector);
             return mode==2 && NSThread.isMainThread && HGAInsideFeedShareTap ? 1 : mode;
         });
-    } else if (qualityPlayback && !strcmp(encoding,"v24@0:8@16")) {
-        replacement=imp_implementationWithBlock(^(id component,id model) {
-            ((void(*)(id,SEL,id))original)(component,selector,model);
-            HGASchedulePlaybackQuality(component,model,nil);
+    } else if (selector==sel_registerName("resolutionItemWithModel:") && !strcmp(encoding,"@24@0:8@16")) {
+        replacement=imp_implementationWithBlock(^id(id component,id model) {
+            id item=((id(*)(id,SEL,id))original)(component,selector,model);
+            HGATagFeedResolutionItem(item,component);
+            return item;
+        });
+    } else if (selector==sel_registerName("finalResolutionTypeWithSupportResolutions:videoModel:") &&
+               !strcmp(encoding,"Q32@0:8@16@24")) {
+        replacement=imp_implementationWithBlock(^NSUInteger(id item,NSArray *supported,id model) {
+            NSUInteger native=((NSUInteger(*)(id,SEL,id,id))original)(item,selector,supported,model);
+            return HGAInitialFeedResolution(item,supported,model,native);
         });
     } else if (automaticCleanTap && !strcmp(encoding,"v36@0:8@16B24@28")) {
         replacement=imp_implementationWithBlock(^(id component,UIView *hud,BOOL play,id model) {
@@ -399,7 +406,6 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGAHomeChannelPagerDidSettle(object);
             }
             else if(scrollComponent) {
-                HGARecordFeedScrollActivity(argument);
                 if(selector==@selector(scrollViewDidScroll:))HGARefreshBackdropDuringScroll(argument);
                 else HGARefreshBackdropAfterScroll(argument);
             }
@@ -423,7 +429,6 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGAHomeChannelPagerDidSettle(object);
                 }
             } else if(scrollComponent) {
-                HGARecordFeedScrollActivity(argument);
                 if(!animated)HGARefreshBackdropAfterScroll(argument);
             } else HGAppearanceProcessView(object);
         });
@@ -439,10 +444,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     } else if (!strcmp(encoding,"v32@0:8@16@24")) {
         replacement=imp_implementationWithBlock(^(id object,id first,id second) {
             ((void(*)(id,SEL,id,id))original)(object,selector,first,second);
-            if(qualityPlayback) {
-                HGASchedulePlaybackQuality(object,nil,first);
-                HGAStartAutomaticCleanForCell(first,YES);
-            }
+            if(playComponent)HGAStartAutomaticCleanForCell(first,YES);
             else HGAppearanceProcessView(object);
         });
     } else if (selector==@selector(collectionView:willDisplayCell:forItemAtIndexPath:) &&
@@ -547,7 +549,6 @@ static void HGAScanMountedViewsOnce(void) {
 void HGAppearanceRefresh(void) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();}); return; }
     HGAScanMountedViewsOnce();
-    HGARefreshPlaybackQualityPreference();
     HGAUpdateEpisodeMedia(UIApplication.sharedApplication.applicationState!=UIApplicationStateBackground);
     HGARefreshCleanPlayback();
     HGARefreshAssets();
@@ -579,9 +580,12 @@ void HGInstallAppearance(void) {
         Class infoView=objc_lookUpClass("FQVShortVideoBaseInfoView");
         if(infoView)HGAHook(infoView,sel_registerName("setLeftContainer:"),"v24@0:8@16",NO);
         Class playComponent=objc_lookUpClass("FQVShortVideoListVCPlayComponent");
-        if(playComponent) {
-            HGAHook(playComponent,sel_registerName("dataModelDidPlay:"),"v24@0:8@16",NO);
-            HGAHook(playComponent,sel_registerName("cellView:vPlayerReadyToDisplay:"),"v32@0:8@16@24",NO);
+        if(playComponent)HGAHook(playComponent,sel_registerName("cellView:vPlayerReadyToDisplay:"),"v32@0:8@16@24",NO);
+        Class playerComponent=objc_lookUpClass("FQVShortVideoListVCPlayerComponent");
+        Class resolutionItem=objc_lookUpClass("FQVPlayerEngineDataResolutionItem");
+        if(playerComponent && resolutionItem) {
+            HGAHook(resolutionItem,sel_registerName("finalResolutionTypeWithSupportResolutions:videoModel:"),"Q32@0:8@16@24",NO);
+            HGAHook(playerComponent,sel_registerName("resolutionItemWithModel:"),"@24@0:8@16",NO);
         }
         Class controlComponent=objc_lookUpClass("FQVShortVideoListVCControlViewComponent");
         if(controlComponent) {

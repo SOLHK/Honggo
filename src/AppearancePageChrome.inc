@@ -75,6 +75,88 @@ static UIView *HGAHistoryFilter(UIView *toolbar) {
     return nil;
 }
 
+// Compose, collection cells and the theatre cue row own their taps. Observe the
+// press without recognizing a gesture so UIKit can highlight its glass button.
+#import <UIKit/UIGestureRecognizerSubclass.h>
+@interface HGAPageButtonPress : UIGestureRecognizer
+@property(nonatomic,weak) UIButton *button;
+@end
+@implementation HGAPageButtonPress
+- (BOOL)canPreventGestureRecognizer:(UIGestureRecognizer *)other { return NO; }
+- (BOOL)canBePreventedByGestureRecognizer:(UIGestureRecognizer *)other { return NO; }
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *touch=touches.anyObject;
+    if (CGRectContainsPoint(self.button.bounds,[touch locationInView:self.button])) self.button.highlighted=YES;
+    else self.state=UIGestureRecognizerStateFailed;
+}
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (!CGRectContainsPoint(self.button.bounds,[touches.anyObject locationInView:self.button]))
+        self.state=UIGestureRecognizerStateFailed;
+}
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { self.state=UIGestureRecognizerStateFailed; }
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { self.state=UIGestureRecognizerStateFailed; }
+- (void)reset { self.button.highlighted=NO; [super reset]; }
+@end
+
+@interface HGAPageGlassButton : UIButton
+@property(nonatomic,strong) HGAPageButtonPress *press;
+@end
+@implementation HGAPageGlassButton
+- (void)dealloc { [_press.view removeGestureRecognizer:_press]; }
+@end
+
+static char HGAPageButtonKey,HGAPageButtonMaterialKey;
+static void HGAConfigurePageButton(UIButton *button,NSString *style,UIImage *image) {
+    NSString *previous=objc_getAssociatedObject(button,&HGAPageButtonMaterialKey);
+    if ([previous isEqual:style] || (!previous && !style)) return;
+    UIButtonConfiguration *config=nil;
+    if (style) {
+        if (@available(iOS 26.0,*)) config=[style isEqual:@"clear"] ?
+            UIButtonConfiguration.clearGlassButtonConfiguration : UIButtonConfiguration.glassButtonConfiguration;
+        else config=UIButtonConfiguration.grayButtonConfiguration;
+        config.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
+        config.contentInsets=NSDirectionalEdgeInsetsZero;
+        config.image=image;
+        if (image) config.baseForegroundColor=UIColor.labelColor;
+    }
+    button.configuration=config;
+    objc_setAssociatedObject(button,&HGAPageButtonMaterialKey,style,OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+static void HGAApplyNativePageButton(UIView *target,CGRect frame,UIView *pressHost) {
+    HGAPageGlassButton *button=objc_getAssociatedObject(target,&HGAPageButtonKey);
+    if (!target.window || target.hidden || CGRectIsEmpty(frame)) {
+        if (button) {
+            [button.press.view removeGestureRecognizer:button.press];
+            [button removeFromSuperview];
+            objc_setAssociatedObject(target,&HGAPageButtonKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            HGASetGlassHostBackground(target,NO);
+            HGAApplyAdaptiveControlInk(target,UIUserInterfaceStyleLight,NO);
+        }
+        return;
+    }
+    if (!button) {
+        button=[[HGAPageGlassButton alloc] initWithFrame:frame];
+        button.accessibilityIdentifier=@"honggo.appearance.material";
+        button.isAccessibilityElement=NO;
+        button.accessibilityElementsHidden=YES;
+        button.userInteractionEnabled=NO;
+        button.press=[[HGAPageButtonPress alloc] initWithTarget:nil action:NULL];
+        button.press.button=button;
+        button.press.cancelsTouchesInView=NO;
+        button.press.delaysTouchesEnded=NO;
+        objc_setAssociatedObject(target,&HGAPageButtonKey,button,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    HGAConfigurePageButton(button,HGALiquidButtonMaterial(),nil);
+    UIUserInterfaceStyle appearance=HGAAdaptivePageStyle(HGAOwner(target),target);
+    if (button.overrideUserInterfaceStyle!=appearance) button.overrideUserInterfaceStyle=appearance;
+    if (!CGRectEqualToRect(button.frame,frame)) button.frame=frame;
+    HGASetGlassHostBackground(target,YES);
+    if (button.superview!=target) [target insertSubview:button atIndex:0];
+    if (pressHost && button.press.view!=pressHost) [pressHost addGestureRecognizer:button.press];
+    HGAApplyAdaptiveControlInk(target,appearance,YES);
+}
+
 static void HGAApplyPageChromeMaterial(UIView *target,CGRect frame,NSString *style) {
     if(HGAVisible(target) && !CGRectIsEmpty(frame)) {
         CGFloat radius=MIN(CGRectGetHeight(frame)/2,24);
@@ -85,7 +167,10 @@ static void HGAApplyPageChromeMaterial(UIView *target,CGRect frame,NSString *sty
 static void HGAApplyPageChrome(UIView *target,BOOL enabled) {
     if([target isKindOfClass:UICollectionViewCell.class])target=((UICollectionViewCell *)target).contentView;
     if(enabled)HGAApplyPageChromeMaterial(target,target.bounds,HGAppearanceString(@"player.material"));
-    else if(target)HGARemoveGlass(target);
+    else if(target) {
+        HGAApplyNativePageButton(target,CGRectZero,nil);
+        HGARemoveGlass(target);
+    }
 }
 
 static char HGAPageChromeHiddenKey;
@@ -132,7 +217,7 @@ static void HGAUpdatePageChromeTargets(UIView *owner,NSArray<UIView *> *targets)
 
 static void HGAApplyPageChromeTargets(UIView *owner,NSArray<UIView *> *targets) {
     HGAUpdatePageChromeTargets(owner,targets);
-    for(UIView *target in targets)HGAApplyPageChrome(target,YES);
+    for(UIView *target in targets)HGAApplyNativePageButton(target,target.bounds,target);
 }
 
 static BOOL HGAFinderControlReady(UIView *view) {
@@ -167,7 +252,7 @@ static CGRect HGAFinderSearchSurface(UIView *target,CGRect frame) {
 }
 
 static void HGAApplyFinderSearchMaterial(UIView *target,CGRect frame) {
-    HGAApplyFinderMaterial(target,HGAFinderSearchSurface(target,frame),NO);
+    HGAApplyNativePageButton(target,HGAFinderSearchSurface(target,frame),target.superview);
 }
 
 @interface HGAPageChromeIcon : NSObject
@@ -286,6 +371,7 @@ static CGFloat HGAHistoryActionCapsuleWidth(UIView *target) {
 }
 
 static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL enabled) {
+    UIView *pressHost=target;
     BOOL isCell=[target isKindOfClass:UICollectionViewCell.class];
     if(isCell) {
         UIView *content=((UICollectionViewCell *)target).contentView;
@@ -310,7 +396,7 @@ static void HGAApplyHistoryGlass(UIView *target,BOOL circle,BOOL enabled) {
             frame=CGRectInset(frame,(frame.size.width-width)/2,(frame.size.height-height)/2);
         }
     }
-    HGAApplyPageChromeMaterial(target,frame,HGALiquidButtonMaterial());
+    HGAApplyNativePageButton(target,frame,pressHost);
 }
 
 static char HGAFinderMovedKey;
@@ -919,24 +1005,8 @@ static void HGAWatchMineTitleRenderer(UIViewController *page,UIView *renderer) {
     HGAWatchMineComposeRenderer(page,renderer,&HGAMineTitleWatchKey);
 }
 
-@interface HGAMineMenuButton : UIButton
-@end
-@implementation HGAMineMenuButton
-- (void)setHighlighted:(BOOL)highlighted {
-    BOOL changed=(self.isHighlighted!=highlighted);
-    [super setHighlighted:highlighted];
-    if(!changed || UIAccessibilityIsReduceMotionEnabled())return;
-    [UIView animateWithDuration:highlighted ? 0.14 : 0.34 delay:0
-        usingSpringWithDamping:highlighted ? 0.92 : 0.68 initialSpringVelocity:0
-        options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
-        animations:^{
-            self.transform=highlighted ? CGAffineTransformMakeScale(0.92,0.92) : CGAffineTransformIdentity;
-        } completion:nil];
-}
-@end
-
-static char HGAMineShortcutMaskKey,HGAMineTitleGlassKey,HGAMineEditProfileGlassKey;
-static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMutableArray<UIView *> *glyphs) {
+static char HGAMineShortcutMaskKey,HGAMineTitleGlassKey,HGAMineEditProfileGlassKey,HGAMineMenuImageKey;
+static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMutableArray<UIView *> *glyphs,BOOL glass) {
     UIButton *button=objc_getAssociatedObject(controller,&HGAMineMenuButtonKey);
     NSNumber *source=objc_getAssociatedObject(controller,&HGAMineEntryStateKey);
     BOOL hasMoon=![(NSNumber *)objc_getAssociatedObject(controller,&HGAMineLaunchSkinKey) isEqual:@NO];
@@ -952,12 +1022,13 @@ static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMu
             id depend=HGReadObjectGetter(page,"minePageKMPDepend");
             if(depend)((void (*)(id,SEL,id,BOOL))objc_msgSend)(page,sel_registerName("minePageKMPDepend:setSidebarOpen:"),depend,YES);
         }];
-        button=[HGAMineMenuButton buttonWithType:UIButtonTypeCustom primaryAction:open];
+        button=[UIButton buttonWithType:UIButtonTypeCustom primaryAction:open];
         button.accessibilityIdentifier=@"honggo.appearance.mine.menu";
         button.accessibilityLabel=@"菜单";
         UIImageSymbolConfiguration *icon=[UIImageSymbolConfiguration configurationWithPointSize:15.0 weight:UIImageSymbolWeightMedium];
         UIImage *menuImage=[[UIImage systemImageNamed:@"line.3.horizontal" withConfiguration:icon]
             imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+        objc_setAssociatedObject(button,&HGAMineMenuImageKey,menuImage,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [button setImage:menuImage forState:UIControlStateNormal];
         button.imageView.contentMode=UIViewContentModeCenter;
         button.tintColor=UIColor.labelColor;
@@ -971,6 +1042,10 @@ static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMu
     BOOL darkStyle=HGAAdaptivePageStyle(controller,titleBar)==UIUserInterfaceStyleDark;
     UIColor *menuTint=darkStyle ? UIColor.whiteColor : UIColor.labelColor;
     if(![button.tintColor isEqual:menuTint])button.tintColor=menuTint;
+    button.overrideUserInterfaceStyle=darkStyle ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+    UIImage *glyph=objc_getAssociatedObject(button,&HGAMineMenuImageKey);
+    HGAConfigurePageButton(button,glass ? HGALiquidButtonMaterial() : nil,glyph);
+    if(!glass && [button imageForState:UIControlStateNormal]!=glyph)[button setImage:glyph forState:UIControlStateNormal];
     CGFloat x=CGRectGetMaxX(titleBar.bounds)-28,y=CGRectGetMaxY(titleBar.bounds)-22;
     UIView *neighbour=glyphs.firstObject;
     if(neighbour) {
@@ -978,11 +1053,8 @@ static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMu
         y=CGRectGetMidY(occupied);
         if(fabs(x-CGRectGetMidX(occupied))<32)x=CGRectGetMidX(occupied)-40;
     }
-    CGAffineTransform savedTransform=button.transform;
-    if(!CGAffineTransformIsIdentity(savedTransform))button.transform=CGAffineTransformIdentity;
     CGRect frame=CGRectMake(x-22,y-22,44,44);
     if(!CGRectEqualToRect(button.frame,frame))button.frame=frame;
-    if(!CGAffineTransformIsIdentity(savedTransform))button.transform=savedTransform;
     for(UIView *child in button.subviews)if([child.accessibilityIdentifier isEqual:@"honggo.appearance.mine.menu.badge"]) {
         child.hidden=source.integerValue!=2;
         child.layer.borderWidth=1.0/MAX(1.0,button.traitCollection.displayScale);
@@ -1047,7 +1119,9 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
                 if([subCls isEqual:@"DanceUI._UIGraphicsView"] &&
                    fabs(CGRectGetWidth(sub.bounds)-CGRectGetWidth(item.bounds))<2 &&
                    fabs(CGRectGetHeight(sub.bounds)-CGRectGetHeight(item.bounds))<2)graphicsBg=sub;
-                else if([subCls isEqual:@"CGDrawingView"] || [sub isKindOfClass:UILabel.class])drawingText=sub;
+                else if([sub isKindOfClass:objc_lookUpClass("_TtCOCV7DanceUI11DisplayList11ViewUpdater8Platform13CGDrawingView")] ||
+                        [subCls isEqual:@"CGDrawingView"] ||
+                        [sub isKindOfClass:UILabel.class])drawingText=sub;
             }
             if(graphicsBg && drawingText){editTarget=item;editGraphicsBg=graphicsBg;break;}
         }
@@ -1067,10 +1141,9 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
         }
         if(!CGRectEqualToRect(editBacking.frame,editTarget.bounds))editBacking.frame=editTarget.bounds;
         if(editBacking.superview!=editTarget)[editTarget insertSubview:editBacking atIndex:0];
-        HGAApplyFinderMaterial(editBacking,HGAVisible(editBacking) ? editBacking.bounds : CGRectZero,NO);
-        HGAState(editBacking,NO).glass.flexTouchHost=editTarget;
+        HGAApplyNativePageButton(editBacking,editBacking.bounds,profileContent);
     } else if(editBacking) {
-        HGARemoveGlass(editBacking);
+        HGAApplyNativePageButton(editBacking,CGRectZero,nil);
         [editBacking removeFromSuperview];
         objc_setAssociatedObject(root,&HGAMineEditProfileGlassKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
@@ -1096,12 +1169,13 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
         [targets removeAllObjects];
     }
     HGAWatchMineTitleRenderer(controller,HGAMineHidesMore() ? renderer : nil);
-    HGAUpdateMineMenu(controller,renderer ? titleBar : nil,targets);
-    UIButton *menu=objc_getAssociatedObject(controller,&HGAMineMenuButtonKey);
-    if(menu && titleBar && menu.superview==titleBar)[targets addObject:menu];
+    HGAUpdateMineMenu(controller,renderer ? titleBar : nil,targets,glass);
     NSArray<UIView *> *backings=objc_getAssociatedObject(root,&HGAMineTitleGlassKey);
     if(!glass || !targets.count || targets.count>2 || backings.count!=targets.count) {
-        for(UIView *backing in backings)[backing removeFromSuperview];
+        for(UIView *backing in backings) {
+            HGAApplyNativePageButton(backing,CGRectZero,nil);
+            [backing removeFromSuperview];
+        }
         if(backings)objc_setAssociatedObject(root,&HGAMineTitleGlassKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         if(!glass || !targets.count || targets.count>2)return;
         backings=nil;
@@ -1117,16 +1191,14 @@ static void HGAApplyMineKMPChrome(UIViewController *controller) {
     }
     for(NSUInteger index=0;index<targets.count;index++) {
         UIView *glyph=targets[index],*backing=backings[index];
-        CGPoint center=(glyph==menu) ? menu.center :
-            CGPointMake(CGRectGetMidX([glyph convertRect:glyph.bounds toView:titleBar]),
-                        CGRectGetMidY([glyph convertRect:glyph.bounds toView:titleBar]));
+        CGRect glyphRect=[glyph convertRect:glyph.bounds toView:titleBar];
+        CGPoint center=CGPointMake(CGRectGetMidX(glyphRect),CGRectGetMidY(glyphRect));
         CGRect frame=CGRectMake(center.x-18,center.y-18,36,36);
         if(!CGRectEqualToRect(backing.frame,frame))backing.frame=frame;
         // The Compose glyphs are clipped to 24pt. Use their title bar for the
         // glass so the original touch views, clipping and unread dot stay intact.
         if(backing.superview!=titleBar)[titleBar insertSubview:backing atIndex:0];
-        HGAApplyFinderMaterial(backing,HGAVisible(backing) ? backing.bounds : CGRectZero,NO);
-        if(glyph==menu)HGAState(backing,NO).glass.flexTouchHost=menu;
+        HGAApplyNativePageButton(backing,backing.bounds,titleBar);
     }
 }
 

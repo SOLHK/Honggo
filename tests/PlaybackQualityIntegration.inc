@@ -1,33 +1,5 @@
-@interface HGAQualityFixture : NSObject
-@property(nonatomic,strong) id currentVideoDataModel;
-@property(nonatomic,copy) NSArray *supportedResolutionTypes;
-@property(nonatomic,copy) NSArray *options;
-@property(nonatomic,copy) NSDictionary *videoAllowResolutionDict;
-@property(nonatomic) BOOL hasMenu;
-@property(nonatomic) BOOL failNext;
-@property(nonatomic) NSUInteger currentResolution;
-@property(nonatomic) NSUInteger changes;
-@property(nonatomic) NSUInteger lastStrategy;
-@end
-@implementation HGAQualityFixture
-- (id)currentPlayer{return self;}
-- (id)playerComponent{return self;}
-- (id)shareComponent{return self;}
-- (id)resolutionItem{return self.hasMenu ? self : nil;}
-- (id)videoEngine{return self;}
-- (BOOL)isVideoPlaying{return YES;}
-- (float)playRate{return 1.5f;}
-- (void)updateDropFrameStrategyWithPlayRate:(float)rate resolutionType:(NSUInteger)type {
-    if(rate==1.5f)self.lastStrategy=type;
-}
-- (void)configResolution:(NSUInteger)type completion:(void(^)(BOOL,NSUInteger))finish {
-    self.changes++;
-    if(self.failNext){self.failNext=NO;finish(NO,self.currentResolution);return;}
-    self.currentResolution=type;finish(YES,type);
-}
-@end
 @interface FQVShortVideoListVCPlayComponent : NSObject
-@property(nonatomic,strong) HGAQualityFixture *listVCContext;
+@property(nonatomic,strong) id listVCContext;
 @property(nonatomic) NSUInteger nativePlays;
 @property(nonatomic) NSUInteger nativeDisplays;
 - (void)dataModelDidPlay:(id)model;
@@ -64,104 +36,126 @@ static void RunAutoEnterSeriesChecks(void) {
     }
     HGAppearanceSet(key,saved ? @YES : @NO,nil);
 }
+
+@interface TTVideoEngineModel : NSObject
+@property(nonatomic,copy) NSArray *supportedResolutionTypes;
+@end
+@implementation TTVideoEngineModel @end
+
+@interface FQVPlayerEngineDataResolutionItem : NSObject
+@property(nonatomic,strong) TTVideoEngineModel *videoModel;
+@property(nonatomic,strong) NSNumber *forceResolutionTypeNumber;
+@property(nonatomic,strong) NSNumber *resolutionTypeNumberWithCache;
+- (NSUInteger)finalResolutionTypeWithSupportResolutions:(NSArray *)supported videoModel:(id)model;
+@end
+@implementation FQVPlayerEngineDataResolutionItem
+- (NSUInteger)finalResolutionTypeWithSupportResolutions:(NSArray *)supported videoModel:(id)model {
+    return (self.forceResolutionTypeNumber ?: self.resolutionTypeNumberWithCache ?: @1).unsignedIntegerValue;
+}
+@end
+
+static NSUInteger HGAQualityMenuExperiment;
+@interface FQVShortVideoABTestHelper : NSObject @end
+@implementation FQVShortVideoABTestHelper
++ (NSUInteger)shortVideoResolutionControl { return HGAQualityMenuExperiment; }
+@end
+
+@interface FQVShortVideoListVCPlayerComponent : NSObject
+@property(nonatomic) BOOL enableResolutionEntrance;
+@property(nonatomic,copy) NSDictionary *videoAllowResolutionDict;
+@property(nonatomic,strong) TTVideoEngineModel *currentVideoDataModel;
+@property(nonatomic) NSUInteger engineSwitches;
+- (FQVPlayerEngineDataResolutionItem *)resolutionItemWithModel:(TTVideoEngineModel *)model;
+@end
+@implementation FQVShortVideoListVCPlayerComponent
+- (id)listVCContext { return self; }
+- (id)config { return self; }
+- (FQVPlayerEngineDataResolutionItem *)resolutionItemWithModel:(TTVideoEngineModel *)model {
+    FQVPlayerEngineDataResolutionItem *item=[FQVPlayerEngineDataResolutionItem new];
+    item.videoModel=model;
+    return item;
+}
+// The old play/display path would find a valid menu, player and switchable
+// engine here. Counting the operation detects asynchronous writes after swiping.
+- (id)currentPlayer { return self; }
+- (id)shareComponent { return self; }
+- (id)playerComponent { return self; }
+- (id)videoEngine { return self; }
+- (id)resolutionItem { return self; }
+- (NSArray *)options { return self.videoAllowResolutionDict.allValues; }
+- (NSArray *)supportedResolutionTypes { return self.currentVideoDataModel.supportedResolutionTypes; }
+- (NSUInteger)currentResolution { return 1; }
+- (float)playRate { return 1.0f; }
+- (void)updateDropFrameStrategyWithPlayRate:(float)rate resolutionType:(NSUInteger)type {}
+- (void)configResolution:(NSUInteger)type completion:(void(^)(BOOL,NSUInteger))completion {
+    self.engineSwitches++;
+    completion(YES,type);
+}
+@end
+
 @interface HGAQualityCellFixture : NSObject
 @property(nonatomic,strong) id model;
 @end
 @implementation HGAQualityCellFixture @end
-@interface HGAScrollingFeedFixture : FQVCollectionView
-@property(nonatomic) BOOL simulatingScroll;
-@end
-@implementation HGAScrollingFeedFixture
-- (BOOL)isDragging { return self.simulatingScroll || [super isDragging]; }
-@end
+
 static void RunPlaybackQualityChecks(void) {
     BOOL saved=HGAppearanceFlag(@"player.highestQuality");
     HGAppearanceSet(@"player.highestQuality",@YES,nil);
-    FQVShortVideoListVCPlayComponent *component=[FQVShortVideoListVCPlayComponent new];
-    HGAQualityFixture *ctx=[HGAQualityFixture new];component.listVCContext=ctx;
+    HGAQualityMenuExperiment=1;
+    FQVShortVideoListVCPlayerComponent *builder=[FQVShortVideoListVCPlayerComponent new];
+    builder.enableResolutionEntrance=YES;
+    builder.videoAllowResolutionDict=@{@0:@"360P",@1:@"480P",@8:@"540P",@2:@"720P",@3:@"1080P",@9:@"2160P"};
+    TTVideoEngineModel *model=[TTVideoEngineModel new];
+    model.supportedResolutionTypes=@[@8,@2,@9];
+    FQVPlayerEngineDataResolutionItem *preload=[builder resolutionItemWithModel:model];
+    NSUInteger selected=[preload finalResolutionTypeWithSupportResolutions:model.supportedResolutionTypes videoModel:model];
+    Check(selected==2 && !preload.forceResolutionTypeNumber,
+        @"preload chooses the highest supported host menu entry, without creating a live-switch target");
+    FQVPlayerEngineDataResolutionItem *start=[builder resolutionItemWithModel:model];
+    start.forceResolutionTypeNumber=@(selected);
+    model.supportedResolutionTypes=@[@1,@2,@3];
+    Check([start finalResolutionTypeWithSupportResolutions:model.supportedResolutionTypes videoModel:model]==selected,
+        @"starting the preloaded episode retains its stream even when a higher quality becomes available");
+    FQVPlayerEngineDataResolutionItem *fresh=[builder resolutionItemWithModel:model];
+    Check([fresh finalResolutionTypeWithSupportResolutions:model.supportedResolutionTypes videoModel:model]==3 &&
+          [fresh finalResolutionTypeWithSupportResolutions:@[@9] videoModel:model]==1 &&
+          [fresh finalResolutionTypeWithSupportResolutions:model.supportedResolutionTypes videoModel:[TTVideoEngineModel new]]==1,
+        @"fresh playback uses available 1080P and leaves unknown options or mismatched model decisions native");
+    fresh.resolutionTypeNumberWithCache=@2;
+    BOOL cached=[fresh finalResolutionTypeWithSupportResolutions:model.supportedResolutionTypes videoModel:model]==2;
+    fresh.forceResolutionTypeNumber=@1;
+    Check(cached && [fresh finalResolutionTypeWithSupportResolutions:model.supportedResolutionTypes videoModel:model]==1,
+        @"a cached previous episode and an explicit manual/download resolution retain the native choice");
+    for(NSUInteger gate=0;gate<2;gate++) {
+        HGAQualityMenuExperiment=gate;
+        builder.enableResolutionEntrance=!gate;
+        FQVPlayerEngineDataResolutionItem *denied=[builder resolutionItemWithModel:model];
+        Check([denied finalResolutionTypeWithSupportResolutions:model.supportedResolutionTypes videoModel:model]==1,
+            @"both native menu eligibility gates must allow quality selection");
+    }
+    builder.enableResolutionEntrance=YES;
+    FQVPlayerEngineDataResolutionItem *unrelated=[FQVPlayerEngineDataResolutionItem new];
+    unrelated.videoModel=model;
+    Check([unrelated finalResolutionTypeWithSupportResolutions:model.supportedResolutionTypes videoModel:model]==1,
+        @"resolution requests from other host components keep their native choice");
+
+    FQVShortVideoListVCPlayComponent *playing=[FQVShortVideoListVCPlayComponent new];
+    playing.listVCContext=builder;
     HGAQualityCellFixture *cell=[HGAQualityCellFixture new];
-    ctx.currentVideoDataModel=cell.model=[NSObject new];ctx.hasMenu=YES;
-    ctx.videoAllowResolutionDict=@{@9:@"360P",@2:@"720P",@4:@"1080P",@1:@"2160P"};
-    ctx.supportedResolutionTypes=@[@9,@2,@4];ctx.options=@[@"360P",@"720P",@"2160P"];
-    [component dataModelDidPlay:cell.model];
-    BOOL appliedSynchronouslyOnPlay=(ctx.changes==1 && ctx.currentResolution==2);
-    [component cellView:cell vPlayerReadyToDisplay:nil];
-    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.06,false);
-    Check(appliedSynchronouslyOnPlay && ctx.changes==1 && ctx.currentResolution==2 && ctx.lastStrategy==2 &&
-        component.nativePlays==1 && component.nativeDisplays==1,
-        @"quality applies synchronously on play before first-frame reveal, ranks only playable menu choices, and keeps native callbacks");
-    ctx.currentResolution=9;
-    [component cellView:cell vPlayerReadyToDisplay:nil];
-    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.03,false);
-    Check(ctx.changes==1 && ctx.currentResolution==9,@"a later manual choice survives repeated events for this episode");
-    ctx.currentVideoDataModel=cell.model=[NSObject new];ctx.hasMenu=NO;
-    [component dataModelDidPlay:cell.model];CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.03,false);
-    BOOL denied=ctx.changes==1;
-    ctx.hasMenu=YES;ctx.options=@[@"1080P",@"720P"];
-    [component cellView:cell vPlayerReadyToDisplay:nil];ctx.currentVideoDataModel=[NSObject new];
-    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.03,false);
-    Check(denied && ctx.changes==1,@"a missing menu and a recycled outgoing cell keep their native resolution");
-    [component dataModelDidPlay:ctx.currentVideoDataModel];CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.04,false);
-    Check(ctx.changes==2 && ctx.currentResolution==4,@"a new playable episode can choose its newly available 1080P");
-    HGAppearanceSet(@"player.highestQuality",@NO,nil);ctx.currentVideoDataModel=[NSObject new];
-    [component dataModelDidPlay:ctx.currentVideoDataModel];CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.03,false);
-    Check(ctx.changes==2,@"disabling the default avoids future engine writes");
-    ctx.currentResolution=9;ctx.failNext=YES;
-    HGAppearanceSet(@"player.highestQuality",@YES,nil);
-    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.04,false);
-    BOOL attempted=ctx.changes==3 && ctx.currentResolution==9;
-    [component dataModelDidPlay:ctx.currentVideoDataModel];CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.04,false);
-    Check(attempted && ctx.changes==4 && ctx.currentResolution==4,
-        @"enabling applies to active playback and a failed switch retries on the next native event");
-    UIWindow *activeWindow=nil;
-    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if([scene isKindOfClass:UIWindowScene.class]) {
-            activeWindow=((UIWindowScene *)scene).windows.firstObject;
-            if(activeWindow)break;
-        }
+    for(NSUInteger i=0;i<3;i++) {
+        TTVideoEngineModel *episode=[TTVideoEngineModel new];
+        episode.supportedResolutionTypes=model.supportedResolutionTypes;
+        cell.model=builder.currentVideoDataModel=episode;
+        [playing dataModelDidPlay:episode];
+        [playing cellView:cell vPlayerReadyToDisplay:nil];
     }
-    if(activeWindow) {
-        HGAScrollingFeedFixture *scrollingFeed=[[HGAScrollingFeedFixture alloc] initWithFrame:activeWindow.bounds
-            collectionViewLayout:[UICollectionViewFlowLayout new]];
-        [activeWindow addSubview:scrollingFeed];
-        HGAppearanceProcessView(scrollingFeed);
-        scrollingFeed.simulatingScroll=YES;
-        ctx.currentResolution=9;
-        NSObject *swipedPast=[NSObject new];
-        ctx.currentVideoDataModel=swipedPast;
-        [component dataModelDidPlay:swipedPast];
-        BOOL deferredWhileDragging=(ctx.changes==4 && ctx.currentResolution==9);
-        NSObject *settledEpisode=[NSObject new];
-        ctx.currentVideoDataModel=settledEpisode;
-        [component dataModelDidPlay:settledEpisode];
-        scrollingFeed.simulatingScroll=NO;
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.04,false);
-        Check(deferredWhileDragging && ctx.changes==5 && ctx.currentResolution==4,
-            @"active feed dragging defers and coalesces resolution switches onto default runloop mode without stalling intermediate swipes");
-        NSObject *nextEpisode=[NSObject new];
-        ctx.currentVideoDataModel=nextEpisode;
-        ctx.currentResolution=2;
-        [component dataModelDidPlay:nextEpisode];
-        NSUInteger afterNext=ctx.changes;
-        ctx.currentVideoDataModel=settledEpisode;
-        ctx.currentResolution=2;
-        [component dataModelDidPlay:settledEpisode];
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.03,false);
-        Check(afterNext==6 && ctx.changes==6 && ctx.currentResolution==2,
-            @"swiping back up to an already-configured cached episode never tears down or re-requests its stream");
-        id<UIScrollViewDelegate> scrollComp=[objc_lookUpClass("FQVShortVideoListVCScrollComponent") new];
-        [scrollComp scrollViewDidScroll:scrollingFeed];
-        NSObject *flickedEpisode=[NSObject new],*landedEpisode=[NSObject new];
-        ctx.currentResolution=2;
-        ctx.currentVideoDataModel=flickedEpisode;
-        [component dataModelDidPlay:flickedEpisode];
-        BOOL instantStartWithoutBlocking=(ctx.changes==6 && ctx.currentResolution==2);
-        ctx.currentVideoDataModel=landedEpisode;
-        [component dataModelDidPlay:landedEpisode];
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.75,false);
-        Check(instantStartWithoutBlocking && ctx.changes==7 && ctx.currentResolution==4,
-            @"a real feed swipe plays the preloaded stream immediately at frame zero without stalling and coalesces the upgrade until playback settles");
-        [scrollingFeed removeFromSuperview];
-    }
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.8,false);
+    Check(playing.nativePlays==3 && playing.nativeDisplays==3 && builder.engineSwitches==0,
+        @"consecutive episode starts and ready-to-display callbacks never switch the active engine, including after the old delay");
+
+    FQVPlayerEngineDataResolutionItem *pending=[builder resolutionItemWithModel:model];
+    HGAppearanceSet(@"player.highestQuality",@NO,nil);
+    Check([pending finalResolutionTypeWithSupportResolutions:model.supportedResolutionTypes videoModel:model]==1,
+        @"turning off highest quality before a pending preload chooses its stream restores the native decision");
     HGAppearanceSet(@"player.highestQuality",@(saved),nil);
 }

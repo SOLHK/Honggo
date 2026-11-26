@@ -1,3 +1,10 @@
+static BOOL HGTestPageGlassButton(UIView *surface) {
+    if(![surface isKindOfClass:UIButton.class])return NO;
+    UIButton *button=(UIButton *)surface;
+    return button.configuration && button.configuration.cornerStyle==UIButtonConfigurationCornerStyleCapsule &&
+        !button.userInteractionEnabled && !button.isAccessibilityElement && button.accessibilityElementsHidden;
+}
+
 @interface FQRJXCategoryTitleCell : UICollectionViewCell
 @property(nonatomic,strong) UILabel *titleLabel;
 @property(nonatomic,strong) CALayer *bgLayer;
@@ -1256,7 +1263,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         [shortcut addSubview:shortcut.nameLabel];[finder.view addSubview:shortcut];[shortcuts addObject:shortcut];Layout(shortcut);
     }
     HGAppearanceProcessController(finder);
-    UIVisualEffectView *searchGlass=(id)Find(finder.searchBgView,material);
+    UIView *searchGlass=Find(finder.searchBgView,material);
     UIView *recognitionGlass=Find(finder.imageSearchContainer,material);
     UIView *assistantGlass=Find(finder.aiSearchEntranceView,material);
     CGFloat chromePixel=1/MAX(1,finder.view.traitCollection.displayScale);
@@ -1270,11 +1277,8 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         CGRectEqualToRect(finder.imageSearchContainer.frame,nativeRecognition) &&
         finder.normalImageSearchView.separatorView.hidden,
         @"finder search and recognition have separate glass with a seven-point gap and an independent round AI control");
-    if(HGTestOpenGlass(finder.view)) {
-        Layout(searchGlass);Layout(recognitionGlass);Layout(assistantGlass);
-        Check(HGTestFullGlassEffect(searchGlass) && HGTestFullGlassEffect((id)recognitionGlass) &&
-            HGTestFullGlassEffect((id)assistantGlass),@"finder controls use full untinted native glass surfaces");
-    }
+    Check(HGTestPageGlassButton(searchGlass) && HGTestPageGlassButton(recognitionGlass) &&
+        HGTestPageGlassButton(assistantGlass),@"Finder mounts three configured UIKit buttons under the original input and gestures");
     UIImageView *aiGlyph=(id)Find(finder.aiSearchEntranceView,@"honggo.appearance.finder.ai");
     UIColor *light=[camera.tintColor resolvedColorWithTraitCollection:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight]];
     UIColor *dark=[aiGlyph.tintColor resolvedColorWithTraitCollection:[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark]];
@@ -1524,7 +1528,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     BOOL moonGlass=NO,menuGlass=NO;
     for(UIView *backing in titleBar.subviews) {
         UIView *glass=Find(backing,material);
-        if(!glass || backing.userInteractionEnabled || glass.userInteractionEnabled)continue;
+        if(!HGTestPageGlassButton(glass) || backing.userInteractionEnabled)continue;
         CGRect frame=[glass convertRect:glass.bounds toView:titleBar];
         moonGlass|=CGRectEqualToRect(frame,CGRectMake(354,66,36,36));
         menuGlass|=CGRectEqualToRect(frame,CGRectMake(394,66,36,36));
@@ -1584,6 +1588,14 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceProcessController(nativeMine);
     Check(!titleMenu.accessibilityValue && Find(titleMenu,@"honggo.appearance.mine.menu.badge").hidden,
         @"changes in the native sidebar snapshot update the replacement menu badge");
+    HGAppearanceApply(@{@"enabled":@YES,@"player.mineGlass":@YES},nil);
+    HGAppearanceProcessController(nativeMine);
+    Check(titleMenu.configuration && titleMenu.configuration.image && titleMenu.userInteractionEnabled,
+        @"the actionable replacement Mine menu uses a configured UIKit glass button");
+    HGAppearanceApply(@{@"enabled":@NO,@"player.mineGlass":@NO},nil);
+    HGAppearanceProcessController(nativeMine);
+    Check(!titleMenu.configuration && [titleMenu imageForState:UIControlStateNormal],
+        @"turning off Mine glass restores the plain menu glyph");
     HGAppearanceApply(@{@"mine.hide.shortcut.more":@NO,@"mine.hide.shortcut.row":@YES},nil);
     Check(!functions.getFunctionSnapshot.count && ![nativeMine minePageKMPSidebarEntrySnapshot:nativeMine.minePageKMPDepend].isVisible &&
         [functions.functionItems isEqual:items],@"hiding the whole row filters every card and the separate More entry without modifying route data");
@@ -1655,7 +1667,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     for (UIView *target in @[mine.searchBtn, filter, edit, all, watched, unwatched]) {
         UIView *surface=Find(target,material);
         Layout(surface);
-        if(HGTestOpenGlass(target)) history &= HGTestButtonGlass(surface);
+        history &= HGTestPageGlassButton(surface);
     }
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
     Check(history && !Find(mine,material) && !filter.backgroundView.hidden,
@@ -1770,7 +1782,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     HGAppearanceLayoutDock(bar,host);
     HGAppearanceSet(@"player.mineGlass",@YES,nil);[wideMine removeFromSuperview];
 
-    // 7.4.5.33 Mine KMP profile "编辑资料" Compose pill & Light Mode 360-degree contour rim
+    // 7.4.5.33 Mine profile hierarchy, including the runtime name of the text drawing view.
     SSMine737KMPViewController *profileMine=[SSMine737KMPViewController new];
     [host addChildViewController:profileMine];
     profileMine.view.frame=CGRectMake(0,0,440,260);[root addSubview:profileMine.view];
@@ -1784,7 +1796,7 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     UIView *editProfile=[[glyphClass alloc] initWithFrame:CGRectMake(352,193,72,28)];
     editProfile.clipsToBounds=YES;
     Class graphicsClass=HGAPageFixtureViewClass("DanceUI._UIGraphicsView");
-    Class drawingClass=HGAPageFixtureViewClass("CGDrawingView");
+    Class drawingClass=HGAPageFixtureViewClass("_TtCOCV7DanceUI11DisplayList11ViewUpdater8Platform13CGDrawingView");
     UIView *editFill=[[graphicsClass alloc] initWithFrame:editProfile.bounds];
     UIView *editText=[[drawingClass alloc] initWithFrame:CGRectMake(12,6,48,16)];
     [editProfile addSubview:editText];
@@ -1794,14 +1806,15 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
     UIView *editBacking=Find(editProfile,@"honggo.appearance.mine.editProfile");
     UIView *editGlass=editBacking ? Find(editBacking,material) : nil;
     Layout(editGlass);
-    CALayer *rimLayer=editGlass ? [editGlass valueForKey:@"contourRimLayer"] : nil;
-    Check(editBacking && editGlass && editFill.hidden && !editText.hidden && !editProfile.clipsToBounds &&
+    UIGestureRecognizer *editPress=[editGlass valueForKey:@"press"];
+    Check(editBacking && HGTestPageGlassButton(editGlass) && editFill.hidden && !editText.hidden && !editProfile.clipsToBounds &&
         CGRectEqualToRect(editBacking.frame,CGRectMake(0,0,72,28)) &&
-        (!HGTestOpenGlass(editProfile) || (HGTestButtonGlass(editGlass) && rimLayer.superlayer==editGlass.layer && !rimLayer.hidden)),
-        @"Mine KMP profile Edit button hides its flat Compose fill, attaches an interactive Liquid Glass capsule and renders a full Light Mode contour rim");
+        editPress.view==profileHeader && !editPress.cancelsTouchesInView &&
+        [profileHeader hitTest:editProfile.center withEvent:nil]!=editGlass,
+        @"the device's Compose Edit label keeps its original hit owner above a configured glass button");
     HGAppearanceSet(@"player.mineGlass",@NO,nil);
     HGAppearanceProcessController(profileMine);
-    Check(!editFill.hidden && editProfile.clipsToBounds && !Find(editProfile,material),
+    Check(!editFill.hidden && editProfile.clipsToBounds && !Find(editProfile,material) && !editPress.view,
         @"disabling Mine glass restores the native Compose Edit button fill and clipping");
     HGAppearanceSet(@"player.mineGlass",@YES,nil);
     [profileMine willMoveToParentViewController:nil];[profileMine.view removeFromSuperview];[profileMine removeFromParentViewController];

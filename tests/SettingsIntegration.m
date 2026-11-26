@@ -6,9 +6,11 @@
 #import <dispatch/dispatch.h>
 #import <math.h>
 
-@interface SSSettingViewController : UIViewController <UITableViewDataSource>
+@interface SSSettingViewController : UIViewController <UITableViewDataSource, UITableViewDelegate>
 @property(nonatomic, strong) UITableView *tableView;
 @property(nonatomic) NSUInteger appearances;
+@property(nonatomic, copy) NSArray<NSArray<NSNumber *> *> *cellItemsArrs;
+- (void)updatePrivacyPolicyFooterView;
 @end
 
 @implementation SSSettingViewController
@@ -19,18 +21,37 @@
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.tableView.dataSource = self;
+    self.tableView.delegate = self;
+    self.cellItemsArrs = @[@[@2, @3, @255], @[@0]];
+    [self updatePrivacyPolicyFooterView];
     [self.view addSubview:self.tableView];
 }
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     self.appearances++;
 }
+- (void)updatePrivacyPolicyFooterView {
+    self.tableView.tableFooterView = [[UIButton alloc] initWithFrame:CGRectMake(0, 0, 320, 48)];
+}
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    return self.cellItemsArrs.count;
+}
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return 3;
+    return self.cellItemsArrs[section].count;
+}
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)path {
+    return 50;
+}
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    return 12;
+}
+- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
+    return 8;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
-    cell.textLabel.text = @[@"账号与安全", @"隐私设置", @"关于应用"][indexPath.row];
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"host"];
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"host"];
+    cell.textLabel.text = @{@2:@"账号与安全", @3:@"隐私设置", @255:@"其他项目", @0:@"清理缓存"}[self.cellItemsArrs[indexPath.section][indexPath.row]];
     return cell;
 }
 @end
@@ -183,6 +204,31 @@ static NSArray<UIView *> *HGFindMenus(UIView *view) {
         name:@"the settings entry centers its single Honggo title independently of the chevron"];
     [self check:table.dataSource == self.host && [table numberOfRowsInSection:0] == 3
         name:@"host data source and original rows are preserved"];
+    NSDictionary *savedAppearance = HGAppearanceValues();
+    NSIndexPath *account = [NSIndexPath indexPathForRow:0 inSection:0];
+    NSIndexPath *unknown = [NSIndexPath indexPathForRow:2 inSection:0];
+    NSIndexPath *cache = [NSIndexPath indexPathForRow:0 inSection:1];
+    HGAppearanceApply(@{@"enabled":@YES, @"mine.settings.show.account":@NO, @"mine.settings.show.cache":@NO,
+        @"mine.settings.show.privacyPolicy":@NO}, nil);
+    [table layoutIfNeeded];
+    [self check:[table rectForRowAtIndexPath:account].size.height == 0 &&
+        [table rectForRowAtIndexPath:unknown].size.height == 50 && [table rectForRowAtIndexPath:cache].size.height == 0 &&
+        [table rectForHeaderInSection:1].size.height < 1 && [table rectForFooterInSection:1].size.height < 1 &&
+        table.tableFooterView == nil && [table numberOfRowsInSection:0] == 3
+        name:@"individual host rows, empty group spacing and the privacy footer hide without renumbering unknown items"];
+    [self.host updatePrivacyPolicyFooterView];
+    [self check:table.tableFooterView == nil name:@"host rebuilding the footer honors its switch"];
+    HGAppearanceSet(@"enabled", @NO, nil);
+    [table layoutIfNeeded];
+    [self check:[table rectForRowAtIndexPath:account].size.height == 50 && [table rectForFooterInSection:1].size.height >= 8 &&
+        table.tableFooterView != nil name:@"disabling customization restores host row heights and the original footer"];
+    HGAppearanceSet(@"enabled", @YES, nil);
+    HGAppearanceSet(@"mine.settings.show.account", @YES, nil);
+    [table layoutIfNeeded];
+    [self check:[table rectForRowAtIndexPath:account].size.height == 50 && [table rectForRowAtIndexPath:cache].size.height == 0 &&
+        [table cellForRowAtIndexPath:account] && ![table cellForRowAtIndexPath:account].hidden && table.tableFooterView == nil
+        name:@"showing one row restores its host cell while other saved switches stay hidden"];
+    HGAppearanceApply(savedAppearance, nil);
     [self check:menu.bounds.size.height >= 44 && menu.bounds.size.width > 44 &&
         menu.isAccessibilityElement && (menu.accessibilityTraits & UIAccessibilityTraitButton)
         name:@"menu has a usable touch target and VoiceOver button semantics"];

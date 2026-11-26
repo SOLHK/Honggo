@@ -49,6 +49,38 @@ NSArray<NSDictionary *> *HGMineDrawerEntries(void) {
     });
     return entries;
 }
+NSArray<NSDictionary *> *HGHostSettingsEntries(void) {
+    // SSSettingViewController 7.4.5.33 indexes its cell builder by these numeric types.
+    // The privacy policy link belongs to tableFooterView and has no row type.
+    static NSArray *entries;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        entries = @[
+            @{@"type":@0,  @"key":@"mine.settings.show.cache",        @"title":@"清理缓存"},
+            @{@"type":@2,  @"key":@"mine.settings.show.account",      @"title":@"账号与安全"},
+            @{@"type":@3,  @"key":@"mine.settings.show.privacy",      @"title":@"隐私设置"},
+            @{@"type":@24, @"key":@"mine.settings.show.follow",       @"title":@"关注的人通知"},
+            @{@"type":@5,  @"key":@"mine.settings.show.font",         @"title":@"字体大小"},
+            @{@"type":@25, @"key":@"mine.settings.show.mute",         @"title":@"开启应用时视频均默认静音"},
+            @{@"type":@18, @"key":@"mine.settings.show.push",         @"title":@"推送通知"},
+            @{@"type":@11, @"key":@"mine.settings.show.night",        @"title":@"夜间模式跟随系统设置"},
+            @{@"type":@17, @"key":@"mine.settings.show.pip",          @"title":@"退出应用后开启小窗播放"},
+            @{@"type":@10, @"key":@"mine.settings.show.mobileData",   @"title":@"WiFi较差时使用移动网络优化体验"},
+            @{@"type":@23, @"key":@"mine.settings.show.columns",      @"title":@"找剧频道切换至三列结构"},
+            @{@"type":@38, @"key":@"mine.settings.show.screenshot",   @"title":@"截屏时出分享面板"},
+            @{@"type":@21, @"key":@"mine.settings.show.similar",      @"title":@"视频暂停时出搜同款标签"},
+            @{@"type":@13, @"key":@"mine.settings.show.personalInfo", @"title":@"个人信息收集清单"},
+            @{@"type":@14, @"key":@"mine.settings.show.thirdParty",   @"title":@"第三方信息共享清单"},
+            @{@"type":@9,  @"key":@"mine.settings.show.teen",         @"title":@"未成年模式"},
+            @{@"type":@20, @"key":@"mine.settings.show.help",         @"title":@"反馈与帮助"},
+            @{@"type":@7,  @"key":@"mine.settings.show.about",        @"title":@"关于红果"},
+            @{@"type":@8,  @"key":@"mine.settings.show.logout",       @"title":@"退出登录"},
+            @{             @"key":@"mine.settings.show.privacyPolicy",@"title":@"《隐私政策及简明版》"}
+        ];
+    });
+    return entries;
+}
+
 static NSDictionary *HGADef(NSString *key, NSString *group, NSString *title, NSString *kind, id value, NSDictionary *extra) {
     NSMutableDictionary *d = [@{@"key":key, @"group":group, @"title":title, @"kind":kind, @"default":value} mutableCopy];
     if (extra) [d addEntriesFromDictionary:extra]; return d.copy;
@@ -116,6 +148,10 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
             flag([@"finder.hide.shortcut." stringByAppendingString:finderShortcuts[i]],@"chrome",
                 [@"隐藏" stringByAppendingString:finderShortcutNames[i]]);
         flag(@"mine.hide.shortcut.row",@"mine",@"隐藏整行快捷入口");
+        for (NSDictionary *entry in HGHostSettingsEntries()) {
+            [a addObject:HGADef(entry[@"key"], @"mine", entry[@"title"], @"bool", @YES,
+                @{@"keywords":@"红果设置项 显示 隐藏"})];
+        }
         for(NSDictionary *entry in HGMineDrawerEntries())
             [a addObject:HGADef(entry[@"key"],@"mine",[@"隐藏" stringByAppendingString:entry[@"title"]],
                 @"bool",@NO,@{@"keywords":@"我的页面 右侧菜单 侧边栏 抽屉"})];

@@ -12,6 +12,7 @@ NSArray<NSString *> *HGAppearanceGroupTitles(void);
 NSArray<NSString *> *HGAppearanceRoles(void);
 NSArray<NSString *> *HGAppearanceRoleTitles(void);
 NSArray<NSDictionary *> *HGMineDrawerEntries(void);
+NSArray<NSDictionary *> *HGHostSettingsEntries(void);
 id HGAppearanceValue(NSString *key);
 BOOL HGAppearanceFlag(NSString *key);
 double HGAppearanceNumber(NSString *key);

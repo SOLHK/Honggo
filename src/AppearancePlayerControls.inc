@@ -287,7 +287,6 @@ static BOOL HGAPlaybackShouldCoverButton(UIView *root,NSTimeInterval *outGrace) 
     NSTimeInterval remaining=MAX(0,HGAPlaybackLaunchTimestamp+2.4-now);
     NSNumber *cellStart=objc_getAssociatedObject(cell,&HGACellPlayStartKey);
     if(cellStart)remaining=MAX(remaining,cellStart.doubleValue+1.25-now);
-    if(HGAPlaybackQualitySwitchActive())remaining=MAX(remaining,0.65);
     if(remaining>0) {
         if(outGrace)*outGrace=remaining;
         return YES;
@@ -306,7 +305,6 @@ static BOOL HGAPlaybackShouldSuppressLoadingSpinner(UIView *spinner,NSTimeInterv
     NSTimeInterval remaining=0;
     NSNumber *cellStart=objc_getAssociatedObject(cell,&HGACellPlayStartKey);
     if(cellStart)remaining=MAX(remaining,cellStart.doubleValue+0.85-now);
-    if(HGAPlaybackQualitySwitchActive())remaining=MAX(remaining,0.85);
     if(remaining>0) {
         if(outGrace)*outGrace=remaining;
         return YES;

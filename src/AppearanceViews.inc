@@ -36,8 +36,6 @@ static CALayer *HGACreateGaussianBackdrop(void) {
     return backdrop;
 }
 
-static BOOL HGAPlaybackQualitySwitchActive(void);
-
 static BOOL HGAHostExplicitDarkMode(UIView *view,BOOL *isDark) {
     Protocol *adapter=objc_getProtocol("SSAdaptiveUIColorProtocol");
     id center=adapter ? HGReadObjectGetter(objc_lookUpClass("HTSServiceCenter"),"defaultCenter") : nil;

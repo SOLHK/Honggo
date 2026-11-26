@@ -196,6 +196,7 @@ static NSString *HGAGroupDisplayTitle(NSString *group) {
         @"dock.hide":@"底栏导航项隐藏",
         @"chrome":@"页面与导航",
         @"mine":@"我的页面",
+        @"mine.settings":@"红果设置项",
         @"gestures":@"播放手势",
         @"chrome.hide":@"顶部按钮与频道隐藏",
         @"chrome.finder.hide":@"找剧频道与快捷入口",
@@ -404,6 +405,11 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
             @"mine.hide.shortcut.games",@"mine.hide.shortcut.updates",@"mine.hide.shortcut.more"]);
         section(@"右侧菜单");
         HGAAddDefs(rows,[HGMineDrawerEntries() valueForKey:@"key"]);
+        section(@"设置页");
+        [rows addObject:HGASubpage(@"@group.mine.settings",@"红果设置项",@"选择在红果设置页显示的项目")];
+    } else if([self.group isEqual:@"mine.settings"]) {
+        section(@"显示以下项目");
+        HGAAddDefs(rows,[HGHostSettingsEntries() valueForKey:@"key"]);
     } else if([self.group isEqual:@"gestures"]) {
         HGAAddDefs(rows,@[@"gestures.cleanWhilePlaying",@"gestures.pinchClean",@"gestures.doubleTapComments"]);
     } else if([self.group isEqual:@"chrome.finder.hide"]) {
@@ -551,7 +557,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         if([key isEqual:@"player.hideNowPlayingIsland"])
             cell.detailTextLabel.text=@"进入后台后恢复红果的系统播放信息";
         if([key isEqual:@"player.highestQuality"])
-            cell.detailTextLabel.text=@"每集自动选择播放器提供的最高画质";
+            cell.detailTextLabel.text=@"新视频在预加载或起播时选择最高可用画质，保留已缓存或手动选择的画质。";
         if([key isEqual:@"player.commentMovesVideo"])
             cell.detailTextLabel.text=@"关闭后，打开评论区时视频留在原位。";
         if([key isEqual:@"mine.show.theme"])
@@ -584,7 +590,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
 - (void)save:(NSString *)key value:(id)value {
     NSError *error=nil;
     BOOL autoEnableMaster=!HGAppearanceEnabled() && ![key isEqual:@"enabled"] &&
-        ![self.group hasPrefix:@"setting."];
+        (![self.group hasPrefix:@"setting."] || [key hasPrefix:@"mine.settings.show."]);
     NSString *area=@{@"dock.style":@"dock.enabled",@"player.headerStyle":@"player.headerGlass",
         @"player.actionStyle":@"player.rightGlass",
         @"panels.commentMaterial":@"panels.comment"}[key];

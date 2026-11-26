@@ -1,4 +1,5 @@
 #import "Honggo.h"
+#import "AppearancePreferences.h"
 #import <QuartzCore/QuartzCore.h>
 #include <math.h>
 #include <string.h>
@@ -7,6 +8,12 @@ static NSString *const HGSettingsTitle = HG_PLUGIN_NAME;
 static void (*HGOriginalSettingsWillAppear)(UIViewController *, SEL, BOOL);
 static void (*HGOriginalSettingsDidLayout)(UIViewController *, SEL);
 static void (*HGOriginalSettingsDidAppear)(UIViewController *, SEL, BOOL);
+static CGFloat (*HGOriginalRowHeight)(id, SEL, UITableView *, NSIndexPath *);
+static UITableViewCell *(*HGOriginalSettingsCell)(id, SEL, UITableView *, NSIndexPath *);
+static CGFloat (*HGOriginalHeaderHeight)(id, SEL, UITableView *, NSInteger);
+static CGFloat (*HGOriginalFooterHeight)(id, SEL, UITableView *, NSInteger);
+static void (*HGOriginalPrivacyFooter)(id, SEL);
+static char HGSettingsEntryKey;
 
 // A real menu entry in the settings list, independent of the host navigation bar.
 @interface HGSettingsMenuControl : UIControl
@@ -116,9 +123,71 @@ static void HGFindSettingsTable(UIView *view, UIViewController *owner, UITableVi
 @property(nonatomic, strong) UIBarButtonItem *navigationItem;
 @property(nonatomic) BOOL refreshing;
 @property(nonatomic) BOOL loggedMissingTable;
+@property(nonatomic, copy) NSSet<NSNumber *> *hiddenTypes;
+@property(nonatomic) BOOL hidesPolicy;
 - (instancetype)initWithController:(UIViewController *)controller;
 - (void)refreshLoggingIfMissing:(BOOL)logMissing;
 @end
+
+static NSArray *HGHostSettingsSection(id controller, NSInteger section) {
+    NSArray *sections = HGReadObjectGetter(controller, "cellItemsArrs");
+    if (![sections isKindOfClass:NSArray.class] || (NSUInteger)section >= sections.count) return nil;
+    id rows = sections[section];
+    return [rows isKindOfClass:NSArray.class] ? rows : nil;
+}
+
+// Keep the host's original data, index paths and switch/tap callbacks intact.
+static BOOL HGHostSettingsRowHidden(id controller, NSIndexPath *path) {
+    HGSettingsEntry *entry = objc_getAssociatedObject(controller, &HGSettingsEntryKey);
+    if (!entry.hiddenTypes.count) return NO;
+    NSArray *rows = HGHostSettingsSection(controller, path.section);
+    return (NSUInteger)path.row < rows.count && [entry.hiddenTypes containsObject:rows[path.row]];
+}
+
+static CGFloat HGHostSettingsRowHeight(id controller, SEL cmd, UITableView *table, NSIndexPath *path) {
+    return HGHostSettingsRowHidden(controller, path) ? 0 : HGOriginalRowHeight(controller, cmd, table, path);
+}
+
+static UITableViewCell *HGHostSettingsCell(id controller, SEL cmd, UITableView *table, NSIndexPath *path) {
+    UITableViewCell *cell = HGOriginalSettingsCell(controller, cmd, table, path);
+    // Reused host cells can draw outside a zero-height row unless hidden as well.
+    static char hiddenByPlugin;
+    if (HGHostSettingsRowHidden(controller, path)) {
+        if (!cell.hidden) {
+            cell.hidden = YES;
+            objc_setAssociatedObject(cell, &hiddenByPlugin, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    } else if (objc_getAssociatedObject(cell, &hiddenByPlugin)) {
+        cell.hidden = NO;
+        objc_setAssociatedObject(cell, &hiddenByPlugin, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return cell;
+}
+
+static BOOL HGHostSettingsSectionHidden(id controller, NSInteger section) {
+    HGSettingsEntry *entry = objc_getAssociatedObject(controller, &HGSettingsEntryKey);
+    if (!entry.hiddenTypes.count) return NO;
+    NSArray *rows = HGHostSettingsSection(controller, section);
+    for (id row in rows) if (![entry.hiddenTypes containsObject:row]) return NO;
+    return rows.count != 0;
+}
+
+static CGFloat HGHostSettingsHeaderHeight(id controller, SEL cmd, UITableView *table, NSInteger section) {
+    return HGHostSettingsSectionHidden(controller, section) ? CGFLOAT_MIN : HGOriginalHeaderHeight(controller, cmd, table, section);
+}
+
+static CGFloat HGHostSettingsFooterHeight(id controller, SEL cmd, UITableView *table, NSInteger section) {
+    return HGHostSettingsSectionHidden(controller, section) ? CGFLOAT_MIN : HGOriginalFooterHeight(controller, cmd, table, section);
+}
+
+static void HGHostSettingsPrivacyFooter(id controller, SEL cmd) {
+    if (HGAppearanceEnabled() && !HGAppearanceFlag(@"mine.settings.show.privacyPolicy")) {
+        UITableView *table = HGReadObjectGetter(controller, "tableView");
+        if ([table isKindOfClass:UITableView.class]) table.tableFooterView = nil;
+    } else {
+        HGOriginalPrivacyFooter(controller, cmd);
+    }
+}
 
 @implementation HGSettingsEntry
 
@@ -136,6 +205,9 @@ static void HGFindSettingsTable(UIView *view, UIViewController *owner, UITableVi
         _navigationItem.accessibilityLabel = HGSettingsTitle;
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(contentSizeDidChange:)
             name:UIContentSizeCategoryDidChangeNotification object:nil];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsVisibilityChanged:)
+            name:HGAppearanceDidChangeNotification object:nil];
+        [self settingsVisibilityChanged:nil];
     }
     return self;
 }
@@ -146,6 +218,28 @@ static void HGFindSettingsTable(UIView *view, UIViewController *owner, UITableVi
 
 - (void)openSettings {
     [HGSettingsController openFromController:self.controller];
+}
+
+- (void)settingsVisibilityChanged:(NSNotification *)notification {
+    NSDictionary *values = HGAppearanceValues();
+    NSMutableSet *hidden = [NSMutableSet set];
+    BOOL hidesPolicy = NO;
+    if ([values[@"enabled"] boolValue]) {
+        for (NSDictionary *entry in HGHostSettingsEntries()) {
+            if ([values[entry[@"key"]] boolValue]) continue;
+            if (entry[@"type"]) [hidden addObject:entry[@"type"]];
+            else hidesPolicy = YES;
+        }
+    }
+    if (![self.hiddenTypes isEqualToSet:hidden]) {
+        self.hiddenTypes = hidden;
+        [self.table reloadData];
+    }
+    if (self.hidesPolicy != hidesPolicy) {
+        self.hidesPolicy = hidesPolicy;
+        if (self.table && HGOriginalPrivacyFooter)
+            HGHostSettingsPrivacyFooter(self.controller, sel_registerName("updatePrivacyPolicyFooterView"));
+    }
 }
 
 - (void)contentSizeDidChange:(NSNotification *)notification {
@@ -171,6 +265,9 @@ static void HGFindSettingsTable(UIView *view, UIViewController *owner, UITableVi
     if (self.table != table) {
         [self restoreOriginalHeader];
         self.table = table;
+        if (self.hiddenTypes.count) [table reloadData];
+        if (self.hidesPolicy && HGOriginalPrivacyFooter)
+            HGHostSettingsPrivacyFooter(self.controller, sel_registerName("updatePrivacyPolicyFooterView"));
     }
     BOOL needsAttachment = table.tableHeaderView != self.header;
     if (needsAttachment) {
@@ -232,11 +329,10 @@ static void HGFindSettingsTable(UIView *view, UIViewController *owner, UITableVi
 @end
 
 static void HGRefreshSettings(UIViewController *controller, BOOL logMissing) {
-    static char entryKey;
-    HGSettingsEntry *entry = objc_getAssociatedObject(controller, &entryKey);
+    HGSettingsEntry *entry = objc_getAssociatedObject(controller, &HGSettingsEntryKey);
     if (!entry) {
         entry = [[HGSettingsEntry alloc] initWithController:controller];
-        objc_setAssociatedObject(controller, &entryKey, entry, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(controller, &HGSettingsEntryKey, entry, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     [entry refreshLoggingIfMissing:logMissing];
 }
@@ -290,6 +386,16 @@ BOOL HGInstallSettings(void) {
         class_replaceMethod(settings, selectors[0], (IMP)HGSettingsWillAppear, encodings[0]);
         class_replaceMethod(settings, selectors[1], (IMP)HGSettingsDidLayout, encodings[1]);
         class_replaceMethod(settings, selectors[2], (IMP)HGSettingsDidAppear, encodings[2]);
+        HGOriginalRowHeight = (void *)HGInstallVerifiedHook(settings, @selector(tableView:heightForRowAtIndexPath:),
+            "d32@0:8@16@24", (IMP)HGHostSettingsRowHeight, @"settings");
+        HGOriginalSettingsCell = (void *)HGInstallVerifiedHook(settings, @selector(tableView:cellForRowAtIndexPath:),
+            "@32@0:8@16@24", (IMP)HGHostSettingsCell, @"settings");
+        HGOriginalHeaderHeight = (void *)HGInstallVerifiedHook(settings, @selector(tableView:heightForHeaderInSection:),
+            "d32@0:8@16q24", (IMP)HGHostSettingsHeaderHeight, @"settings");
+        HGOriginalFooterHeight = (void *)HGInstallVerifiedHook(settings, @selector(tableView:heightForFooterInSection:),
+            "d32@0:8@16q24", (IMP)HGHostSettingsFooterHeight, @"settings");
+        HGOriginalPrivacyFooter = (void *)HGInstallVerifiedHook(settings, sel_registerName("updatePrivacyPolicyFooterView"),
+            "v16@0:8", (IMP)HGHostSettingsPrivacyFooter, @"settings");
         installed = YES;
         return YES;
     }
