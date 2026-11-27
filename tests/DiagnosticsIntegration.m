@@ -156,6 +156,12 @@ static void CheckEvents(NSURL *root) {
         Event(report, @"privacy.fixture")[@"fields"][@"accountId"] == nil && ![serialized containsString:@"example.test"] &&
         ![serialized containsString:@"private-cookie"] && [serialized containsString:@"safeAction:"],
         @"new events, old events and the structural snapshot protect sensitive fields");
+    for (NSUInteger i = 0; i < 450; i++) {
+        HGLog(@"hook.installed", @{@"class": @"Fixture", @"selector": @"safeAction:", @"index": @(i)});
+    }
+    NSDictionary *hookBurst = Export(HGDiagnosticScopeAll, nil, NULL);
+    Check([hookBurst[@"droppedRecords"] unsignedIntegerValue] == 0,
+        @"cold-start hook installation burst completes without dropping critical hook records");
     dispatch_apply(6000, dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^(size_t i) {
         HGLog(@"stress", @{@"index": @(i)});
     });

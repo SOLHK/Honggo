@@ -498,10 +498,47 @@ static id HGACopyMineSidebarFixture(id self,SEL cmd,signed char visible,signed c
 }
 @end
 
+@protocol HGATestComposeRenderer <NSObject>
+@property(nonatomic) BOOL disableRendering;
+@property(nonatomic) BOOL isApplicationActive;
+@property(nonatomic,readonly) NSUInteger redrawCount;
+- (void)needRedraw;
+@end
+static char HGATestComposeDisabledKey,HGATestComposeActiveKey,HGATestComposeRedrawsKey;
+static BOOL HGATestComposeGetDisabled(id self,SEL cmd) {
+    return [objc_getAssociatedObject(self,&HGATestComposeDisabledKey) boolValue];
+}
+static void HGATestComposeSetDisabled(id self,SEL cmd,BOOL disabled) {
+    objc_setAssociatedObject(self,&HGATestComposeDisabledKey,@(disabled),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static BOOL HGATestComposeGetActive(id self,SEL cmd) {
+    NSNumber *v=objc_getAssociatedObject(self,&HGATestComposeActiveKey);
+    return v ? v.boolValue : YES;
+}
+static void HGATestComposeSetActive(id self,SEL cmd,BOOL active) {
+    objc_setAssociatedObject(self,&HGATestComposeActiveKey,@(active),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static void HGATestComposeNeedRedraw(id self,SEL cmd) {
+    if([objc_getAssociatedObject(self,&HGATestComposeDisabledKey) boolValue])return;
+    NSUInteger n=[objc_getAssociatedObject(self,&HGATestComposeRedrawsKey) unsignedIntegerValue]+1;
+    objc_setAssociatedObject(self,&HGATestComposeRedrawsKey,@(n),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static NSUInteger HGATestComposeRedrawCount(id self,SEL cmd) {
+    return [objc_getAssociatedObject(self,&HGATestComposeRedrawsKey) unsignedIntegerValue];
+}
+
 static Class HGAPageFixtureViewClass(const char *name) {
     Class type=objc_getClass(name);
     if(type)return type;
     type=objc_allocateClassPair(UIView.class,name,0);
+    if(!strcmp(name,"DanceUICompose.ComposeRenderingUIViewImpl")) {
+        class_addMethod(type,sel_registerName("disableRendering"),(IMP)HGATestComposeGetDisabled,"B16@0:8");
+        class_addMethod(type,sel_registerName("setDisableRendering:"),(IMP)HGATestComposeSetDisabled,"v20@0:8B16");
+        class_addMethod(type,sel_registerName("isApplicationActive"),(IMP)HGATestComposeGetActive,"B16@0:8");
+        class_addMethod(type,sel_registerName("setIsApplicationActive:"),(IMP)HGATestComposeSetActive,"v20@0:8B16");
+        class_addMethod(type,sel_registerName("needRedraw"),(IMP)HGATestComposeNeedRedraw,"v16@0:8");
+        class_addMethod(type,sel_registerName("redrawCount"),(IMP)HGATestComposeRedrawCount,"Q16@0:8");
+    }
     objc_registerClassPair(type);
     return type;
 }
@@ -1928,4 +1965,54 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
         @"disabling Theater glass removes the pull-down header backdrop cleanly");
     HGAppearanceSet(@"player.finderGlass",@YES,nil);
     [pullTheater willMoveToParentViewController:nil];[pullTheater.view removeFromSuperview];[pullTheater removeFromParentViewController];
+
+    // 7.4.5.33 Mine offscreen Compose quiescence & detached category pager guard:
+    // Works even when Appearance master switch is OFF, never touches non-Mine Compose views.
+    BOOL savedEnabledForQuiesce=HGAppearanceEnabled();
+    HGAppearanceSet(@"enabled",@NO,nil);
+    SSMine737KMPViewController *quiesceMine=[SSMine737KMPViewController new];
+    [host addChildViewController:quiesceMine];
+    quiesceMine.view.frame=CGRectMake(0,0,440,320);
+    [root addSubview:quiesceMine.view];
+    [quiesceMine didMoveToParentViewController:host];
+    UIView<HGATestComposeRenderer> *mineCompose=(id)[[rendererClass alloc] initWithFrame:CGRectMake(0,0,440,240)];
+    UIView<HGATestComposeRenderer> *otherCompose=(id)[[rendererClass alloc] initWithFrame:CGRectMake(0,0,440,80)];
+    [quiesceMine.view addSubview:mineCompose];
+    [root addSubview:otherCompose];
+    [quiesceMine viewWillAppear:NO];
+    [quiesceMine viewDidAppear:NO];
+    HGAppearanceProcessController(quiesceMine);
+    Check(!mineCompose.disableRendering && mineCompose.isApplicationActive &&
+        !otherCompose.disableRendering && otherCompose.isApplicationActive,
+        @"visible Mine Compose renderer and unrelated Compose views start active");
+    [quiesceMine.view removeFromSuperview];
+    [quiesceMine viewDidDisappear:NO];
+    Check(mineCompose.disableRendering && !mineCompose.isApplicationActive &&
+        !otherCompose.disableRendering && otherCompose.isApplicationActive,
+        @"leaving Mine quiesces only Mine's Compose renderers even when Appearance is disabled");
+    [mineCompose setIsApplicationActive:YES];
+    Check(!mineCompose.isApplicationActive && mineCompose.disableRendering,
+        @"foreground notifications cannot re-wake an offscreen Mine Compose scheduler");
+    NSUInteger redrawsBeforeReturn=mineCompose.redrawCount;
+    [quiesceMine viewWillAppear:NO];
+    [root addSubview:quiesceMine.view];
+    [quiesceMine viewDidAppear:NO];
+    Check(!mineCompose.disableRendering && mineCompose.isApplicationActive &&
+        mineCompose.redrawCount>redrawsBeforeReturn,
+        @"returning to Mine immediately restores active rendering and schedules frame-0 redraw");
+    [otherCompose removeFromSuperview];
+    [quiesceMine willMoveToParentViewController:nil];
+    [quiesceMine.view removeFromSuperview];
+    [quiesceMine removeFromParentViewController];
+    HGAppearanceSet(@"enabled",@(savedEnabledForQuiesce),nil);
+
+    FQRJXCategoryListContainerView *detachedPager=[[FQRJXCategoryListContainerView alloc] initWithFrame:CGRectMake(0,0,440,300)];
+    UIScrollView *detachedScroll=[[UIScrollView alloc] initWithFrame:detachedPager.bounds];
+    detachedPager.contentScrollView=detachedScroll;
+    [detachedPager addSubview:detachedScroll];
+    [detachedPager listDidAppear:1];
+    [detachedPager scrollViewDidEndDecelerating:detachedScroll];
+    [detachedPager scrollViewDidEndDragging:detachedScroll willDecelerate:NO];
+    Check(detachedPager.nativeEnds==3 && detachedPager.currentIndex==1,
+        @"detached Mine history category pagers preserve native callbacks while skipping foreground channel settlement");
 }

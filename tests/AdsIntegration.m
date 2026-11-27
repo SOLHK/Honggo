@@ -1243,6 +1243,9 @@ static void HGForeignPatchPresentation(id self, SEL cmd, id context, id series, 
         name:@"startup commerce filtering uses the coupon queue reject branch"];
     [self check:![SSBizVideoAdABTestHelper enableEcomForceCard] && forceRequests == 1
         name:@"feed filtering disables forced commerce before its request path"];
+    [self check:![SSBizVideoAdABTestHelper enableEcomForceCard] && ![back shouldShowAdWithContext:@"context"] &&
+        forceRequests == 1
+        name:@"cached selector and class gate lookup preserves repeated class and instance decisions"];
     [self check:[feed shouldDisableCurrentShortVideoFeedAdByBizRulesWithContext:@"context"] && feedRequests == 1
         name:@"existing feed suppression still returns the host skip decision"];
     [self check:[mismatch shouldRequestShortVideoAd:nil] == 42 &&

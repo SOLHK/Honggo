@@ -428,12 +428,13 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             BOOL bottomMove=bottomParticipant && selector==@selector(willMoveToSuperview:) && !sameSuperview;
             BOOL modelChange=playerCanvas && selector==sel_registerName("setModel:");
             BOOL pagerScroll=categoryPager && selector==@selector(scrollViewDidScroll:);
+            BOOL liveCategoryPager=categoryPager && !pagerScroll && [(UIView *)object window] && ![(UIView *)object isHidden];
             BOOL guarded=(transfer || episodeMove || episodeRender || bottomMove || modelChange) && NSThread.isMainThread;
             BOOL wasApplying=HGAApplying,completed=NO;
             NSUInteger invocation=guarded && transfer && HGEnhancedDiagnostics()?++HGAPlayerTransferInvocation:0;
             HGATracePlayerTransfer(object,selector,argument,invocation,@"enter");
             if(guarded)HGAApplying=YES;
-            if(categoryPager && !pagerScroll) HGATraceCategoryCallback(selector, @"enter");
+            if(liveCategoryPager) HGATraceCategoryCallback(selector, @"enter");
             @try {
                 if(guarded && transfer) {
                     HGAPreparePlayerTransfer(object,selector);
@@ -473,9 +474,11 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             if(playerNavigation)HGAApplyPlayerNavigation(object);
             else if(pagerScroll)HGACategoryPagerDidScroll(object,argument);
             else if(categoryPager) {
-                HGATraceCategoryCallback(selector, @"return");
-                HGAResumeCategoryFeeds(object);
-                HGAHomeChannelPagerDidSettle(object);
+                if([(UIView *)object window] && ![(UIView *)object isHidden]) {
+                    HGATraceCategoryCallback(selector, @"return");
+                    HGAResumeCategoryFeeds(object);
+                    HGAHomeChannelPagerDidSettle(object);
+                }
             }
             else if(scrollComponent) {
                 if(selector==@selector(scrollViewDidScroll:))HGARefreshBackdropDuringScroll(argument);
@@ -488,7 +491,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         BOOL collectRefresh=[className isEqual:@"SSShortVideoRightInteractionCollectView"] &&
             selector==sel_registerName("refreshUIWithModel:animated:");
         replacement=imp_implementationWithBlock(^(id object,id argument,BOOL animated) {
-            if(categoryPager) HGATraceCategoryCallback(selector, @"enter");
+            BOOL liveCategoryPager=categoryPager && [(UIView *)object window] && ![(UIView *)object isHidden];
+            if(liveCategoryPager) HGATraceCategoryCallback(selector, @"enter");
             // The host animation draws a five-point star over the image. Use
             // its static redraw when the user has chosen the alternate glyph.
             BOOL sparkles=collectRefresh && NSThread.isMainThread && HGAppearanceEnabled() &&
@@ -508,10 +512,12 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             }
             ((void(*)(id,SEL,id,BOOL))original)(object,selector,argument,animated && !sparkles);
             if(categoryPager) {
-                HGATraceCategoryCallback(selector, @"return");
-                if(!animated) {
-                    HGAResumeCategoryFeeds(object);
-                    HGAHomeChannelPagerDidSettle(object);
+                if([(UIView *)object window] && ![(UIView *)object isHidden]) {
+                    HGATraceCategoryCallback(selector, @"return");
+                    if(!animated) {
+                        HGAResumeCategoryFeeds(object);
+                        HGAHomeChannelPagerDidSettle(object);
+                    }
                 }
             } else if(scrollComponent) {
                 if(!animated)HGARefreshBackdropAfterScroll(argument);
@@ -523,8 +529,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         });
     } else if (categoryPager && !strcmp(encoding,"v24@0:8q16")) {
         replacement=imp_implementationWithBlock(^(id object, NSInteger index) {
-            HGATraceCategoryCallback(selector, @"enter");
+            BOOL live=[(UIView *)object window] && ![(UIView *)object isHidden];
+            if(live)HGATraceCategoryCallback(selector, @"enter");
             ((void(*)(id,SEL,NSInteger))original)(object,selector,index);
+            if(!live)return;
             HGATraceCategoryCallback(selector, @"return");
             HGAResumeCategoryFeeds(object);
             HGAHomeChannelPagerDidSettle(object);
@@ -579,6 +587,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             if(controller && selector==@selector(viewDidDisappear:)) {
                 for(UIWindow *window in HGACleanPages.keyEnumerator.allObjects)
                     if([HGACleanPages objectForKey:window].page==[object viewIfLoaded])HGAEndCleanPlayback(window);
+                if([className isEqual:@"SSMine737KMPViewController"])HGAMineSetControllerDisappeared(object,YES);
             } else if (scrubClipping) {
                 // Ending a seek reclips the control's feed ancestors. Reapply
                 // the active dock extension after the original clipping pass.
@@ -595,7 +604,12 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGAEpisodeReconcileWrapper(object);
                     HGAUpdateBottomLayoutForView(object);
                 }
-            } else if(controller)HGAppearanceProcessController(object);
+            } else if(controller) {
+                if([className isEqual:@"SSMine737KMPViewController"] &&
+                   (selector==@selector(viewWillAppear:) || selector==@selector(viewDidAppear:)))
+                    HGAMineSetControllerDisappeared(object,NO);
+                HGAppearanceProcessController(object);
+            }
             else HGAppearanceProcessView(object);
         });
     }
@@ -687,6 +701,7 @@ void HGInstallAppearance(void) {
             HGACleanTapInstalled=HGAHooks[@"FQVShortVideoListVCControlViewComponent/controlView:singleTapPlay:model:"]!=nil;
         }
         HGAInstallMineShortcutHooks();
+        HGAInstallMineOffscreenQuiescence();
         HGAInstallFinderShortcutHook();
         HGAInstallHomeEpisodeSwipeGate();
         HGAInstallNativeShareRoute();
@@ -971,6 +986,11 @@ void HGInstallAppearance(void) {
                     SEL selector=NSSelectorFromString(update);
                     if(class_getInstanceMethod(cls,selector))HGAHook(cls,selector,"v16@0:8",YES);
                 }
+            }
+            if([name isEqual:@"SSMine737KMPViewController"]) {
+                HGAHook(cls,@selector(viewWillAppear:),"v20@0:8B16",YES);
+                HGAHook(cls,@selector(viewDidAppear:),"v20@0:8B16",YES);
+                HGAHook(cls,@selector(viewDidDisappear:),"v20@0:8B16",YES);
             }
         }
         // The original navigation is still owned by the host controller.

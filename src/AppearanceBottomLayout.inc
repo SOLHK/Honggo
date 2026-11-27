@@ -47,28 +47,53 @@ static NSArray<NSString *> *HGABottomControlClasses(void) {
     });
     return classes;
 }
+static BOOL HGABottomViewIsC(UIView *view,const char *name,Class *cache) {
+    if(!view)return NO;
+    Class cls=*cache;
+    if(!cls){cls=objc_lookUpClass(name);*cache=cls;}
+    return cls && [view isKindOfClass:cls];
+}
 static BOOL HGAIsBottomControl(UIView *view) {
-    for(Class cls=object_getClass(view);cls && cls!=UIView.class;cls=class_getSuperclass(cls))
-        if([HGABottomControlClasses() containsObject:NSStringFromClass(cls)])return YES;
-    return NO;
+    if(!view)return NO;
+    static Class c0,c1,c2,c3;
+    return HGABottomViewIsC(view,"FQVShortVideoVPlayerOutterMultiSeriesControlView",&c0) ||
+        HGABottomViewIsC(view,"FQVShortVideoDerivativeVideoControlView",&c1) ||
+        HGABottomViewIsC(view,"FQVShortVideoVPlayerMultiSeriesControlView",&c2) ||
+        HGABottomViewIsC(view,"FQVShortVideoControlView",&c3);
 }
 static UIView *HGABottomControlForView(UIView *view) {
     for(NSUInteger depth=0;view && depth<12;depth++,view=view.superview)
         if(HGAIsBottomControl(view))return view;
     return nil;
 }
-static void HGARestoreBottomPosition(HGABottomPosition *position) {
+static void HGABeginBottomTransaction(BOOL *opened) {
+    if(!opened || *opened)return;
+    *opened=YES;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+}
+static void HGARestoreBottomPositionInTransaction(HGABottomPosition *position,BOOL *opened) {
     UIView *view=position.view;
     BOOL owned=position.owned && view.superview==position.parent &&
         CGPointEqualToPoint(view.center,position.applied);
     CGPoint source=position.source;
     position.owned=NO;position.parent=nil;
-    if(owned && !CGPointEqualToPoint(view.center,source))view.center=source;
+    if(owned && !CGPointEqualToPoint(view.center,source)) {
+        HGABeginBottomTransaction(opened);
+        view.center=source;
+    }
+}
+static void HGARestoreBottomPosition(HGABottomPosition *position) {
+    HGARestoreBottomPositionInTransaction(position,NULL);
 }
 static void HGARestoreBottomState(HGABottomLayoutState *state) {
-    HGARestoreBottomPosition(state.entry);HGARestoreBottomPosition(state.info);
-    HGARestoreBottomPosition(state.progress);
-    for(HGABottomPosition *position in state.groups)HGARestoreBottomPosition(position);
+    if(!state)return;
+    BOOL tx=NO;
+    HGARestoreBottomPositionInTransaction(state.entry,&tx);
+    HGARestoreBottomPositionInTransaction(state.info,&tx);
+    HGARestoreBottomPositionInTransaction(state.progress,&tx);
+    for(HGABottomPosition *position in state.groups)HGARestoreBottomPositionInTransaction(position,&tx);
+    if(tx)[CATransaction commit];
     state.groups=nil;state.lastLift=0;state.lastProgressLift=0;
     state.measuredDockLift=0;state.resumeWindow=nil;
 }
@@ -102,13 +127,19 @@ static CGRect HGABottomNativeRect(UIView *view,UIView *control,HGABottomPosition
     }
     return rect;
 }
-static void HGAApplyBottomPosition(HGABottomPosition *position,CGFloat lift) {
+static void HGAApplyBottomPositionInTransaction(HGABottomPosition *position,CGFloat lift,BOOL *opened) {
     UIView *view=position.view;
     if(!view)return;
-    if(lift<0.01){HGARestoreBottomPosition(position);return;}
+    if(lift<0.01){HGARestoreBottomPositionInTransaction(position,opened);return;}
     CGPoint next=CGPointMake(position.source.x,position.source.y-lift);
     position.applied=next;position.parent=view.superview;position.owned=YES;
-    if(!CGPointEqualToPoint(view.center,next))view.center=next;
+    if(!CGPointEqualToPoint(view.center,next)) {
+        HGABeginBottomTransaction(opened);
+        view.center=next;
+    }
+}
+static void HGAApplyBottomPosition(HGABottomPosition *position,CGFloat lift) {
+    HGAApplyBottomPositionInTransaction(position,lift,NULL);
 }
 static BOOL HGABottomHasCustomGeometry(void) {
     for(NSString *role in @[@"episodes",@"progress",@"info"]) {
@@ -212,8 +243,9 @@ static NSHashTable *HGADeferredViews(id owner, const void *key) {
 }
 
 static void HGARegisterCategoryFeed(UIScrollView *feed) {
+    static Class pagerCls;
     for (UIView *node = feed.superview; node; node = node.superview) {
-        if (HGABottomViewIsA(node, @"FQRJXCategoryListContainerView")) {
+        if (HGABottomViewIsC(node, "FQRJXCategoryListContainerView", &pagerCls)) {
             [HGADeferredViews(node, &HGCategoryFeedsKey) addObject:feed];
             break;
         }
@@ -288,7 +320,8 @@ static BOOL HGABottomCanvasIsCurrent(UIView *control, UIScrollView **nativeFeed,
         if (![node isKindOfClass:UIScrollView.class]) continue;
         UIScrollView *scroll = (UIScrollView *)node;
         BOOL scrolling = scroll.tracking || scroll.dragging || scroll.decelerating;
-        if (!feed && HGABottomViewIsA(scroll, @"FQVCollectionView")) {
+        static Class feedCls;
+        if (!feed && HGABottomViewIsC(scroll, "FQVCollectionView", &feedCls)) {
             feed = scroll;
             verticalScroll = scrolling;
         } else if (scrolling) {
@@ -334,16 +367,22 @@ static void HGAResumeSettledHUDs(UIScrollView *feed) {
     }
 }
 static void HGAUpdateBottomInfoGroups(HGABottomLayoutState *state,UIView *info,
-    UIView *control,CGRect entryRect,CGFloat lift) {
+    UIView *control,CGRect entryRect,CGFloat lift,BOOL *opened) {
     // OutterSeriesInfoView spans almost the whole player and also owns VIP /
     // payment overlays. Leave that owner in place; move only its known bottom
     // metadata/action children, preserving their spacing with the episode row.
-    NSMutableArray<HGABottomPosition *> *next=[NSMutableArray array];
+    if(!info) {
+        for(HGABottomPosition *old in state.groups)HGARestoreBottomPositionInTransaction(old,opened);
+        state.groups=nil;
+        return;
+    }
+    static Class rightCls,aboveCls,leftCls,insertCls;
+    NSMutableArray<HGABottomPosition *> *next=[NSMutableArray arrayWithCapacity:4];
     for(UIView *child in info.subviews) {
-        BOOL known=HGABottomViewIsA(child,@"SSShortVideoRightInteractionView") ||
-            HGABottomViewIsA(child,@"SSShortVideoAboveLeftContainerView") ||
-            HGABottomViewIsA(child,@"SSShortVideoOutterSeriesLeftContainerView") ||
-            (HGABottomViewIsA(child,@"FQVShortVideoBaseInsertView") && child.subviews.count==1);
+        BOOL known=HGABottomViewIsC(child,"SSShortVideoRightInteractionView",&rightCls) ||
+            HGABottomViewIsC(child,"SSShortVideoAboveLeftContainerView",&aboveCls) ||
+            HGABottomViewIsC(child,"SSShortVideoOutterSeriesLeftContainerView",&leftCls) ||
+            (HGABottomViewIsC(child,"FQVShortVideoBaseInsertView",&insertCls) && child.subviews.count==1);
         if(!known || !HGAVisible(child) || !HGABottomNativeCoordinates(child,control))continue;
         HGABottomPosition *position=nil;
         for(HGABottomPosition *old in state.groups)if(old.view==child){position=old;break;}
@@ -355,9 +394,9 @@ static void HGAUpdateBottomInfoGroups(HGABottomLayoutState *state,UIView *info,
         [next addObject:position];
     }
     for(HGABottomPosition *old in state.groups)
-        if(![next containsObject:old])HGARestoreBottomPosition(old);
+        if(![next containsObject:old])HGARestoreBottomPositionInTransaction(old,opened);
     state.groups=next;
-    for(HGABottomPosition *position in next)HGAApplyBottomPosition(position,lift);
+    for(HGABottomPosition *position in next)HGAApplyBottomPositionInTransaction(position,lift,opened);
 }
 static BOOL HGABottomTrackCandidate(CGRect rect,CGRect bounds) {
     return !CGRectIsEmpty(rect) && !CGRectIsInfinite(rect) &&
@@ -454,19 +493,20 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     // The host's mounted slots identify the active rail and episode row even
     // when inactive/prepared views occupy the same HUD. Older layouts need
     // the bounded search because they do not expose both slots.
+    static Class progressCls,insertCls,derivateInfoCls,outterInfoCls;
     UIView *episode=wrapper.subviews.count==1 ? wrapper.subviews.firstObject : nil;
-    BOOL bound=HGABottomViewIsA(progress,@"FQVShortVideoProgressView") &&
-        HGABottomViewIsA(wrapper,@"FQVShortVideoBaseInsertView") &&
+    BOOL bound=HGABottomViewIsC(progress,"FQVShortVideoProgressView",&progressCls) &&
+        HGABottomViewIsC(wrapper,"FQVShortVideoBaseInsertView",&insertCls) &&
         [HGARole(episode) isEqual:@"episodes"] && HGAVisible(episode) && HGAVisible(progress) &&
         HGABottomControlForView(progress)==control && HGABottomControlForView(wrapper)==control;
     if (!bound) { progress=nil; wrapper=nil; }
     for(UIView *child in bound ? control.subviews : HGADescendants(control,96)) {
         if(child==control)continue;
-        BOOL isProgress=!bound && HGABottomViewIsA(child,@"FQVShortVideoProgressView");
-        BOOL isWrapper=!bound && HGABottomViewIsA(child,@"FQVShortVideoBaseInsertView") && child.subviews.count==1 &&
+        BOOL isProgress=!bound && HGABottomViewIsC(child,"FQVShortVideoProgressView",&progressCls);
+        BOOL isWrapper=!bound && HGABottomViewIsC(child,"FQVShortVideoBaseInsertView",&insertCls) && child.subviews.count==1 &&
             [HGARole(child.subviews.firstObject) isEqual:@"episodes"];
-        BOOL isInfo=child.superview==control && (HGABottomViewIsA(child,@"SSShortVideoDerivateInfoView") ||
-            HGABottomViewIsA(child,@"SSShortVideoOutterSeriesInfoView"));
+        BOOL isInfo=child.superview==control && (HGABottomViewIsC(child,"SSShortVideoDerivateInfoView",&derivateInfoCls) ||
+            HGABottomViewIsC(child,"SSShortVideoOutterSeriesInfoView",&outterInfoCls));
         if(!(isProgress || isWrapper || isInfo) || !HGAVisible(child) || HGABottomControlForView(child)!=control)continue;
         if(isProgress) {
             if(progress){ambiguous=YES;break;}progress=child;
@@ -542,17 +582,17 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
         adjacentInfo=CGRectGetMaxY(infoRect)<=CGRectGetMinY(entryRect)+2 &&
             CGRectGetMaxY(infoRect)>=CGRectGetMinY(entryRect)-80;
     }
-    BOOL outterGroups=HGABottomViewIsA(info,@"SSShortVideoOutterSeriesInfoView") &&
+    BOOL outterGroups=HGABottomViewIsC(info,"SSShortVideoOutterSeriesInfoView",&outterInfoCls) &&
         info.bounds.size.height>height*0.5;
-    [CATransaction begin];[CATransaction setDisableActions:YES];
-    HGAApplyBottomPosition(state.progress,progressLift);
-    HGAApplyBottomPosition(state.entry,lift);
+    BOOL tx=NO;
+    HGAApplyBottomPositionInTransaction(state.progress,progressLift,&tx);
+    HGAApplyBottomPositionInTransaction(state.entry,lift,&tx);
     // An overlay HUD can extend to the bottom of the canvas. Its bounds are
     // not the metadata's visible edge; leave it in place instead of abandoning
     // the episode correction or dragging the full-screen HUD upward.
-    HGAApplyBottomPosition(state.info,adjacentInfo && !outterGroups?lift:0);
-    HGAUpdateBottomInfoGroups(state,outterGroups?info:nil,control,entryRect,lift);
-    [CATransaction commit];
+    HGAApplyBottomPositionInTransaction(state.info,adjacentInfo && !outterGroups?lift:0,&tx);
+    HGAUpdateBottomInfoGroups(state,outterGroups?info:nil,control,entryRect,lift,&tx);
+    if(tx)[CATransaction commit];
     static _Atomic uint64_t spacingSample;
     if((fabs(state.lastLift-lift)>0.01 || fabs(state.lastProgressLift-progressLift)>0.01) &&
        HGEnhancedDiagnostics() && HGDiagnosticSample(&spacingSample))

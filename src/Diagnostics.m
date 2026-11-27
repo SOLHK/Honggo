@@ -575,7 +575,7 @@ static void HGEnqueue(NSString *event, NSDictionary *fields, BOOL critical, BOOL
     if (!HGLogQueue) return;
     NSDictionary *entry = @{@"row": HGRow(event, fields.copy), @"critical": @(critical)};
     @synchronized (HGLogLock) {
-        if (HGIncoming.count >= (critical ? 256 : 224)) {
+        if (HGIncoming.count >= (critical ? 1024 : 896)) {
             // An urgent event can replace a queued record even under saturation.
             if (urgent) [HGIncoming removeObjectAtIndex:0];
             HGDropped++;

@@ -66,7 +66,13 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
     return appStyle!=UIUserInterfaceStyleUnspecified ? appStyle : bar.traitCollection.userInterfaceStyle;
 }
 
-@implementation HGAAppearanceMaterial
+@implementation HGAAppearanceMaterial {
+    uint64_t _materialKey;
+}
+- (void)setMaterialSignature:(NSString *)materialSignature {
+    _materialSignature=[materialSignature copy];
+    if(!materialSignature)_materialKey=0;
+}
 - (UIView *)_flexInteractionGestureView {
     UIView *host=self.flexTouchHost;
     if(host.window && host.window==self.window && host.userInteractionEnabled)return host;
@@ -104,13 +110,30 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
     [super didMoveToWindow];
     if(self.window)[self setNeedsLayout];
 }
+- (uint64_t)currentMaterialKey {
+    uint64_t styleBits=1;
+    NSString *s=self.style;
+    if([s isEqual:@"regular"])styleBits=2;
+    else if([s isEqual:@"clear"])styleBits=3;
+    else if([s isEqual:@"blur"])styleBits=4;
+    else if([s isEqual:@"gaussian"])styleBits=5;
+    else if([s isEqual:@"solid"])styleBits=6;
+    else if(s.length)styleBits=7u ^ ((s.hash & 0xFFFFu) << 3);
+    uint64_t opacityBits=(uint64_t)((NSInteger)llround(MAX(0.0,MIN(4.0,self.overlayOpacity))*1000.0) & 0xFFFF);
+    uint64_t uiStyle=(uint64_t)((self.traitCollection.userInterfaceStyle + 1) & 0xF);
+    return (1ULL << 63) | (styleBits << 28) | (opacityBits << 12) | (uiStyle << 8) |
+        ((HGNativeGlassConfigured() ? 1ULL : 0ULL) << 3) |
+        ((self.interactiveGlass ? 1ULL : 0ULL) << 2) |
+        ((UIAccessibilityIsReduceTransparencyEnabled() ? 1ULL : 0ULL) << 1) |
+        (self.untintedGlass ? 1ULL : 0ULL);
+}
 - (NSString *)currentMaterialSignature {
     return [NSString stringWithFormat:@"%@/%d/%d/%ld/%d/%.3f/%d",self.style,
         HGNativeGlassConfigured(),self.interactiveGlass,(long)self.traitCollection.userInterfaceStyle,
         UIAccessibilityIsReduceTransparencyEnabled(),self.overlayOpacity,self.untintedGlass];
 }
 - (void)requestMaterialRefresh {
-    if(![[self currentMaterialSignature] isEqual:self.materialSignature])[self setNeedsLayout];
+    if(!_materialSignature || [self currentMaterialKey]!=_materialKey)[self setNeedsLayout];
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
@@ -166,9 +189,10 @@ static UIUserInterfaceStyle HGAAdaptivePageStyle(UIViewController *controller,UI
         [self.contourRimLayer removeFromSuperlayer];
         self.contourRimLayer=nil;
     }
-    NSString *signature=[self currentMaterialSignature];
-    if([signature isEqual:self.materialSignature])return;
-    self.materialSignature=signature;
+    uint64_t key=[self currentMaterialKey];
+    if(_materialSignature && key==_materialKey)return;
+    _materialKey=key;
+    _materialSignature=[[self currentMaterialSignature] copy];
     BOOL gaussian=[self.style isEqual:@"gaussian"] && !UIAccessibilityIsReduceTransparencyEnabled();
     if (gaussian && !self.gaussianBackdrop) {
         self.gaussianBackdrop=HGACreateGaussianBackdrop();
@@ -548,9 +572,23 @@ static NSDictionary<NSString *,NSString *> *HGAViewRoles(void) {
     };});return roles;
 }
 static NSString *HGARole(UIView *view) {
-    for(Class cls=object_getClass(view);cls && cls!=UIView.class;cls=class_getSuperclass(cls)) {
-        NSString *role=HGAViewRoles()[NSStringFromClass(cls)];if(role)return role;
-    }return nil;
+    if(!view)return nil;
+    Class viewCls=object_getClass(view);
+    static NSMapTable *roleCache;
+    if(NSThread.isMainThread) {
+        if(!roleCache)roleCache=[NSMapTable mapTableWithKeyOptions:NSPointerFunctionsOpaqueMemory|NSPointerFunctionsObjectPointerPersonality
+            valueOptions:NSPointerFunctionsStrongMemory];
+        id cached=[roleCache objectForKey:viewCls];
+        if(cached)return cached==NSNull.null ? nil : cached;
+    }
+    NSString *resolved=nil;
+    NSDictionary<NSString *,NSString *> *roles=HGAViewRoles();
+    for(Class cls=viewCls;cls && cls!=UIView.class;cls=class_getSuperclass(cls)) {
+        NSString *role=roles[NSStringFromClass(cls)];
+        if(role){resolved=role;break;}
+    }
+    if(NSThread.isMainThread)[roleCache setObject:resolved ?: NSNull.null forKey:viewCls];
+    return resolved;
 }
 static BOOL HGAHasRoleAncestor(UIView *view,NSString *role) {
     UIView *parent=view.superview;
@@ -900,6 +938,14 @@ void HGAppearanceProcessView(UIView *view) {
     HGAApplying=YES;
     @try {
         HGARegisterView(view);
+        if([view isKindOfClass:objc_lookUpClass("FQVShortVideoProgressView")]) {
+            BOOL enabled=HGAppearanceEnabled() && view.window;
+            HGASetHidden(view,enabled && !HGAHasRoleAncestor(view,@"progress") &&
+                HGAppearanceFlag(@"layout.progress.hidden"));
+            HGAUpdateFeedProgressWidth(view);
+            if(HGAState(view,NO).glass)HGARemoveGlass(view);
+            return;
+        }
         HGAApplyPlayerControls(view);
         HGALandscapeApplyView(view);
         NSString *name=NSStringFromClass(view.class),*role=HGARole(view);
@@ -1036,7 +1082,7 @@ void HGAppearanceProcessView(UIView *view) {
         }
         else {
             HGARemoveGlass(view);
-            if(episode)HGALogEpisodeGlassState(view,nil,!view.window ? @"detached" : (!glass ? @"disabled" : @"hidden"));
+            if(episode && outer)HGALogEpisodeGlassState(view,nil,!view.window ? @"detached" : (!glass ? @"disabled" : @"hidden"));
         }
         HGAApplyTypography(view);
         if(episode && outer)HGAApplyEpisodeLabels(view,episodeFrame,episodeStyled);

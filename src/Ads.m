@@ -270,15 +270,29 @@ static const HGGate HGGates[] = {
     {HGScreenshotShopping, "SSBizVideoScanShoppingService", "enableVideoSearch", "B16@0:8", (IMP)HGNo},
 };
 
+typedef struct {
+    _Atomic SEL selector;
+    _Atomic Class cls;
+} HGGateLookup;
+
 static void HGAdDecision(id object, SEL selector, BOOL result) {
     static atomic_ulong counts[sizeof(HGGates) / sizeof(HGGates[0])];
     static _Atomic uint64_t nextLog[sizeof(HGGates) / sizeof(HGGates[0])];
-    const char *selectorName = sel_getName(selector);
+    static HGGateLookup cache[sizeof(HGGates) / sizeof(HGGates[0])];
     for (NSUInteger i = 0; i < sizeof(HGGates) / sizeof(HGGates[0]); i++) {
         const HGGate *gate = &HGGates[i];
-        if (strcmp(selectorName, gate->selector) != 0) continue;
-        Class type = objc_lookUpClass(gate->className);
-        if (!(gate->classMethod ? [object isSubclassOfClass:type] : [object isKindOfClass:type])) continue;
+        SEL expected = atomic_load_explicit(&cache[i].selector, memory_order_relaxed);
+        if (!expected) {
+            expected = sel_registerName(gate->selector);
+            atomic_store_explicit(&cache[i].selector, expected, memory_order_relaxed);
+        }
+        if (selector != expected) continue;
+        Class type = atomic_load_explicit(&cache[i].cls, memory_order_relaxed);
+        if (!type) {
+            type = objc_lookUpClass(gate->className);
+            if (type) atomic_store_explicit(&cache[i].cls, type, memory_order_relaxed);
+        }
+        if (!type || !(gate->classMethod ? [object isSubclassOfClass:type] : [object isKindOfClass:type])) continue;
         unsigned long count = atomic_fetch_add_explicit(&counts[i], 1, memory_order_relaxed) + 1;
         // Log cumulative counts at a bounded cadence even in enhanced mode.
         if (HGEnhancedDiagnostics() ? HGDiagnosticSample(&nextLog[i]) : (count & (count - 1)) == 0)

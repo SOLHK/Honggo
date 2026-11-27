@@ -1008,6 +1008,240 @@ static BOOL HGAIsMineKMPController(UIViewController *controller) {
     return [controller isKindOfClass:NSClassFromString(@"SSMine737KMPViewController")];
 }
 
+// Host 7.4.5.33 DanceUICompose.ComposeRenderingUIViewImpl keeps its 120Hz
+// DisplayLinkScheduler unpaused whenever wantsContinuousFrames or
+// isNeedHighFrequencyPolling is true and isApplicationActive == YES, even
+// after Mine's view detaches from UIWindow (didMoveToWindow returns early on
+// window == nil). Quiesce only Mine-owned Compose renderers while Mine is
+// offscreen, and restore them immediately on re-attachment or viewWillAppear:.
+static char HGAMineDisappearedKey,HGAMineQuiescedRenderersKey,HGAMineRendererOwnerKey;
+static char HGAMineQuiescedMaskKey,HGAMineHostActiveKey;
+static IMP HGAMineComposeDidMoveToWindow,HGAMineComposeSetActive;
+static _Thread_local BOOL HGAMineRestoringComposeActive;
+
+static Class HGAMineComposeRendererClass(void) {
+    return objc_lookUpClass("_TtC14DanceUICompose26ComposeRenderingUIViewImpl") ?:
+        objc_lookUpClass("DanceUICompose.ComposeRenderingUIViewImpl");
+}
+
+static BOOL HGAMineMethodMatches(id target,SEL selector,const char *encoding) {
+    if(!target || !selector || !encoding)return NO;
+    Method m=class_getInstanceMethod(object_getClass(target),selector);
+    const char *actual=m ? method_getTypeEncoding(m) : NULL;
+    return actual && !strcmp(actual,encoding);
+}
+
+@interface HGAMineComposeOwnerBox : NSObject
+@property(nonatomic,weak) UIViewController *owner;
+@end
+@implementation HGAMineComposeOwnerBox @end
+
+static UIViewController *HGAMineOwnerForComposeRenderer(UIView *renderer) {
+    HGAMineComposeOwnerBox *box=objc_getAssociatedObject(renderer,&HGAMineRendererOwnerKey);
+    if(HGAIsMineKMPController(box.owner))return box.owner;
+    Class mineCls=NSClassFromString(@"SSMine737KMPViewController");
+    if(!mineCls)return nil;
+    for(UIView *node=renderer.superview;node;node=node.superview) {
+        UIResponder *resp=node.nextResponder;
+        if([resp isKindOfClass:mineCls]) {
+            if(!box) {
+                box=[HGAMineComposeOwnerBox new];
+                objc_setAssociatedObject(renderer,&HGAMineRendererOwnerKey,box,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+            box.owner=(UIViewController *)resp;
+            return box.owner;
+        }
+    }
+    return nil;
+}
+
+static NSArray<UIView *> *HGAMineCollectComposeRenderers(UIViewController *controller) {
+    Class composeCls=HGAMineComposeRendererClass();
+    if(!composeCls || !HGAIsMineKMPController(controller) || !controller.isViewLoaded)return @[];
+    UIView *root=controller.viewIfLoaded;
+    NSMutableArray<UIView *> *roots=[NSMutableArray array];
+    if(root)[roots addObject:root];
+    id kmpHandle=HGReadObjectGetter(controller,"minePageKMPHandle");
+    const char *getters[]={"contentView","titleBarView","migrationGuideView","gameCenterPromptView"};
+    for(NSUInteger i=0;i<sizeof(getters)/sizeof(getters[0]);i++) {
+        UIView *surface=HGAViewGetter(kmpHandle,getters[i],nil);
+        if([surface isKindOfClass:UIView.class] && ![roots containsObject:surface])[roots addObject:surface];
+    }
+    NSMutableArray<UIView *> *found=[NSMutableArray array];
+    for(UIView *branch in roots) {
+        if([branch isKindOfClass:composeCls] && ![found containsObject:branch])[found addObject:branch];
+        for(UIView *node in HGADescendants(branch,64))
+            if([node isKindOfClass:composeCls] && ![found containsObject:node])[found addObject:node];
+    }
+    for(UIView *renderer in found) {
+        HGAMineComposeOwnerBox *box=objc_getAssociatedObject(renderer,&HGAMineRendererOwnerKey);
+        if(!box) {
+            box=[HGAMineComposeOwnerBox new];
+            objc_setAssociatedObject(renderer,&HGAMineRendererOwnerKey,box,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        box.owner=controller;
+    }
+    return found;
+}
+
+static void HGAUpdateMineComposeQuiescence(UIViewController *controller) {
+    if(!NSThread.isMainThread || !HGAIsMineKMPController(controller) || !controller.isViewLoaded)return;
+    UIView *root=controller.viewIfLoaded;
+    BOOL disappeared=[objc_getAssociatedObject(controller,&HGAMineDisappearedKey) boolValue];
+    BOOL shouldQuiesce=disappeared || !root.window || root.hidden;
+    SEL getDisabled=sel_registerName("disableRendering"),setDisabled=sel_registerName("setDisableRendering:");
+    SEL getActive=sel_registerName("isApplicationActive"),setActive=sel_registerName("setIsApplicationActive:");
+    SEL redraw=sel_registerName("needRedraw");
+    NSHashTable<UIView *> *quiesced=objc_getAssociatedObject(controller,&HGAMineQuiescedRenderersKey);
+    NSUInteger changed=0;
+    if(shouldQuiesce) {
+        NSArray<UIView *> *renderers=HGAMineCollectComposeRenderers(controller);
+        for(UIView *renderer in renderers) {
+            NSUInteger mask=[objc_getAssociatedObject(renderer,&HGAMineQuiescedMaskKey) unsignedIntegerValue];
+            NSUInteger priorMask=mask;
+            if(!(mask & 1u) && HGAMineMethodMatches(renderer,getDisabled,"B16@0:8") &&
+               HGAMineMethodMatches(renderer,setDisabled,"v20@0:8B16") &&
+               !((BOOL (*)(id,SEL))objc_msgSend)(renderer,getDisabled)) {
+                ((void (*)(id,SEL,BOOL))objc_msgSend)(renderer,setDisabled,YES);
+                mask|=1u;
+            }
+            if(!(mask & 2u) && HGAMineMethodMatches(renderer,getActive,"B16@0:8") &&
+               HGAMineMethodMatches(renderer,setActive,"v20@0:8B16") &&
+               ((BOOL (*)(id,SEL))objc_msgSend)(renderer,getActive)) {
+                objc_setAssociatedObject(renderer,&HGAMineHostActiveKey,@YES,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                mask|=2u;
+                objc_setAssociatedObject(renderer,&HGAMineQuiescedMaskKey,@(mask),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                BOOL prevRestore=HGAMineRestoringComposeActive;
+                HGAMineRestoringComposeActive=YES;
+                @try {
+                    if(HGAMineComposeSetActive)((void (*)(id,SEL,BOOL))HGAMineComposeSetActive)(renderer,setActive,NO);
+                    else ((void (*)(id,SEL,BOOL))objc_msgSend)(renderer,setActive,NO);
+                } @finally {
+                    HGAMineRestoringComposeActive=prevRestore;
+                }
+            } else if(mask!=priorMask) {
+                objc_setAssociatedObject(renderer,&HGAMineQuiescedMaskKey,@(mask),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+            if(mask) {
+                if(!quiesced) {
+                    quiesced=[NSHashTable weakObjectsHashTable];
+                    objc_setAssociatedObject(controller,&HGAMineQuiescedRenderersKey,quiesced,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                }
+                [quiesced addObject:renderer];
+                if(mask!=priorMask)changed++;
+            }
+        }
+    } else if(quiesced.count) {
+        BOOL appActive=UIApplication.sharedApplication.applicationState!=UIApplicationStateBackground;
+        for(UIView *renderer in quiesced.allObjects) {
+            NSUInteger mask=[objc_getAssociatedObject(renderer,&HGAMineQuiescedMaskKey) unsignedIntegerValue];
+            if(!mask)continue;
+            NSNumber *hostWanted=objc_getAssociatedObject(renderer,&HGAMineHostActiveKey);
+            objc_setAssociatedObject(renderer,&HGAMineQuiescedMaskKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(renderer,&HGAMineHostActiveKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            if((mask & 1u) && HGAMineMethodMatches(renderer,setDisabled,"v20@0:8B16"))
+                ((void (*)(id,SEL,BOOL))objc_msgSend)(renderer,setDisabled,NO);
+            if((mask & 2u) && appActive && (!hostWanted || hostWanted.boolValue) &&
+               HGAMineMethodMatches(renderer,setActive,"v20@0:8B16")) {
+                BOOL prevRestore=HGAMineRestoringComposeActive;
+                HGAMineRestoringComposeActive=YES;
+                @try {
+                    if(HGAMineComposeSetActive)((void (*)(id,SEL,BOOL))HGAMineComposeSetActive)(renderer,setActive,YES);
+                    else ((void (*)(id,SEL,BOOL))objc_msgSend)(renderer,setActive,YES);
+                } @finally {
+                    HGAMineRestoringComposeActive=prevRestore;
+                }
+            }
+            if(appActive && renderer.window && HGAMineMethodMatches(renderer,redraw,"v16@0:8"))
+                ((void (*)(id,SEL))objc_msgSend)(renderer,redraw);
+            changed++;
+        }
+        [quiesced removeAllObjects];
+    } else {
+        HGAMineCollectComposeRenderers(controller);
+    }
+    static _Atomic uint64_t quiesceSample;
+    if(changed && HGEnhancedDiagnostics() && HGDiagnosticSample(&quiesceSample))
+        HGLog(@"appearance.mine-quiesce",@{@"quiesced":@(shouldQuiesce),@"renderers":@(changed)});
+}
+
+static void HGAMineSetControllerDisappeared(UIViewController *controller,BOOL disappeared) {
+    if(!HGAIsMineKMPController(controller))return;
+    objc_setAssociatedObject(controller,&HGAMineDisappearedKey,@(disappeared),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if(!disappeared) {
+        // Resume immediately on viewWillAppear: even before root.window attaches,
+        // so the incoming Mine tab renders frame 0 without waiting for layout.
+        NSHashTable<UIView *> *quiesced=objc_getAssociatedObject(controller,&HGAMineQuiescedRenderersKey);
+        if(quiesced.count) {
+            BOOL appActive=UIApplication.sharedApplication.applicationState!=UIApplicationStateBackground;
+            SEL setDisabled=sel_registerName("setDisableRendering:");
+            SEL setActive=sel_registerName("setIsApplicationActive:");
+            SEL redraw=sel_registerName("needRedraw");
+            for(UIView *renderer in quiesced.allObjects) {
+                NSUInteger mask=[objc_getAssociatedObject(renderer,&HGAMineQuiescedMaskKey) unsignedIntegerValue];
+                if(!mask)continue;
+                NSNumber *hostWanted=objc_getAssociatedObject(renderer,&HGAMineHostActiveKey);
+                objc_setAssociatedObject(renderer,&HGAMineQuiescedMaskKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                objc_setAssociatedObject(renderer,&HGAMineHostActiveKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                if((mask & 1u) && HGAMineMethodMatches(renderer,setDisabled,"v20@0:8B16"))
+                    ((void (*)(id,SEL,BOOL))objc_msgSend)(renderer,setDisabled,NO);
+                if((mask & 2u) && appActive && (!hostWanted || hostWanted.boolValue) &&
+                   HGAMineMethodMatches(renderer,setActive,"v20@0:8B16")) {
+                    BOOL prevRestore=HGAMineRestoringComposeActive;
+                    HGAMineRestoringComposeActive=YES;
+                    @try {
+                        if(HGAMineComposeSetActive)((void (*)(id,SEL,BOOL))HGAMineComposeSetActive)(renderer,setActive,YES);
+                        else ((void (*)(id,SEL,BOOL))objc_msgSend)(renderer,setActive,YES);
+                    } @finally {
+                        HGAMineRestoringComposeActive=prevRestore;
+                    }
+                }
+                if(appActive && HGAMineMethodMatches(renderer,redraw,"v16@0:8"))
+                    ((void (*)(id,SEL))objc_msgSend)(renderer,redraw);
+            }
+            [quiesced removeAllObjects];
+        }
+        return;
+    }
+    HGAUpdateMineComposeQuiescence(controller);
+}
+
+static void HGAMineComposeWindowChanged(UIView *renderer,SEL cmd) {
+    ((void (*)(id,SEL))HGAMineComposeDidMoveToWindow)(renderer,cmd);
+    if(!NSThread.isMainThread)return;
+    UIViewController *owner=HGAMineOwnerForComposeRenderer(renderer);
+    if(owner)HGAUpdateMineComposeQuiescence(owner);
+}
+
+static void HGAMineComposeActiveChanged(UIView *renderer,SEL cmd,BOOL active) {
+    if(!HGAMineRestoringComposeActive && NSThread.isMainThread) {
+        NSUInteger mask=[objc_getAssociatedObject(renderer,&HGAMineQuiescedMaskKey) unsignedIntegerValue];
+        UIViewController *owner=HGAMineOwnerForComposeRenderer(renderer);
+        if((mask & 2u) && owner) {
+            UIView *root=owner.viewIfLoaded;
+            BOOL offscreen=[objc_getAssociatedObject(owner,&HGAMineDisappearedKey) boolValue] || !root.window || root.hidden;
+            if(offscreen) {
+                objc_setAssociatedObject(renderer,&HGAMineHostActiveKey,@(active),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                ((void (*)(id,SEL,BOOL))HGAMineComposeSetActive)(renderer,cmd,NO);
+                return;
+            }
+        }
+    }
+    ((void (*)(id,SEL,BOOL))HGAMineComposeSetActive)(renderer,cmd,active);
+}
+
+static void HGAInstallMineOffscreenQuiescence(void) {
+    Class composeCls=HGAMineComposeRendererClass();
+    if(!composeCls)return;
+    if(!HGAMineComposeDidMoveToWindow && class_getInstanceMethod(composeCls,@selector(didMoveToWindow)))
+        HGAMineComposeDidMoveToWindow=HGInstallVerifiedHook(composeCls,@selector(didMoveToWindow),"v16@0:8",
+            (IMP)HGAMineComposeWindowChanged,@"appearance");
+    SEL setActive=sel_registerName("setIsApplicationActive:");
+    if(!HGAMineComposeSetActive && class_getInstanceMethod(composeCls,setActive))
+        HGAMineComposeSetActive=HGInstallVerifiedHook(composeCls,setActive,"v20@0:8B16",
+            (IMP)HGAMineComposeActiveChanged,@"appearance");
+}
+
 @interface HGAMineTitleWatch : NSObject
 @property(nonatomic,weak) UIViewController *page;
 @property(nonatomic,weak) UIView *renderer;
@@ -1037,7 +1271,7 @@ static void HGAWatchMineComposeRenderer(UIViewController *page,UIView *renderer,
         objc_setAssociatedObject(page,watchKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return;
     }
-    Class cls=objc_lookUpClass("DanceUICompose.ComposeRenderingUIViewImpl");
+    Class cls=HGAMineComposeRendererClass();
     if(!HGAMineTitleDidAdd)HGAMineTitleDidAdd=HGInstallVerifiedHook(cls,@selector(didAddSubview:),"v24@0:8@16",(IMP)HGAMineTitleGlyphsChanged,@"appearance");
     if(!HGAMineTitleWillRemove)HGAMineTitleWillRemove=HGInstallVerifiedHook(cls,@selector(willRemoveSubview:),"v24@0:8@16",(IMP)HGAMineTitleGlyphsChanged,@"appearance");
     if(!HGAMineTitleDidAdd || !HGAMineTitleWillRemove)return;
@@ -1112,6 +1346,8 @@ static void HGAUpdateMineMenu(UIViewController *controller,UIView *titleBar,NSMu
 }
 
 static void HGAApplyMineKMPChrome(UIViewController *controller) {
+    HGAInstallMineOffscreenQuiescence();
+    HGAUpdateMineComposeQuiescence(controller);
     UIView *root=controller.viewIfLoaded;
     BOOL enabled=HGAppearanceEnabled() && root.window;
     if(HGAMineFilterInstalled) {
