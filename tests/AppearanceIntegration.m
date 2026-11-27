@@ -64,10 +64,15 @@
 @end
 @interface SSShortVideoRightInteractionCommentView : HGAActionFixture
 @property(nonatomic,weak) id delegate;
-- (void)refreshUIWithModel:(id)model;
+@property(nonatomic) double commentCount;
+@property(nonatomic) NSUInteger countDraws;
+- (void)updateCommentLabelWithCount:(NSInteger)count;
 @end
 @implementation SSShortVideoRightInteractionCommentView
-- (void)refreshUIWithModel:(id)model { self.countLabel.text=@"抢首评"; }
+- (void)updateCommentLabelWithCount:(NSInteger)count {
+    self.commentCount=(double)count;self.countDraws++;
+    self.countLabel.text=count>0 ? [@(count) stringValue] : @"抢首评";
+}
 @end
 @interface SSShortVideoRightInteractionShareView : HGAActionFixture @end
 @implementation SSShortVideoRightInteractionShareView @end
@@ -140,11 +145,15 @@
 @implementation FQVCollectionView @end
 @interface HGTestCommentOpenParam : NSObject
 @property(nonatomic) NSInteger commentCount;
+@property(nonatomic,copy) NSString *vid;
 @end
 @implementation HGTestCommentOpenParam @end
 @interface HGTestRailCommentModel : NSObject
 @property(nonatomic,strong) HGTestCommentOpenParam *videoData;
 @property(nonatomic,strong) HGTestCommentOpenParam *episodeVideoData;
+@property(nonatomic,strong) HGTestRailCommentModel *videoDataModel;
+@property(nonatomic,strong) HGTestRailCommentModel *shortVideoModel;
+@property(nonatomic,strong) HGTestRailCommentModel *preloadShortVideoModel;
 @end
 @implementation HGTestRailCommentModel @end
 @interface SSShortVideoRightInteractionCommentViewManager : NSObject
@@ -152,7 +161,6 @@
 @property(nonatomic,strong) NSNumber *countModel;
 @property(nonatomic,weak) SSShortVideoRightInteractionCommentView *commentView;
 @property(nonatomic) BOOL supportComment;
-@property(nonatomic) NSInteger displayedCount;
 - (void)updateModelWithVideoDataModel:(HGTestRailCommentModel *)model;
 - (void)refreshUIWithCommentCount:(NSInteger)count;
 - (void)updateCommentData;
@@ -161,12 +169,9 @@
 @end
 @implementation SSShortVideoRightInteractionCommentViewManager
 - (void)updateModelWithVideoDataModel:(HGTestRailCommentModel *)model { self.model=model; }
-- (void)refreshUIWithCommentCount:(NSInteger)count {
-    self.displayedCount=count;
-    if(self.commentView)self.commentView.countLabel.text=count>0 ? [@(count) stringValue] : @"抢首评";
-}
+- (void)refreshUIWithCommentCount:(NSInteger)count { [self.commentView updateCommentLabelWithCount:count]; }
 - (void)updateCommentData { [self refreshUIWithCommentCount:self.countModel ? self.countModel.integerValue : 0]; }
-- (void)updateCommentDataByCommonRequest { [self refreshUIWithCommentCount:self.countModel ? self.countModel.integerValue : 0]; }
+- (void)updateCommentDataByCommonRequest { [self.commentView updateCommentLabelWithCount:self.countModel ? self.countModel.integerValue : 0]; }
 - (void)commentViewDidClick:(id)view {}
 @end
 @interface HGTestCommentTab : NSObject
@@ -664,30 +669,49 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     [episodeComments updateCount:76];[countPanel setupTabItems];
     Check([episodeComments.countText isEqual:@"76"],@"a newer native count retains priority over the opening parameter");
     SSShortVideoRightInteractionCommentViewManager *commentManager=[SSShortVideoRightInteractionCommentViewManager new];
+    SSShortVideoRightInteractionCommentView *commentAction=[[SSShortVideoRightInteractionCommentView alloc] initWithFrame:CGRectMake(45,210,46,62)];
+    commentManager.commentView=commentAction;commentAction.delegate=commentManager;
     HGTestRailCommentModel *railModel=[HGTestRailCommentModel new];
     railModel.videoData=[HGTestCommentOpenParam new];
     railModel.videoData.commentCount=74;commentManager.supportComment=YES;
-    [commentManager updateModelWithVideoDataModel:railModel];BOOL primed=commentManager.displayedCount==74;
-    [commentManager updateCommentData];primed &= commentManager.displayedCount==74;
-    [commentManager updateCommentDataByCommonRequest];primed &= commentManager.displayedCount==74;
-    [commentManager refreshUIWithCommentCount:0];primed &= commentManager.displayedCount==74;
+    [commentManager updateModelWithVideoDataModel:railModel];BOOL primed=commentAction.commentCount==74;
+    [commentManager updateCommentData];primed &= commentAction.commentCount==74;
+    [commentManager updateCommentDataByCommonRequest];primed &= commentAction.commentCount==74;
     Check(primed,@"the right comment button displays this episode's known count at binding and resists placeholder zero resets before countModel arrives");
     commentManager.countModel=@0;[commentManager updateCommentData];
-    Check(commentManager.displayedCount==0,@"a real response of zero supersedes a positive feed count");
-    commentManager.countModel=nil;railModel.videoData.commentCount=0;[commentManager updateCommentData];
-    Check(commentManager.displayedCount==0,@"a missing feed count preserves the native pending state");
+    Check(commentAction.commentCount==0,@"a real response of zero supersedes a positive feed count");
+    commentManager.countModel=nil;[commentAction updateCommentLabelWithCount:0];
+    Check(commentAction.commentCount==0,@"a native update outside request startup can report zero without a count model");
+    railModel.videoData.commentCount=0;[commentManager updateCommentData];
+    Check(commentAction.commentCount==0,@"a missing feed count preserves the native pending state");
     railModel.videoData=nil;railModel.episodeVideoData=[HGTestCommentOpenParam new];
     railModel.episodeVideoData.commentCount=19;[commentManager updateModelWithVideoDataModel:railModel];
-    Check(commentManager.displayedCount==19,@"outer episode models without videoData still prime their known comment count");
+    Check(commentAction.commentCount==19,@"outer episode models without videoData still prime their known comment count");
     railModel.videoData=railModel.episodeVideoData;railModel.episodeVideoData=nil;
-    commentManager.displayedCount=-1;railModel.videoData.commentCount=33;commentManager.supportComment=NO;[commentManager updateCommentDataByCommonRequest];
-    Check(commentManager.displayedCount<=0,@"unavailable comments are not populated");
-    SSShortVideoRightInteractionCommentView *commentAction=[[SSShortVideoRightInteractionCommentView alloc] initWithFrame:CGRectMake(45,210,46,62)];
-    [root addSubview:commentAction];
-    commentManager.supportComment=YES;commentManager.commentView=commentAction;commentAction.delegate=commentManager;
+    railModel.videoData.commentCount=33;commentManager.supportComment=NO;[commentManager updateCommentDataByCommonRequest];
+    Check(commentAction.commentCount==0,@"unavailable comments are not populated");
+    commentManager.supportComment=YES;
     railModel.videoData.commentCount=101;[commentManager updateModelWithVideoDataModel:railModel];
-    [commentAction refreshUIWithModel:railModel];
-    Check([commentAction.countLabel.text isEqual:@"101"],@"a view-level refresh while countModel is pending cannot flash 抢首评 over a primed episode count");
+    [commentManager updateCommentDataByCommonRequest];
+    Check([commentAction.countLabel.text isEqual:@"101"],@"the common request's direct placeholder paint uses known metadata before the response");
+    HGTestRailCommentModel *bound=[HGTestRailCommentModel new],*active=[HGTestRailCommentModel new];
+    bound.videoDataModel=active;
+    active.shortVideoModel=[HGTestRailCommentModel new];active.shortVideoModel.videoData=[HGTestCommentOpenParam new];
+    active.shortVideoModel.videoData.vid=@"current";active.shortVideoModel.videoData.commentCount=5;
+    commentManager.commentView=nil;[commentManager updateModelWithVideoDataModel:bound];
+    NSUInteger beforeMount=commentAction.countDraws;
+    commentManager.commentView=commentAction;[root addSubview:commentAction];
+    Check(commentAction.commentCount==5 && commentAction.countDraws==beforeMount+1,
+        @"the late-mounted comment rail shows the bound feed item's nested count on its first frame");
+    NSUInteger mountedPaints=commentAction.countDraws;
+    for(NSUInteger i=0;i<6;i++)Layout(commentAction);
+    Check(commentAction.countDraws==mountedPaints,@"routine comment rail layout neither re-reads nor repaints the initial count");
+    active.shortVideoModel.videoData.commentCount=0;
+    active.preloadShortVideoModel=[HGTestRailCommentModel new];active.preloadShortVideoModel.videoData=[HGTestCommentOpenParam new];
+    active.preloadShortVideoModel.videoData.vid=@"previous";active.preloadShortVideoModel.videoData.commentCount=32;
+    [commentManager updateCommentDataByCommonRequest];BOOL ignoresPrevious=commentAction.commentCount==0;
+    active.preloadShortVideoModel.videoData.vid=@"current";[commentManager updateCommentDataByCommonRequest];
+    Check(ignoresPrevious && commentAction.commentCount==32,@"only preloaded metadata carrying the bound item's VID replaces a native placeholder");
     commentAction.delegate=nil;commentManager.commentView=nil;
     commentAction.countLabel.text=@"74";
     BOOL countVisible=YES;

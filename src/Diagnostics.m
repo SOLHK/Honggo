@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <TargetConditionals.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
@@ -28,7 +29,7 @@ static NSDictionary *HGCurrentMetadata;
 static NSMutableArray<NSDictionary *> *HGIncoming, *HGRecent, *HGFallback;
 static NSUInteger HGDropped;
 static BOOL HGDrainScheduled, HGUrgentScheduled;
-static BOOL HGEnhanced = YES;
+static atomic_bool HGEnhanced = true;
 static BOOL HGFlushScheduled, HGDirty, HGExporting;
 static NSUInteger HGGeneration, HGArchiveBytes, HGSegmentSize, HGSegmentNumber;
 static NSTimeInterval HGSegmentOpened, HGWriteRetry, HGOpenOldest;
@@ -611,11 +612,11 @@ void HGLoadStage(NSString *stage) {
 }
 
 BOOL HGEnhancedDiagnostics(void) {
-    @synchronized (HGLogLock) { return HGEnhanced; }
+    return atomic_load_explicit(&HGEnhanced, memory_order_relaxed);
 }
 
 void HGSetEnhancedDiagnostics(BOOL enabled) {
-    @synchronized (HGLogLock) { HGEnhanced = enabled; }
+    atomic_store_explicit(&HGEnhanced, enabled, memory_order_relaxed);
     HGLog(@"diagnostics.mode", @{@"enabled": @(enabled)});
 }
 
@@ -624,6 +625,30 @@ void HGSetEnhancedDiagnostics(BOOL enabled) {
 static NSUInteger HGWatchProbe, HGWatchLevel;
 static NSTimeInterval HGWatchStart, HGWatchWallTime;
 static BOOL HGWatching;
+static NSTimeInterval HGPerformanceNext, HGPerformanceAt, HGPerformanceCPU;
+
+static void HGWatchPerformance(NSTimeInterval now) {
+    if (now < HGPerformanceNext) return;
+    HGPerformanceNext = now + 5;
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) != 0) {
+        HGPerformanceAt = 0;
+        return;
+    }
+    NSTimeInterval cpu = usage.ru_utime.tv_sec + usage.ru_stime.tv_sec +
+        (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1000000.0;
+    if (HGPerformanceAt > 0 && now > HGPerformanceAt && cpu >= HGPerformanceCPU) {
+        NSTimeInterval elapsed = now - HGPerformanceAt;
+        // CPU time covers this process across all its threads. 100% is one core.
+        HGLog(@"device.performance", @{
+            @"intervalSeconds": @(elapsed),
+            @"processCPUPercent": @(HGDiagnosticCPUPercent(elapsed, cpu - HGPerformanceCPU)),
+            @"thermalState": @(NSProcessInfo.processInfo.thermalState)
+        });
+    }
+    HGPerformanceAt = now;
+    HGPerformanceCPU = cpu;
+}
 
 static void HGWatchReport(NSString *event, NSTimeInterval duration) {
     HGLogCritical(event, @{@"startedAt": @(HGWatchWallTime), @"durationSeconds": @(duration),
@@ -645,6 +670,7 @@ static void HGWatchCheck(NSTimeInterval now) {
 static void HGWatchTick(void) {
     if (!HGWatching) return;
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    HGWatchPerformance(now);
     if (HGWatchStart != 0) {
         HGWatchCheck(now);
         return;
@@ -671,6 +697,8 @@ void HGDiagnosticsSetForeground(BOOL foreground) {
         HGWatching = foreground;
         HGWatchProbe++;
         HGWatchStart = 0;
+        HGPerformanceNext = 0;
+        HGPerformanceAt = 0;
         dispatch_source_set_timer(HGWatchTimer, foreground ? DISPATCH_TIME_NOW : DISPATCH_TIME_FOREVER,
             500 * NSEC_PER_MSEC, 100 * NSEC_PER_MSEC);
     });
@@ -793,6 +821,12 @@ void HGDiagnosticsStart(NSURL *directory, NSDictionary *environment) {
                 60 * NSEC_PER_SEC, 5 * NSEC_PER_SEC);
             dispatch_resume(HGMaintenanceTimer);
         });
+        NSProcessInfo *process = NSProcessInfo.processInfo;
+        HGLog(@"device.thermal", @{@"thermalState": @(process.thermalState)});
+        [NSNotificationCenter.defaultCenter addObserverForName:NSProcessInfoThermalStateDidChangeNotification
+            object:process queue:nil usingBlock:^(NSNotification *note) {
+                HGLog(@"device.thermal", @{@"thermalState": @(process.thermalState)});
+            }];
         HGDiagnosticsSetForeground(YES);
     });
 }

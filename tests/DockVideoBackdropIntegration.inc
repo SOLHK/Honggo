@@ -65,6 +65,7 @@
 - (void)refreshBgColor;
 - (void)refreshCoverImageView;
 - (void)vPlayerReadyToDisPlay:(FQVPlayer *)player;
+- (void)resumeWithType:(NSInteger)reason;
 @end
 @implementation FQVShortVideoPlayerCellView (HGBackdropPaletteFixture)
 static char HGBackdropCellCoverKey;
@@ -75,6 +76,15 @@ static char HGBackdropCellCoverKey;
 - (void)refreshCoverImageView {}
 - (void)refreshBgColor { self.backgroundColor=[UIColor colorWithRed:0.24 green:0.29 blue:0.32 alpha:1]; }
 - (void)vPlayerReadyToDisPlay:(FQVPlayer *)player { self.coverImageView.hidden=YES; }
+- (FQVPlayer *)vPlayer {
+    for(UIView *wrapper in self.subviews)
+        if([wrapper.subviews.firstObject isKindOfClass:FQVPlayer.class])return (FQVPlayer *)wrapper.subviews.firstObject;
+    return nil;
+}
+- (void)resumeWithType:(NSInteger)reason {
+    for(UIView *renderer in self.vPlayer.subviews)
+        if([renderer isKindOfClass:TTPlayerView.class])renderer.layer.sublayerTransform=CATransform3DIdentity;
+}
 @end
 
 @interface HGBackdropMetalFixture : TTMetalView
@@ -658,6 +668,34 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             CATransform3DEqualToTransform(currentFit,cell.renderer.layer.sublayerTransform) &&
             previous.layer.zPosition==0 && cell.layer.zPosition==1,
             @"outgoing and incoming portraits keep stable independent frames and only the bottom page paints above prefetched neighbors");
+
+        // Keep the trailing cell mounted beneath the lower edge probe.
+        [feed setContentOffset:CGPointMake(0,0.5) animated:NO];Layout(feed);
+        previous=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
+        UIImageView *returnCover=[[UIImageView alloc] initWithImage:firstPoster];
+        returnCover.frame=previous.canvas.bounds;previous.canvas.coverImageView=returnCover;
+        [previous.canvas addSubview:returnCover];
+        [scrollDriver scrollViewDidScroll:feed];
+        UIView *borrower=[[UIView alloc] initWithFrame:previous.canvas.bounds];
+        [previous.canvas addSubview:borrower];
+        __block BOOL coveredDuringHandoff=NO;
+        previous.renderer.nativeWillMoveObserver=^{
+            [scrollDriver scrollViewDidScroll:feed];
+            coveredDuringHandoff=!feed.clipsToBounds &&
+                fabs(CGRectGetHeight(returnCover.frame)-height)<0.75 &&
+                !returnCover.hidden && CATransform3DIsIdentity(previous.renderer.layer.sublayerTransform);
+        };
+        [borrower addSubview:previous.renderer];
+        previous.renderer.nativeWillMoveObserver=nil;
+        Check(coveredDuringHandoff,@"a revisited page keeps its own portrait poster full-height while its live renderer moves");
+        [previous.player addSubview:previous.renderer];
+        [borrower removeFromSuperview];
+        [returnCover removeFromSuperview];previous.canvas.coverImageView=nil;
+        [previous.canvas resumeWithType:1];
+        CGRect resumed=[previous.metal.layer convertRect:previous.metal.layer.bounds toLayer:previous.canvas.layer];
+        Check(!feed.clipsToBounds && fabs(CGRectGetMaxY(resumed)-height)<0.75 &&
+            !CATransform3DIsIdentity(previous.renderer.layer.sublayerTransform),
+            @"returning to a cached frame restores full height before resume returns without a second ready callback");
         [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
         Layout(cell);[manager refreshWithBranches:branches root:container.view bar:bar active:YES];
 

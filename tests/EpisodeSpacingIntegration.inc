@@ -1,4 +1,13 @@
-@interface FQVShortVideoDerivativeVideoControlView : UIView
+@class FQVShortVideoProgressView;
+@interface FQVShortVideoVPlayerMultiSeriesControlView : UIView
+@property(nonatomic,strong) FQVShortVideoProgressView *progressContainer;
+@property(nonatomic,strong) FQVShortVideoBaseInsertView *insertAboveProgressView;
+@end
+@implementation FQVShortVideoVPlayerMultiSeriesControlView
+- (void)layoutSubviews {[super layoutSubviews];}
+@end
+
+@interface FQVShortVideoDerivativeVideoControlView : FQVShortVideoVPlayerMultiSeriesControlView
 @property(nonatomic) BOOL writesNativeFrames;
 @property(nonatomic,weak) UIView *nativeEntry;
 @property(nonatomic,weak) UIView *nativeInfo;
@@ -33,15 +42,11 @@
 @implementation SSShortVideoDerivateInfoView @end
 // This independent class is the exact HUD identity in the user's R14 scene.
 // It must not inherit the legacy test HUD, which concealed the missing adapter.
-@interface FQVShortVideoVPlayerOutterMultiSeriesControlView : UIView @end
-@implementation FQVShortVideoVPlayerOutterMultiSeriesControlView
-- (void)layoutSubviews {[super layoutSubviews];}
-@end
-@interface FQVShortVideoVPlayerMultiSeriesControlView : UIView
+@interface FQVShortVideoVPlayerOutterMultiSeriesControlView : UIView
 @property(nonatomic,strong) FQVShortVideoProgressView *progressContainer;
 @property(nonatomic,strong) FQVShortVideoBaseInsertView *insertAboveProgressView;
 @end
-@implementation FQVShortVideoVPlayerMultiSeriesControlView
+@implementation FQVShortVideoVPlayerOutterMultiSeriesControlView
 - (void)layoutSubviews {[super layoutSubviews];}
 @end
 @interface SSShortVideoRightInteractionView : UIView @end
@@ -195,7 +200,19 @@ static void RunOutterEpisodeSpacingChecks(UIView *root) {
         HGAppearanceProcessView(decoration);
         Check(probe.subviewReads==0,@"laying out an unrelated action child does not traverse the playback HUD");
         HGAppearanceProcessView(progress);
-        Check(probe.subviewReads>0,@"the native progress owner still remeasures the HUD when its rail changes");
+        Check(probe.subviewReads>0,@"a HUD without native slots finds its progress rail in the fallback hierarchy");
+        control.progressContainer=progress;
+        control.insertAboveProgressView=wrapper;
+        probe.subviewReads=0;
+        track.center=CGPointMake(track.center.x,track.center.y-2);
+        for(NSUInteger i=0;i<48;i++)HGAppearanceProcessView(progress);
+        CGRect fittedRail=[track convertRect:track.bounds toView:control];
+        Check(probe.subviewReads==0 && fabs(CGRectGetMinY(fittedRail)-CGRectGetMaxY(wrapper.frame)-8)<0.01,
+            @"repeated progress layouts use mounted native slots and still apply a changed rail position");
+        track.center=CGPointMake(track.center.x,track.center.y+2);
+        HGAppearanceProcessView(progress);
+        control.progressContainer=nil;
+        control.insertAboveProgressView=nil;
         [probe removeFromSuperview];
         [decoration removeFromSuperview];
         CGRect rail=[track convertRect:track.bounds toView:control];
@@ -417,6 +434,15 @@ static void RunEpisodeSpacingChecks(UIView *root) {
     UIView *screen=[[UIView alloc] initWithFrame:CGRectMake(0,0,440,956)];
     [screen addSubview:canvas];[root addSubview:screen];Layout(info);Layout(control);Layout(entry);
     @try {
+        HGTestHUDTraversalProbe *probe=[HGTestHUDTraversalProbe new];
+        [control addSubview:probe];
+        HGAppearanceProcessView(control);
+        NSUInteger singleTraversal=probe.subviewReads;
+        probe.subviewReads=0;
+        [control layoutSubviews];
+        Check(singleTraversal>0 && probe.subviewReads==singleTraversal,
+            @"a native subclass calling its hooked superclass lays out the HUD just once");
+        [probe removeFromSuperview];
         CGRect rail=[track convertRect:track.bounds toView:control];
         Check(fabs(CGRectGetMinY(rail)-CGRectGetMaxY(wrapper.frame)-8)<0.01 &&
             fabs(CGRectGetMinY(wrapper.frame)-809)<0.01,

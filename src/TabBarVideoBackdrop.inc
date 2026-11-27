@@ -144,22 +144,30 @@ static BOOL HGVideoBackdropFeedGeometry(UICollectionView *feed, UIViewController
         fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(full)) <= 0.75;
 }
 
-static UICollectionViewCell *HGVideoBackdropCellAtY(UICollectionView *feed, CGFloat y, CGRect *edgeFrame) {
+static void HGVideoBackdropEdgeCells(UICollectionView *feed, UICollectionViewCell **topCell, CGRect *topFrame,
+    UICollectionViewCell **bottomCell, CGRect *bottomFrame) {
     CGRect viewport = feed.bounds;
+    CGFloat topY=CGRectGetMinY(viewport)+0.75;
+    CGFloat bottomY=CGRectGetMaxY(viewport)-0.75;
     // Only inspect realized, attached cells. Asking UICollectionView for its
     // visible cells can synchronously trigger a layout during host recycling.
     for (UIView *child in feed.subviews) {
         if (![child isKindOfClass:UICollectionViewCell.class] || !HGVideoBackdropVisible(child, feed)) continue;
         UICollectionViewCell *cell = (UICollectionViewCell *)child;
         CGRect frame = [cell convertRect:cell.bounds toView:feed];
-        if (CGRectGetMinY(frame) <= y && CGRectGetMaxY(frame) > y &&
-            fabs(CGRectGetMinX(frame) - CGRectGetMinX(viewport)) <= 0.75 &&
-            fabs(CGRectGetMaxX(frame) - CGRectGetMaxX(viewport)) <= 0.75) {
-            *edgeFrame = frame;
-            return cell;
+        if (fabs(CGRectGetMinX(frame)-CGRectGetMinX(viewport))>0.75 ||
+            fabs(CGRectGetMaxX(frame)-CGRectGetMaxX(viewport))>0.75) continue;
+        CGFloat start=CGRectGetMinY(frame), end=CGRectGetMaxY(frame);
+        if (!*topCell && start<=topY && end>topY) {
+            *topCell=cell;
+            *topFrame=frame;
         }
+        if (!*bottomCell && start<=bottomY && end>bottomY) {
+            *bottomCell=cell;
+            *bottomFrame=frame;
+        }
+        if (*topCell && *bottomCell) break;
     }
-    return nil;
 }
 
 static BOOL HGVideoBackdropCrossesBottom(UICollectionView *feed, CGRect cellFrame) {
@@ -355,6 +363,12 @@ static BOOL HGVideoBackdropFrameReady(UIView *player) {
         ((BOOL(*)(id,SEL))objc_msgSend)(model,ready);
 }
 
+static BOOL HGVideoBackdropCoverVisible(UIImageView *cover, UIView *canvas) {
+    for (UIView *node=cover; node!=canvas; node=node.superview)
+        if (node.hidden || node.alpha<=0.01) return NO;
+    return YES;
+}
+
 static CGFloat HGVideoBackdropFirstPictureY(UIView *canvas, UIView *feed) {
     UIView *player=HGVideoBackdropPlayer(canvas);
     CGFloat pictureTop=CGFLOAT_MAX;
@@ -371,11 +385,7 @@ static CGFloat HGVideoBackdropFirstPictureY(UIView *canvas, UIView *feed) {
     UIImageView *covers[]={HGVideoBackdropCover(canvas),HGVideoBackdropCover(player)};
     for (NSUInteger i=0;i<2;i++) {
         UIImageView *cover=covers[i];
-        if (!cover.image || (i==1 && cover==covers[0])) continue;
-        BOOL visible=YES;
-        for (UIView *node=cover; node!=canvas; node=node.superview)
-            if (node.hidden || node.alpha<=0.01) {visible=NO;break;}
-        if (!visible) continue;
+        if (!cover.image || (i==1 && cover==covers[0]) || !HGVideoBackdropCoverVisible(cover,canvas)) continue;
         CGRect picture=cover.bounds;
         if (cover.contentMode==UIViewContentModeScaleAspectFit) {
             CGSize size=cover.image.size;
@@ -576,12 +586,17 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     for (UIView *node=coordinateView; node && node!=boundary; node=node.superview)
         if (node.layer.mask || !CATransform3DIsIdentity(node.layer.transform) ||
             !CATransform3DIsIdentity(node.layer.sublayerTransform)) return NO;
+    BOOL transferring=NO;
     for (UIView *renderer in player.subviews) {
         if (![renderer isKindOfClass:objc_lookUpClass("TTPlayerView")]) continue;
-        // Leave native landscape playback, including its poster, to the player.
-        if (HGAppearancePlayerIsTransferring(renderer) ||
-            (!CGRectIsEmpty(renderer.frame) && renderer.bounds.size.width>=renderer.bounds.size.height &&
-                HGVideoBackdropFrameReady(player))) return NO;
+        if (HGAppearancePlayerIsTransferring(renderer)) {
+            transferring=YES;
+            continue;
+        }
+        // A decoded, visible landscape picture still owns its native crop.
+        if (!renderer.hidden && renderer.alpha>0.01 && !player.hidden && player.alpha>0.01 &&
+            !CGRectIsEmpty(renderer.frame) && renderer.bounds.size.width>=renderer.bounds.size.height &&
+            HGVideoBackdropFrameReady(player)) return NO;
     }
     BOOL filled=NO;
     BOOL extends=CGRectGetMaxY(full)>CGRectGetMaxY(viewport)+0.75;
@@ -614,7 +629,10 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
 
     for (NSUInteger i=0;i<2;i++) {
         UIImageView *cover=covers[i];
+        // A revisited cell can retain its own poster while UIKit borrows the
+        // renderer. Keep that picture continuous until the real frame returns.
         if (!cover || (i==1 && cover==covers[0]) || cover.layer.mask ||
+            (transferring && (!cover.image || !HGVideoBackdropCoverVisible(cover,canvas))) ||
             !CGAffineTransformIsIdentity(cover.transform) || !(cover.image ? HGVideoBackdropPortraitImage(cover) :
             (filled || HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model"))))) continue;
         NSValue *old=[self.portraitCovers objectForKey:cover];
@@ -702,16 +720,11 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
 
 // These two native pages carry different opaque palettes. Blend only their
 // letterbox mattes as the boundary travels, leaving native media and HUD on top.
-- (UIColor *)pagingMatteForCanvas:(UIView *)bottom frame:(CGRect)bottomFrame color:(UIColor *)color {
+- (UIColor *)pagingMatteForCanvas:(UIView *)bottom frame:(CGRect)bottomFrame color:(UIColor *)color
+                      topCanvas:(UIView *)top topFrame:(CGRect)topFrame {
     UICollectionView *feed=self.feed;
-    CGRect topFrame=CGRectNull;
-    CGFloat topY=CGRectGetMinY(feed.bounds)+0.75;
-    UIView *top=nil;
-    if (color && HGVideoBackdropCrossesBottom(feed,bottomFrame) && HGVideoBackdropHasLetterbox(bottom)) {
-        UICollectionViewCell *cell=HGVideoBackdropCellAtY(feed,topY,&topFrame);
-        if (fabs(CGRectGetMaxY(topFrame)-CGRectGetMinY(bottomFrame))<=0.75)
-            top=HGVideoBackdropCanvas(cell,feed,topY);
-    }
+    if (!color || !HGVideoBackdropCrossesBottom(feed,bottomFrame) || !HGVideoBackdropHasLetterbox(bottom) ||
+        fabs(CGRectGetMaxY(topFrame)-CGRectGetMinY(bottomFrame))>0.75) top=nil;
     UIColor *start=HGVideoBackdropMatte(top);
     if (!start || !HGVideoBackdropHasLetterbox(top) || [start isEqual:color]) {
         for (CALayer *layer in self.pagingMattes) [layer removeFromSuperlayer];
@@ -746,16 +759,15 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         return;
     }
 
-    CGRect cellFrame = CGRectNull;
+    CGRect cellFrame=CGRectNull, topFrame=CGRectNull;
+    UICollectionViewCell *cell=nil, *topCell=nil;
+    HGVideoBackdropEdgeCells(feed,&topCell,&topFrame,&cell,&cellFrame);
     CGFloat edge=CGRectGetMaxY(feed.bounds)-0.75;
-    UICollectionViewCell *cell = HGVideoBackdropCellAtY(feed,edge,&cellFrame);
     UIView *canvas = HGVideoBackdropCanvas(cell,feed,edge);
     // Keep the page stride native. Both attached pages use a fixed full
     // picture size before, during and after a swipe.
     CGFloat extra=MAX(0,CGRectGetMaxY(feed.superview.bounds)-CGRectGetMaxY(feed.frame));
-    CGRect topFrame=CGRectNull;
-    CGFloat top=CGRectGetMinY(feed.bounds)+0.75;
-    UICollectionViewCell *topCell=HGVideoBackdropCellAtY(feed,top,&topFrame);
+    UIView *topCanvas=topCell!=cell ? HGVideoBackdropCanvas(topCell,feed,CGRectGetMinY(feed.bounds)+0.75) : nil;
     NSMutableSet *active=[NSMutableSet set];
     CGRect full=canvas.bounds;
     full.size.height+=extra;
@@ -763,7 +775,6 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         [self fillPortraitInCanvas:canvas viewport:canvas.bounds full:full boundary:feed active:active];
     BOOL topPortrait=NO, keepUpperPicture=NO;
     if (topCell && topCell!=cell && fabs(topFrame.size.height-feed.bounds.size.height)<=0.75) {
-        UIView *topCanvas=HGVideoBackdropCanvas(topCell,feed,top);
         CGRect topFull=topCanvas.bounds;
         topFull.size.height+=extra;
         CGFloat advance=CGRectGetMinY(feed.bounds)-CGRectGetMinY(topFrame);
@@ -780,7 +791,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     }
     [self restorePortraitExcept:active];
     UIColor *matte=!portrait && extra>0.75 ? HGVideoBackdropMatte(canvas) : nil;
-    [self updateUnderlay:[self pagingMatteForCanvas:canvas frame:cellFrame color:matte]];
+    [self updateUnderlay:[self pagingMatteForCanvas:canvas frame:cellFrame color:matte topCanvas:topCanvas topFrame:topFrame]];
 
     BOOL overflows=extra>0.75 && (portrait || keepUpperPicture || (cell && HGVideoBackdropCrossesBottom(feed,cellFrame)));
     // A prefetched neighbor must not cover live pixels until its own picture

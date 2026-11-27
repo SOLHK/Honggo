@@ -447,14 +447,23 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
             return;
         }
     }
-    UIView *progress=nil,*wrapper=nil,*info=nil;
+    UIView *progress=HGALazyControlSubview(control,"_progressContainer",NULL);
+    UIView *wrapper=HGALazyControlSubview(control,"_insertAboveProgressView",NULL);
+    UIView *info=nil;
     BOOL ambiguous=NO,ambiguousInfo=NO;
-    // A native layout may add a neutral intermediate container. Find only the
-    // recognized components belonging to this HUD, never a nested player HUD.
-    for(UIView *child in HGADescendants(control,96)) {
+    // The host's mounted slots identify the active rail and episode row even
+    // when inactive/prepared views occupy the same HUD. Older layouts need
+    // the bounded search because they do not expose both slots.
+    UIView *episode=wrapper.subviews.count==1 ? wrapper.subviews.firstObject : nil;
+    BOOL bound=HGABottomViewIsA(progress,@"FQVShortVideoProgressView") &&
+        HGABottomViewIsA(wrapper,@"FQVShortVideoBaseInsertView") &&
+        [HGARole(episode) isEqual:@"episodes"] && HGAVisible(episode) && HGAVisible(progress) &&
+        HGABottomControlForView(progress)==control && HGABottomControlForView(wrapper)==control;
+    if (!bound) { progress=nil; wrapper=nil; }
+    for(UIView *child in bound ? control.subviews : HGADescendants(control,96)) {
         if(child==control)continue;
-        BOOL isProgress=HGABottomViewIsA(child,@"FQVShortVideoProgressView");
-        BOOL isWrapper=HGABottomViewIsA(child,@"FQVShortVideoBaseInsertView") && child.subviews.count==1 &&
+        BOOL isProgress=!bound && HGABottomViewIsA(child,@"FQVShortVideoProgressView");
+        BOOL isWrapper=!bound && HGABottomViewIsA(child,@"FQVShortVideoBaseInsertView") && child.subviews.count==1 &&
             [HGARole(child.subviews.firstObject) isEqual:@"episodes"];
         BOOL isInfo=child.superview==control && (HGABottomViewIsA(child,@"SSShortVideoDerivateInfoView") ||
             HGABottomViewIsA(child,@"SSShortVideoOutterSeriesInfoView"));
@@ -544,7 +553,9 @@ static void HGAUpdateBottomLayoutForView(UIView *view) {
     HGAApplyBottomPosition(state.info,adjacentInfo && !outterGroups?lift:0);
     HGAUpdateBottomInfoGroups(state,outterGroups?info:nil,control,entryRect,lift);
     [CATransaction commit];
-    if((fabs(state.lastLift-lift)>0.01 || fabs(state.lastProgressLift-progressLift)>0.01) && HGEnhancedDiagnostics())
+    static _Atomic uint64_t spacingSample;
+    if((fabs(state.lastLift-lift)>0.01 || fabs(state.lastProgressLift-progressLift)>0.01) &&
+       HGEnhancedDiagnostics() && HGDiagnosticSample(&spacingSample))
         HGLog(@"appearance.episode-spacing",@{@"lift":@(lift),@"targetGap":@8,
             @"measuredGap":measured?@(CGRectGetMinY(railRect)-progressLift-CGRectGetMaxY(entryRect)+lift):NSNull.null,
             @"progressLift":@(progressLift),@"dockGap":measured && !CGRectIsNull(dock)?

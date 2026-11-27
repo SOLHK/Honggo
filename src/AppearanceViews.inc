@@ -894,7 +894,6 @@ static void HGAUpdateFictionNotice(UIView *canvas) {
     if(matched || previous)objc_setAssociatedObject(canvas,&hiddenLabelsKey,matched,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-static void HGAPrimeRightCommentCount(id manager);
 void HGAppearanceProcessView(UIView *view) {
     if(!NSThread.isMainThread || HGAApplying || ![view isKindOfClass:UIView.class] ||
        HGAOwnView(view) || HGFeedSidebarOwnsLayout(view.window))return;
@@ -1041,11 +1040,6 @@ void HGAppearanceProcessView(UIView *view) {
         }
         HGAApplyTypography(view);
         if(episode && outer)HGAApplyEpisodeLabels(view,episodeFrame,episodeStyled);
-        if([role isEqual:@"comment"]) {
-            id delegate=HGReadObjectGetter(view,"delegate");
-            if([delegate isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionCommentViewManager")])
-                HGAPrimeRightCommentCount(delegate);
-        }
     }@finally {
         @try {
             HGAUpdateBottomLayoutForView(view);
@@ -1135,20 +1129,42 @@ static NSInteger HGAPrimedCommentCountFromModel(id model) {
     return 0;
 }
 static NSInteger HGAPrimedCommentCount(id manager) {
-    if(!manager || HGReadObjectGetter(manager,"countModel"))return 0;
+    if(![manager isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionCommentViewManager")] ||
+       HGReadObjectGetter(manager,"countModel"))return 0;
     BOOL supported=NO;
     if(!HGABoolGetter(manager,@"supportComment",&supported) || !supported)return 0;
-    id model=HGReadObjectGetter(manager,"model") ?: HGReadObjectGetter(manager,"videoDataModel");
-    NSInteger count=HGAPrimedCommentCountFromModel(model);
+    id model=HGReadObjectGetter(manager,"model");
+    id active=HGReadObjectGetter(model,"videoDataModel");
+    NSInteger count=0;
+    // The interaction wrapper can still be using its initial episode data.
+    // The bound feed model already owns this item's short-video metadata.
+    id feedData=HGReadObjectGetter(HGReadObjectGetter(active,"shortVideoModel"),"videoData");
+    if(HGAReadCommentCountValue(feedData,&count))return count;
+    count=HGAPrimedCommentCountFromModel(model);
     if(count>0)return count;
-    id view=HGReadObjectGetter(manager,"commentView") ?: HGReadObjectGetter(manager,"view");
-    return HGAPrimedCommentCountFromModel(HGReadObjectGetter(view,"model"));
+
+    id preload=HGReadObjectGetter(HGReadObjectGetter(active,"preloadShortVideoModel"),"videoData");
+    id currentID=HGReadObjectGetter(feedData,"vid") ?: HGReadObjectGetter(active,"videoId");
+    if(currentID && [currentID isEqual:HGReadObjectGetter(preload,"vid")] &&
+       HGAReadCommentCountValue(preload,&count))return count;
+    return 0;
 }
-static void HGAPrimeRightCommentCount(id manager) {
+static void HGAPrimeRightCommentCount(id manager,UIView *mountedView) {
+    if(!mountedView) {
+        // The native commentView getter creates its view on access. Initial
+        // binding can precede that; the mounted view gets its own first pass.
+        Ivar ivar=class_getInstanceVariable(object_getClass(manager),"_commentView");
+        if(ivar && ivar_getTypeEncoding(ivar)[0]=='@')mountedView=object_getIvar(manager,ivar);
+    }
+    if(![mountedView isKindOfClass:objc_lookUpClass("SSShortVideoRightInteractionCommentView")])return;
     NSInteger count=HGAPrimedCommentCount(manager);
     if(count<=0)return;
-    SEL paint=sel_registerName("refreshUIWithCommentCount:");
-    Method paintMethod=class_getInstanceMethod(object_getClass(manager),paint);
+    SEL shown=sel_registerName("commentCount"),paint=sel_registerName("updateCommentLabelWithCount:");
+    Class viewClass=object_getClass(mountedView);
+    Method countMethod=class_getInstanceMethod(viewClass,shown);
+    if(countMethod && !strcmp(method_getTypeEncoding(countMethod),"d16@0:8") &&
+       ((double(*)(id,SEL))objc_msgSend)(mountedView,shown)==(double)count)return;
+    Method paintMethod=class_getInstanceMethod(viewClass,paint);
     if(paintMethod && !strcmp(method_getTypeEncoding(paintMethod),"v24@0:8q16"))
-        ((void(*)(id,SEL,NSInteger))objc_msgSend)(manager,paint,count);
+        ((void(*)(id,SEL,NSInteger))objc_msgSend)(mountedView,paint,count);
 }

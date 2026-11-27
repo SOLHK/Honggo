@@ -123,7 +123,7 @@ static void HGAPrepareSeries(id manager,SEL cmd,id context,id<HGAPreviewOpenPara
     HGAOriginalPrepareSeries(manager,cmd,context,params,feedType);
     if (relevant) {
         NSString *result=HGARepairPreviewTarget(model,context,params);
-        HGLog(@"playback.preview-entry",@{@"result":result});
+        HGLog(@"playback.preview-entry",@{@"reason":result});
     }
 }
 
@@ -828,7 +828,9 @@ static void HGAApplyEpisodeCorners(UIView *entry,BOOL enabled,CGFloat radius) {
 }
 static char HGAEpisodeDiagKey;
 static void HGALogEpisodeGlassState(UIView *view,HGAAppearanceMaterial *glass,NSString *reason) {
-    if(!HGEnhancedDiagnostics() || !view)return;
+    static _Atomic uint64_t mountedSample, detachedSample;
+    if(!view || !HGEnhancedDiagnostics() ||
+       !HGDiagnosticSample(view.window ? &mountedSample : &detachedSample))return;
     NSString *effectClass=glass.effect ? NSStringFromClass(glass.effect.class) : @"none";
     NSString *materialId=glass ? [NSString stringWithFormat:@"%p",glass] : @"none";
     NSString *sig=[NSString stringWithFormat:@"%@|%@|%@|%d|%d",reason ?: @"",effectClass,materialId,view.hidden,view.window!=nil];

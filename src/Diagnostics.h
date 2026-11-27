@@ -1,5 +1,24 @@
 #pragma once
 #import <Foundation/Foundation.h>
+#include <stdatomic.h>
+#include <stdint.h>
+#include <time.h>
+
+// Each high-frequency observer owns its next deadline. Sampling before
+// building a payload saves work on both the caller and journal threads.
+static inline BOOL HGDiagnosticSampleAt(_Atomic uint64_t *deadline, uint64_t now) {
+    uint64_t expected = atomic_load_explicit(deadline, memory_order_relaxed);
+    return now >= expected && atomic_compare_exchange_strong_explicit(deadline, &expected,
+        now + 2000000000ULL, memory_order_relaxed, memory_order_relaxed);
+}
+
+static inline BOOL HGDiagnosticSample(_Atomic uint64_t *deadline) {
+    return HGDiagnosticSampleAt(deadline, clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+}
+
+static inline double HGDiagnosticCPUPercent(double elapsed, double cpuDelta) {
+    return elapsed > 0 && cpuDelta >= 0 ? 100.0 * cpuDelta / elapsed : 0;
+}
 
 // Fields must be plugin-generated technical metadata. Never pass user
 // content, URLs, request headers or bodies, credentials or identifiers.

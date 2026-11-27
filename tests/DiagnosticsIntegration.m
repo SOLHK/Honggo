@@ -1,5 +1,6 @@
 #import "Diagnostics.h"
 #import <dispatch/dispatch.h>
+#include <math.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -93,6 +94,24 @@ static void CheckCapacity(NSURL *root) {
 }
 
 static void CheckEvents(NSURL *root) {
+    Check(HGDiagnosticCPUPercent(8.0, 2.0) == 25.0 && HGDiagnosticCPUPercent(4.0, 6.0) == 150.0,
+        @"the process CPU sample uses one full core as 100 percent and permits concurrent cores");
+    Check(HGDiagnosticCPUPercent(8.0, 0.0) == 0.0 && HGDiagnosticCPUPercent(0.0, 1.0) == 0.0 &&
+        HGDiagnosticCPUPercent(-1.0, 1.0) == 0.0 && HGDiagnosticCPUPercent(8.0, -1.0) == 0.0,
+        @"idle CPU and invalid sample intervals do not produce a negative or undefined result");
+    static _Atomic uint64_t repeated;
+    static _Atomic uint64_t independent;
+    static atomic_uint accepted;
+    uint64_t now = 1000000000ULL;
+    dispatch_apply(128, dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^(size_t index) {
+        if (HGDiagnosticSampleAt(&repeated, now))
+            atomic_fetch_add_explicit(&accepted, 1, memory_order_relaxed);
+    });
+    Check(atomic_load_explicit(&accepted, memory_order_relaxed) == 1 &&
+        HGDiagnosticSampleAt(&independent, now) &&
+        !HGDiagnosticSampleAt(&repeated, now + 1999999999ULL) &&
+        HGDiagnosticSampleAt(&repeated, now + 2000000000ULL),
+        @"high-frequency diagnostics allow one sample per two-second interval and keep independent events");
     NSString *legacy = NSUUID.UUID.UUIDString;
     SaveJSON(@[
         @{@"session": legacy, @"time": @([NSDate dateWithTimeIntervalSinceNow:-1800].timeIntervalSince1970),
@@ -110,6 +129,7 @@ static void CheckEvents(NSURL *root) {
     HGLog(@"privacy.fixture", @{@"cookie": @"diagnostic-private-cookie", @"手机号": @13800138000,
         @"accountId": @495202, @"reason": @"https://example.test/private", @"selector": @"safeAction:"});
     HGLog(@"navigation.dock", @{@"tab": @"home", @"phase": @"enter", @"mode": @"glass"});
+    HGLog(@"playback.preview-entry", @{@"reason": @"unmapped"});
     HGLog(@"appearance.dock-renderer", @{@"mode": @"uikit-tabbar", @"material": @"factory-glass",
         @"requestedMaterial": @"clear", @"platter": @"UIKit._UITabBarItemPlatterView", @"interfaceStyle": @"light"});
     NSURL *immutable = nil;
@@ -122,6 +142,8 @@ static void CheckEvents(NSURL *root) {
     Check(Event(report, @"nil.fields") && Event(report, @"startup.stage"), @"startup stages and nil payloads use the same journal");
     Check([Event(report, @"navigation.dock")[@"fields"][@"mode"] isEqual:@"glass"],
         @"the Dock interaction mode survives journal filtering and export");
+    Check([Event(report, @"playback.preview-entry")[@"fields"][@"reason"] isEqual:@"unmapped"],
+        @"the technical reason for a preview route survives export");
     NSDictionary *dock = Event(report, @"appearance.dock-renderer")[@"fields"];
     Check([dock[@"material"] isEqual:@"factory-glass"] && [dock[@"requestedMaterial"] isEqual:@"clear"] &&
         [dock[@"platter"] isEqual:@"UIKit._UITabBarItemPlatterView"] && [dock[@"interfaceStyle"] isEqual:@"light"],
@@ -273,6 +295,16 @@ int main(int argc, const char **argv) {
                 NSDictionary *report = Export(HGDiagnosticScopeAll, nil, NULL);
                 Check([Event(report, @"watchdog.recovered")[@"fields"][@"durationSeconds"] doubleValue] >= 5,
                     @"recovered stall includes its measured duration");
+                NSDictionary *performance = Event(report, @"device.performance")[@"fields"];
+                NSNumber *cpu = performance[@"processCPUPercent"], *interval = performance[@"intervalSeconds"];
+                NSNumber *thermal = performance[@"thermalState"];
+                Check([cpu isKindOfClass:NSNumber.class] && isfinite(cpu.doubleValue) && cpu.doubleValue >= 0 &&
+                    [interval isKindOfClass:NSNumber.class] && interval.doubleValue > 0,
+                    @"foreground CPU sampling reaches the exported journal even while the main thread is stalled");
+                NSNumber *startupThermal = Event(report, @"device.thermal")[@"fields"][@"thermalState"];
+                Check([startupThermal isKindOfClass:NSNumber.class] && [thermal isKindOfClass:NSNumber.class] &&
+                    thermal.integerValue >= NSProcessInfoThermalStateNominal && thermal.integerValue <= NSProcessInfoThermalStateCritical,
+                    @"the journal includes the system thermal tier at startup and alongside foreground CPU");
             } else if ([mode isEqual:@"--restart"]) CheckRestart();
             else if ([mode isEqual:@"--write-failure"]) {
                 HGLogCritical(@"fixture.fallback", nil);

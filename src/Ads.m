@@ -159,8 +159,9 @@ static void HGSetSidebarLayout(id self, SEL cmd, NSArray *layout) {
 static void HGForwardPatchPresentation(id self, SEL cmd, id context, id seriesID, id videoID,
     double currentTime, void (^ready)(id), void (^remove)(void)) {
     static atomic_ulong calls;
+    static _Atomic uint64_t nextLog;
     unsigned long count = atomic_fetch_add_explicit(&calls, 1, memory_order_relaxed) + 1;
-    if ((count & (count - 1)) == 0 || HGEnhancedDiagnostics()) {
+    if (HGEnhancedDiagnostics() ? HGDiagnosticSample(&nextLog) : (count & (count - 1)) == 0) {
         HGLog(@"patch.presentation", @{@"rule": @16, @"action": @"forwarded",
             @"hasReady": @(ready != nil), @"hasRemove": @(remove != nil),
             @"mainThread": @(NSThread.isMainThread), @"count": @(count)});
@@ -271,14 +272,16 @@ static const HGGate HGGates[] = {
 
 static void HGAdDecision(id object, SEL selector, BOOL result) {
     static atomic_ulong counts[sizeof(HGGates) / sizeof(HGGates[0])];
+    static _Atomic uint64_t nextLog[sizeof(HGGates) / sizeof(HGGates[0])];
+    const char *selectorName = sel_getName(selector);
     for (NSUInteger i = 0; i < sizeof(HGGates) / sizeof(HGGates[0]); i++) {
         const HGGate *gate = &HGGates[i];
-        if (selector != sel_registerName(gate->selector)) continue;
+        if (strcmp(selectorName, gate->selector) != 0) continue;
         Class type = objc_lookUpClass(gate->className);
         if (!(gate->classMethod ? [object isSubclassOfClass:type] : [object isKindOfClass:type])) continue;
         unsigned long count = atomic_fetch_add_explicit(&counts[i], 1, memory_order_relaxed) + 1;
-        // First hit and powers of two preserve useful counts without logging a hot path per call.
-        if ((count & (count - 1)) == 0 || HGEnhancedDiagnostics())
+        // Log cumulative counts at a bounded cadence even in enhanced mode.
+        if (HGEnhancedDiagnostics() ? HGDiagnosticSample(&nextLog[i]) : (count & (count - 1)) == 0)
             HGLog(@"ad.decision", @{@"rule": @(i), @"class": @(gate->className),
                 @"requestGate": @(strstr(gate->selector, "Request") != NULL),
                 @"selector": @(gate->selector), @"count": @(count), @"returnOrSkip": @(result)});

@@ -13,6 +13,7 @@
 // Original Honggo implementation. Adapter names are interoperability facts;
 // no reference-project implementation, graphics or fonts are incorporated.
 static BOOL HGAApplying;
+static __unsafe_unretained UIView *HGALayoutReceiver;
 static NSHashTable<UIView *> *HGAManaged;
 static NSHashTable<UIViewController *> *HGAControllers;
 static NSHashTable<UIView *> *HGABars;
@@ -145,6 +146,7 @@ static NSError *HGAAssetError(NSString *message) {
 // never receive a global appearance hook. Missing adapters remain untouched.
 static NSMutableDictionary<NSString *,NSValue *> *HGAHooks;
 static BOOL HGAInsideFeedShareTap;
+static id HGAInitializingCommentRequest;
 static NSUInteger HGAPlayerTransferInvocation;
 static void HGATracePlayerTransfer(id object,SEL selector,id destination,NSUInteger invocation,NSString *phase) {
     if(!invocation)return;
@@ -237,9 +239,15 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGAApplyPlaybackButton(hud);
         });
     } else if (automaticCleanStart && !strcmp(encoding,"v24@0:8q16")) {
+        BOOL resumesCachedPlayer=selector==sel_registerName("resumeWithType:");
         replacement=imp_implementationWithBlock(^(UIView *cell,NSInteger reason) {
             HGARecordCellPlaybackStart(cell);
             ((void(*)(id,SEL,NSInteger))original)(cell,selector,reason);
+            if(resumesCachedPlayer && NSThread.isMainThread && cell.window && !HGAApplying) {
+                // A cached frame can resume without sending another ready callback.
+                UIView *player=HGAViewGetter(cell,"vPlayer",cell);
+                if([player isKindOfClass:objc_lookUpClass("FQVPlayer")])HGRefreshVideoBackdropForPlayer(player);
+            }
             HGAStartAutomaticCleanForCell(cell,NO);
         });
     } else if (progressStyle && !strcmp(encoding,"v24@0:8Q16")) {
@@ -267,24 +275,36 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             @try {((void(*)(id,SEL,id))original)(manager,selector,shareView);}
             @finally {HGAInsideFeedShareTap=wasInside;}
         });
+    } else if ([className isEqual:@"SSShortVideoRightInteractionCommentView"] &&
+               selector==sel_registerName("updateCommentLabelWithCount:") && !strcmp(encoding,"v24@0:8q16")) {
+        replacement=imp_implementationWithBlock(^(UIView *view,NSInteger count) {
+            // Both host request strategies paint their pending placeholder
+            // straight through the view, without the manager's formatter.
+            if(count<=0 && NSThread.isMainThread && HGAInitializingCommentRequest &&
+               HGReadObjectGetter(view,"delegate")==HGAInitializingCommentRequest) {
+                NSInteger primed=HGAPrimedCommentCount(HGAInitializingCommentRequest);
+                if(primed>0)count=primed;
+            }
+            ((void(*)(id,SEL,NSInteger))original)(view,selector,count);
+        });
     } else if ([className isEqual:@"SSShortVideoRightInteractionCommentViewManager"]) {
         if(selector==sel_registerName("updateModelWithVideoDataModel:")) {
             replacement=imp_implementationWithBlock(^(id manager,id model) {
                 ((void(*)(id,SEL,id))original)(manager,selector,model);
-                HGAPrimeRightCommentCount(manager);
-            });
-        } else if(selector==sel_registerName("refreshUIWithCommentCount:") && !strcmp(encoding,"v24@0:8q16")) {
-            replacement=imp_implementationWithBlock(^(id manager,NSInteger count) {
-                if(count<=0) {
-                    NSInteger primed=HGAPrimedCommentCount(manager);
-                    if(primed>0)count=primed;
-                }
-                ((void(*)(id,SEL,NSInteger))original)(manager,selector,count);
+                if(NSThread.isMainThread)HGAPrimeRightCommentCount(manager,nil);
             });
         } else {
             replacement=imp_implementationWithBlock(^(id manager) {
-                ((void(*)(id,SEL))original)(manager,selector);
-                HGAPrimeRightCommentCount(manager);
+                if(!NSThread.isMainThread) {
+                    ((void(*)(id,SEL))original)(manager,selector);
+                    return;
+                }
+                // A later notification may legitimately paint zero with no
+                // countModel. Only substitute these synchronous fallbacks.
+                id previous=HGAInitializingCommentRequest;
+                HGAInitializingCommentRequest=manager;
+                @try { ((void(*)(id,SEL))original)(manager,selector); }
+                @finally { HGAInitializingCommentRequest=previous; }
             });
         }
     } else if ([className isEqual:@"FQCShortVideoCommentPanelViewController"] && selector==sel_registerName("setupTabItems")) {
@@ -306,12 +326,23 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
             ((void(*)(id,SEL))original)(button,selector);
         });
     } else if (!strcmp(encoding,"v16@0:8")) {
+        BOOL viewLayout=!controller && selector==@selector(layoutSubviews);
         BOOL refreshFeedParts=(selector==sel_registerName("updateStyleVisibility") &&
             [className isEqual:@"FQCShortVideoDanmakuEntranceView"]) ||
             ((selector==sel_registerName("refreshSubviews") || selector==sel_registerName("resetFollowUI")) &&
              [className hasPrefix:@"SSShortVideoRightInteraction"]);
         replacement=imp_implementationWithBlock(^(id object) {
-            BOOL recycling=playerCanvas && selector==sel_registerName("resetToRecycle") && NSThread.isMainThread;
+            BOOL onMain=NSThread.isMainThread;
+            BOOL trackLayout=viewLayout && onMain;
+            UIView *previousLayout=trackLayout ? HGALayoutReceiver : nil;
+            // Host subclasses frequently call a layout method we also wrap on
+            // their superclass. Apply once, after all of that view's native layout.
+            if(trackLayout && previousLayout==object) {
+                ((void(*)(id,SEL))original)(object,selector);
+                return;
+            }
+            if(trackLayout)HGALayoutReceiver=object;
+            BOOL recycling=playerCanvas && selector==sel_registerName("resetToRecycle") && onMain;
             BOOL wasApplying=HGAApplying;
             if(recycling)HGAApplying=YES;
             @try {
@@ -320,8 +351,15 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                     HGAResetPlayerFillState(object);
                 }
                 ((void(*)(id,SEL))original)(object,selector);
-            } @finally {if(recycling)HGAApplying=wasApplying;}
+            } @finally {
+                if(recycling)HGAApplying=wasApplying;
+                if(trackLayout)HGALayoutReceiver=previousLayout;
+            }
             if(refreshFeedParts && !objc_getAssociatedObject(object,&HGAFeedPartsKey))return;
+            if(selector==@selector(didMoveToWindow) && [className isEqual:@"SSShortVideoRightInteractionCommentView"] &&
+               [(UIView *)object window]) {
+                HGAPrimeRightCommentCount(HGReadObjectGetter(object,"delegate"),object);
+            }
             if(mediaPlayer) {
                 if([(UIView *)object window] && !HGAApplying)HGRefreshVideoBackdropForPlayer(object);
                 return;
@@ -656,10 +694,12 @@ void HGInstallAppearance(void) {
         Class commentRail=objc_lookUpClass("SSShortVideoRightInteractionCommentViewManager");
         if(commentRail) {
             HGAHook(commentRail,sel_registerName("updateModelWithVideoDataModel:"),"v24@0:8@16",NO);
-            HGAHook(commentRail,sel_registerName("refreshUIWithCommentCount:"),"v24@0:8q16",NO);
             HGAHook(commentRail,sel_registerName("updateCommentData"),"v16@0:8",NO);
             HGAHook(commentRail,sel_registerName("updateCommentDataByCommonRequest"),"v16@0:8",NO);
         }
+        Class commentButton=objc_lookUpClass("SSShortVideoRightInteractionCommentView");
+        if(commentButton)
+            HGAHook(commentButton,sel_registerName("updateCommentLabelWithCount:"),"v24@0:8q16",NO);
         Class commentPanel=objc_lookUpClass("FQCShortVideoCommentPanelViewController");
         if (class_getInstanceMethod(commentPanel,sel_registerName("setupTabItems")))
             HGAHook(commentPanel,sel_registerName("setupTabItems"),"v16@0:8",YES);

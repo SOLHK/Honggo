@@ -15,7 +15,6 @@ static _Atomic(IMP) HGOriginalDiggOperation;
 static atomic_ullong HGPlaybackInvocation;
 
 static unsigned long long HGPlaybackBegin(void) {
-    if (!HGEnhancedDiagnostics()) return 0;
     return atomic_fetch_add_explicit(&HGPlaybackInvocation, 1, memory_order_relaxed) + 1;
 }
 
@@ -30,7 +29,7 @@ static void HGPlaybackTrace(NSString *event, NSString *phase,
 }
 
 static void HGPlaybackCleanMode(id object, SEL selector, id context, BOOL cleanMode) {
-    unsigned long long invocation = HGPlaybackBegin();
+    unsigned long long invocation = HGEnhancedDiagnostics() ? HGPlaybackBegin() : 0;
     NSDictionary *fields = invocation ? @{@"hasContext": @(context != nil), @"cleanMode": @(cleanMode)} : nil;
     HGPlaybackTrace(@"playback.clean-mode", @"enter", invocation, fields);
     IMP original = atomic_load_explicit(&HGOriginalCleanMode, memory_order_acquire);
@@ -39,7 +38,8 @@ static void HGPlaybackCleanMode(id object, SEL selector, id context, BOOL cleanM
 }
 
 static void HGPlaybackModelUpdate(id object, SEL selector, id context) {
-    unsigned long long invocation = HGPlaybackBegin();
+    static _Atomic uint64_t nextLog;
+    unsigned long long invocation = HGEnhancedDiagnostics() && HGDiagnosticSample(&nextLog) ? HGPlaybackBegin() : 0;
     NSDictionary *fields = invocation ? @{@"hasContext": @(context != nil)} : nil;
     HGPlaybackTrace(@"playback.model-updated", @"enter", invocation, fields);
     IMP original = atomic_load_explicit(&HGOriginalPlayModelUpdate, memory_order_acquire);
@@ -48,7 +48,8 @@ static void HGPlaybackModelUpdate(id object, SEL selector, id context) {
 }
 
 static void HGPlaybackStateUpdate(id object, SEL selector, id context) {
-    unsigned long long invocation = HGPlaybackBegin();
+    static _Atomic uint64_t nextLog;
+    unsigned long long invocation = HGEnhancedDiagnostics() && HGDiagnosticSample(&nextLog) ? HGPlaybackBegin() : 0;
     NSDictionary *fields = invocation ? @{@"hasContext": @(context != nil)} : nil;
     HGPlaybackTrace(@"playback.state-updated", @"enter", invocation, fields);
     IMP original = atomic_load_explicit(&HGOriginalPlayStateUpdate, memory_order_acquire);
@@ -57,15 +58,17 @@ static void HGPlaybackStateUpdate(id object, SEL selector, id context) {
 }
 
 static BOOL HGPlaybackFinishGate(id object, SEL selector, id context, id model) {
-    unsigned long long invocation = HGPlaybackBegin();
+    static _Atomic uint64_t nextLog;
+    BOOL enabled = HGEnhancedDiagnostics();
+    unsigned long long invocation = enabled && HGDiagnosticSample(&nextLog) ? HGPlaybackBegin() : 0;
     NSDictionary *fields = invocation ? @{@"hasContext": @(context != nil), @"hasModel": @(model != nil)} : nil;
     HGPlaybackTrace(@"playback.finish-gate", @"enter", invocation, fields);
     IMP original = atomic_load_explicit(&HGOriginalFinishGate, memory_order_acquire);
     BOOL result = ((BOOL (*)(id, SEL, id, id))original)(object, selector, context, model);
-    if (invocation) {
-        NSMutableDictionary *returned = [fields mutableCopy];
-        returned[@"intercepted"] = @(result);
-        HGPlaybackTrace(@"playback.finish-gate", @"return", invocation, returned);
+    if (invocation || (enabled && result)) {
+        // An interception is exceptional. Preserve it even between samples.
+        HGPlaybackTrace(@"playback.finish-gate", @"return", invocation ?: HGPlaybackBegin(),
+            @{@"hasContext": @(context != nil), @"hasModel": @(model != nil), @"intercepted": @(result)});
     }
     return result;
 }
