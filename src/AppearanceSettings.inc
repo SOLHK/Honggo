@@ -365,7 +365,14 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         }
     };
     if(query.length) {
-        [rows addObjectsFromArray:HGAppearanceSearch(query)];
+        NSString *collapseMode=HGAppearanceString(@"dock.collapseMode");
+        for(NSDictionary *match in HGAppearanceSearch(query)) {
+            NSString *matchKey=match[@"key"];
+            if([matchKey isEqual:@"dock.collapse"])continue;
+            if([matchKey isEqual:@"dock.siriaiHideLine"] && ![collapseMode isEqual:@"siriai"])continue;
+            if(([matchKey isEqual:@"dock.autoCollapse"] || [matchKey isEqual:@"dock.anchor"]) && ![collapseMode isEqual:@"legacy"])continue;
+            [rows addObject:match];
+        }
         if(!self.group && HGCommunityMatchesQuery(query))
             [rows addObject:HGATool(@"@community",@"TG 更新频道 · @Naloiafeed")];
     } else if(!self.group.length) {
@@ -391,14 +398,25 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         section(@"布局与交互");
         [rows addObject:HGASubpage(@"@group.dock.extra",@"独立圆形按钮",HGAppearanceFlag(@"dock.extra")?@"已开启":@"已关闭")];
         [rows addObject:HGASubpage(@"@group.dock.geometry",@"底栏尺寸与圆角",@"宽度、高度、圆角与图标大小（1–100%）")];
-        [rows addObject:HGASubpage(@"@group.dock.collapse",@"收缩与手势",HGAppearanceFlag(@"dock.collapse")?@"已开启":@"已关闭")];
+        NSString *collapseMode=HGAppearanceString(@"dock.collapseMode");
+        NSString *collapseDetail=@"已关闭";
+        if([collapseMode isEqual:@"legacy"])collapseDetail=@"原有收缩模式";
+        else if([collapseMode isEqual:@"tiktok"])collapseDetail=@"TikTok 交互";
+        else if([collapseMode isEqual:@"siriai"])collapseDetail=@"Siri AI 交互";
+        [rows addObject:HGASubpage(@"@group.dock.collapse",@"收缩与手势",collapseDetail)];
         [rows addObject:HGASubpage(@"@group.dock.hide",@"底栏导航项显示",@"选择要显示的首页、剧场、商城或我的入口")];
     } else if([self.group isEqual:@"dock.geometry"]) {
         HGAAddDefs(rows,@[@"dock.width",@"dock.height",@"dock.lift",@"dock.radius",@"dock.iconSize"]);
     } else if([self.group isEqual:@"dock.extra"]) {
         HGAAddDefs(rows,@[@"dock.extra",@"dock.action",@"dock.extraSize"]);
     } else if([self.group isEqual:@"dock.collapse"]) {
-        HGAAddDefs(rows,@[@"dock.collapse",@"dock.autoCollapse",@"dock.anchor"]);
+        NSString *collapseMode=HGAppearanceString(@"dock.collapseMode");
+        HGAAddDefs(rows,@[@"dock.collapseMode"]);
+        if([collapseMode isEqual:@"siriai"]) {
+            HGAAddDefs(rows,@[@"dock.siriaiHideLine"]);
+        } else if([collapseMode isEqual:@"legacy"]) {
+            HGAAddDefs(rows,@[@"dock.autoCollapse",@"dock.anchor"]);
+        }
     } else if([self.group isEqual:@"dock.hide"]) {
         HGAAddDefs(rows,@[@"dock.hide.home",@"dock.hide.theater",@"dock.hide.store",@"dock.hide.mine"]);
     } else if([self.group isEqual:@"chrome"]) {

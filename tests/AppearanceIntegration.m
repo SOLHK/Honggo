@@ -1024,6 +1024,23 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
     Check([generalPage.tableView.dataSource tableView:generalPage.tableView numberOfRowsInSection:0]==1 &&
         generalPage.navigationItem.searchController==nil,
         @"appearance general page removes both presets and avoids nested UISearchController on pushed pages");
+    UITableViewController *collapsePage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    [collapsePage setValue:@"dock.collapse" forKey:@"group"];[collapsePage loadViewIfNeeded];
+    HGAppearanceSet(@"dock.collapseMode",@"off",nil);[collapsePage viewWillAppear:NO];
+    BOOL offClean=HGMenuPath(collapsePage,@"dock.collapseMode") && !HGMenuPath(collapsePage,@"dock.siriaiHideLine") &&
+        !HGMenuPath(collapsePage,@"dock.autoCollapse") && !HGMenuPath(collapsePage,@"dock.anchor");
+    HGAppearanceSet(@"dock.collapseMode",@"legacy",nil);[collapsePage viewWillAppear:NO];
+    BOOL legacyRows=HGMenuPath(collapsePage,@"dock.collapseMode") && !HGMenuPath(collapsePage,@"dock.siriaiHideLine") &&
+        HGMenuPath(collapsePage,@"dock.autoCollapse") && HGMenuPath(collapsePage,@"dock.anchor");
+    HGAppearanceSet(@"dock.collapseMode",@"tiktok",nil);[collapsePage viewWillAppear:NO];
+    BOOL tiktokRows=HGMenuPath(collapsePage,@"dock.collapseMode") && !HGMenuPath(collapsePage,@"dock.siriaiHideLine") &&
+        !HGMenuPath(collapsePage,@"dock.autoCollapse") && !HGMenuPath(collapsePage,@"dock.anchor");
+    HGAppearanceSet(@"dock.collapseMode",@"siriai",nil);[collapsePage viewWillAppear:NO];
+    BOOL siriaiRows=HGMenuPath(collapsePage,@"dock.collapseMode") && HGMenuPath(collapsePage,@"dock.siriaiHideLine") &&
+        !HGMenuPath(collapsePage,@"dock.autoCollapse") && !HGMenuPath(collapsePage,@"dock.anchor");
+    HGAppearanceSet(@"dock.collapseMode",@"off",nil);
+    Check(offClean && legacyRows && tiktokRows && siriaiRows,
+        @"dock.collapse settings page shows Siri AI hide-line exclusively in Siri AI mode and legacy options exclusively in legacy mode");
     // Level 3 playback layout shows clean per-role rows without inline offset/scale sliders.
     UITableViewController *playerPage=[(UITableViewController *)[settings alloc] initWithStyle:UITableViewStyleInsetGrouped];
     [playerPage setValue:@"player" forKey:@"group"];[playerPage loadViewIfNeeded];

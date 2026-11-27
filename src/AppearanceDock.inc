@@ -1,7 +1,39 @@
 #import <UIKit/UIGestureRecognizerSubclass.h>
 #import "DockSelectionGeometry.h"
+#import "SiriaiDockMotion.h"
+
+typedef NS_ENUM(NSInteger, HGADockCollapseMode) {
+    HGADockCollapseModeOff = 0,
+    HGADockCollapseModeLegacy = 1,
+    HGADockCollapseModeTikTok = 2,
+    HGADockCollapseModeSiriai = 3,
+};
+
+static HGADockCollapseMode HGACurrentDockCollapseMode(void) {
+    NSString *mode=HGAppearanceString(@"dock.collapseMode");
+    if([mode isEqual:@"tiktok"])return HGADockCollapseModeTikTok;
+    if([mode isEqual:@"siriai"])return HGADockCollapseModeSiriai;
+    if([mode isEqual:@"legacy"] || HGAppearanceFlag(@"dock.collapse"))return HGADockCollapseModeLegacy;
+    return HGADockCollapseModeOff;
+}
+
+static BOOL HGADockUsesFeedMotionMode(HGADockCollapseMode mode) {
+    return mode==HGADockCollapseModeTikTok || mode==HGADockCollapseModeSiriai;
+}
+
+@interface HGAFeedDockItemPart : NSObject
+@property(nonatomic,weak) CALayer *buttonLayer;
+@property(nonatomic,weak) UIImageView *icon;
+@property(nonatomic,strong) UILabel *caption;
+@end
+@implementation HGAFeedDockItemPart @end
+static char HGAFeedDockItemPartKey;
 
 @class HGAAppearanceDock;
+@interface HGAFeedSpringTarget : NSObject
+@property(nonatomic,weak) HGAAppearanceDock *dock;
+- (void)advance:(CADisplayLink *)link;
+@end
 @interface HGADockPointer : UIGestureRecognizer
 @property(nonatomic,weak) HGAAppearanceDock *dock;
 @property(nonatomic,weak) UITouch *trackedTouch;
@@ -83,6 +115,20 @@
 @property(nonatomic) CGRect restingSelectionFrame;
 @property(nonatomic) NSInteger restingFlatIndex;
 @property(nonatomic) BOOL collapsed;
+@property(nonatomic) HGADockCollapseMode appliedCollapseMode;
+@property(nonatomic) DKFeedSpringState feedSpring;
+@property(nonatomic,strong) CADisplayLink *feedDisplayLink;
+@property(nonatomic,strong) CALayer *siriaiMinimumFill;
+@property(nonatomic,copy) NSArray<HGAFeedDockItemPart *> *systemFeedItems;
+@property(nonatomic) CGRect feedCapsuleAtRest;
+@property(nonatomic) CGRect feedExtraAtRest;
+@property(nonatomic) CGPoint feedSystemCarrierAtRest;
+@property(nonatomic) CGFloat feedSystemBaseScale;
+@property(nonatomic) CGFloat feedCompactCapsuleWidth;
+@property(nonatomic) CGFloat feedExtraScale;
+@property(nonatomic) NSInteger feedLastSelectedTab;
+@property(nonatomic) BOOL feedControlsHidden;
+@property(nonatomic) BOOL feedLightSurface;
 @property(nonatomic) BOOL sidebarSuspended;
 @property(nonatomic) BOOL rendering;
 @property(nonatomic) BOOL restoring;
@@ -91,6 +137,14 @@
 - (void)restore;
 - (void)claimHostChrome;
 - (void)setCollapsed:(BOOL)value animated:(BOOL)animated;
+- (BOOL)usesFeedMotion;
+- (BOOL)isFeedCompact;
+- (BOOL)beginFeedDrag;
+- (void)moveFeedDrag:(CGFloat)delta;
+- (void)endFeedDragCompact:(BOOL)compact velocity:(CGFloat)velocity;
+- (void)setFeedCompact:(BOOL)compact animated:(BOOL)animated;
+- (void)advanceFeedSpring:(CADisplayLink *)link;
+- (void)cancelActiveFeedObserverIfNeeded;
 - (void)dragSelection:(UIPanGestureRecognizer *)gesture;
 - (void)beginDockTouchAtPoint:(CGPoint)point;
 - (void)moveDockTouchToPoint:(CGPoint)point;
@@ -168,6 +222,13 @@ static CGRect HGADockRectInView(UIView *coordinateView) {
     for(UIView *bar in HGABars.allObjects) {
         HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
         if(dock.window!=coordinateView.window || !HGAVisible(dock))continue;
+        if([dock usesFeedMotion] && !CGRectIsEmpty(dock.feedCapsuleAtRest)) {
+            CGRect rest=dock.feedCapsuleAtRest;
+            if(!dock.extra.hidden && !CGRectIsEmpty(dock.feedExtraAtRest))rest=CGRectUnion(rest,dock.feedExtraAtRest);
+            CGRect rect=[dock convertRect:rest toView:coordinateView];
+            result=CGRectIsNull(result)?rect:CGRectUnion(result,rect);
+            continue;
+        }
         for(UIView *surface in @[dock.capsule,dock.extra,dock.expand]) {
             if(!HGAVisible(surface))continue;
             CGRect rect=[surface convertRect:surface.bounds toView:coordinateView];
@@ -180,8 +241,11 @@ static CGRect HGAExpandedCapsuleInWindow(UIWindow *window) {
     if(!window || !HGAppearanceDockEnabled())return CGRectNull;
     for(UIView *bar in HGABars.allObjects) {
         HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
-        if(dock.window==window && !dock.collapsed && HGAVisible(dock.capsule))
+        if(dock.window==window && !dock.collapsed && HGAVisible(dock.capsule)) {
+            if([dock usesFeedMotion] && !CGRectIsEmpty(dock.feedCapsuleAtRest))
+                return [dock convertRect:dock.feedCapsuleAtRest toView:window];
             return [dock.capsule convertRect:dock.capsule.bounds toView:window];
+        }
     }
     return CGRectNull;
 }
@@ -522,12 +586,29 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     CGFloat dy=MAX(0,MAX(bounds.origin.y+r-point.y,point.y-(CGRectGetMaxY(bounds)-r)));
     return dx*dx+dy*dy<=r*r;
 }
+@implementation HGAFeedSpringTarget
+- (void)advance:(CADisplayLink *)link {
+    [self.dock advanceFeedSpring:link];
+}
+@end
+
+static void HGADockSetViewGeometry(UIView *view,CGAffineTransform transform,CGPoint center) {
+    if(!CGAffineTransformEqualToTransform(view.transform,transform))view.transform=transform;
+    if(!CGPointEqualToPoint(view.center,center))view.center=center;
+}
+
 @implementation HGAAppearanceDock
 - (instancetype)initWithFrame:(CGRect)frame {
     if((self=[super initWithFrame:frame])) {
         self.accessibilityIdentifier=@"honggo.appearance.dock";
         self.lastOccupiedRect=CGRectNull;
         self.lastSystemPlatterMeasured=CGRectNull;
+        DKFeedSpringInit(&_feedSpring);
+        _feedSystemBaseScale=1.0;
+        _feedExtraScale=1.0;
+        _feedLastSelectedTab=NSNotFound;
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleApplicationDidEnterBackground:)
+            name:UIApplicationDidEnterBackgroundNotification object:nil];
         self.targets=[NSMapTable strongToWeakObjectsMapTable];
         self.hiddenSources=[NSMapTable weakToStrongObjectsMapTable];
         self.buttons=[NSMutableDictionary dictionary];
@@ -601,7 +682,18 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
         self.swipes=swipes;
     }return self;
 }
+- (void)dealloc {
+    [_feedDisplayLink invalidate];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+- (BOOL)usesFeedMotion {
+    return HGADockUsesFeedMotionMode(self.appliedCollapseMode);
+}
+- (BOOL)isFeedCompact {
+    return _feedSpring.compact!=0;
+}
 - (BOOL)acceptsSelectionTouchAtPoint:(CGPoint)point inView:(UIView *)hit {
+    if(self.feedControlsHidden)return NO;
     UIView *container=self.selectionPan.view;
     if(!self.selectionPan.enabled || !container.window || hit.window!=container.window ||
         !HGADockContainsPoint(self.capsule,point))return NO;
@@ -615,6 +707,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     return NO;
 }
 - (UIButton *)dockButtonAtPoint:(CGPoint)point event:(UIEvent *)event {
+    if(self.feedControlsHidden)return nil;
     for(UIButton *button in @[self.extraButton,self.expandButton]) {
         UIView *surface=button==self.extraButton ? self.extra : self.expand;
         if(!button.hidden && button.enabled && HGADockContainsPoint(surface,[self convertPoint:point toView:surface]))return button;
@@ -684,7 +777,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     return gesture!=self.selectionPan && other!=self.selectionPan;
 }
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    if(self.hidden || !self.userInteractionEnabled || ![self pointInside:point withEvent:event])return nil;
+    if(self.hidden || self.feedControlsHidden || !self.userInteractionEnabled || ![self pointInside:point withEvent:event])return nil;
     if(self.systemDockActive && (!self.quietSystemTouches || self.systemDockSyncing) &&
         HGADockContainsPoint(self.capsule,[self convertPoint:point toView:self.capsule])) {
         CGPoint inBar=[self convertPoint:point toView:self.systemTabBar];
@@ -760,7 +853,7 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     }
     self.systemTabController=nil;self.systemTabBar=nil;self.systemPlatter=nil;
     self.customSystemPlatter=nil;self.installedSystemGlass=nil;self.systemMaterialStyle=nil;
-    self.systemItemSignature=nil;
+    self.systemItemSignature=nil;self.systemFeedItems=nil;
     self.systemWarmupPending=NO;self.systemWarmupComplete=NO;
     self.systemProbeFrame=CGRectNull;
     self.systemHostSelection=NSNotFound;
@@ -812,19 +905,21 @@ static BOOL HGADockContainsPoint(UIView *capsule,CGPoint point) {
     UIColor *edge=videoClear ? [UIColor colorWithWhite:0 alpha:0.78] : nil;
     NSMutableArray<NSNumber *> *enabled=[NSMutableArray arrayWithCapacity:keys.count];
     for(NSString *key in keys)[enabled addObject:@([(UIControl *)[self.targets objectForKey:key] isEnabled])];
-    NSArray *signature=@[keys,content,@(size),selected,normal,enabled,@(videoClear)];
+    BOOL separateFeedCaptions=[self usesFeedMotion] && [content isEqual:@"both"];
+    NSArray *signature=@[keys,content,@(size),selected,normal,enabled,@(videoClear),@(separateFeedCaptions)];
     if([self.systemItemSignature isEqualToArray:signature])return NO;
     self.systemTabBar.tintColor=selected;
     self.systemTabBar.unselectedItemTintColor=normal;
     BOOL replace=![self.systemItemSignature.firstObject isEqual:keys];
-    BOOL metricsChanged=replace || ![self.systemItemSignature[1] isEqual:content] || ![self.systemItemSignature[2] isEqual:@(size)];
+    BOOL metricsChanged=replace || ![self.systemItemSignature[1] isEqual:content] || ![self.systemItemSignature[2] isEqual:@(size)] ||
+        (self.systemItemSignature.count>7 && ![self.systemItemSignature[7] isEqual:@(separateFeedCaptions)]);
     NSMutableArray *items=[NSMutableArray arrayWithCapacity:keys.count];
     for(NSUInteger slot=0;slot<keys.count;slot++) {
         NSString *key=keys[slot];
         NSUInteger index=[HGATabIDs() indexOfObject:key];
         NSString *label=HGATabTitles()[index];
         NSString *symbol=[content isEqual:@"text"] ? nil : HGATabSymbols()[index];
-        NSString *caption=[content isEqual:@"icon"] ? nil : label;
+        NSString *caption=([content isEqual:@"icon"] || separateFeedCaptions) ? nil : label;
         UIImage *image=HGADockSystemImage(symbol,caption,size,normal,NO,edge);
         UIImage *selectedImage=HGADockSystemImage(symbol,caption,size,selected,YES,edge);
         if(self.systemTabController) {
@@ -1066,9 +1161,15 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     carrier.transform=CGAffineTransformMakeScale(verticalScale,verticalScale);
     carrier.center=CGPointMake(CGRectGetMidX(destination)-(CGRectGetMidX(measured)-CGRectGetMidX(bounds))*verticalScale,
         CGRectGetMidY(destination)-(CGRectGetMidY(measured)-CGRectGetMidY(bounds))*verticalScale);
+    self.feedSystemBaseScale=verticalScale;
+    self.feedSystemCarrierAtRest=carrier.center;
     self.systemProbeFrame=requested;
     self.systemCapsuleFrame=destination;
-    if(!CGRectEqualToRect(self.capsule.frame,destination))self.capsule.frame=destination;
+    CGRect destBounds=(CGRect){CGPointZero,destination.size};
+    CGPoint destCenter=CGPointMake(CGRectGetMidX(destination),CGRectGetMidY(destination));
+    if(!CGRectEqualToRect(self.capsule.bounds,destBounds))self.capsule.bounds=destBounds;
+    if(CGAffineTransformIsIdentity(self.capsule.transform) && !CGPointEqualToPoint(self.capsule.center,destCenter))
+        self.capsule.center=destCenter;
     self.systemPlatter=platter;
     return YES;
 }
@@ -1299,9 +1400,26 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         if(!CGRectEqualToRect(self.frame,bar.bounds))self.frame=bar.bounds;
         [self claimHostChrome];
         self.hidden=HGAWindowHasActionSheet(bar.window);
-        BOOL gestures=HGAppearanceFlag(@"dock.collapse") && !UIAccessibilityIsVoiceOverRunning();
+        HGADockCollapseMode collapseMode=HGACurrentDockCollapseMode();
+        if(collapseMode!=self.appliedCollapseMode) {
+            [self resetFeedMotionState];
+            self.appliedCollapseMode=collapseMode;
+        }
+        BOOL gestures=(collapseMode==HGADockCollapseModeLegacy) && !UIAccessibilityIsVoiceOverRunning();
         for(UISwipeGestureRecognizer *g in self.swipes)g.enabled=gestures;
         if(!gestures)self.collapsed=NO;
+        if(HGADockUsesFeedMotionMode(collapseMode)) {
+            _feedSpring.siriai=(collapseMode==HGADockCollapseModeSiriai) ? 1 : 0;
+            NSInteger selected=HGASelectedTab(self.hostController);
+            BOOL landscape=bar.window && CGRectGetWidth(bar.window.bounds)>CGRectGetHeight(bar.window.bounds);
+            if(self.hidden || landscape || (self.feedLastSelectedTab!=NSNotFound && selected!=self.feedLastSelectedTab)) {
+                [self cancelActiveFeedObserverIfNeeded];
+                [self setFeedCompact:NO animated:NO];
+            }
+            self.feedLastSelectedTab=selected;
+        } else {
+            self.feedLastSelectedTab=NSNotFound;
+        }
         [self renderGeometry];
         HGRecordCapability(@"appearance.dock.navigation",@{@"module":@"appearance",@"state":@"installed",@"reason":@"native control actions mapped; host retains navigation decisions"});
     }@finally{self.rendering=NO;}
@@ -1342,6 +1460,7 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     UIUserInterfaceStyle surfaceStyle=(selected==0 || flat || translucent) ?
         HGADockPageStyle(self.hostController,self.hostBar,selected) : UIUserInterfaceStyleUnspecified;
     BOOL light=translucent && surfaceStyle==UIUserInterfaceStyleLight;
+    self.feedLightSurface=light;
     BOOL styleChangedAny=NO;
     for(UIView *surface in @[self.capsule,self.extra,self.expand]) {
         BOOL styleChanged=(surface.overrideUserInterfaceStyle!=surfaceStyle);
@@ -1411,14 +1530,21 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         systemCarrier.accessibilityElementsHidden=self.quietSystemTouches;
     CGRect actual=useSystem ? self.systemCapsuleFrame : expanded;
     CGRect capsuleFrame=self.collapsed ? compact : actual;
-    BOOL capsuleChanged=!CGRectEqualToRect(self.capsule.frame,capsuleFrame);
-    if(capsuleChanged)self.capsule.frame=capsuleFrame;
+    CGRect targetCapsuleBounds=(CGRect){CGPointZero,capsuleFrame.size};
+    CGPoint targetCapsuleCenter=CGPointMake(CGRectGetMidX(capsuleFrame),CGRectGetMidY(capsuleFrame));
+    BOOL capsuleChanged=!CGSizeEqualToSize(self.capsule.bounds.size,targetCapsuleBounds.size) ||
+        (![self usesFeedMotion] && !CGPointEqualToPoint(self.capsule.center,targetCapsuleCenter)) ||
+        ([self usesFeedMotion] && !CGRectEqualToRect(self.feedCapsuleAtRest,actual));
+    if(!CGRectEqualToRect(self.capsule.bounds,targetCapsuleBounds))self.capsule.bounds=targetCapsuleBounds;
+    if(CGAffineTransformIsIdentity(self.capsule.transform) && !CGPointEqualToPoint(self.capsule.center,targetCapsuleCenter))
+        self.capsule.center=targetCapsuleCenter;
     CGRect extraFrame=CGRectMake(CGRectGetMaxX(actual)+HGADockAccessoryGap,rowTop+(rowHeight-circle)/2,circle,circle);
     if(CGAffineTransformIsIdentity(self.extra.transform)) {
         if(!CGRectEqualToRect(self.extra.frame,extraFrame))self.extra.frame=extraFrame;
     } else {
-        self.extra.bounds=(CGRect){CGPointZero,extraFrame.size};
-        self.extra.center=CGPointMake(CGRectGetMidX(extraFrame),CGRectGetMidY(extraFrame));
+        CGRect extraBounds=(CGRect){CGPointZero,extraFrame.size};
+        if(!CGRectEqualToRect(self.extra.bounds,extraBounds))self.extra.bounds=extraBounds;
+        if(![self usesFeedMotion])self.extra.center=CGPointMake(CGRectGetMidX(extraFrame),CGRectGetMidY(extraFrame));
     }
     if(nativeGlass)fill=UIColor.clearColor;
     if(![self.capsule.backgroundColor isEqual:UIColor.clearColor])self.capsule.backgroundColor=UIColor.clearColor;
@@ -1595,7 +1721,29 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     self.extraButton.selected=detachedSelected;
     self.extraButton.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[detachedIndex]);
     self.extraButton.accessibilityTraits=UIAccessibilityTraitButton | (detachedSelected?UIAccessibilityTraitSelected:0);
-    CGRect occupied=self.collapsed?compact:(extra?CGRectUnion(actual,self.extra.frame):actual);
+    if([self usesFeedMotion] && !self.collapsed) {
+        self.feedCapsuleAtRest=actual;
+        self.feedExtraAtRest=extra ? extraFrame : CGRectZero;
+        self.feedCompactCapsuleWidth=DKFeedCompactCapsuleWidth(CGRectGetWidth(actual),
+            extra ? CGRectGetWidth(extraFrame) : 0.0,extra ? HGADockAccessoryGap : 0.0,(unsigned)MAX(1u,(unsigned)visible.count));
+        if(self.appliedCollapseMode==HGADockCollapseModeSiriai) {
+            int startLink=0,scheduleFade=0;
+            DKFeedSpringUpdateHideLine(&_feedSpring,HGAppearanceFlag(@"dock.siriaiHideLine") ? 1 : 0,
+                (self.feedDisplayLink && !self.feedDisplayLink.paused) ? 1 : 0,&startLink,&scheduleFade);
+            if(startLink)[self startFeedDisplayLink];
+            if(scheduleFade)[self scheduleSiriaiFade];
+        } else if(!_feedSpring.following && !self.feedDisplayLink) {
+            _feedSpring.progress=DKFeedSpringRestTarget(&_feedSpring,_feedSpring.compact);
+        }
+        if(useSystem)[self prepareSystemFeedItems:visible content:content selected:selected videoClear:videoClear];
+        else self.systemFeedItems=nil;
+        [self applyFeedMotion:_feedSpring.progress];
+    } else {
+        self.feedCapsuleAtRest=CGRectZero;
+        self.feedExtraAtRest=CGRectZero;
+        self.systemFeedItems=nil;
+    }
+    CGRect occupied=self.collapsed?compact:(extra?CGRectUnion(actual,extraFrame):actual);
     occupied=[self convertRect:occupied toView:self.window];
     if(capsuleChanged || !CGRectEqualToRect(self.lastOccupiedRect,occupied)) {
         self.lastOccupiedRect=occupied;
@@ -1624,9 +1772,14 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         BOOL backgroundOwned=self.backgroundOwned,opaque=self.hostOpaque;
         UIColor *background=self.hostBackground;
         self.backgroundOwned=NO;self.collapsed=NO;
+        [self cancelActiveFeedObserverIfNeeded];
+        [self resetFeedMotionState];
+        self.appliedCollapseMode=HGADockCollapseModeOff;
+        self.feedLastSelectedTab=NSNotFound;
         [self removeSystemDock];
         self.failedSystemProbe=nil;
         [self clearSelectionDrag];
+        self.capsule.transform=CGAffineTransformIdentity;
         self.extra.transform=CGAffineTransformIdentity;
         self.expand.transform=CGAffineTransformIdentity;
         self.extraButton.imageView.transform=CGAffineTransformIdentity;
@@ -1865,6 +2018,8 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     self.motionGlyph.imageView.transform=CGAffineTransformIdentity;
     self.motionGlyph.titleLabel.transform=CGAffineTransformIdentity;
     self.motionGlyph=nil;
+    if([self usesFeedMotion] && (_feedSpring.progress>0.0 || _feedSpring.overtravel!=0.0))
+        [self applyFeedMotion:_feedSpring.progress];
 }
 - (void)prepareSelectionLens {
     // Never stack a second UIGlassEffect lens inside a glass capsule: nested
@@ -1931,6 +2086,10 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         UIAccessibilityIsReduceMotionEnabled())return;
     UIButton *previous=self.motionGlyph;
     self.motionGlyph=glyph;
+    if([self usesFeedMotion] && (_feedSpring.progress>0.0 || _feedSpring.overtravel!=0.0)) {
+        [self applyFeedMotion:_feedSpring.progress];
+        return;
+    }
     [UIView animateWithDuration:glyph?0.24:0.32 delay:0 usingSpringWithDamping:0.86 initialSpringVelocity:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
             previous.imageView.transform=CGAffineTransformIdentity;
@@ -2096,17 +2255,22 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
 - (void)animateDockAccessory:(UIButton *)button pressed:(BOOL)pressed {
     if(UIAccessibilityIsReduceMotionEnabled())return;
     UIView *surface=button==self.extraButton ? self.extra : self.expand;
+    CGFloat base=(surface==self.extra && [self usesFeedMotion] && self.feedExtraScale>0.0) ? self.feedExtraScale : 1.0;
+    CGFloat factor=base*(pressed ? 1.06 : 1.0);
     [UIView animateWithDuration:pressed?0.26:0.36 delay:0 usingSpringWithDamping:pressed?0.62:0.64 initialSpringVelocity:pressed?0.3:0
         options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{
-            surface.transform=pressed ? CGAffineTransformMakeScale(1.06,1.06) : CGAffineTransformIdentity;
+            surface.transform=CGAffineTransformMakeScale(factor,factor);
         } completion:nil];
 }
 - (void)willMoveToWindow:(UIWindow *)window {
     if(!window) {
+        [self cancelActiveFeedObserverIfNeeded];
+        [self resetFeedMotionState];
         [self removeSystemDock];
         self.failedSystemProbe=nil;
         self.dockTouchButton=nil;
         [self clearSelectionDrag];
+        self.capsule.transform=CGAffineTransformIdentity;
         self.extra.transform=CGAffineTransformIdentity;
         self.expand.transform=CGAffineTransformIdentity;
         self.extraButton.imageView.transform=CGAffineTransformIdentity;
@@ -2248,6 +2412,424 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     animation.duration=0.22;
     [surface.layer addAnimation:animation forKey:@"honggo.dock.collapse"];
 }
+
+- (void)handleApplicationDidEnterBackground:(__unused NSNotification *)note {
+    [self cancelActiveFeedObserverIfNeeded];
+    if([self usesFeedMotion] && (_feedSpring.following || self.feedDisplayLink))
+        [self setFeedCompact:(_feedSpring.compact!=0) animated:NO];
+}
+
+- (void)prepareSystemFeedItems:(NSArray<NSString *> *)keys content:(NSString *)content
+    selected:(NSInteger)selected videoClear:(BOOL)videoClear {
+    UIView *platter=self.systemPlatter ?: self.systemTabBar;
+    if(!platter || !keys.count){self.systemFeedItems=nil;return;}
+    NSMutableArray<UIView *> *buttons=[HGADockSystemItems(platter) mutableCopy];
+    if(!buttons.count && platter!=self.systemTabBar)buttons=[HGADockSystemItems(self.systemTabBar) mutableCopy];
+    [buttons sortUsingComparator:^NSComparisonResult(UIView *left,UIView *right) {
+        CGFloat ax=[platter convertPoint:left.center fromView:left.superview].x;
+        CGFloat bx=[platter convertPoint:right.center fromView:right.superview].x;
+        return ax<bx ? NSOrderedAscending : (ax>bx ? NSOrderedDescending : NSOrderedSame);
+    }];
+    UITraitCollection *traits=self.capsule.traitCollection;
+    BOOL darkDock=self.capsule.overrideUserInterfaceStyle==UIUserInterfaceStyleDark ||
+        traits.userInterfaceStyle==UIUserInterfaceStyleDark;
+    UITraitCollection *inkTraits=(darkDock && traits.userInterfaceStyle!=UIUserInterfaceStyleDark) ?
+        [UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark] : traits;
+    UIColor *selectedColor=[UIColor.labelColor resolvedColorWithTraitCollection:inkTraits];
+    UIColor *normalColor=[selectedColor colorWithAlphaComponent:traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.90 : 0.62];
+    if(videoClear) {
+        selectedColor=UIColor.whiteColor;
+        normalColor=[UIColor.whiteColor colorWithAlphaComponent:traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.94 : 0.78];
+    }
+    BOOL rtl=self.systemTabBar.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft;
+    BOOL showCaption=[content isEqual:@"both"];
+    NSMutableArray<HGAFeedDockItemPart *> *parts=[NSMutableArray array];
+    NSInteger column=-1;
+    CGFloat lastX=-CGFLOAT_MAX;
+    for(UIView *button in buttons) {
+        CGFloat x=[platter convertPoint:button.center fromView:button.superview].x;
+        if(fabs(x-lastX)>0.5)column++;
+        lastX=x;
+        if(column<0 || (NSUInteger)column>=keys.count)continue;
+        UIImageView *icon=nil;
+        for(UIView *sub in HGADockSystemSubviews(button)) {
+            if([sub isKindOfClass:UIImageView.class]){icon=(UIImageView *)sub;break;}
+        }
+        if(!icon)continue;
+        NSUInteger slot=rtl ? (keys.count-1-(NSUInteger)column) : (NSUInteger)column;
+        NSString *key=keys[slot];
+        NSUInteger tabIndex=[HGATabIDs() indexOfObject:key];
+        BOOL active=(selected!=NSNotFound && selected==(NSInteger)tabIndex);
+        HGAFeedDockItemPart *part=objc_getAssociatedObject(button,&HGAFeedDockItemPartKey);
+        if(!part) {
+            part=[HGAFeedDockItemPart new];
+            part.buttonLayer=button.layer;
+            objc_setAssociatedObject(button,&HGAFeedDockItemPartKey,part,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if(part.icon!=icon)part.icon=icon;
+        if(showCaption && !part.caption) {
+            UILabel *caption=[[UILabel alloc] initWithFrame:CGRectZero];
+            caption.font=[UIFont systemFontOfSize:10.0 weight:UIFontWeightSemibold];
+            caption.textAlignment=NSTextAlignmentCenter;
+            caption.adjustsFontSizeToFitWidth=YES;
+            caption.minimumScaleFactor=0.78;
+            caption.userInteractionEnabled=NO;
+            caption.isAccessibilityElement=NO;
+            [button addSubview:caption];
+            part.caption=caption;
+        }
+        UILabel *caption=part.caption;
+        if(caption) {
+            if(caption.hidden==showCaption)caption.hidden=!showCaption;
+            NSString *labelText=tabIndex!=NSNotFound ? HGATabTitles()[tabIndex] : @"";
+            if(![caption.text isEqualToString:labelText])caption.text=labelText;
+            UIColor *ink=active ? selectedColor : normalColor;
+            if(![caption.textColor isEqual:ink])caption.textColor=ink;
+            CGRect bounds=CGRectMake(0,0,MAX(0.0,MIN(48.0,CGRectGetWidth(button.bounds)-4.0)),ceil(caption.font.lineHeight));
+            CGPoint center=CGPointMake(CGRectGetMidX(button.bounds),CGRectGetMidY(button.bounds));
+            if(!CGRectEqualToRect(caption.bounds,bounds))caption.bounds=bounds;
+            if(!CGPointEqualToPoint(caption.center,center))caption.center=center;
+        }
+        [parts addObject:part];
+    }
+    self.systemFeedItems=parts;
+}
+
+- (void)applyFeedItemsScaleX:(CGFloat)sx scaleY:(CGFloat)sy glyphScale:(CGFloat)glyphScale
+    captionAmount:(CGFloat)captionAmount contentAlpha:(CGFloat)contentAlpha {
+    if(self.systemDockActive) {
+        CATransform3D iconOnly=CATransform3DMakeScale(glyphScale/sx,glyphScale/sy,1.0);
+        CATransform3D withCaption=iconOnly;
+        withCaption.m42=-7.0*captionAmount/sy;
+        CGAffineTransform text=CGAffineTransformIdentity;
+        if(captionAmount>0.0) {
+            text=CGAffineTransformMake(1.0/glyphScale,0,0,1.0/glyphScale,0,(13.0-withCaption.m42)/withCaption.m22);
+        }
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        for(HGAFeedDockItemPart *part in self.systemFeedItems) {
+            UILabel *caption=part.caption;
+            BOOL hasCaption=caption && !caption.hidden;
+            CATransform3D contents=hasCaption ? withCaption : iconOnly;
+            CALayer *layer=part.buttonLayer;
+            if(layer && !CATransform3DEqualToTransform(layer.sublayerTransform,contents))layer.sublayerTransform=contents;
+            if(part.icon && part.icon.alpha!=contentAlpha)part.icon.alpha=contentAlpha;
+            if(hasCaption) {
+                CGFloat capAlpha=captionAmount*contentAlpha;
+                if(caption.alpha!=capAlpha)caption.alpha=capAlpha;
+                if(captionAmount>0.0 && !CGAffineTransformEqualToTransform(caption.transform,text))caption.transform=text;
+            }
+        }
+        [CATransaction commit];
+        return;
+    }
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    for(NSString *key in self.buttons) {
+        HGADockTabButton *b=(HGADockTabButton *)self.buttons[key];
+        if(b.hidden)continue;
+        BOOL hasImage=b.currentImage!=nil && !b.imageView.hidden;
+        BOOL hasTitle=b.currentTitle.length>0 && !b.titleLabel.hidden;
+        CGFloat pressBoost=(self.motionGlyph==b && !UIAccessibilityIsReduceMotionEnabled()) ? 1.14 : 1.0;
+        if(hasImage && hasTitle) {
+            CGFloat titleHeight=MIN(CGRectGetHeight(b.bounds)-4.0,ceil(b.titleLabel.font.lineHeight));
+            CGFloat iconShiftY=((titleHeight+2.0)*0.5)*(1.0-captionAmount);
+            CGAffineTransform iconTx=CGAffineTransformMake((glyphScale*pressBoost)/sx,0.0,0.0,
+                (glyphScale*pressBoost)/sy,0.0,iconShiftY);
+            if(!CGAffineTransformEqualToTransform(b.imageView.transform,iconTx))b.imageView.transform=iconTx;
+            if(b.imageView.alpha!=contentAlpha)b.imageView.alpha=contentAlpha;
+
+            CGFloat glyphH=CGRectGetHeight(b.imageView.bounds);
+            CGFloat titleOffset=(glyphH+2.0)*0.5;
+            CGFloat titleShiftY=titleOffset*(captionAmount/sy-1.0);
+            CGAffineTransform titleTx=CGAffineTransformMake(1.0/sx,0.0,0.0,1.0/sy,0.0,titleShiftY);
+            CGFloat capAlpha=captionAmount*contentAlpha;
+            if(b.titleLabel.alpha!=capAlpha)b.titleLabel.alpha=capAlpha;
+            if(capAlpha>0.0 && !CGAffineTransformEqualToTransform(b.titleLabel.transform,titleTx))b.titleLabel.transform=titleTx;
+        } else if(hasImage) {
+            CGAffineTransform iconTx=CGAffineTransformMakeScale((glyphScale*pressBoost)/sx,(glyphScale*pressBoost)/sy);
+            if(!CGAffineTransformEqualToTransform(b.imageView.transform,iconTx))b.imageView.transform=iconTx;
+            if(b.imageView.alpha!=contentAlpha)b.imageView.alpha=contentAlpha;
+        } else if(hasTitle) {
+            CGFloat textBoost=(self.motionGlyph==b && !UIAccessibilityIsReduceMotionEnabled()) ? 1.06 : 1.0;
+            CGAffineTransform titleTx=CGAffineTransformMakeScale((glyphScale*textBoost)/sx,(glyphScale*textBoost)/sy);
+            if(!CGAffineTransformEqualToTransform(b.titleLabel.transform,titleTx))b.titleLabel.transform=titleTx;
+            if(b.titleLabel.alpha!=contentAlpha)b.titleLabel.alpha=contentAlpha;
+        }
+    }
+    [CATransaction commit];
+}
+
+- (void)applySiriaiSurface:(DKSiriaiDockGeometry)shape targetCenter:(CGPoint)target {
+    CGFloat glassAlpha=shape.whiteAmount>=1.0 ? 0.0 : shape.surfaceAlpha;
+    if(self.systemDockActive) {
+        if(self.systemPlatter && self.systemPlatter.alpha!=glassAlpha)self.systemPlatter.alpha=glassAlpha;
+    } else {
+        HGAAppearanceMaterial *glass=HGAState(self.capsule,NO).glass;
+        if(glass && glass.alpha!=glassAlpha)glass.alpha=glassAlpha;
+        if(self.flatSegments && self.flatSegments.alpha!=glassAlpha)self.flatSegments.alpha=glassAlpha;
+        CGFloat selAlpha=shape.contentAlpha*(1.0-shape.whiteAmount);
+        if(self.selection.alpha!=selAlpha)self.selection.alpha=selAlpha;
+        if(self.capsule.layer.borderWidth>0)
+            self.capsule.layer.borderColor=[UIColor colorWithWhite:self.feedLightSurface?0:1 alpha:0.14*glassAlpha].CGColor;
+    }
+    float fillAlpha=(float)(shape.whiteAmount*shape.surfaceAlpha);
+    if(fillAlpha==0.0f && (!self.siriaiMinimumFill || self.siriaiMinimumFill.opacity==0.0f))return;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if(fillAlpha>0.0f) {
+        if(!self.siriaiMinimumFill) {
+            self.siriaiMinimumFill=[CALayer layer];
+            self.siriaiMinimumFill.backgroundColor=UIColor.whiteColor.CGColor;
+            self.siriaiMinimumFill.zPosition=10.0;
+            [self.layer addSublayer:self.siriaiMinimumFill];
+        }
+        self.siriaiMinimumFill.position=target;
+        self.siriaiMinimumFill.bounds=CGRectMake(0.0,0.0,shape.width,shape.height);
+        self.siriaiMinimumFill.cornerRadius=shape.height*0.5;
+    }
+    self.siriaiMinimumFill.opacity=fillAlpha;
+    [CATransaction commit];
+}
+
+- (void)applyFeedMotion:(CGFloat)progress {
+    CGFloat width=CGRectGetWidth(self.feedCapsuleAtRest),height=CGRectGetHeight(self.feedCapsuleAtRest);
+    if(width<=0.0 || height<=0.0)return;
+    BOOL hasExtra=!self.extra.hidden && !CGRectIsEmpty(self.feedExtraAtRest);
+    CGFloat extraDiameter=hasExtra ? CGRectGetWidth(self.feedExtraAtRest) : 0.0;
+    CGFloat gap=hasExtra ? HGADockAccessoryGap : 0.0;
+    CGPoint pivot=CGPointMake(CGRectGetMidX(self.feedCapsuleAtRest),CGRectGetMidY(self.feedCapsuleAtRest));
+    if(self.appliedCollapseMode==HGADockCollapseModeSiriai) {
+        CGRect group=hasExtra ? CGRectUnion(self.feedCapsuleAtRest,self.feedExtraAtRest) : self.feedCapsuleAtRest;
+        CGFloat x=CGRectGetMinX(group),y=CGRectGetMinY(group);
+        CGFloat bottomLimit=MAX(height,CGRectGetMaxY(self.bounds)-y);
+        DKSiriaiDockGeometry shape=DKSiriaiDockShape(width,height,extraDiameter,gap,bottomLimit,progress);
+        DKSiriaiApplyRebound(&shape,_feedSpring.overtravel,CGRectGetWidth(group),extraDiameter,bottomLimit);
+        if(_feedSpring.siriaiOpeningMaterial>1.0)DKSiriaiSetDockMaterial(&shape,_feedSpring.siriaiOpeningMaterial);
+        CGPoint target=CGPointMake(x+shape.centerX,y+shape.centerY);
+        CGFloat sx=MAX(0.001,shape.width/width),sy=MAX(0.001,shape.height/height);
+        HGADockSetViewGeometry(self.capsule,CGAffineTransformMakeScale(sx,sy),target);
+        if(self.systemDockActive) {
+            UIView *carrier=[self systemDockCarrier];
+            CGPoint carrierCenter=CGPointMake(target.x+(self.feedSystemCarrierAtRest.x-pivot.x)*sx,
+                target.y+(self.feedSystemCarrierAtRest.y-pivot.y)*sy);
+            HGADockSetViewGeometry(carrier,CGAffineTransformMakeScale(self.feedSystemBaseScale*sx,self.feedSystemBaseScale*sy),carrierCenter);
+        }
+        [self applySiriaiSurface:shape targetCenter:target];
+        BOOL controlsHidden=shape.contentAlpha<0.10;
+        self.feedControlsHidden=controlsHidden;
+        if(self.capsule.accessibilityElementsHidden!=controlsHidden)self.capsule.accessibilityElementsHidden=controlsHidden;
+        if(self.systemDockActive) {
+            UIView *carrier=[self systemDockCarrier];
+            BOOL hideCarrierA11y=self.quietSystemTouches || controlsHidden;
+            if(carrier.accessibilityElementsHidden!=hideCarrierA11y)carrier.accessibilityElementsHidden=hideCarrierA11y;
+        }
+        CGFloat glyphScale=MAX(0.001,shape.glyphScale);
+        [self applyFeedItemsScaleX:sx scaleY:sy glyphScale:glyphScale captionAmount:shape.captionAmount contentAlpha:shape.contentAlpha];
+        if(hasExtra) {
+            CGFloat cameraScale=MAX(0.001,shape.cameraScale);
+            self.feedExtraScale=cameraScale;
+            CGPoint extraCenter=CGPointMake(x+shape.cameraX,y+shape.cameraY);
+            HGADockSetViewGeometry(self.extra,CGAffineTransformMakeScale(cameraScale,cameraScale),extraCenter);
+            CGAffineTransform extraGlyph=CGAffineTransformMakeScale(glyphScale/cameraScale,glyphScale/cameraScale);
+            if(!CGAffineTransformEqualToTransform(self.extraButton.imageView.transform,extraGlyph))
+                self.extraButton.imageView.transform=extraGlyph;
+            if(self.extra.alpha!=shape.contentAlpha)self.extra.alpha=shape.contentAlpha;
+            if(self.extra.accessibilityElementsHidden!=controlsHidden)self.extra.accessibilityElementsHidden=controlsHidden;
+        }
+        return;
+    }
+    self.feedControlsHidden=NO;
+    if(self.siriaiMinimumFill && self.siriaiMinimumFill.opacity!=0.0f) {
+        [CATransaction begin];[CATransaction setDisableActions:YES];
+        self.siriaiMinimumFill.opacity=0.0f;
+        [CATransaction commit];
+    }
+    if(self.systemDockActive) {
+        if(self.systemPlatter && self.systemPlatter.alpha!=1.0)self.systemPlatter.alpha=1.0;
+    } else {
+        HGAAppearanceMaterial *glass=HGAState(self.capsule,NO).glass;
+        if(glass && glass.alpha!=1.0)glass.alpha=1.0;
+        if(self.flatSegments && self.flatSegments.alpha!=1.0)self.flatSegments.alpha=1.0;
+        if(self.selection.alpha!=1.0)self.selection.alpha=1.0;
+    }
+    if(self.capsule.accessibilityElementsHidden)self.capsule.accessibilityElementsHidden=NO;
+    if(self.extra.accessibilityElementsHidden)self.extra.accessibilityElementsHidden=NO;
+
+    DKSiriaiDockGeometry shape=DKTikTokDockShape(CGRectGetMinX(self.feedCapsuleAtRest),CGRectGetMinY(self.feedCapsuleAtRest),
+        width,height,CGRectGetMidY(self.feedExtraAtRest),extraDiameter,gap,
+        (unsigned)MAX(1u,(unsigned)HGADockCapsuleTabs().count),progress+_feedSpring.overtravel);
+    CGFloat sx=MAX(0.001,shape.width/width),sy=MAX(0.001,shape.height/height);
+    CGPoint target=CGPointMake(shape.centerX,shape.centerY);
+    HGADockSetViewGeometry(self.capsule,CGAffineTransformMakeScale(sx,sy),target);
+    if(self.systemDockActive) {
+        UIView *carrier=[self systemDockCarrier];
+        CGPoint carrierCenter=CGPointMake(target.x+(self.feedSystemCarrierAtRest.x-pivot.x)*sx,
+            target.y+(self.feedSystemCarrierAtRest.y-pivot.y)*sy);
+        HGADockSetViewGeometry(carrier,CGAffineTransformMakeScale(self.feedSystemBaseScale*sx,self.feedSystemBaseScale*sy),carrierCenter);
+    }
+    [self applyFeedItemsScaleX:sx scaleY:sy glyphScale:shape.glyphScale captionAmount:shape.captionAmount contentAlpha:1.0];
+    if(hasExtra) {
+        CGFloat cameraScale=MAX(0.001,shape.cameraScale);
+        self.feedExtraScale=cameraScale;
+        CGPoint extraCenter=CGPointMake(shape.cameraX,shape.cameraY);
+        HGADockSetViewGeometry(self.extra,CGAffineTransformMakeScale(cameraScale,cameraScale),extraCenter);
+        CGAffineTransform extraGlyph=CGAffineTransformMakeScale(shape.glyphScale/cameraScale,shape.glyphScale/cameraScale);
+        if(!CGAffineTransformEqualToTransform(self.extraButton.imageView.transform,extraGlyph))
+            self.extraButton.imageView.transform=extraGlyph;
+        if(self.extra.alpha!=1.0)self.extra.alpha=1.0;
+    }
+}
+
+- (void)resetFeedMotionState {
+    [self.feedDisplayLink invalidate];
+    self.feedDisplayLink=nil;
+    DKFeedSpringInit(&_feedSpring);
+    self.feedControlsHidden=NO;
+    self.feedExtraScale=1.0;
+    [self.siriaiMinimumFill removeFromSuperlayer];
+    self.siriaiMinimumFill=nil;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    self.capsule.transform=CGAffineTransformIdentity;
+    if(!CGRectIsEmpty(self.feedCapsuleAtRest))
+        self.capsule.center=CGPointMake(CGRectGetMidX(self.feedCapsuleAtRest),CGRectGetMidY(self.feedCapsuleAtRest));
+    self.capsule.accessibilityElementsHidden=NO;
+    HGAAppearanceMaterial *glass=HGAState(self.capsule,NO).glass;
+    if(glass)glass.alpha=1.0;
+    if(self.flatSegments)self.flatSegments.alpha=1.0;
+    self.selection.alpha=1.0;
+    if(self.systemDockActive) {
+        UIView *carrier=[self systemDockCarrier];
+        carrier.transform=CGAffineTransformMakeScale(self.feedSystemBaseScale,self.feedSystemBaseScale);
+        if(!CGPointEqualToPoint(self.feedSystemCarrierAtRest,CGPointZero))carrier.center=self.feedSystemCarrierAtRest;
+        carrier.accessibilityElementsHidden=self.quietSystemTouches;
+        if(self.systemPlatter)self.systemPlatter.alpha=1.0;
+    }
+    for(HGAFeedDockItemPart *part in self.systemFeedItems) {
+        if(part.buttonLayer)part.buttonLayer.sublayerTransform=CATransform3DIdentity;
+        if(part.icon)part.icon.alpha=1.0;
+        if(part.caption) {
+            part.caption.hidden=YES;
+            part.caption.alpha=1.0;
+            part.caption.transform=CGAffineTransformIdentity;
+        }
+    }
+    self.systemFeedItems=nil;
+    for(UIButton *b in self.buttons.allValues) {
+        b.imageView.transform=CGAffineTransformIdentity;
+        b.imageView.alpha=1.0;
+        b.titleLabel.transform=CGAffineTransformIdentity;
+        b.titleLabel.alpha=1.0;
+    }
+    self.extra.transform=CGAffineTransformIdentity;
+    if(!CGRectIsEmpty(self.feedExtraAtRest))
+        self.extra.center=CGPointMake(CGRectGetMidX(self.feedExtraAtRest),CGRectGetMidY(self.feedExtraAtRest));
+    self.extra.alpha=1.0;
+    self.extra.accessibilityElementsHidden=NO;
+    self.extraButton.imageView.transform=CGAffineTransformIdentity;
+    [CATransaction commit];
+    self.feedCapsuleAtRest=CGRectZero;
+    self.feedExtraAtRest=CGRectZero;
+}
+
+- (void)startFeedDisplayLink {
+    if(self.feedDisplayLink) {
+        if(self.feedDisplayLink.paused)self.feedDisplayLink.paused=NO;
+        return;
+    }
+    HGAFeedSpringTarget *target=[HGAFeedSpringTarget new];
+    target.dock=self;
+    CADisplayLink *link=[CADisplayLink displayLinkWithTarget:target selector:@selector(advance:)];
+    if(@available(iOS 15.0,*)) {
+        link.preferredFrameRateRange=CAFrameRateRangeMake(60,120,120);
+    }
+    [link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    self.feedDisplayLink=link;
+}
+
+- (void)scheduleSiriaiFade {
+    uint64_t ticket=++_feedSpring.siriaiFadeGeneration;
+    __weak HGAAppearanceDock *weakSelf=self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(DKSiriaiFadeDelay*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+        HGAAppearanceDock *dock=weakSelf;
+        if(!dock || ![dock usesFeedMotion])return;
+        if(DKFeedSpringTriggerSiriaiFade(&dock->_feedSpring,ticket))
+            [dock startFeedDisplayLink];
+    });
+}
+
+- (void)advanceFeedSpring:(CADisplayLink *)link {
+    if(![self usesFeedMotion]) {
+        [self.feedDisplayLink invalidate];
+        self.feedDisplayLink=nil;
+        return;
+    }
+    double applyProgress=0.0;
+    int shouldApply=0,scheduleFade=0;
+    DKFeedAdvanceResult res=DKFeedSpringAdvance(&_feedSpring,link.timestamp,link.targetTimestamp,
+        UIAccessibilityIsReduceMotionEnabled() ? 1 : 0,&applyProgress,&shouldApply,&scheduleFade);
+    if(shouldApply)[self applyFeedMotion:applyProgress];
+    if(res==DKFeedAdvancePauseLink) {
+        link.paused=YES;
+    } else if(res==DKFeedAdvanceFinished) {
+        [self.feedDisplayLink invalidate];
+        self.feedDisplayLink=nil;
+        if(scheduleFade)[self scheduleSiriaiFade];
+    }
+}
+
+- (BOOL)beginFeedDrag {
+    if(![self usesFeedMotion] || !self.window || self.hidden || self.sidebarSuspended)return NO;
+    [self clearSelectionDrag];
+    BOOL running=self.feedDisplayLink && !self.feedDisplayLink.paused;
+    int direct=DKFeedSpringBeginDrag(&_feedSpring,running ? 1 : 0);
+    if(self.feedDisplayLink)self.feedDisplayLink.paused=YES;
+    return direct!=0;
+}
+
+- (void)moveFeedDrag:(CGFloat)delta {
+    if(![self usesFeedMotion])return;
+    double frame=self.feedDisplayLink ? (self.feedDisplayLink.targetTimestamp-self.feedDisplayLink.timestamp) : 0.0;
+    BOOL paused=!self.feedDisplayLink || self.feedDisplayLink.paused;
+    if(DKFeedSpringMoveDrag(&_feedSpring,delta,CACurrentMediaTime(),frame,paused ? 1 : 0))
+        [self startFeedDisplayLink];
+}
+
+- (void)endFeedDragCompact:(BOOL)compact velocity:(CGFloat)velocity {
+    if(![self usesFeedMotion])return;
+    double frame=self.feedDisplayLink ? (self.feedDisplayLink.targetTimestamp-self.feedDisplayLink.timestamp) : 0.0;
+    BOOL canAnimate=self.window!=nil && !UIAccessibilityIsReduceMotionEnabled();
+    double applyProgress=0.0;
+    int finished=0,startLink=0,scheduleFade=0;
+    DKFeedSpringEndDrag(&_feedSpring,compact ? 1 : 0,velocity,CACurrentMediaTime(),frame,
+        self.feedDisplayLink!=nil ? 1 : 0,canAnimate ? 1 : 0,&applyProgress,&finished,&startLink,&scheduleFade);
+    if(finished) {
+        [self.feedDisplayLink invalidate];
+        self.feedDisplayLink=nil;
+        [self applyFeedMotion:applyProgress];
+        if(scheduleFade)[self scheduleSiriaiFade];
+    } else if(startLink) {
+        [self startFeedDisplayLink];
+    }
+}
+
+- (void)setFeedCompact:(BOOL)compact animated:(BOOL)animated {
+    if(![self usesFeedMotion] || (compact && (self.hidden || self.sidebarSuspended)))return;
+    BOOL canAnimate=animated && self.window!=nil && !UIAccessibilityIsReduceMotionEnabled();
+    double applyProgress=0.0;
+    int finished=0,startLink=0,scheduleFade=0;
+    DKFeedSpringSetCompact(&_feedSpring,compact ? 1 : 0,animated ? 1 : 0,CACurrentMediaTime(),
+        self.feedDisplayLink!=nil ? 1 : 0,canAnimate ? 1 : 0,&applyProgress,&finished,&startLink,&scheduleFade);
+    if(finished) {
+        [self.feedDisplayLink invalidate];
+        self.feedDisplayLink=nil;
+        [self applyFeedMotion:applyProgress];
+        if(scheduleFade)[self scheduleSiriaiFade];
+    } else if(startLink) {
+        [self startFeedDisplayLink];
+    }
+}
 @end
 static UIView *(*HGADockHostOriginalHit)(id,SEL,CGPoint,UIEvent *);
 static UIView *HGADockHostHit(id bar,SEL cmd,CGPoint point,UIEvent *event) {
@@ -2279,6 +2861,10 @@ static void HGARefreshSheetDockVisibility(UIWindow *window) {
         HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
         if(dock.sidebarSuspended || dock.superview!=bar || dock.hidden==covered)continue;
         dock.hidden=covered;
+        if(covered && [dock usesFeedMotion]) {
+            [dock cancelActiveFeedObserverIfNeeded];
+            [dock setFeedCompact:NO animated:NO];
+        }
         dock.selectionPan.enabled=!covered && (!dock.systemDockActive || dock.quietSystemTouches) &&
             !dock.collapsed && !UIAccessibilityIsVoiceOverRunning();
         dock.dockTouch.enabled=!covered && (!dock.systemDockActive || dock.quietSystemTouches || dock.collapsed) &&
@@ -2339,7 +2925,7 @@ NSDictionary *HGAppearanceDockDiagnosticState(UIWindow *window) {
             @"material":material,
             @"materialSignature":capsuleGlass.materialSignature ?: @"",
             @"materialId":capsuleGlass ? [NSString stringWithFormat:@"%p",capsuleGlass] : @"",
-            @"capsuleFrame":NSStringFromCGRect(dock.capsule.frame),
+            @"capsuleFrame":NSStringFromCGRect([dock.capsule convertRect:dock.capsule.bounds toView:dock]),
             @"hostVisibleOverlays":hostOverlays
         };
     }
@@ -2349,6 +2935,8 @@ BOOL HGAppearanceSuspendDockForSidebar(UIView *bar) {
     HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
     if(!dock || !bar || dock.superview!=bar || dock.hidden)return NO;
     dock.sidebarSuspended=YES;
+    [dock cancelActiveFeedObserverIfNeeded];
+    if([dock usesFeedMotion])[dock setFeedCompact:NO animated:NO];
     BOOL tracking=dock.pressedTab || dock.selectionDragging || dock.selectionSettling;
     dock.dockTouchButton=nil;
     [dock clearSelectionDrag];
@@ -2382,36 +2970,153 @@ BOOL HGAppearanceSuspendDockForSidebar(UIView *bar) {
 }
 static void HGARefreshDock(UIView *bar){HGAppearanceLayoutDock(bar,nil);}
 @interface HGADockScrollObserver : NSObject
+@property(nonatomic,weak) UIPanGestureRecognizer *activeGesture;
+@property(nonatomic,weak) HGAAppearanceDock *activeDock;
+@property(nonatomic) DKFeedPanState panState;
 + (instancetype)shared;
 - (void)pan:(UIPanGestureRecognizer *)gesture;
+- (void)cancelFeedPan;
 @end
+@implementation HGAAppearanceDock (HGAFeedObserverBridge)
+- (void)cancelActiveFeedObserverIfNeeded {
+    if(HGADockScrollObserver.shared.activeDock==self)[HGADockScrollObserver.shared cancelFeedPan];
+}
+@end
+static BOOL HGAWindowHasModalTransitionOverlay(UIWindow *window,UIView *feed) {
+    Class transitionCls=objc_lookUpClass("FQVTransitionView");
+    if(!transitionCls || !window)return NO;
+    for(UIView *sub in window.subviews) {
+        if(!HGAVisible(sub) || [feed isDescendantOfView:sub])continue;
+        if([sub isKindOfClass:transitionCls])return YES;
+        for(UIView *child in sub.subviews)
+            if([child isKindOfClass:transitionCls] && HGAVisible(child))return YES;
+    }
+    return NO;
+}
 @implementation HGADockScrollObserver
 + (instancetype)shared{static HGADockScrollObserver *s;static dispatch_once_t once;dispatch_once(&once,^{s=[self new];});return s;}
+- (HGAAppearanceDock *)eligibleDockForFeed:(UIScrollView *)feed {
+    UIWindow *win=feed.window;
+    if(!win || ![feed isKindOfClass:UIScrollView.class] || !feed.isScrollEnabled)return nil;
+    CGRect winBounds=win.bounds;
+    if(CGRectGetHeight(winBounds)<=CGRectGetWidth(winBounds))return nil;
+    CGRect inWin=[feed convertRect:feed.bounds toView:win];
+    if(CGRectGetWidth(inWin)<CGRectGetWidth(winBounds)-4.0 || CGRectGetHeight(inWin)<CGRectGetHeight(winBounds)*0.60)return nil;
+    if(CGRectGetMaxX(inWin)<=4.0 || CGRectGetMinX(inWin)>=CGRectGetWidth(winBounds)-4.0)return nil;
+    if(HGFeedSidebarOwnsLayout(win) || HGAWindowHasActionSheet(win) || HGAWindowHasModalTransitionOverlay(win,feed))return nil;
+    for(UIView *bar in HGABars.allObjects) {
+        HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
+        if(bar.window!=win || dock.superview!=bar || dock.hidden || dock.sidebarSuspended)continue;
+        if(fabs(bar.frame.origin.x)>2.0 || bar.alpha<=0.05 || [bar.layer animationForKey:HGACleanOpacity])continue;
+        UIViewController *host=dock.hostController;
+        if(host.presentedViewController)continue;
+        NSInteger selected=HGASelectedTab(host);
+        if(selected!=NSNotFound && selected!=0)continue;
+        if(host.viewIfLoaded && ![feed isDescendantOfView:host.viewIfLoaded])continue;
+        return dock;
+    }
+    return nil;
+}
+- (void)cancelFeedPan {
+    HGAAppearanceDock *dock=self.activeDock;
+    BOOL wasActive=_panState.active!=0;
+    DKFeedPanReset(&_panState);
+    self.activeGesture=nil;
+    self.activeDock=nil;
+    if(wasActive && dock)[dock setFeedCompact:[dock isFeedCompact] animated:YES];
+}
 - (void)pan:(UIPanGestureRecognizer *)gesture {
-    if(!HGAppearanceDockEnabled() || !HGAppearanceFlag(@"dock.autoCollapse") || !HGAppearanceFlag(@"dock.collapse") ||
-        UIAccessibilityIsVoiceOverRunning() || gesture.state!=UIGestureRecognizerStateEnded)return;
-    CGPoint translation=[gesture translationInView:gesture.view];
-    if(fabs(translation.y)<40 || fabs(translation.y)<=fabs(translation.x))return;
-    BOOL collapse=translation.y<0;
-    UIWindow *win=gesture.view.window;
-    if(!win || HGFeedSidebarOwnsLayout(win))return;
-    __weak UIWindow *weakWin=win;
-    dispatch_async(dispatch_get_main_queue(),^{
-        UIWindow *targetWin=weakWin;
-        if(!targetWin || HGFeedSidebarOwnsLayout(targetWin))return;
-        for(UIView *bar in HGABars.allObjects) {
-            HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
-            if(bar.window==targetWin && fabs(bar.frame.origin.x)<=2.0 && dock.superview==bar)
-                [dock setCollapsed:collapse animated:YES];
-        }
-    });
+    if(!HGAppearanceDockEnabled() || UIAccessibilityIsVoiceOverRunning()) {
+        [self cancelFeedPan];
+        return;
+    }
+    HGADockCollapseMode mode=HGACurrentDockCollapseMode();
+    if(mode==HGADockCollapseModeLegacy) {
+        if(!HGAppearanceFlag(@"dock.autoCollapse") || gesture.state!=UIGestureRecognizerStateEnded)return;
+        CGPoint translation=[gesture translationInView:gesture.view];
+        if(fabs(translation.y)<40 || fabs(translation.y)<=fabs(translation.x))return;
+        BOOL collapse=translation.y<0;
+        UIWindow *win=gesture.view.window;
+        if(!win || HGFeedSidebarOwnsLayout(win))return;
+        __weak UIWindow *weakWin=win;
+        dispatch_async(dispatch_get_main_queue(),^{
+            UIWindow *targetWin=weakWin;
+            if(!targetWin || HGFeedSidebarOwnsLayout(targetWin))return;
+            for(UIView *bar in HGABars.allObjects) {
+                HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
+                if(bar.window==targetWin && fabs(bar.frame.origin.x)<=2.0 && dock.superview==bar)
+                    [dock setCollapsed:collapse animated:YES];
+            }
+        });
+        return;
+    }
+    if(!HGADockUsesFeedMotionMode(mode)) {
+        [self cancelFeedPan];
+        return;
+    }
+    UIGestureRecognizerState state=gesture.state;
+    if(self.activeGesture && self.activeGesture!=gesture) {
+        if(state==UIGestureRecognizerStateBegan)[self cancelFeedPan];
+        else return;
+    }
+    if(!_panState.active) {
+        if(state!=UIGestureRecognizerStateBegan && state!=UIGestureRecognizerStateChanged)return;
+        UIScrollView *feed=[gesture.view isKindOfClass:UIScrollView.class] ? (UIScrollView *)gesture.view : nil;
+        HGAAppearanceDock *dock=[self eligibleDockForFeed:feed];
+        if(!dock)return;
+        BOOL caughtMotion=[dock beginFeedDrag];
+        CGPoint initial=[gesture translationInView:feed];
+        CGFloat viewportH=CGRectGetHeight(feed.bounds)>0 ? CGRectGetHeight(feed.bounds) : CGRectGetHeight(feed.window.bounds);
+        DKFeedPanBegin(&_panState,viewportH,mode==HGADockCollapseModeSiriai ? 1 : 0,[dock isFeedCompact] ? 1 : 0,
+            caughtMotion ? 1 : 0,initial.x,initial.y,state==UIGestureRecognizerStateBegan ? 1 : 0);
+        self.activeGesture=gesture;
+        self.activeDock=dock;
+        if(state==UIGestureRecognizerStateBegan)return;
+    }
+    HGAAppearanceDock *dock=self.activeDock;
+    UIView *view=gesture.view;
+    if(!dock || !dock.window || !view.window || dock.hidden || dock.sidebarSuspended ||
+        HGAWindowHasActionSheet(dock.window) || HGAWindowHasModalTransitionOverlay(dock.window,view)) {
+        [self cancelFeedPan];
+        return;
+    }
+    if(state==UIGestureRecognizerStateCancelled || state==UIGestureRecognizerStateFailed) {
+        [self cancelFeedPan];
+        return;
+    }
+    BOOL ended=(state==UIGestureRecognizerStateEnded);
+    CGPoint trans=[gesture translationInView:view];
+    CGFloat velY=ended ? [gesture velocityInView:view].y : 0.0;
+    double deltaProgress=0.0,endVelocity=0.0;
+    int endCompact=0,locked=0;
+    DKFeedPanResult res=DKFeedPanUpdate(&_panState,trans.x,trans.y,velY,ended ? 1 : 0,
+        &deltaProgress,&endCompact,&endVelocity,&locked);
+    if(res==DKFeedPanIgnored)return;
+    if(res==DKFeedPanFinishedUnlocked) {
+        self.activeGesture=nil;
+        self.activeDock=nil;
+        [dock endFeedDragCompact:[dock isFeedCompact] velocity:0.0];
+        return;
+    }
+    if(deltaProgress!=0.0)[dock moveFeedDrag:deltaProgress];
+    if(res==DKFeedPanEnded) {
+        self.activeGesture=nil;
+        self.activeDock=nil;
+        [dock endFeedDragCompact:(endCompact!=0) velocity:endVelocity];
+    }
 }
 @end
 static char HGAFollowsFeed;
 static void HGAObserveFeed(UIScrollView *feed) {
-    BOOL enabled=HGAppearanceDockEnabled() && HGAppearanceFlag(@"dock.autoCollapse") && feed.window;
+    HGADockCollapseMode mode=HGACurrentDockCollapseMode();
+    BOOL enabled=HGAppearanceDockEnabled() && feed.window &&
+        (HGADockUsesFeedMotionMode(mode) || (mode==HGADockCollapseModeLegacy && HGAppearanceFlag(@"dock.autoCollapse")));
     BOOL registered=[objc_getAssociatedObject(feed,&HGAFollowsFeed) boolValue];
     if(enabled && !registered)[feed.panGestureRecognizer addTarget:HGADockScrollObserver.shared action:@selector(pan:)];
-    if(!enabled && registered)[feed.panGestureRecognizer removeTarget:HGADockScrollObserver.shared action:@selector(pan:)];
+    if(!enabled && registered) {
+        [feed.panGestureRecognizer removeTarget:HGADockScrollObserver.shared action:@selector(pan:)];
+        if(HGADockScrollObserver.shared.activeGesture==feed.panGestureRecognizer)
+            [HGADockScrollObserver.shared cancelFeedPan];
+    }
     objc_setAssociatedObject(feed,&HGAFollowsFeed,@(enabled),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }

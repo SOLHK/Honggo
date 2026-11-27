@@ -19,6 +19,9 @@ architecture=$(uname -m)
 xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror "$source_root/tests/DockSelectionGeometryTests.c" -o "$work/dock-geometry"
 "$work/dock-geometry"
 
+xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror "$source_root/tests/SiriaiDockMotionTests.c" -lm -o "$work/siriai-dock-motion"
+"$work/siriai-dock-motion"
+
 xcrun --sdk iphonesimulator clang \
     -target "$architecture-apple-ios15.0.1-simulator" -isysroot "$sdk" \
     -O0 -g -fobjc-arc -fblocks -Wall -Werror -I "$source_root/src" \

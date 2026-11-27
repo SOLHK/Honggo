@@ -102,6 +102,34 @@ static void CheckHeaderLiquidSelectionMigration(void) {
     Check([HGAppearanceString(@"player.headerSelectionStyle") isEqual:@"plain"],
         @"choosing plain top channel selection after migration survives reload");
 }
+static void CheckDockCollapseModeMigrationAndMutualExclusion(void) {
+    NSString *migration=@"Honggo.Appearance.dockCollapseModeMigrated";
+    NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
+    [defaults removeObjectForKey:migration];
+    SeedR14Appearance(@{@"enabled":@YES,@"dock.enabled":@YES,@"dock.collapse":@YES,@"dock.autoCollapse":@YES});
+    Check([HGAppearanceString(@"dock.collapseMode") isEqual:@"legacy"] && HGAppearanceFlag(@"dock.collapse") &&
+        [defaults boolForKey:migration],
+        @"persisted legacy dock.collapse migrates once into dock.collapseMode=legacy");
+    Check(HGAppearanceSet(@"dock.collapseMode",@"tiktok",nil) &&
+        [HGAppearanceString(@"dock.collapseMode") isEqual:@"tiktok"] && !HGAppearanceFlag(@"dock.collapse"),
+        @"selecting TikTok collapse mode disables legacy single-circle collapse");
+    Check(HGAppearanceSet(@"dock.collapseMode",@"siriai",nil) &&
+        [HGAppearanceString(@"dock.collapseMode") isEqual:@"siriai"] && !HGAppearanceFlag(@"dock.collapse") &&
+        !HGAppearanceFlag(@"dock.siriaiHideLine") &&
+        HGAppearanceSet(@"dock.siriaiHideLine",@YES,nil) && HGAppearanceFlag(@"dock.siriaiHideLine"),
+        @"selecting Siri AI collapse mode keeps legacy collapse off and supports optional line fade");
+    Check(!HGAppearanceSet(@"dock.collapseMode",@"invalid",nil),
+        @"unknown dock collapse mode is rejected");
+    Check(HGAppearanceSet(@"dock.collapse",@YES,nil) &&
+        [HGAppearanceString(@"dock.collapseMode") isEqual:@"legacy"] && HGAppearanceFlag(@"dock.collapse"),
+        @"legacy dock.collapse=YES synchronizes dock.collapseMode back to legacy");
+    Check(HGAppearanceSet(@"dock.collapse",@NO,nil) &&
+        [HGAppearanceString(@"dock.collapseMode") isEqual:@"off"] && !HGAppearanceFlag(@"dock.collapse"),
+        @"turning legacy dock.collapse off returns dock.collapseMode to off");
+    Check([HGAppearanceSearch(@"TikTok 交互").firstObject[@"key"] isEqual:@"dock.collapseMode"] &&
+        [HGAppearanceSearch(@"Siri AI 收缩后隐藏短线").firstObject[@"key"] isEqual:@"dock.siriaiHideLine"],
+        @"dynamic collapse mode and Siri AI hide-line option are searchable");
+}
 int main(void) {@autoreleasepool {
     NSUserDefaults *defaultsStore=NSUserDefaults.standardUserDefaults;
     for (NSString *legacy in @[@"HongguoGlass.glass",@"HongguoGlass.glassControls"]) {
@@ -119,6 +147,7 @@ int main(void) {@autoreleasepool {
     CheckR20GeometryMigration();
     CheckBalancedDockMigration();
     CheckHeaderLiquidSelectionMigration();
+    CheckDockCollapseModeMigrationAndMutualExclusion();
     HGAppearanceReset();
     [NSUserDefaults.standardUserDefaults setObject:@"preserve" forKey:@"host.fixture"];
     NSMutableSet *keys=[NSMutableSet set];

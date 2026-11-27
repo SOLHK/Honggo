@@ -11,6 +11,7 @@ static NSString *const HGADockWidthMigration = @"Honggo.Appearance.dockWidthMigr
 static NSString *const HGAR20GeometryMigration = @"Honggo.Appearance.r20GeometryMigrated";
 static NSString *const HGABalancedDockMigration = @"Honggo.Appearance.balancedDockMigrated";
 static NSString *const HGAHeaderLiquidSelectionMigration = @"Honggo.Appearance.headerLiquidSelectionMigrated";
+static NSString *const HGADockCollapseModeMigration = @"Honggo.Appearance.dockCollapseModeMigrated";
 const double HGADockDefaultWidth = 0.90;
 static const double HGADockDefaultHeight = 58;
 static const double HGADockDefaultIconSize = 24;
@@ -114,6 +115,14 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         number(@"dock.radius",@"dock",@"底栏圆角",HGADockDefaultHeight/2,8,40);
         number(@"dock.iconSize",@"dock",@"底栏图标大小",HGADockDefaultIconSize,16,30);
         flag(@"dock.haptics",@"dock",@"导航触感反馈");
+        [a addObject:HGADef(@"dock.collapseMode",@"dock",@"动态收缩底栏",@"choice",@"off",@{
+            @"choices":@[@"off",@"legacy",@"tiktok",@"siriai"],
+            @"labels":@[@"关闭",@"原有收缩模式",@"TikTok 交互",@"Siri AI 交互"],
+            @"keywords":@"动态收缩底栏 收缩 tiktok TikTok siri Siri AI 短线 上滑 下滑"
+        })];
+        [a addObject:HGADef(@"dock.siriaiHideLine",@"dock",@"Siri AI 收缩后隐藏短线",@"bool",@NO,@{
+            @"keywords":@"Siri AI 隐藏短线 白条 短线 自动淡出"
+        })];
         flag(@"dock.collapse",@"dock",@"开启上滑收缩／下滑展开");
         flag(@"dock.autoCollapse",@"dock",@"跟随播放器滑动收缩");
         choice(@"dock.anchor",@"dock",@"收缩位置",@[@"right",@"left",@"center"],@[@"右侧",@"左侧",@"中间"]);
@@ -391,9 +400,23 @@ NSDictionary *HGAppearanceValues(void) {
             }
             [NSUserDefaults.standardUserDefaults setBool:YES forKey:HGAHeaderLiquidSelectionMigration];
         }
+        if(![NSUserDefaults.standardUserDefaults boolForKey:HGADockCollapseModeMigration]) {
+            if(!stored[@"dock.collapseMode"] && [stored[@"dock.collapse"] isEqual:@YES]) {
+                NSMutableDictionary *updated=[stored mutableCopy];
+                updated[@"dock.collapseMode"]=@"legacy";
+                [NSUserDefaults.standardUserDefaults setObject:updated forKey:HGAStore];
+                stored=updated;
+            }
+            [NSUserDefaults.standardUserDefaults setBool:YES forKey:HGADockCollapseModeMigration];
+        }
         NSMutableDictionary *values=[NSMutableDictionary dictionary];
         for(NSDictionary *def in HGAppearanceCatalog()) { id value=stored[def[@"key"]];
             values[def[@"key"]]=HGAValidatedValue(def,value) ?: def[@"default"]; }
+        if(stored[@"dock.collapseMode"]) {
+            values[@"dock.collapse"]=@([values[@"dock.collapseMode"] isEqual:@"legacy"]);
+        } else if([values[@"dock.collapse"] boolValue]) {
+            values[@"dock.collapseMode"]=@"legacy";
+        }
         HGAUnifyLiquidMaterials(values,stored[@"dock.material"] ? @"dock.material" : @"player.material");
         HGACachedValues=values.copy; return HGACachedValues;
     }
@@ -436,6 +459,12 @@ BOOL HGAppearanceApply(NSDictionary *values,NSError **error) {
         BOOL keywordsDiff=snapshot[@"video.blockedKeywords"] &&
             ![current[@"video.blockedKeywords"] isEqual:snapshot[@"video.blockedKeywords"]];
         NSMutableDictionary *merged=[current mutableCopy]; [merged addEntriesFromDictionary:snapshot];
+        if(snapshot[@"dock.collapseMode"]) {
+            merged[@"dock.collapse"]=@([snapshot[@"dock.collapseMode"] isEqual:@"legacy"]);
+        } else if(snapshot[@"dock.collapse"]) {
+            if([snapshot[@"dock.collapse"] boolValue])merged[@"dock.collapseMode"]=@"legacy";
+            else if([merged[@"dock.collapseMode"] isEqual:@"legacy"])merged[@"dock.collapseMode"]=@"off";
+        }
         HGAUnifyLiquidMaterials(merged,snapshot[@"player.material"] && !snapshot[@"dock.material"] ? @"player.material" : @"dock.material");
         if ([merged[@"video.blockedKeywords"] count] && HGAConfigurationData(merged,nil).length>128*1024)
             return HGAError(error,@"关键词列表使配置超出 128 KiB 备份上限。请减少关键词后再保存。");
@@ -465,7 +494,7 @@ NSDictionary *HGAppearancePreset(NSString *name) {
     if([name isEqual:@"glass"] || [name isEqual:@"focus"]) {
         d[@"dock.haptics"]=@(HGAppearanceFlag(@"dock.haptics"));
         for(NSString *key in @[@"enabled",@"dock.enabled",@"dock.extra",@"player.rightGlass",@"player.headerGlass",@"player.episodeGlass",@"player.controlsGlass",@"panels.episodes",@"panels.comment",@"panels.commentFloatingBar",@"panels.commentDetachedInput",@"panels.share",@"panels.longpress",@"panels.speed"])d[key]=@YES;
-        if([name isEqual:@"focus"]) {d[@"dock.collapse"]=@YES; d[@"dock.autoCollapse"]=@YES; for(NSString *role in @[@"avatar",@"tags",@"notice"])d[[NSString stringWithFormat:@"layout.%@.hidden",role]]=@YES; }
+        if([name isEqual:@"focus"]) {d[@"dock.collapseMode"]=@"legacy"; d[@"dock.collapse"]=@YES; d[@"dock.autoCollapse"]=@YES; for(NSString *role in @[@"avatar",@"tags",@"notice"])d[[NSString stringWithFormat:@"layout.%@.hidden",role]]=@YES; }
     }
     return d.copy;
 }

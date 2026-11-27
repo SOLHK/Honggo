@@ -2,6 +2,7 @@
 // checks render real UIKit button layers and exercise their state changes.
 #import <QuartzCore/QuartzCore.h>
 #import "RuntimeSupport.h"
+#import "SiriaiDockMotion.h"
 
 @interface HGADockThemeFixture : NSObject
 @property(nonatomic,strong) UIColor *selectedImageColor;
@@ -18,7 +19,19 @@ static NSUInteger HGFixtureDockImpacts;
 @interface HGAAppearanceDock (HGATestQuietLayout)
 - (void)renderGeometry;
 - (NSString *)applySystemMaterial:(NSString *)style;
+- (BOOL)isFeedCompact;
+- (BOOL)feedControlsHidden;
+- (CALayer *)siriaiMinimumFill;
+- (DKFeedSpringState)feedSpring;
+- (void)setFeedSpring:(DKFeedSpringState)state;
+- (void)setFeedCompact:(BOOL)compact animated:(BOOL)animated;
+- (void)advanceFeedSpring:(CADisplayLink *)link;
 @end
+@interface NSObject (HGATestDockScrollObserver)
++ (instancetype)shared;
+- (void)pan:(UIPanGestureRecognizer *)gesture;
+@end
+static void HGRunDockFeedMotionChecks(SSTabBarController *host);
 @interface HGTestDockStoredPlatter : UIView {
 @public
     UIVisualEffect *_glassEffect;
@@ -1406,4 +1419,202 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
     HGRunDockCaptionChecks(host);
     HGRunDockSystemAdapterChecks(host);
+    HGRunDockFeedMotionChecks(host);
+}
+
+@interface HGAFeedPanFixture : UIPanGestureRecognizer
+@property(nonatomic,weak) UIView *fixtureView;
+@property(nonatomic) CGPoint fixtureTranslation;
+@property(nonatomic) CGPoint fixtureVelocity;
+@property(nonatomic) UIGestureRecognizerState fixtureState;
+@end
+@implementation HGAFeedPanFixture
+- (UIView *)view { return self.fixtureView ?: [super view]; }
+- (CGPoint)translationInView:(__unused UIView *)view { return self.fixtureTranslation; }
+- (CGPoint)velocityInView:(__unused UIView *)view { return self.fixtureVelocity; }
+- (UIGestureRecognizerState)state { return self.fixtureState; }
+@end
+
+@interface HGAFeedDisplayLinkStandIn : NSObject
+@property(nonatomic) CFTimeInterval timestamp;
+@property(nonatomic) CFTimeInterval targetTimestamp;
+@property(nonatomic) BOOL paused;
+@end
+@implementation HGAFeedDisplayLinkStandIn
+@end
+
+static void HGStepDockFeedSpring(HGAAppearanceDock *dock, double seconds, double *clock) {
+    int steps = (int)ceil(seconds * 120.0);
+    HGAFeedDisplayLinkStandIn *tick = [HGAFeedDisplayLinkStandIn new];
+    for (int i = 0; i < steps; i++) {
+        tick.timestamp = *clock;
+        *clock += 1.0 / 120.0;
+        tick.targetTimestamp = *clock;
+        [dock advanceFeedSpring:(CADisplayLink *)tick];
+    }
+}
+
+static void HGRunDockFeedMotionChecks(SSTabBarController *host) {
+    if (UIAccessibilityIsReduceMotionEnabled() || UIAccessibilityIsVoiceOverRunning()) return;
+    NSDictionary *saved = HGAppearanceValues();
+    NSInteger savedTab = host.selectedIndex;
+    host.selectedIndex = 0;
+    HGAppearanceApply(@{
+        @"enabled": @YES, @"dock.enabled": @YES, @"dock.style": @"glass", @"dock.material": @"clear",
+        @"dock.selectionStyle": @"glass", @"dock.content": @"both", @"dock.radius": @20,
+        @"dock.height": @58, @"dock.extra": @YES, @"dock.extraSize": @54, @"dock.action": @"mine",
+        @"dock.hide.home": @NO, @"dock.hide.theater": @NO, @"dock.hide.store": @NO, @"dock.hide.mine": @NO,
+        @"dock.collapseMode": @"tiktok", @"dock.siriaiHideLine": @NO
+    }, nil);
+    SSTabBar *bar = host.customTabBar;
+    HGAppearanceLayoutDock(bar, host);
+    Layout(bar);
+    HGAAppearanceDock *dock = (id)Find(bar, @"honggo.appearance.dock");
+    UIView *capsule = Find(dock, @"honggo.appearance.dock.capsule");
+    UIButton *home = (id)Find(dock, @"honggo.appearance.tab.home");
+    UIButton *theater = (id)Find(dock, @"honggo.appearance.tab.theater");
+    UIButton *extraBtn = (id)Find(dock, @"honggo.appearance.dock.extra");
+    UIView *extraView = extraBtn.superview;
+    while (extraView && extraView.superview != dock) extraView = extraView.superview;
+    Layout(dock); Layout(home); Layout(theater); Layout(extraView);
+
+    UICollectionViewFlowLayout *flow = [UICollectionViewFlowLayout new];
+    FQVCollectionView *feed = [[FQVCollectionView alloc] initWithFrame:host.view.bounds collectionViewLayout:flow];
+    [host.view insertSubview:feed belowSubview:bar];
+    HGAppearanceProcessView(feed);
+
+    UIView *materialBefore = Find(capsule, @"honggo.appearance.material");
+    CGRect expCap = [capsule convertRect:capsule.bounds toView:dock];
+    CGRect expExtra = [extraView convertRect:extraView.bounds toView:dock];
+    CGRect expGroup = CGRectUnion(expCap, expExtra);
+
+    id observer = [NSClassFromString(@"HGADockScrollObserver") shared];
+    HGAFeedPanFixture *pan = [HGAFeedPanFixture new];
+    pan.fixtureView = feed;
+
+    // Horizontal swipe must be ignored by vertical lock (1.2x ratio).
+    pan.fixtureTranslation = CGPointZero;
+    pan.fixtureState = UIGestureRecognizerStateBegan;
+    [observer pan:pan];
+    pan.fixtureTranslation = CGPointMake(-42, -12);
+    pan.fixtureState = UIGestureRecognizerStateChanged;
+    [observer pan:pan];
+    pan.fixtureState = UIGestureRecognizerStateEnded;
+    [observer pan:pan];
+    Check(![dock isFeedCompact] && CGRectEqualToRect([capsule convertRect:capsule.bounds toView:dock], expCap),
+        @"horizontal category swipe does not trigger TikTok Dock collapse");
+
+    // Upward vertical drag shrinks group to 81% x 80%, icons to 91% uniform, fades captions, keeps material & clickability.
+    double clock = CACurrentMediaTime();
+    pan.fixtureTranslation = CGPointZero;
+    pan.fixtureState = UIGestureRecognizerStateBegan;
+    [observer pan:pan];
+    for (NSNumber *ty in @[@-6, @-60, @-130, @-200]) {
+        pan.fixtureTranslation = CGPointMake(0, ty.doubleValue);
+        pan.fixtureState = UIGestureRecognizerStateChanged;
+        [observer pan:pan];
+        HGStepDockFeedSpring(dock, 1.0 / 60.0, &clock);
+    }
+    pan.fixtureVelocity = CGPointMake(0, -420);
+    pan.fixtureState = UIGestureRecognizerStateEnded;
+    [observer pan:pan];
+    HGStepDockFeedSpring(dock, 0.55, &clock);
+
+    CGRect compCap = [capsule convertRect:capsule.bounds toView:dock];
+    CGRect compExtra = [extraView convertRect:extraView.bounds toView:dock];
+    CGRect compGroup = CGRectUnion(compCap, compExtra);
+    CGFloat capScaleX = CGRectGetWidth(compCap) / CGRectGetWidth(expCap);
+    CGFloat capScaleY = CGRectGetHeight(compCap) / CGRectGetHeight(expCap);
+    CGFloat worldGlyphX = home.imageView.transform.a * capScaleX;
+    CGFloat worldGlyphY = home.imageView.transform.d * capScaleY;
+    Check([dock isFeedCompact] &&
+        fabs(CGRectGetWidth(compGroup) / CGRectGetWidth(expGroup) - 0.81) < 0.015 &&
+        fabs(capScaleY - 0.80) < 0.01 &&
+        fabs(CGRectGetHeight(compExtra) / CGRectGetHeight(expExtra) - 0.80) < 0.01 &&
+        CGRectGetMidX(compExtra) < CGRectGetMidX(expExtra) &&
+        fabs(worldGlyphX - 0.91) < 0.015 && fabs(worldGlyphY - 0.91) < 0.015 &&
+        home.titleLabel.alpha == 0.0 &&
+        Find(capsule, @"honggo.appearance.material") == materialBefore,
+        @"TikTok feed motion shrinks Dock group to 81%x80%, scales icons uniformly to 91%, fades captions, shifts detached circle and reuses glass material");
+
+    CGPoint theaterCompactPt = [theater convertPoint:CGPointMake(CGRectGetMidX(theater.bounds), CGRectGetMidY(theater.bounds)) toView:dock];
+    CGPoint extraCompactPt = [extraBtn convertPoint:CGPointMake(CGRectGetMidX(extraBtn.bounds), CGRectGetMidY(extraBtn.bounds)) toView:dock];
+    CGPoint outsideCompactPt = CGPointMake(CGRectGetMinX(expCap) + 2.0, CGRectGetMidY(expCap));
+    Check([dock hitTest:theaterCompactPt withEvent:nil] == theater &&
+        [dock hitTest:extraCompactPt withEvent:nil] == extraBtn &&
+        [dock hitTest:outsideCompactPt withEvent:nil] == nil,
+        @"TikTok compact Dock keeps capsule tabs and detached circle clickable while passing touches outside shrunk bounds through to video");
+
+    // Siri AI mode: continuous gather -> thin white bar -> touch pass-through -> optional fade -> pull-down recovery.
+    HGAppearanceApply(@{@"dock.collapseMode": @"siriai", @"dock.siriaiHideLine": @NO}, nil);
+    HGAppearanceLayoutDock(bar, host);
+    pan.fixtureTranslation = CGPointZero;
+    pan.fixtureState = UIGestureRecognizerStateBegan;
+    [observer pan:pan];
+    for (NSNumber *ty in @[@-6, @-45, @-95, @-130]) {
+        pan.fixtureTranslation = CGPointMake(0, ty.doubleValue);
+        pan.fixtureState = UIGestureRecognizerStateChanged;
+        [observer pan:pan];
+        HGStepDockFeedSpring(dock, 1.0 / 60.0, &clock);
+    }
+    pan.fixtureVelocity = CGPointMake(0, -360);
+    pan.fixtureState = UIGestureRecognizerStateEnded;
+    [observer pan:pan];
+    HGStepDockFeedSpring(dock, 0.75, &clock);
+
+    CALayer *whiteLine = [dock siriaiMinimumFill];
+    Check([dock isFeedCompact] && [dock feedControlsHidden] &&
+        whiteLine != nil && whiteLine.opacity > 0.99f &&
+        fabs(CGRectGetWidth(whiteLine.bounds) - CGRectGetWidth(expGroup) * DKSiriaiLineWidthRatio) < 0.5 &&
+        CGRectGetHeight(whiteLine.bounds) >= 2.0 && CGRectGetHeight(whiteLine.bounds) <= 4.0 &&
+        extraView.alpha == 0.0 &&
+        [dock hitTest:whiteLine.position withEvent:nil] == nil &&
+        [dock hitTest:CGPointMake(CGRectGetMidX(expCap), CGRectGetMidY(expCap)) withEvent:nil] == nil,
+        @"Siri AI collapse gathers capsule and detached circle into a 14.1% white thin line and passes all touches through");
+
+    // Enable Siri AI line hide and trigger fade, then pull down to recover from invisible state.
+    HGAppearanceSet(@"dock.siriaiHideLine", @YES, nil);
+    HGAppearanceLayoutDock(bar, host);
+    DKFeedSpringState s = [dock feedSpring];
+    if (DKFeedSpringTriggerSiriaiFade(&s, s.siriaiFadeGeneration)) {
+        [dock setFeedSpring:s];
+        HGStepDockFeedSpring(dock, 0.30, &clock);
+    }
+    Check(whiteLine.opacity < 0.01f && [dock isFeedCompact],
+        @"Siri AI optional hide-line fades the white thin bar out completely after settling");
+
+    pan.fixtureTranslation = CGPointZero;
+    pan.fixtureState = UIGestureRecognizerStateBegan;
+    [observer pan:pan];
+    for (NSNumber *ty in @[@6, @32, @80, @120]) {
+        pan.fixtureTranslation = CGPointMake(0, ty.doubleValue);
+        pan.fixtureState = UIGestureRecognizerStateChanged;
+        [observer pan:pan];
+        HGStepDockFeedSpring(dock, 1.0 / 60.0, &clock);
+    }
+    pan.fixtureVelocity = CGPointMake(0, 380);
+    pan.fixtureState = UIGestureRecognizerStateEnded;
+    [observer pan:pan];
+    HGStepDockFeedSpring(dock, 0.75, &clock);
+
+    CGRect recoveredCap = [capsule convertRect:capsule.bounds toView:dock];
+    Check(![dock isFeedCompact] && ![dock feedControlsHidden] &&
+        fabs(CGRectGetWidth(recoveredCap) - CGRectGetWidth(expCap)) < 0.5 &&
+        fabs(CGRectGetHeight(recoveredCap) - CGRectGetHeight(expCap)) < 0.5 &&
+        extraView.alpha == 1.0 && whiteLine.opacity == 0.0f &&
+        Find(capsule, @"honggo.appearance.material") == materialBefore,
+        @"pulling down after Siri AI line fade recovers the full glass capsule and detached circle without recreating materials");
+
+    // Page switch resets feed compact state automatically.
+    [dock setFeedCompact:YES animated:NO];
+    Check([dock isFeedCompact], @"programmatic Siri AI compact state engages cleanly");
+    host.selectedIndex = 1;
+    HGAppearanceLayoutDock(bar, host);
+    Check(![dock isFeedCompact] && ![dock feedControlsHidden],
+        @"switching root tabs resets Dock feed collapse back to expanded state");
+
+    [feed removeFromSuperview];
+    host.selectedIndex = savedTab;
+    HGAppearanceApply(saved, nil);
+    HGAppearanceLayoutDock(bar, host);
 }
