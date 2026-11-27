@@ -564,15 +564,15 @@ static void RunEpisodeSpacingChecks(UIView *root) {
         Check(CGPointEqualToPoint(wrapper.center,nativeWrapperCenter),
             @"hiding the standard HUD progress owner restores the original episode position");
         progress.hidden=NO;Layout(standard);
-        [standard removeFromSuperview];Layout(entry);
-        Check(CGPointEqualToPoint(wrapper.center,nativeWrapperCenter),
-            @"detaching a nested native HUD clears the owned episode lift");
         HGAppearanceSet(@"layout.progress.hidden",@YES,nil);
         HGAppearanceProcessView(progress);
         Check(progress.hidden,@"fast-pathed progress view still honors explicit progress hiding");
         HGAppearanceSet(@"layout.progress.hidden",@NO,nil);
         HGAppearanceProcessView(progress);
         Check(!progress.hidden,@"fast-pathed progress view restores visibility immediately");
+        [standard removeFromSuperview];Layout(entry);
+        Check(CGPointEqualToPoint(wrapper.center,nativeWrapperCenter),
+            @"detaching a nested native HUD clears the owned episode lift");
         RunInnerEpisodeSpacingChecks(root);
         RunOutterEpisodeSpacingChecks(root);
     } @finally {
