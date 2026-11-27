@@ -9,6 +9,8 @@
 
 @interface FQVShortVideoDerivativeVideoControlView : FQVShortVideoVPlayerMultiSeriesControlView
 @property(nonatomic) BOOL writesNativeFrames;
+@property(nonatomic) BOOL observesSuperclassLayout;
+@property(nonatomic) CGPoint entryCenterAfterSuperclass;
 @property(nonatomic,weak) UIView *nativeEntry;
 @property(nonatomic,weak) UIView *nativeInfo;
 @property(nonatomic) CGRect nativeEntryFrame;
@@ -16,7 +18,9 @@
 @end
 @implementation FQVShortVideoDerivativeVideoControlView
 - (void)layoutSubviews {
+    if(self.observesSuperclassLayout) self.nativeEntry.frame=self.nativeEntryFrame;
     [super layoutSubviews];
+    if(self.observesSuperclassLayout) self.entryCenterAfterSuperclass=self.nativeEntry.center;
     if(self.writesNativeFrames) {
         self.nativeEntry.frame=self.nativeEntryFrame;
         self.nativeInfo.frame=self.nativeInfoFrame;
@@ -434,15 +438,12 @@ static void RunEpisodeSpacingChecks(UIView *root) {
     UIView *screen=[[UIView alloc] initWithFrame:CGRectMake(0,0,440,956)];
     [screen addSubview:canvas];[root addSubview:screen];Layout(info);Layout(control);Layout(entry);
     @try {
-        HGTestHUDTraversalProbe *probe=[HGTestHUDTraversalProbe new];
-        [control addSubview:probe];
-        HGAppearanceProcessView(control);
-        NSUInteger singleTraversal=probe.subviewReads;
-        probe.subviewReads=0;
+        control.observesSuperclassLayout=YES;
         [control layoutSubviews];
-        Check(singleTraversal>0 && probe.subviewReads==singleTraversal,
-            @"a native subclass calling its hooked superclass lays out the HUD just once");
-        [probe removeFromSuperview];
+        control.observesSuperclassLayout=NO;
+        Check(CGPointEqualToPoint(control.entryCenterAfterSuperclass,nativeWrapperCenter) &&
+            fabs(wrapper.center.y-(nativeWrapperCenter.y-13))<0.01,
+            @"the hooked superclass leaves native spacing in place until the enclosing layout returns");
         CGRect rail=[track convertRect:track.bounds toView:control];
         Check(fabs(CGRectGetMinY(rail)-CGRectGetMaxY(wrapper.frame)-8)<0.01 &&
             fabs(CGRectGetMinY(wrapper.frame)-809)<0.01,
