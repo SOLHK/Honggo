@@ -138,9 +138,6 @@ static void HGAApplyBottomPositionInTransaction(HGABottomPosition *position,CGFl
         view.center=next;
     }
 }
-static void HGAApplyBottomPosition(HGABottomPosition *position,CGFloat lift) {
-    HGAApplyBottomPositionInTransaction(position,lift,NULL);
-}
 static BOOL HGABottomHasCustomGeometry(void) {
     for(NSString *role in @[@"episodes",@"progress",@"info"]) {
         NSString *prefix=[@"layout." stringByAppendingString:role];
@@ -149,10 +146,6 @@ static BOOL HGABottomHasCustomGeometry(void) {
             fabs(HGAppearanceNumber([prefix stringByAppendingString:@".scale"])-1)>0.01)return YES;
     }
     return NO;
-}
-static BOOL HGABottomViewIsA(UIView *view,NSString *name) {
-    Class cls=NSClassFromString(name);
-    return cls && [view isKindOfClass:cls];
 }
 static void HGASetFeedRailDrawing(CALayer *layer,CATransform3D transform) {
     if(CATransform3DEqualToTransform(layer.sublayerTransform,transform))return;
