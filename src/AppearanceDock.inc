@@ -152,6 +152,15 @@ static char HGAFeedDockItemPartKey;
 - (void)removeSystemDock;
 @end
 
+@interface HGADockScrollObserver : NSObject
+@property(nonatomic,weak) UIPanGestureRecognizer *activeGesture;
+@property(nonatomic,weak) HGAAppearanceDock *activeDock;
+@property(nonatomic) DKFeedPanState panState;
++ (instancetype)shared;
+- (void)pan:(UIPanGestureRecognizer *)gesture;
+- (void)cancelFeedPan;
+@end
+
 @implementation HGADockPointer
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     if(self.trackedTouch || touches.count!=1) {
@@ -598,6 +607,9 @@ static void HGADockSetViewGeometry(UIView *view,CGAffineTransform transform,CGPo
 }
 
 @implementation HGAAppearanceDock
+- (void)cancelActiveFeedObserverIfNeeded {
+    if(HGADockScrollObserver.shared.activeDock==self)[HGADockScrollObserver.shared cancelFeedPan];
+}
 - (instancetype)initWithFrame:(CGRect)frame {
     if((self=[super initWithFrame:frame])) {
         self.accessibilityIdentifier=@"honggo.appearance.dock";
@@ -2969,19 +2981,6 @@ BOOL HGAppearanceSuspendDockForSidebar(UIView *bar) {
     return YES;
 }
 static void HGARefreshDock(UIView *bar){HGAppearanceLayoutDock(bar,nil);}
-@interface HGADockScrollObserver : NSObject
-@property(nonatomic,weak) UIPanGestureRecognizer *activeGesture;
-@property(nonatomic,weak) HGAAppearanceDock *activeDock;
-@property(nonatomic) DKFeedPanState panState;
-+ (instancetype)shared;
-- (void)pan:(UIPanGestureRecognizer *)gesture;
-- (void)cancelFeedPan;
-@end
-@implementation HGAAppearanceDock (HGAFeedObserverBridge)
-- (void)cancelActiveFeedObserverIfNeeded {
-    if(HGADockScrollObserver.shared.activeDock==self)[HGADockScrollObserver.shared cancelFeedPan];
-}
-@end
 static BOOL HGAWindowHasModalTransitionOverlay(UIWindow *window,UIView *feed) {
     Class transitionCls=objc_lookUpClass("FQVTransitionView");
     if(!transitionCls || !window)return NO;
