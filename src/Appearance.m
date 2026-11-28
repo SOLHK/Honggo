@@ -183,6 +183,7 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL pauseNext=playerCanvas && selector==sel_registerName("pauseWhenPlayNext");
     BOOL backdropChange=playerCanvas && (selector==sel_registerName("refreshBgColor") ||
         selector==sel_registerName("refreshCoverImageView") ||
+        selector==sel_registerName("handleSeriesCoverLoading") ||
         selector==sel_registerName("layoutVideoView") ||
         selector==sel_registerName("updatePlayerSuperViewLayout") ||
         selector==sel_registerName("resumeWhenViewWillAppear") ||
@@ -192,6 +193,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         selector==sel_registerName("updatePlayerSuperViewLayout") ||
         selector==sel_registerName("resumeWhenViewWillAppear") ||
         selector==sel_registerName("modelDidDisplay"));
+    BOOL playerBinding=playerCanvas && (selector==sel_registerName("bindPlayer:") ||
+        selector==sel_registerName("unbindPlayer:"));
     BOOL firstPicture=playerCanvas && selector==sel_registerName("vPlayerReadyToDisPlay:");
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL mediaPlayer=[className isEqual:@"FQVPlayer"];
@@ -480,6 +483,19 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGATracePlayerTransfer(object,selector,argument,invocation,completed?@"return":@"exception");
             }
             if(selector==sel_registerName("setLeftContainer:")) {HGAApplyCleanView(object);return;}
+            if(mediaPlayer) {
+                if(NSThread.isMainThread && [(UIView *)object window] && !HGAApplying)
+                    HGRefreshVideoBackdropForPlayer(object);
+                return;
+            }
+            if(playerBinding) {
+                if(NSThread.isMainThread && [(UIView *)object window] && !HGAApplying) {
+                    Class mediaClass=objc_lookUpClass("FQVPlayer");
+                    UIView *media=[argument isKindOfClass:mediaClass] ? argument : HGAViewGetter(object,"vPlayer",object);
+                    HGRefreshVideoBackdropForPlayer([media isKindOfClass:mediaClass] && [media isDescendantOfView:object] ? media : object);
+                }
+                return;
+            }
             if(player && selector==@selector(didAddSubview:)) {
                 if([argument isKindOfClass:objc_lookUpClass("TTMetalView")])
                     HGRefreshVideoBackdropForPlayer(object);
@@ -916,6 +932,8 @@ void HGInstallAppearance(void) {
                     SEL sel=NSSelectorFromString(selName);
                     if(class_getInstanceMethod(cls,sel))HGAHook(cls,sel,"v16@0:8",NO);
                 }
+                if(class_getInstanceMethod(cls,sel_registerName("videoEngineReadyToDisPlay:")))
+                    HGAHook(cls,sel_registerName("videoEngineReadyToDisPlay:"),"v24@0:8@16",NO);
             }
             if([name isEqual:@"TTPlayerView"] || [name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 HGAHook(cls,@selector(willMoveToSuperview:),"v24@0:8@16",NO);
@@ -929,9 +947,13 @@ void HGInstallAppearance(void) {
                     HGAHook(cls,sel_registerName("layoutVideoView"),"v16@0:8",NO);
                 if(class_getInstanceMethod(cls,sel_registerName("refreshUIWithPlayViewFrame:")))
                     HGAHook(cls,sel_registerName("refreshUIWithPlayViewFrame:"),"v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",NO);
-                for(NSString *selName in @[@"updatePlayerSuperViewLayout",@"resumeWhenViewWillAppear",@"modelWillDisplay",@"modelDidDisplay"]) {
+                for(NSString *selName in @[@"updatePlayerSuperViewLayout",@"resumeWhenViewWillAppear",@"modelWillDisplay",@"modelDidDisplay",@"handleSeriesCoverLoading"]) {
                     SEL sel=NSSelectorFromString(selName);
                     if(class_getInstanceMethod(cls,sel))HGAHook(cls,sel,"v16@0:8",NO);
+                }
+                for(NSString *selName in @[@"bindPlayer:",@"unbindPlayer:"]) {
+                    SEL sel=NSSelectorFromString(selName);
+                    if(class_getInstanceMethod(cls,sel))HGAHook(cls,sel,"v24@0:8@16",NO);
                 }
                 HGAHook(cls,sel_registerName("vPlayerReadyToDisPlay:"),"v24@0:8@16",NO);
                 HGAHook(cls,sel_registerName("playWithType:"),"v24@0:8q16",NO);

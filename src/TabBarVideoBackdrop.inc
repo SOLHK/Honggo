@@ -41,6 +41,12 @@ typedef struct {
 @property(nonatomic) BOOL ownsHorizontalClip;
 @property(nonatomic) BOOL ownsClipping;
 @property(nonatomic) BOOL refreshing;
+@property(nonatomic) CGFloat lastFeedOffsetY;
+@property(nonatomic) BOOL hasLastFeedOffsetY;
+@property(nonatomic) BOOL scrollingReverse;
+@property(nonatomic, weak) UICollectionViewCell *reverseSeamCell;
+@property(nonatomic) CGFloat reverseSeamStart;
+@property(nonatomic, strong) NSHashTable<CALayer *> *seamMaskedLayers;
 - (void)refreshFeed;
 - (void)prepareRendererTransfer:(UIView *)view;
 - (void)refreshDetail:(UIView *)canvas;
@@ -292,6 +298,11 @@ static CATransform3D HGVideoBackdropCoverTransform(CGSize picture, CGRect native
     return transform;
 }
 
+static BOOL HGVideoBackdropHasHostMask(UIView *view) {
+    CALayer *mask = view.layer.mask;
+    return mask && ![mask.name isEqualToString:@"honggo.video.seam-mask"];
+}
+
 static UIView *HGVideoBackdropMetal(UIView *renderer, UIView *player, CGRect viewport) {
     CGRect frame=[renderer convertRect:renderer.bounds toView:player];
     if (HGAppearancePlayerIsTransferring(renderer) || renderer.subviews.count != 1 ||
@@ -305,7 +316,7 @@ static UIView *HGVideoBackdropMetal(UIView *renderer, UIView *player, CGRect vie
         fabs(metal.center.x-CGRectGetMidX(renderer.bounds))>0.75 ||
         fabs(metal.center.y-CGRectGetMidY(renderer.bounds))>0.75) return nil;
     for (UIView *node=metal; node; node=node.superview) {
-        if (node.layer.mask || !CATransform3DIsIdentity(node.layer.transform) ||
+        if (HGVideoBackdropHasHostMask(node) || !CATransform3DIsIdentity(node.layer.transform) ||
             (node!=renderer && !CATransform3DIsIdentity(node.layer.sublayerTransform))) return nil;
         if (node==player) return metal;
     }
@@ -399,7 +410,7 @@ static UIView *HGVideoBackdropPlayer(UIView *canvas) {
             [player isKindOfClass:playerClass] &&
             HGVideoBackdropSameRect(wrapper.frame,canvas.bounds,0.75) &&
             HGVideoBackdropSameRect(player.frame,wrapper.bounds,0.75) &&
-            !wrapper.layer.mask && CATransform3DIsIdentity(wrapper.layer.transform) &&
+            !HGVideoBackdropHasHostMask(wrapper) && CATransform3DIsIdentity(wrapper.layer.transform) &&
             CATransform3DIsIdentity(wrapper.layer.sublayerTransform)) return player;
     }
     return nil;
@@ -452,7 +463,7 @@ static CGFloat HGVideoBackdropFirstPictureY(UIView *canvas, UIView *feed) {
             CGFloat scale=MIN(picture.size.width / size.width,picture.size.height / size.height);
             picture=CGRectInset(picture,(picture.size.width-size.width*scale)/2,(picture.size.height-size.height*scale)/2);
         }
-        if (!CGRectIsEmpty(picture)) pictureTop=MIN(pictureTop,CGRectGetMinY([cover convertRect:picture toView:feed]));
+        if (!CGRectIsEmpty(picture)) pictureTop=MIN(pictureTop,CGRectGetMinY([cover.layer convertRect:picture toLayer:feed.layer]));
     }
     return pictureTop;
 }
@@ -493,6 +504,8 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     for (HGVideoBackdrop *peer in _peers) [peer restore];
     [_peers removeAllObjects];
     for (CALayer *layer in _pagingMattes) [layer removeFromSuperlayer];
+    for (CALayer *layer in _seamMaskedLayers.allObjects)
+        if ([layer.mask.name isEqualToString:@"honggo.video.seam-mask"]) layer.mask = nil;
     [self restorePortraitExcept:nil];
     [self bringPortraitForward:nil];
     [self restoreDetailTray];
@@ -538,6 +551,62 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         [self.portraitGradients setObject:@(layer.opacity) forKey:layer];
         layer.opacity=0;
     }
+}
+
+- (void)clearSeamMasksExcept:(NSSet<CALayer *> *)keep {
+    if (!self.seamMaskedLayers.count) return;
+    BOOL tx = NO;
+    for (CALayer *layer in self.seamMaskedLayers.allObjects) {
+        if ([keep containsObject:layer]) continue;
+        if ([layer.mask.name isEqualToString:@"honggo.video.seam-mask"]) {
+            if (!tx) { tx = YES; [CATransaction begin]; [CATransaction setDisableActions:YES]; }
+            layer.mask = nil;
+        }
+        [self.seamMaskedLayers removeObject:layer];
+    }
+    if (tx) [CATransaction commit];
+}
+
+- (void)applySeamMaskToCanvas:(UIView *)canvas clipHeight:(CGFloat)clipHeight extra:(CGFloat)extra {
+    if (!canvas || clipHeight <= 0) {
+        [self clearSeamMasksExcept:nil];
+        return;
+    }
+    NSMutableArray<UIView *> *targets = [NSMutableArray arrayWithCapacity:2];
+    UIView *player = HGVideoBackdropPlayer(canvas);
+    if (player.superview && [player.superview isDescendantOfView:canvas] && !HGVideoBackdropHasHostMask(player.superview)) {
+        [targets addObject:player.superview];
+    }
+    UIImageView *cellCover = HGVideoBackdropCover(canvas);
+    if (cellCover && (!player.superview || ![cellCover isDescendantOfView:player.superview]) &&
+        !HGVideoBackdropHasHostMask(cellCover)) {
+        [targets addObject:cellCover];
+    }
+    NSMutableSet<CALayer *> *keep = [NSMutableSet setWithCapacity:targets.count];
+    CGFloat w = CGRectGetWidth(canvas.bounds);
+    CGRect clipInCanvas = CGRectMake(-w, -extra, w * 3.0, clipHeight + extra);
+    BOOL tx = NO;
+    for (UIView *target in targets) {
+        CALayer *layer = target.layer;
+        if (!layer) continue;
+        [keep addObject:layer];
+        CGRect maskFrame = [canvas convertRect:clipInCanvas toView:target];
+        CALayer *mask = [layer.mask.name isEqualToString:@"honggo.video.seam-mask"] ? layer.mask : nil;
+        if (!mask) {
+            mask = [CALayer layer];
+            mask.name = @"honggo.video.seam-mask";
+            mask.backgroundColor = UIColor.whiteColor.CGColor;
+        }
+        if (layer.mask != mask || !CGRectEqualToRect(mask.frame, maskFrame)) {
+            if (!tx) { tx = YES; [CATransaction begin]; [CATransaction setDisableActions:YES]; }
+            mask.frame = maskFrame;
+            if (layer.mask != mask) layer.mask = mask;
+        }
+        if (!self.seamMaskedLayers) self.seamMaskedLayers = [NSHashTable weakObjectsHashTable];
+        [self.seamMaskedLayers addObject:layer];
+    }
+    if (tx) [CATransaction commit];
+    [self clearSeamMasksExcept:keep];
 }
 
 - (void)bringPortraitForward:(UICollectionViewCell *)cell {
@@ -673,7 +742,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     if ((!player && !covers[0]) || CGRectIsEmpty(viewport) || CGRectIsEmpty(full)) return NO;
     UIView *coordinateView=player ?: canvas;
     for (UIView *node=coordinateView; node && node!=boundary; node=node.superview)
-        if (node.layer.mask || !CATransform3DIsIdentity(node.layer.transform) ||
+        if (HGVideoBackdropHasHostMask(node) || !CATransform3DIsIdentity(node.layer.transform) ||
             !CATransform3DIsIdentity(node.layer.sublayerTransform)) return NO;
     static Class rendererCache;
     Class rendererClass=HGBackdropResolveClass("TTPlayerView",&rendererCache);
@@ -732,11 +801,18 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         UIImageView *cover=covers[i];
         // A revisited cell can retain its own poster while UIKit borrows the
         // renderer. Keep that picture continuous until the real frame returns.
-        if (!cover || (i==1 && cover==covers[0]) || cover.layer.mask ||
+        if (!cover || (i==1 && cover==covers[0]) || HGVideoBackdropHasHostMask(cover) ||
             (transferring && (!cover.image || !HGVideoBackdropCoverVisible(cover,canvas))) ||
             !CGAffineTransformIsIdentity(cover.transform) || !(cover.image ? HGVideoBackdropPortraitImage(cover) :
             (filled || HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model")) ||
              HGVideoBackdropPortraitModel(HGReadObjectGetter(player,"model"))))) continue;
+        UIView *coverHost = cover.superview;
+        BOOL useHostSublayer = coverHost && coverHost != canvas && coverHost != player &&
+            coverHost.class == UIView.class && coverHost.subviews.count == 1 &&
+            coverHost.layer.sublayers.count == 1 && coverHost.layer.sublayers.firstObject == cover.layer &&
+            !HGVideoBackdropHasHostMask(coverHost) &&
+            CGPointEqualToPoint(coverHost.layer.anchorPoint, CGPointMake(0.5, 0.5)) &&
+            HGVideoBackdropSameRect(cover.frame, coverHost.bounds, 0.75);
         NSValue *old=[self.portraitCovers objectForKey:cover];
         HGVideoPortraitCover saved={cover.frame,CGRectZero,cover.contentMode};
         if (old) {
@@ -744,10 +820,46 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
             if (!CGRectEqualToRect(cover.frame,saved.appliedFrame)) saved.frame=cover.frame;
             if (cover.contentMode!=UIViewContentModeScaleAspectFill) saved.contentMode=cover.contentMode;
         }
-        CGRect nativeCover=[cover.superview convertRect:saved.frame toView:coordinateView];
+        CGRect nativeCover=[coverHost convertRect:saved.frame toView:coordinateView];
         if ((boundary==canvas && HGDetailInsetPortrait(nativeCover,full)) ||
             HGVideoBackdropMatchesViewport(nativeCover,viewport) || HGVideoBackdropCenteredPortrait(nativeCover,viewport) ||
             HGVideoBackdropMatchesViewport(nativeCover,coordinateView.bounds)) {
+            if (useHostSublayer) {
+                CATransform3D current = coverHost.layer.sublayerTransform;
+                NSValue *previous = [self.portraitRenderers objectForKey:coverHost];
+                if (CATransform3DIsIdentity(current) ||
+                    (previous && CATransform3DEqualToTransform(current, previous.CATransform3DValue))) {
+                    CATransform3D transform = HGVideoBackdropCoverTransform(nativeCover.size, nativeCover, full);
+                    saved.appliedFrame = saved.frame;
+                    if (!self.portraitCovers) self.portraitCovers = [NSMapTable weakToStrongObjectsMapTable];
+                    BOOL updateSaved = !old;
+                    if (old) {
+                        HGVideoPortraitCover prev;
+                        [old getValue:&prev size:sizeof(prev)];
+                        updateSaved = !CGRectEqualToRect(prev.frame, saved.frame) ||
+                            !CGRectEqualToRect(prev.appliedFrame, saved.appliedFrame) ||
+                            prev.contentMode != saved.contentMode;
+                    }
+                    if (updateSaved)
+                        [self.portraitCovers setObject:[NSValue valueWithBytes:&saved objCType:@encode(HGVideoPortraitCover)] forKey:cover];
+                    if (cover.contentMode != UIViewContentModeScaleAspectFill) {
+                        if (!tx) { tx = YES; [CATransaction begin]; [CATransaction setDisableActions:YES]; }
+                        cover.contentMode = UIViewContentModeScaleAspectFill;
+                    }
+                    if (!self.portraitRenderers) self.portraitRenderers = [NSMapTable weakToStrongObjectsMapTable];
+                    if (!previous || !CATransform3DEqualToTransform(previous.CATransform3DValue, transform))
+                        [self.portraitRenderers setObject:[NSValue valueWithCATransform3D:transform] forKey:coverHost];
+                    if (!CATransform3DEqualToTransform(current, transform)) {
+                        if (!tx) { tx = YES; [CATransaction begin]; [CATransaction setDisableActions:YES]; }
+                        coverHost.layer.sublayerTransform = transform;
+                    }
+                    [active addObject:cover];
+                    [active addObject:coverHost];
+                    if (extends) [self releasePortraitClippingFrom:coverHost to:boundary active:active transaction:&tx];
+                    filled = YES;
+                    continue;
+                }
+            }
             saved.appliedFrame=[coordinateView convertRect:full toView:cover.superview];
             if (!self.portraitCovers) self.portraitCovers=[NSMapTable weakToStrongObjectsMapTable];
             BOOL updateSaved = !old;
@@ -785,6 +897,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     HGVideoBackdropLink *link = objc_getAssociatedObject(feed, &HGVideoBackdropLinkKey);
     if (link.owner == self)
         objc_setAssociatedObject(feed, &HGVideoBackdropLinkKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [self clearSeamMasksExcept:nil];
     [self restorePortraitExcept:nil];
     [self bringPortraitForward:nil];
     [self restoreHorizontalClip];
@@ -793,6 +906,10 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     [self restoreDetailTray];
     [self.underlay removeFromSuperview];
     self.underlay = nil;
+    self.hasLastFeedOffsetY = NO;
+    self.scrollingReverse = NO;
+    self.reverseSeamCell = nil;
+    self.reverseSeamStart = 0;
     self.feed = nil; self.root = nil; self.bar = nil; self.owner = nil;
 }
 
@@ -876,6 +993,17 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         return;
     }
 
+    CGFloat offsetY = feed.contentOffset.y;
+    CGFloat prevOffsetY = self.hasLastFeedOffsetY ? self.lastFeedOffsetY : offsetY;
+    if (self.hasLastFeedOffsetY) {
+        if (offsetY < prevOffsetY - 0.05) self.scrollingReverse = YES;
+        else if (offsetY > prevOffsetY + 0.05) self.scrollingReverse = NO;
+    } else {
+        self.hasLastFeedOffsetY = YES;
+        self.scrollingReverse = NO;
+    }
+    self.lastFeedOffsetY = offsetY;
+
     CGRect cellFrame=CGRectNull, topFrame=CGRectNull;
     UICollectionViewCell *cell=nil, *topCell=nil;
     HGVideoBackdropEdgeCells(feed,&topCell,&topFrame,&cell,&cellFrame);
@@ -890,11 +1018,17 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     full.size.height+=extra;
     BOOL portrait=cell && fabs(cellFrame.size.height-feed.bounds.size.height)<=0.75 &&
         [self fillPortraitInCanvas:canvas viewport:canvas.bounds full:full boundary:feed active:active];
-    BOOL topPortrait=NO, keepUpperPicture=NO;
+    BOOL topPortrait=NO, keepUpperPicture=NO, reverseSeamClip=NO;
+    CGFloat reverseClipHeight=0;
     if (topCell && topCell!=cell && fabs(topFrame.size.height-feed.bounds.size.height)<=0.75) {
         CGRect topFull=topCanvas.bounds;
         topFull.size.height+=extra;
         CGFloat advance=CGRectGetMinY(feed.bounds)-CGRectGetMinY(topFrame);
+        if (self.reverseSeamCell != topCell) {
+            self.reverseSeamCell = topCell;
+            self.reverseSeamStart = 0;
+        }
+        if (advance >= extra - 0.75) self.reverseSeamStart = 0;
         topPortrait=[self fillPortraitInCanvas:topCanvas viewport:topCanvas.bounds full:topFull boundary:feed active:active];
         // Keep the outgoing portrait ordered in front across the Dock overlap
         // while a wide or unready neighbor has no picture at its top edge,
@@ -902,11 +1036,32 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         if (topPortrait && advance>0 && extra>0.75) {
             BOOL reachedEnd=!cell && CGRectGetMaxY(topFrame)>=feed.contentSize.height-0.75;
             CGFloat physicalBottom=CGRectGetMaxY(feed.bounds)+extra;
-            keepUpperPicture=reachedEnd ||
-                (advance<extra && HGVideoBackdropFirstPictureY(canvas,feed)>physicalBottom-extra+0.75);
+            BOOL bottomHasTopPicture=cell && HGVideoBackdropFirstPictureY(canvas,feed)<=physicalBottom-extra+0.75;
+            keepUpperPicture=reachedEnd || (advance<extra && !bottomHasTopPicture);
+            // During reverse scroll deceleration into topCell (0 < advance < extra),
+            // promote the incoming portrait smoothly across the Dock strip instead of
+            // letting the outgoing cell below cover the Dock until offset < 0.75pt.
+            if (!keepUpperPicture && advance<extra &&
+                HGVideoBackdropFirstPictureY(topCanvas,feed)<CGFLOAT_MAX) {
+                if (self.reverseSeamStart<=0 && self.scrollingReverse) {
+                    CGFloat prevAdvance=advance+(prevOffsetY-offsetY);
+                    self.reverseSeamStart=prevAdvance>=extra ? extra : MAX(advance,MIN(extra,prevAdvance));
+                }
+                if (self.reverseSeamStart>0.75) {
+                    keepUpperPicture=YES;
+                    reverseSeamClip=YES;
+                    CGFloat u=MIN(1.0,MAX(0.0,advance/self.reverseSeamStart));
+                    reverseClipHeight=CGRectGetHeight(topCanvas.bounds)+extra*(1.0-u*u);
+                }
+            }
         }
+    } else {
+        self.reverseSeamCell = nil;
+        self.reverseSeamStart = 0;
     }
     [self restorePortraitExcept:active];
+    if (reverseSeamClip) [self applySeamMaskToCanvas:topCanvas clipHeight:reverseClipHeight extra:extra];
+    else [self clearSeamMasksExcept:nil];
     UIColor *matte=!portrait && extra>0.75 ? HGVideoBackdropMatte(canvas) : nil;
     [self updateUnderlay:[self pagingMatteForCanvas:canvas frame:cellFrame color:matte topCanvas:topCanvas topFrame:topFrame]];
 
@@ -953,6 +1108,12 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         }
     }
     if (!moving) return;
+    NSMutableSet<CALayer *> *keepMasks = [NSMutableSet set];
+    for (CALayer *layer in self.seamMaskedLayers.allObjects) {
+        UIView *delegate = (id)layer.delegate;
+        if ([delegate isKindOfClass:UIView.class] && [keep containsObject:delegate]) [keepMasks addObject:layer];
+    }
+    [self clearSeamMasksExcept:keepMasks];
     [self restorePortraitExcept:keep];
     if (!keep.count) {
         [self restoreClipping];

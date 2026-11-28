@@ -36,6 +36,7 @@
 @property(nonatomic,strong) id model;
 - (void)rebindVideoEnginePlayerView;
 - (void)updatePlayerLayout;
+- (void)videoEngineReadyToDisPlay:(id)engine;
 @end
 @implementation FQVPlayer
 - (void)rebindVideoEnginePlayerView {
@@ -43,6 +44,7 @@
         if([renderer isKindOfClass:TTPlayerView.class])renderer.layer.sublayerTransform=CATransform3DIdentity;
 }
 - (void)updatePlayerLayout {}
+- (void)videoEngineReadyToDisPlay:(id)engine {}
 @end
 @interface HGBackdropEpisodeInfoFixture : NSObject
 @property(nonatomic) BOOL vertical;
@@ -146,7 +148,10 @@
 @property(nonatomic,strong) UIImageView *coverImageView;
 - (void)refreshBgColor;
 - (void)refreshCoverImageView;
+- (void)handleSeriesCoverLoading;
 - (void)vPlayerReadyToDisPlay:(FQVPlayer *)player;
+- (void)bindPlayer:(FQVPlayer *)player;
+- (void)unbindPlayer:(FQVPlayer *)player;
 - (void)resumeWithType:(NSInteger)reason;
 - (void)resumeWhenViewWillAppear;
 @end
@@ -157,8 +162,14 @@ static char HGBackdropCellCoverKey;
     objc_setAssociatedObject(self,&HGBackdropCellCoverKey,cover,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 - (void)refreshCoverImageView {}
+- (void)handleSeriesCoverLoading {}
 - (void)refreshBgColor { self.backgroundColor=[UIColor colorWithRed:0.24 green:0.29 blue:0.32 alpha:1]; }
 - (void)vPlayerReadyToDisPlay:(FQVPlayer *)player { self.coverImageView.hidden=YES; }
+- (void)bindPlayer:(FQVPlayer *)player {
+    for(UIView *renderer in player.subviews)
+        if([renderer isKindOfClass:TTPlayerView.class])renderer.layer.sublayerTransform=CATransform3DIdentity;
+}
+- (void)unbindPlayer:(FQVPlayer *)player {}
 - (FQVPlayer *)vPlayer {
     for(UIView *wrapper in self.subviews)
         if([wrapper.subviews.firstObject isKindOfClass:FQVPlayer.class])return (FQVPlayer *)wrapper.subviews.firstObject;
@@ -834,6 +845,87 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         Check(!feed.clipsToBounds && !CATransform3DIsIdentity(previous.renderer.layer.sublayerTransform),
             @"TTPlayerView setFrame synchronously restores portrait fill as soon as a returned renderer adopts home viewport bounds");
         [revisitCover removeFromSuperview];previous.canvas.coverImageView=nil;previous.canvas.model=nil;
+
+        // Reverse scroll deceleration into a previously watched portrait cell must
+        // smoothly promote and sweep the incoming cell across the Dock strip instead
+        // of leaving the outgoing cell covering the Dock until offset < 0.75pt.
+        [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
+        cell=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        Layout(cell);Layout(cell.renderer);
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        [feed setContentOffset:CGPointMake(0,45) animated:NO];Layout(feed);
+        previous=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
+        Layout(previous);Layout(previous.renderer);
+        [scrollDriver scrollViewDidScroll:feed];
+        CGFloat clip45 = previous.videoWrapper.layer.mask ? CGRectGetMaxY(previous.videoWrapper.layer.mask.frame) : 0;
+        BOOL reverseMid = previous.layer.zPosition==1 && cell.layer.zPosition==0 &&
+            [previous.videoWrapper.layer.mask.name isEqualToString:@"honggo.video.seam-mask"] &&
+            clip45 > feedHeight + 60 && clip45 < height;
+        [feed setContentOffset:CGPointMake(0,11) animated:NO];Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        CGFloat clip11 = previous.videoWrapper.layer.mask ? CGRectGetMaxY(previous.videoWrapper.layer.mask.frame) : 0;
+        BOOL reverseNear = previous.layer.zPosition==1 && cell.layer.zPosition==0 &&
+            [previous.videoWrapper.layer.mask.name isEqualToString:@"honggo.video.seam-mask"] &&
+            clip11 > clip45 && clip11 > height - 3 && clip11 < height;
+        [feed setContentOffset:CGPointMake(0,3) animated:NO];Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        CGFloat clip3 = previous.videoWrapper.layer.mask ? CGRectGetMaxY(previous.videoWrapper.layer.mask.frame) : 0;
+        BOOL reverseTail = previous.layer.zPosition==1 && cell.layer.zPosition==0 &&
+            clip3 > clip11 && fabs(clip3 - height) < 0.25;
+        [feed setContentOffset:CGPointMake(0,0) animated:NO];Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        Check(reverseMid && reverseNear && reverseTail && previous.layer.zPosition==1 &&
+            previous.videoWrapper.layer.mask==nil && !feed.clipsToBounds &&
+            !CATransform3DIsIdentity(previous.renderer.layer.sublayerTransform),
+            @"reverse scroll deceleration smoothly sweeps the incoming portrait across the Dock strip and clears the seam mask on settle");
+
+        // Cancelling a partial forward drag (0 -> 45 -> 40 -> 0) stays on the
+        // bottom cell while moving forward, then sweeps smoothly on snap-back with no jump.
+        [feed setContentOffset:CGPointMake(0,45) animated:NO];Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        BOOL forwardClean = cell.layer.zPosition==1 && previous.layer.zPosition==0 &&
+            previous.videoWrapper.layer.mask==nil;
+        [feed setContentOffset:CGPointMake(0,40) animated:NO];Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        CGFloat snapClip = previous.videoWrapper.layer.mask ? CGRectGetMaxY(previous.videoWrapper.layer.mask.frame) : 0;
+        BOOL snapContinuous = previous.layer.zPosition==1 &&
+            [previous.videoWrapper.layer.mask.name isEqualToString:@"honggo.video.seam-mask"] &&
+            snapClip > feedHeight && snapClip < feedHeight + 25;
+        [feed setContentOffset:CGPointMake(0,0) animated:NO];Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        Check(forwardClean && snapContinuous && previous.videoWrapper.layer.mask==nil && previous.layer.zPosition==1,
+            @"a cancelled forward drag avoids jumping on turnaround and clears the seam mask at rest");
+
+        // Nested AutoLayout cover container (FQVPlayer -> UIView -> UIImageView,
+        // matching 7.4.7's live player tree) expands via container sublayerTransform
+        // so AutoLayout re-pinning cover.frame back to container bounds cannot expose a bottom bar.
+        UIView *nestedHost = [[UIView alloc] initWithFrame:previous.player.bounds];
+        UIImageView *nestedCover = [[UIImageView alloc] initWithImage:firstPoster];
+        nestedCover.frame = nestedHost.bounds;
+        [nestedHost addSubview:nestedCover];
+        [previous.player addSubview:nestedHost];
+        previous.player.coverImageView = nestedCover;
+        [previous.renderer removeFromSuperview];
+        [previous.canvas unbindPlayer:previous.player];
+        HGBackdropFlushFrames(0.04);
+        nestedCover.frame = nestedHost.bounds;
+        CGRect nestedRect = [nestedCover.layer convertRect:nestedCover.layer.bounds toLayer:window.layer];
+        Check(!feed.clipsToBounds && !CATransform3DIsIdentity(nestedHost.layer.sublayerTransform) &&
+            CGRectEqualToRect(nestedCover.frame, nestedHost.bounds) &&
+            fabs(CGRectGetMinY(nestedRect)) <= 0.75 && fabs(CGRectGetMaxY(nestedRect) - height) <= 0.75,
+            @"nested FQVPlayer cover container scales full-screen via sublayerTransform even when AutoLayout pins cover.frame");
+        [nestedHost removeFromSuperview];
+        previous.player.coverImageView = nil;
+        [previous.player addSubview:previous.renderer];
+        Layout(previous);
+        [previous.canvas bindPlayer:previous.player];
+        Check(!feed.clipsToBounds && CATransform3DIsIdentity(nestedHost.layer.sublayerTransform) &&
+            !CATransform3DIsIdentity(previous.renderer.layer.sublayerTransform),
+            @"bindPlayer synchronously restores live portrait fill and resets retired nested cover container transform");
+        previous.renderer.layer.sublayerTransform = CATransform3DIdentity;
+        [previous.player videoEngineReadyToDisPlay:nil];
+        Check(!feed.clipsToBounds && !CATransform3DIsIdentity(previous.renderer.layer.sublayerTransform),
+            @"FQVPlayer videoEngineReadyToDisPlay synchronously restores portrait fill");
 
         [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
         Layout(cell);[manager refreshWithBranches:branches root:container.view bar:bar active:YES];
