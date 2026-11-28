@@ -134,7 +134,7 @@ static BOOL HGAPreviewMethod(Class cls,NSString *name,const char *encoding) {
 
 static NSInteger HGAPortraitFinishAction(id component,SEL cmd,id model) {
     NSInteger action=HGAOriginalPortraitFinishAction(component,cmd,model);
-    // Eggplant 7.4.5.33, cellView:playFinishWithError:model: jump table.
+    // Eggplant 7.4.5.33 and 7.4.7.32, cellView:playFinishWithError:model: jump table.
     // 4 opens the series, 6 opens it at the next episode, 2 replays in place.
     if ((action==4 || action==6) && HGAppearanceFlag(@"player.disableAutoEnterSeries")) return 2;
     return action;
@@ -145,7 +145,8 @@ static BOOL HGALandscapeInflowBlocked(id source,SEL cmd,id model) {
 }
 
 static void HGAInstallSeriesNavigation(void) {
-    if (![[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] isEqual:@"7.4.5.33"]) return;
+    id hostBuild=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"];
+    if (![hostBuild isEqual:@"7.4.5.33"] && ![hostBuild isEqual:@"7.4.7.32"]) return;
     Class handler=objc_lookUpClass("SSShortVideoRcmdHighlightVideoHandler");
     Class params=objc_lookUpClass("FQVShortVideoOpenParams");
     BOOL canResolve=HGAPreviewMethod(object_getClass(handler),@"identifyClipVideoHighlightWithVideoDataModel:identifyTimeType:","@32@0:8@16Q24") &&

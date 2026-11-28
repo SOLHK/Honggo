@@ -64,6 +64,21 @@ class PluginVersionTest(unittest.TestCase):
         self.set_version("1.1.15-R2")
         self.assertEqual(versions.check_increment(self.root, baseline)[0], "1.1.15-R2")
 
+    def test_increments_beta_prereleases_on_test_channel(self):
+        baseline = self.commit_baseline("1.5.3beta24")
+        (self.root / "src/Plugin.m").write_text("// 7.4.7.32 pre-decode buffer repair\n")
+        with self.assertRaisesRegex(ValueError, "increase HG_PLUGIN_VERSION"):
+            versions.check_increment(self.root, baseline)
+        self.set_version("1.5.3beta25")
+        self.assertEqual(versions.check_increment(self.root, baseline)[0], "1.5.3beta25")
+        versions.check_release_channel("1.5.3beta25", "test")
+        self.assertEqual(versions.macho_version("1.5.3beta25"), "1.5.3")
+        output = StringIO()
+        with mock.patch.object(versions, "read_version", return_value="1.5.3beta25"), \
+                mock.patch.object(sys, "argv", ["version.py", "--artifact"]), redirect_stdout(output):
+            versions.main()
+        self.assertEqual(output.getvalue().strip(), "Honggo-1.5.3beta25.dylib")
+
     def test_allows_test_promotion_but_rejects_reverting_stable_to_test(self):
         baseline = self.commit_baseline("1.1.15-R2")
         self.set_version("1.1.15")

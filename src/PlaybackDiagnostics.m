@@ -14,6 +14,162 @@ static _Atomic(IMP) HGOriginalFinishGate;
 static _Atomic(IMP) HGOriginalDiggOperation;
 static atomic_ullong HGPlaybackInvocation;
 
+// Eggplant 7.4.7.32 added FQVShortVideoPreDecodeComponent, which shrinks the
+// next pooled TTVideoEngine's vc2_dec frame queue (option 0x6015 = 24597) to
+// 1 frame while Episode N plays. On transition to Episode N+1,
+// -[FQVShortVideoListVCPlayComponent playWithListVCDataModel:] clears
+// currentVideoDataModel via resetToPlayNoneVideo before cellView:playWithType:
+// invokes handleVideoWillPlay:, so restorePlayDecodeBufferIfNeededWithModel:
+// reads listVCContext.currentPlayer == nil and never restores option 0x6015.
+// Metal holds decoded Frame 1 on screen while vc2_dec has 0 free frame buffers
+// for Frame 2, freezing the picture while audio and progress keep advancing.
+static const NSInteger HGTTVideoEngineOptionPreDecodeSize = 0x6015;
+static _Atomic(IMP) HGOriginalPreDecodeEnable;
+static _Atomic(IMP) HGOriginalPreDecodeWillPlay;
+static _Atomic(IMP) HGOriginalPreDecodeRestore;
+
+static BOOL HGClassHasMethodEncoding(Class cls, SEL selector, const char *expected) {
+    if (!cls || !selector || !expected) return NO;
+    Method method = class_getInstanceMethod(cls, selector);
+    const char *encoding = method ? method_getTypeEncoding(method) : NULL;
+    return encoding && strcmp(encoding, expected) == 0;
+}
+
+static id HGResolvePreDecodePlayer(id component, id model) {
+    id player = HGReadObjectGetter(HGReadObjectGetter(model, "cellView"), "vPlayer");
+    if (!player) player = HGReadObjectGetter(HGReadObjectGetter(model, "cellViewContext"), "vPlayer");
+    id context = HGReadObjectGetter(component, "listVCContext");
+    if (!player) {
+        id playerComp = HGReadObjectGetter(context, "playerComponent");
+        id pool = HGReadObjectGetter(playerComp, "playerPool");
+        SEL lookup = sel_registerName("playerWithModel:");
+        if (HGClassHasMethodEncoding(object_getClass(pool), lookup, "@24@0:8@16"))
+            player = ((id (*)(id, SEL, id))objc_msgSend)(pool, lookup, model);
+    }
+    if (!player) player = HGReadObjectGetter(context, "currentPlayer");
+    return player;
+}
+
+static BOOL HGPreDecodeEnable(id object, SEL selector) {
+    static _Atomic uint64_t nextLog;
+    IMP original = atomic_load_explicit(&HGOriginalPreDecodeEnable, memory_order_acquire);
+    BOOL hostEnabled = original ? ((BOOL (*)(id, SEL))original)(object, selector) : NO;
+    if (hostEnabled && HGEnhancedDiagnostics() && HGDiagnosticSample(&nextLog))
+        HGLog(@"playback.predecode-guard", @{@"suppressed": @YES});
+    return NO;
+}
+
+static void HGPreDecodeRestoreBuffer(id object, SEL selector, id model) {
+    IMP original = atomic_load_explicit(&HGOriginalPreDecodeRestore, memory_order_acquire);
+    if (original) ((void (*)(id, SEL, id))original)(object, selector, model);
+    if (!model) return;
+    id player = HGResolvePreDecodePlayer(object, model);
+    id engine = HGReadObjectGetter(player, "videoEngine");
+    Class engineClass = object_getClass(engine);
+    SEL getOption = sel_registerName("getOptionBykey:");
+    SEL setOption = sel_registerName("setOptionForKey:value:");
+    if (!HGClassHasMethodEncoding(engineClass, getOption, "@24@0:8@16") ||
+            !HGClassHasMethodEncoding(engineClass, setOption, "v32@0:8q16@24"))
+        return;
+    id current = ((id (*)(id, SEL, id))objc_msgSend)(engine, getOption, @(HGTTVideoEngineOptionPreDecodeSize));
+    if (![current isKindOfClass:NSNumber.class]) return;
+    NSInteger currentCap = [(NSNumber *)current integerValue];
+    if (currentCap <= 0) return;
+    Class componentClass = object_getClass(object);
+    SEL codecSel = sel_registerName("videoCodecidWithPlayer:");
+    SEL sizeSel = sel_registerName("playDecodeBufferSizeWithVideoCodecid:");
+    id codecid = HGClassHasMethodEncoding(componentClass, codecSel, "@24@0:8@16")
+        ? ((id (*)(id, SEL, id))objc_msgSend)(object, codecSel, player) : nil;
+    NSInteger playSize = HGClassHasMethodEncoding(componentClass, sizeSel, "q24@0:8@16")
+        ? ((NSInteger (*)(id, SEL, id))objc_msgSend)(object, sizeSel, codecid) : 8;
+    if (playSize <= 0) playSize = 8;
+    if (currentCap >= playSize) return;
+    ((void (*)(id, SEL, NSInteger, id))objc_msgSend)(engine, setOption,
+        HGTTVideoEngineOptionPreDecodeSize, @(playSize));
+    id recordedVids = HGReadObjectGetter(object, "hasSetPreDecodeVids");
+    id vid = HGReadObjectGetter(model, "vid");
+    if ([recordedVids isKindOfClass:NSMutableSet.class] && [vid isKindOfClass:NSString.class])
+        [(NSMutableSet *)recordedVids removeObject:vid];
+    HGLog(@"playback.predecode-restored", @{@"from": @(currentCap), @"to": @(playSize)});
+}
+
+static void HGPreDecodeWillPlay(id object, SEL selector, id model) {
+    IMP original = atomic_load_explicit(&HGOriginalPreDecodeWillPlay, memory_order_acquire);
+    if (original) ((void (*)(id, SEL, id))original)(object, selector, model);
+    if (!model) return;
+    SEL restore = sel_registerName("restorePlayDecodeBufferIfNeededWithModel:");
+    if (HGClassHasMethodEncoding(object_getClass(object), restore, "v24@0:8@16"))
+        ((void (*)(id, SEL, id))objc_msgSend)(object, restore, model);
+}
+
+static void HGInstallPreDecodeBufferRepair(void) {
+    Class target = objc_lookUpClass("FQVShortVideoPreDecodeComponent");
+    if (!target) {
+        HGRecordCapability(@"repair.playback.predecode", @{@"module": @"playback",
+            @"state": @"missing-class", @"reason": @"host build predates FQVShortVideoPreDecodeComponent"});
+        return;
+    }
+    static const struct {
+        const char *selector;
+        const char *encoding;
+    } required[] = {
+        {"enable", "B16@0:8"},
+        {"handlePlaybackTimeChanged:duration:", "v32@0:8d16d24"},
+        {"handleVideoWillPlay:", "v24@0:8@16"},
+        {"restorePlayDecodeBufferIfNeededWithModel:", "v24@0:8@16"},
+        {"videoCodecidWithPlayer:", "@24@0:8@16"},
+        {"playDecodeBufferSizeWithVideoCodecid:", "q24@0:8@16"},
+    };
+    static const struct {
+        const char *selector;
+        const char *encoding;
+        IMP replacement;
+        _Atomic(IMP) *original;
+    } hooks[] = {
+        {"enable", "B16@0:8", (IMP)HGPreDecodeEnable, &HGOriginalPreDecodeEnable},
+        {"handleVideoWillPlay:", "v24@0:8@16", (IMP)HGPreDecodeWillPlay, &HGOriginalPreDecodeWillPlay},
+        {"restorePlayDecodeBufferIfNeededWithModel:", "v24@0:8@16",
+            (IMP)HGPreDecodeRestoreBuffer, &HGOriginalPreDecodeRestore},
+    };
+    static BOOL preDecodeCaptured[sizeof(hooks) / sizeof(hooks[0])];
+    @synchronized (target) {
+        for (NSUInteger index = 0; index < sizeof(required) / sizeof(required[0]); index++) {
+            if (!HGClassHasMethodEncoding(target, sel_registerName(required[index].selector),
+                    required[index].encoding)) {
+                HGLog(@"hook.skipped", @{@"module": @"playback",
+                    @"class": @"FQVShortVideoPreDecodeComponent", @"reason": @"abi-mismatch"});
+                HGRecordCapability(@"repair.playback.predecode", @{@"module": @"playback",
+                    @"state": @"abi-mismatch",
+                    @"reason": @"unexpected FQVShortVideoPreDecodeComponent signature"});
+                return;
+            }
+        }
+        NSUInteger installed = 0;
+        for (NSUInteger index = 0; index < sizeof(hooks) / sizeof(hooks[0]); index++) {
+            SEL selector = sel_registerName(hooks[index].selector);
+            if (!preDecodeCaptured[index]) {
+                Method method = class_getInstanceMethod(target, selector);
+                const char *encoding = method ? method_getTypeEncoding(method) : NULL;
+                IMP current = method ? method_getImplementation(method) : NULL;
+                if (encoding && strcmp(encoding, hooks[index].encoding) == 0 &&
+                        current && current != hooks[index].replacement)
+                    atomic_store_explicit(hooks[index].original, current, memory_order_release);
+            }
+            IMP original = HGInstallVerifiedHook(target, selector, hooks[index].encoding,
+                hooks[index].replacement, @"playback");
+            if (!original || original == hooks[index].replacement) continue;
+            atomic_store_explicit(hooks[index].original, original, memory_order_release);
+            preDecodeCaptured[index] = YES;
+            if (class_getMethodImplementation(target, selector) == hooks[index].replacement) installed++;
+        }
+        HGRecordCapability(@"repair.playback.predecode", @{@"module": @"playback",
+            @"state": installed == sizeof(hooks) / sizeof(hooks[0]) ? @"installed"
+                : installed ? @"partial" : @"interposed",
+            @"installed": @(installed), @"selected": @(sizeof(hooks) / sizeof(hooks[0])),
+            @"reason": @"declines 1-frame pre-decode cap and restores pooled TTVideoEngine decode buffer when currentPlayer is nil"});
+    }
+}
+
 static unsigned long long HGPlaybackBegin(void) {
     return atomic_fetch_add_explicit(&HGPlaybackInvocation, 1, memory_order_relaxed) + 1;
 }
@@ -167,4 +323,5 @@ void HGInstallPlaybackDiagnostics(void) {
         @"state": installed == sizeof(methods)/sizeof(methods[0]) ? @"installed" : installed ? @"partial" : @"unavailable",
         @"installed": @(installed), @"selected": @(sizeof(methods)/sizeof(methods[0])),
         @"reason": @"observational host notifications; original behavior retained; events require enhanced diagnostics"});
+    HGInstallPreDecodeBufferRepair();
 }

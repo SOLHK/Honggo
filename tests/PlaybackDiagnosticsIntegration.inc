@@ -97,6 +97,141 @@ static void HGPlaybackValidState(id object, SEL selector, id context) {
 }
 @end
 
+@interface HGPlaybackPreDecodeEngineFixture : NSObject
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, id> *options;
+@property(nonatomic) NSUInteger setCalls;
+- (id)getOptionBykey:(id)key;
+- (void)setOptionForKey:(NSInteger)key value:(id)value;
+@end
+@implementation HGPlaybackPreDecodeEngineFixture
+- (instancetype)init {
+    if ((self = [super init])) _options = [NSMutableDictionary dictionary];
+    return self;
+}
+- (id)getOptionBykey:(id)key { return key ? self.options[key] : nil; }
+- (void)setOptionForKey:(NSInteger)key value:(id)value {
+    self.setCalls++;
+    if (value) self.options[@(key)] = value;
+    else [self.options removeObjectForKey:@(key)];
+}
+@end
+
+@interface HGPlaybackPreDecodePlayerFixture : NSObject
+@property(nonatomic, strong) HGPlaybackPreDecodeEngineFixture *videoEngine;
+@property(nonatomic, copy) NSString *codecid;
+@end
+@implementation HGPlaybackPreDecodePlayerFixture @end
+
+@interface HGPlaybackPreDecodeCellViewFixture : NSObject
+@property(nonatomic, strong) HGPlaybackPreDecodePlayerFixture *vPlayer;
+@end
+@implementation HGPlaybackPreDecodeCellViewFixture @end
+
+@interface HGPlaybackPreDecodeModelFixture : NSObject
+@property(nonatomic, copy) NSString *vid;
+@property(nonatomic, strong) HGPlaybackPreDecodeCellViewFixture *cellView;
+@property(nonatomic, strong) HGPlaybackPreDecodeCellViewFixture *cellViewContext;
+@end
+@implementation HGPlaybackPreDecodeModelFixture @end
+
+@interface HGPlaybackPreDecodePoolFixture : NSObject
+@property(nonatomic, strong) NSMapTable<id, HGPlaybackPreDecodePlayerFixture *> *players;
+- (id)playerWithModel:(id)model;
+@end
+@implementation HGPlaybackPreDecodePoolFixture
+- (instancetype)init {
+    if ((self = [super init])) _players = [NSMapTable strongToStrongObjectsMapTable];
+    return self;
+}
+- (id)playerWithModel:(id)model { return [self.players objectForKey:model]; }
+@end
+
+@interface HGPlaybackPreDecodePlayerCompFixture : NSObject
+@property(nonatomic, strong) HGPlaybackPreDecodePoolFixture *playerPool;
+@end
+@implementation HGPlaybackPreDecodePlayerCompFixture @end
+
+@interface HGPlaybackPreDecodeContextFixture : NSObject
+@property(nonatomic, strong) HGPlaybackPreDecodePlayerFixture *currentPlayer;
+@property(nonatomic, strong) HGPlaybackPreDecodePlayerCompFixture *playerComponent;
+@property(nonatomic, strong) HGPlaybackPreDecodeModelFixture *nextModel;
+@end
+@implementation HGPlaybackPreDecodeContextFixture @end
+
+// Deliberately incompatible -enable signature ("q16@0:8" instead of "B16@0:8")
+// to verify preflight ABI rejection before overriding on the child class.
+@interface HGPlaybackMismatchedPreDecodeParent : NSObject
+@property(nonatomic) BOOL rawEnable;
+@property(nonatomic) NSInteger prepareDecodeBufferSize;
+@property(nonatomic) NSInteger playDecodeBufferSize;
+@property(nonatomic) NSUInteger willPlayCalls;
+@property(nonatomic) NSUInteger restoreCalls;
+@property(nonatomic, strong) NSMutableSet<NSString *> *hasSetPreDecodeVids;
+@property(nonatomic, strong) HGPlaybackPreDecodeContextFixture *listVCContext;
+- (NSInteger)enable;
+- (void)handlePlaybackTimeChanged:(double)playbackTime duration:(double)duration;
+- (void)handleVideoWillPlay:(id)model;
+- (void)restorePlayDecodeBufferIfNeededWithModel:(id)model;
+- (id)videoCodecidWithPlayer:(id)player;
+- (NSInteger)playDecodeBufferSizeWithVideoCodecid:(id)codecid;
+@end
+@implementation HGPlaybackMismatchedPreDecodeParent
+- (instancetype)init {
+    if ((self = [super init])) {
+        _rawEnable = YES;
+        _prepareDecodeBufferSize = 1;
+        _playDecodeBufferSize = 8;
+        _hasSetPreDecodeVids = [NSMutableSet set];
+    }
+    return self;
+}
+- (NSInteger)enable { return 77; }
+- (void)handlePlaybackTimeChanged:(double)playbackTime duration:(double)duration {
+    BOOL active = ((BOOL (*)(id, SEL))objc_msgSend)(self, @selector(enable));
+    if (!active || duration - playbackTime > 2.0) return;
+    HGPlaybackPreDecodeModelFixture *next = self.listVCContext.nextModel;
+    HGPlaybackPreDecodePlayerFixture *player = [self.listVCContext.playerComponent.playerPool playerWithModel:next];
+    if (player.videoEngine && next.vid) {
+        [player.videoEngine setOptionForKey:0x6015 value:@(self.prepareDecodeBufferSize)];
+        [self.hasSetPreDecodeVids addObject:next.vid];
+    }
+}
+- (void)handleVideoWillPlay:(id)model {
+    self.willPlayCalls++;
+    BOOL active = ((BOOL (*)(id, SEL))objc_msgSend)(self, @selector(enable));
+    if (active) [self restorePlayDecodeBufferIfNeededWithModel:model];
+}
+- (void)restorePlayDecodeBufferIfNeededWithModel:(id)model {
+    self.restoreCalls++;
+    // Mirrors Eggplant 7.4.7.32: reads listVCContext.currentPlayer, which is nil
+    // after resetToPlayNoneVideo clears currentVideoDataModel during transition.
+    HGPlaybackPreDecodePlayerFixture *player = self.listVCContext.currentPlayer;
+    HGPlaybackPreDecodeEngineFixture *engine = player.videoEngine;
+    if (!player || !engine) return;
+    if ([[engine getOptionBykey:@(0x6015)] intValue] == 0) return;
+    id codecid = [self videoCodecidWithPlayer:player];
+    NSInteger playSize = [self playDecodeBufferSizeWithVideoCodecid:codecid];
+    [engine setOptionForKey:0x6015 value:@(playSize)];
+}
+- (id)videoCodecidWithPlayer:(id)player {
+    return ((HGPlaybackPreDecodePlayerFixture *)player).codecid ?: @"h265";
+}
+- (NSInteger)playDecodeBufferSizeWithVideoCodecid:(id)codecid {
+    return [codecid isEqual:@"bytevc2"] ? 12 : self.playDecodeBufferSize;
+}
+@end
+
+static BOOL HGPlaybackValidPreDecodeEnable(id object, SEL selector) {
+    (void)selector;
+    return ((HGPlaybackMismatchedPreDecodeParent *)object).rawEnable;
+}
+
+static NSDictionary *HGPlaybackCapabilityEntry(NSString *identifier) {
+    for (NSDictionary *entry in HGRuntimeSnapshot()[@"entries"])
+        if ([entry[@"id"] isEqual:identifier]) return entry;
+    return nil;
+}
+
 static void HGRunPlaybackDiagnosticsChecks(void (^check)(BOOL, NSString *)) {
     BOOL wasEnhanced = HGEnhancedDiagnostics();
     HGSetEnhancedDiagnostics(NO);
@@ -243,5 +378,88 @@ static void HGRunPlaybackDiagnosticsChecks(void (^check)(BOOL, NSString *)) {
         (IMP)HGPlaybackFixtureForeignClean && HGPlaybackFixtureForeignCleanCalls == 1 && patch.cleanCalls == 7,
         @"playback observer retry preserves a later interposer without making it the original");
     class_replaceMethod(SSBizVideoPatchAdService.class, clean, cleanInstalled, "v28@0:8@16B24");
+
+    check([HGPlaybackCapabilityEntry(@"repair.playback.predecode")[@"state"] isEqual:@"missing-class"],
+        @"pre-decode repair records missing-class before Eggplant 7.4.7.32 component exists");
+    Class preDecodeClass = objc_allocateClassPair(HGPlaybackMismatchedPreDecodeParent.class,
+        "FQVShortVideoPreDecodeComponent", 0);
+    if (preDecodeClass) objc_registerClassPair(preDecodeClass);
+    HGInstallPlaybackDiagnostics();
+    HGPlaybackMismatchedPreDecodeParent *preDecode = [preDecodeClass new];
+    check(preDecodeClass != Nil &&
+        [HGPlaybackCapabilityEntry(@"repair.playback.predecode")[@"state"] isEqual:@"abi-mismatch"] &&
+        ((NSInteger (*)(id, SEL))objc_msgSend)(preDecode, @selector(enable)) == 77,
+        @"pre-decode repair rejects an incompatible -enable ABI without touching host methods");
+
+    BOOL preDecodeEnableAdded = class_addMethod(preDecodeClass, @selector(enable),
+        (IMP)HGPlaybackValidPreDecodeEnable, "B16@0:8");
+    HGInstallPlaybackDiagnostics();
+    check(preDecodeEnableAdded &&
+        [HGPlaybackCapabilityEntry(@"repair.playback.predecode")[@"state"] isEqual:@"installed"] &&
+        !((BOOL (*)(id, SEL))objc_msgSend)(preDecode, @selector(enable)),
+        @"pre-decode repair installs on verified 7.4.7.32 signatures and declines 1-frame pre-decode");
+
+    HGPlaybackPreDecodePoolFixture *pool = [HGPlaybackPreDecodePoolFixture new];
+    HGPlaybackPreDecodePlayerCompFixture *playerComp = [HGPlaybackPreDecodePlayerCompFixture new];
+    playerComp.playerPool = pool;
+    HGPlaybackPreDecodeContextFixture *preDecodeCtx = [HGPlaybackPreDecodeContextFixture new];
+    preDecodeCtx.playerComponent = playerComp;
+    preDecode.listVCContext = preDecodeCtx;
+
+    HGPlaybackPreDecodeEngineFixture *ep2Engine = [HGPlaybackPreDecodeEngineFixture new];
+    HGPlaybackPreDecodePlayerFixture *ep2Player = [HGPlaybackPreDecodePlayerFixture new];
+    ep2Player.videoEngine = ep2Engine;
+    HGPlaybackPreDecodeCellViewFixture *ep2Cell = [HGPlaybackPreDecodeCellViewFixture new];
+    ep2Cell.vPlayer = ep2Player;
+    HGPlaybackPreDecodeModelFixture *ep2Model = [HGPlaybackPreDecodeModelFixture new];
+    ep2Model.vid = @"vid-ep2";
+    ep2Model.cellView = ep2Cell;
+    [pool.players setObject:ep2Player forKey:ep2Model];
+    preDecodeCtx.nextModel = ep2Model;
+
+    [preDecode handlePlaybackTimeChanged:9.5 duration:10.0];
+    check([ep2Engine getOptionBykey:@(0x6015)] == nil && ep2Engine.setCalls == 0 &&
+        preDecode.hasSetPreDecodeVids.count == 0,
+        @"declined pre-decode keeps Episode 2 pooled TTVideoEngine frame queue uncapped during Episode 1 playback");
+
+    // Reproduce a pooled engine already capped to 1 frame when playWithListVCDataModel:
+    // clears currentVideoDataModel (so listVCContext.currentPlayer == nil on transition).
+    [ep2Engine setOptionForKey:0x6015 value:@1];
+    [preDecode.hasSetPreDecodeVids addObject:@"vid-ep2"];
+    preDecodeCtx.currentPlayer = nil;
+    [preDecode handleVideoWillPlay:ep2Model];
+    check([[ep2Engine getOptionBykey:@(0x6015)] isEqual:@8] &&
+        ![preDecode.hasSetPreDecodeVids containsObject:@"vid-ep2"] &&
+        preDecode.willPlayCalls == 1 && preDecode.restoreCalls == 1,
+        @"will-play fallback restores cellView TTVideoEngine option 0x6015 from 1 to 8 when currentPlayer is nil");
+
+    // Also verify playerPool fallback when cellView is nil and codec-specific target size.
+    HGPlaybackPreDecodeEngineFixture *ep3Engine = [HGPlaybackPreDecodeEngineFixture new];
+    [ep3Engine setOptionForKey:0x6015 value:@1];
+    HGPlaybackPreDecodePlayerFixture *ep3Player = [HGPlaybackPreDecodePlayerFixture new];
+    ep3Player.videoEngine = ep3Engine;
+    ep3Player.codecid = @"bytevc2";
+    HGPlaybackPreDecodeModelFixture *ep3Model = [HGPlaybackPreDecodeModelFixture new];
+    ep3Model.vid = @"vid-ep3";
+    [pool.players setObject:ep3Player forKey:ep3Model];
+    [preDecode handleVideoWillPlay:ep3Model];
+    NSUInteger ep3Writes = ep3Engine.setCalls;
+    [ep3Engine setOptionForKey:0x6015 value:@16];
+    [preDecode handleVideoWillPlay:ep3Model];
+    check([[ep3Engine getOptionBykey:@(0x6015)] isEqual:@16] && ep3Writes == 2 && ep3Engine.setCalls == 3,
+        @"playerPool fallback restores codec buffer size and never shrinks an already larger decode buffer");
+
+    IMP enableInstalled = class_getMethodImplementation(preDecodeClass, @selector(enable));
+    IMP willPlayInstalled = class_getMethodImplementation(preDecodeClass, @selector(handleVideoWillPlay:));
+    IMP restoreInstalled = class_getMethodImplementation(preDecodeClass, @selector(restorePlayDecodeBufferIfNeededWithModel:));
+    HGInstallPlaybackDiagnostics();
+    HGInstallPlaybackDiagnostics();
+    [preDecode handleVideoWillPlay:ep2Model];
+    check(class_getMethodImplementation(preDecodeClass, @selector(enable)) == enableInstalled &&
+        class_getMethodImplementation(preDecodeClass, @selector(handleVideoWillPlay:)) == willPlayInstalled &&
+        class_getMethodImplementation(preDecodeClass, @selector(restorePlayDecodeBufferIfNeededWithModel:)) == restoreInstalled &&
+        preDecode.willPlayCalls == 4 && preDecode.restoreCalls == 4,
+        @"repeated pre-decode repair installation retains one nonrecursive original invocation chain");
+
     HGSetEnhancedDiagnostics(wasEnhanced);
 }
