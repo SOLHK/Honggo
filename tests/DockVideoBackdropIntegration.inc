@@ -34,8 +34,90 @@
 @interface FQVPlayer : UIView
 @property(nonatomic,strong) UIImageView *coverImageView;
 @property(nonatomic,strong) id model;
+- (void)rebindVideoEnginePlayerView;
+- (void)updatePlayerLayout;
 @end
-@implementation FQVPlayer @end
+@implementation FQVPlayer
+- (void)rebindVideoEnginePlayerView {
+    for(UIView *renderer in self.subviews)
+        if([renderer isKindOfClass:TTPlayerView.class])renderer.layer.sublayerTransform=CATransform3DIdentity;
+}
+- (void)updatePlayerLayout {}
+@end
+@interface HGBackdropEpisodeInfoFixture : NSObject
+@property(nonatomic) BOOL vertical;
+@end
+@implementation HGBackdropEpisodeInfoFixture @end
+@interface HGBackdropWrappedModelFixture : NSObject
+@property(nonatomic,strong) HGBackdropEpisodeInfoFixture *videoData;
+- (id)videoDataModel;
+@end
+@implementation HGBackdropWrappedModelFixture
+- (id)videoDataModel { return self; }
+@end
+@interface HGBackdropNavTransitionCoordinator : NSObject <UIViewControllerTransitionCoordinator>
+@property(nonatomic) UIModalPresentationStyle style;
+@property(nonatomic,weak) UIViewController *fromVC;
+@property(nonatomic,weak) UIViewController *toVC;
+@property(nonatomic,strong) UIView *containerView;
+@property(nonatomic,strong) NSMutableArray *completions;
+- (void)finish;
+@end
+@implementation HGBackdropNavTransitionCoordinator
+- (instancetype)init { if((self=[super init]))_completions=[NSMutableArray array]; return self; }
+- (BOOL)isAnimated { return YES; }
+- (UIModalPresentationStyle)presentationStyle { return self.style; }
+- (BOOL)initiallyInteractive { return NO; }
+- (BOOL)isInterruptible { return YES; }
+- (BOOL)isInteractive { return NO; }
+- (BOOL)isCancelled { return NO; }
+- (NSTimeInterval)transitionDuration { return 0.35; }
+- (CGFloat)percentComplete { return 0.5; }
+- (CGFloat)completionVelocity { return 1; }
+- (UIViewAnimationCurve)completionCurve { return UIViewAnimationCurveEaseInOut; }
+- (CGAffineTransform)targetTransform { return CGAffineTransformIdentity; }
+- (UIViewController *)viewControllerForKey:(UITransitionContextViewControllerKey)key {
+    if([key isEqual:UITransitionContextFromViewControllerKey])return self.fromVC;
+    if([key isEqual:UITransitionContextToViewControllerKey])return self.toVC;
+    return nil;
+}
+- (UIView *)viewForKey:(UITransitionContextViewKey)key {
+    return [self viewControllerForKey:key].viewIfLoaded;
+}
+- (BOOL)animateAlongsideTransition:(void (^)(id<UIViewControllerTransitionCoordinatorContext>))animation
+        completion:(void (^)(id<UIViewControllerTransitionCoordinatorContext>))completion {
+    if(completion)[self.completions addObject:[completion copy]];
+    return YES;
+}
+- (BOOL)animateAlongsideTransitionInView:(UIView *)view
+        animation:(void (^)(id<UIViewControllerTransitionCoordinatorContext>))animation
+        completion:(void (^)(id<UIViewControllerTransitionCoordinatorContext>))completion {
+    return [self animateAlongsideTransition:animation completion:completion];
+}
+- (void)notifyWhenInteractionEndsUsingBlock:(void (^)(id<UIViewControllerTransitionCoordinatorContext>))handler {}
+- (void)notifyWhenInteractionChangesUsingBlock:(void (^)(id<UIViewControllerTransitionCoordinatorContext>))handler {}
+- (void)finish {
+    NSArray *blocks=self.completions.copy;
+    [self.completions removeAllObjects];
+    for(void (^block)(id<UIViewControllerTransitionCoordinatorContext>) in blocks)block(self);
+}
+@end
+@interface HGBackdropTransitionNavController : UINavigationController
+@property(nonatomic,strong) id<UIViewControllerTransitionCoordinator> fixtureTransition;
+@end
+@implementation HGBackdropTransitionNavController
+- (id<UIViewControllerTransitionCoordinator>)transitionCoordinator {
+    return self.fixtureTransition ?: [super transitionCoordinator];
+}
+@end
+@interface HGBackdropTransitionTabController : SSTabBarController
+@property(nonatomic,strong) id<UIViewControllerTransitionCoordinator> fixtureTransition;
+@end
+@implementation HGBackdropTransitionTabController
+- (id<UIViewControllerTransitionCoordinator>)transitionCoordinator {
+    return self.fixtureTransition ?: self.navigationController.transitionCoordinator ?: [super transitionCoordinator];
+}
+@end
 @interface HGBackdropFrameModel : NSObject
 @property(nonatomic) BOOL readyToDisPlay;
 @end
@@ -66,6 +148,7 @@
 - (void)refreshCoverImageView;
 - (void)vPlayerReadyToDisPlay:(FQVPlayer *)player;
 - (void)resumeWithType:(NSInteger)reason;
+- (void)resumeWhenViewWillAppear;
 @end
 @implementation FQVShortVideoPlayerCellView (HGBackdropPaletteFixture)
 static char HGBackdropCellCoverKey;
@@ -82,6 +165,10 @@ static char HGBackdropCellCoverKey;
     return nil;
 }
 - (void)resumeWithType:(NSInteger)reason {
+    for(UIView *renderer in self.vPlayer.subviews)
+        if([renderer isKindOfClass:TTPlayerView.class])renderer.layer.sublayerTransform=CATransform3DIdentity;
+}
+- (void)resumeWhenViewWillAppear {
     for(UIView *renderer in self.vPlayer.subviews)
         if([renderer isKindOfClass:TTPlayerView.class])renderer.layer.sublayerTransform=CATransform3DIdentity;
 }
@@ -696,6 +783,58 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         Check(!feed.clipsToBounds && fabs(CGRectGetMaxY(resumed)-height)<0.75 &&
             !CATransform3DIsIdentity(previous.renderer.layer.sublayerTransform),
             @"returning to a cached frame restores full height before resume returns without a second ready callback");
+
+        // Reverse scroll from a later cell (frontPortraitCell == cell) to a
+        // previously watched cell carrying only a vertical videoDataModel poster
+        // while the outgoing cell's renderer is detached for reuse must keep
+        // feed clipping open and corners hidden with zero black-bar frame.
+        [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
+        cell=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        Layout(cell);Layout(cell.renderer);
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        [feed setContentOffset:CGPointMake(0,24) animated:NO];Layout(feed);
+        previous=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
+        cell=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        HGBackdropEpisodeInfoFixture *verticalEpisode=[HGBackdropEpisodeInfoFixture new];
+        verticalEpisode.vertical=YES;
+        HGBackdropWrappedModelFixture *wrappedModel=[HGBackdropWrappedModelFixture new];
+        wrappedModel.videoData=verticalEpisode;
+        previous.canvas.model=wrappedModel;
+        UIImageView *revisitCover=[[UIImageView alloc] initWithFrame:previous.canvas.bounds];
+        previous.canvas.coverImageView=revisitCover;
+        [previous.canvas addSubview:revisitCover];
+        [previous.renderer removeFromSuperview];
+        [scrollDriver scrollViewDidScroll:feed];
+        UIView *poolBorrower=[[UIView alloc] initWithFrame:cell.canvas.bounds];
+        [cell.canvas addSubview:poolBorrower];
+        __block BOOL keptCoverageDuringCellHandoff=NO;
+        __weak HGBackdropVideoCell *departingCell=cell;
+        __weak HGBackdropVideoCell *incomingRevisit=previous;
+        cell.renderer.nativeWillMoveObserver=^{
+            keptCoverageDuringCellHandoff=CATransform3DIsIdentity(departingCell.renderer.layer.sublayerTransform) &&
+                !feed.clipsToBounds && leftCorner.alpha==0 && rightCorner.alpha==0 &&
+                fabs(CGRectGetHeight(revisitCover.frame)-height)<0.75 &&
+                incomingRevisit.layer.zPosition==1;
+        };
+        [poolBorrower addSubview:cell.renderer];
+        cell.renderer.nativeWillMoveObserver=nil;
+        Check(keptCoverageDuringCellHandoff,
+            @"scrolling up to a revisited vertical model keeps full-height cover and open feed clip while the outgoing cell releases its renderer");
+        [cell.player addSubview:cell.renderer];
+        [poolBorrower removeFromSuperview];
+        [feed setContentOffset:CGPointMake(0,0) animated:NO];Layout(feed);
+        [previous.player addSubview:previous.renderer];
+        Layout(previous);
+        [previous.canvas resumeWhenViewWillAppear];
+        Check(!feed.clipsToBounds && !CATransform3DIsIdentity(previous.renderer.layer.sublayerTransform),
+            @"resumeWhenViewWillAppear synchronously reapplies portrait fill on the revisited cell");
+        previous.renderer.frame=CGRectMake(0,0,width,feedHeight+1);
+        previous.renderer.layer.sublayerTransform=CATransform3DIdentity;
+        previous.renderer.frame=previous.player.bounds;
+        Check(!feed.clipsToBounds && !CATransform3DIsIdentity(previous.renderer.layer.sublayerTransform),
+            @"TTPlayerView setFrame synchronously restores portrait fill as soon as a returned renderer adopts home viewport bounds");
+        [revisitCover removeFromSuperview];previous.canvas.coverImageView=nil;previous.canvas.model=nil;
+
         [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
         Layout(cell);[manager refreshWithBranches:branches root:container.view bar:bar active:YES];
 
@@ -924,7 +1063,74 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         secondFeed.dataSource=nil;
         [secondPage willMoveToParentViewController:nil];[secondPage.view removeFromSuperview];[secondPage removeFromParentViewController];
         [pager removeFromSuperview];
+
+        // Exiting a pushed Detail VC back to Home (SSTabBarController inside
+        // UINavigationController): feed must attach and fill on Frame 0 during
+        // the navigation pop slide (clipped horizontally while displaced) and
+        // release horizontal clip cleanly once the pop transition settles,
+        // while a modal transition still defers until completion.
+        HGBackdropTransitionTabController *navTab=[HGBackdropTransitionTabController new];
+        HGBackdropTransitionNavController *nav=[[HGBackdropTransitionNavController alloc] initWithRootViewController:navTab];
+        nav.navigationBarHidden=YES;
+        window.rootViewController=nav;
+        [window layoutIfNeeded];[nav.view layoutIfNeeded];[navTab.view layoutIfNeeded];
+        FQVShortVideoListViewController *navHome=[FQVShortVideoListViewController new];
+        [navTab addChildViewController:navHome];[navHome loadViewIfNeeded];
+        navHome.view.frame=navTab.view.bounds;navHome.view.backgroundColor=UIColor.blackColor;
+        [navTab.view insertSubview:navHome.view belowSubview:navTab.customTabBar];
+        [navHome didMoveToParentViewController:navTab];
+        UIView *nestedFeedWrapper=[[UIView alloc] initWithFrame:navHome.view.bounds];
+        [navHome.view addSubview:nestedFeedWrapper];
+        [nestedFeedWrapper addSubview:feed];
+        UIImageView *navLeftCorner=[[UIImageView alloc] initWithFrame:CGRectMake(0,feedHeight-12,12,12)];
+        UIImageView *navRightCorner=[[UIImageView alloc] initWithFrame:CGRectMake(width-12,feedHeight-12,12,12)];
+        [nestedFeedWrapper addSubview:navLeftCorner];[nestedFeedWrapper addSubview:navRightCorner];
+        [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
+        HGBackdropVideoCell *navCell=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        navCell.videoHeight=0;Layout(navCell);Layout(navCell.renderer);
+        // Simulate having left window when Detail covered Home: feed starts detached and clipped.
+        feed.clipsToBounds=YES;navCell.renderer.layer.sublayerTransform=CATransform3DIdentity;
+        UIViewController *pushedDetail=[UIViewController new];
+        HGBackdropNavTransitionCoordinator *popTC=[HGBackdropNavTransitionCoordinator new];
+        popTC.style=UIModalPresentationCustom;popTC.fromVC=pushedDetail;popTC.toVC=navTab;popTC.containerView=nav.view;
+        nav.fixtureTransition=popTC;
+        CGRect settledTabFrame=navTab.view.frame;
+        navTab.view.frame=CGRectOffset(settledTabFrame,-120,0);
+        [navTab viewWillAppear:YES];
+        [navHome viewWillAppear:YES];
+        [navCell.player rebindVideoEnginePlayerView];
+        Check(!feed.clipsToBounds && fabs(navCell.renderer.layer.sublayerTransform.m42-45)<0.75 &&
+            navLeftCorner.alpha==0 && navRightCorner.alpha==0 && nestedFeedWrapper.clipsToBounds,
+            @"popping back from Detail fills Home behind the Dock on frame zero during the navigation transition with horizontal clip");
+        navTab.view.frame=settledTabFrame;
+        nav.fixtureTransition=nil;
+        [popTC finish];
+        HGBackdropFlushFrames(0.04);
+        Check(!feed.clipsToBounds && fabs(navCell.renderer.layer.sublayerTransform.m42-45)<0.75 &&
+            !nestedFeedWrapper.clipsToBounds,
+            @"finishing the Detail pop keeps full portrait coverage and releases temporary horizontal clipping");
+        // Verify a modal transition over Home still pauses until completion.
+        feed.clipsToBounds=YES;navCell.renderer.layer.sublayerTransform=CATransform3DIdentity;
+        [navTab.customTabBar setNeedsLayout];
+        HGBackdropNavTransitionCoordinator *modalTC=[HGBackdropNavTransitionCoordinator new];
+        modalTC.style=UIModalPresentationPageSheet;modalTC.fromVC=navTab;modalTC.toVC=pushedDetail;modalTC.containerView=nav.view;
+        navTab.fixtureTransition=modalTC;
+        [navTab viewDidLayoutSubviews];
+        Check(feed.clipsToBounds && CATransform3DIsIdentity(navCell.renderer.layer.sublayerTransform),
+            @"modal presentation over Home still defers backdrop mutation until transition completion");
+        navTab.fixtureTransition=nil;
+        [modalTC finish];
+        HGBackdropFlushFrames(0.04);
+        Check(!feed.clipsToBounds && fabs(navCell.renderer.layer.sublayerTransform.m42-45)<0.75,
+            @"modal transition completion restores Home portrait coverage automatically");
+        [feed removeFromSuperview];
+        [navLeftCorner removeFromSuperview];[navRightCorner removeFromSuperview];
+        [nestedFeedWrapper removeFromSuperview];
+        [navHome willMoveToParentViewController:nil];[navHome.view removeFromSuperview];[navHome removeFromParentViewController];
+        window.rootViewController=container;[window layoutIfNeeded];
+
         [container.view addSubview:page.view];page.view.frame=container.view.bounds;
+        [page.view insertSubview:feed atIndex:0];
         RunDetailVideoBackdropChecks(page.view);
     }@finally {
         [manager restore];feed.dataSource=nil;

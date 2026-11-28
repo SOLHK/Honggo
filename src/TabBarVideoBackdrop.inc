@@ -74,11 +74,35 @@ static UIViewController *HGVideoBackdropOwner(UIView *view) {
     return nil;
 }
 
+static BOOL HGVideoBackdropControllerInSubtree(UIViewController *controller, UIViewController *ancestor) {
+    if (!controller || !ancestor) return NO;
+    for (UIViewController *node = controller; node; node = node.parentViewController)
+        if (node == ancestor) return YES;
+    return NO;
+}
+
+static BOOL HGVideoBackdropIsNavigationTransition(id<UIViewControllerTransitionCoordinator> tc,
+                                                  UIViewController *owner) {
+    if (!tc || !owner) return NO;
+    UINavigationController *nav = owner.navigationController;
+    if (!nav || nav.transitionCoordinator != tc) return NO;
+    for (UIViewController *node = owner; node; node = node.parentViewController) {
+        if (node.isBeingPresented || node.isBeingDismissed) return NO;
+        if (node == nav) break;
+    }
+    UIViewController *fromVC = [tc viewControllerForKey:UITransitionContextFromViewControllerKey];
+    UIViewController *toVC = [tc viewControllerForKey:UITransitionContextToViewControllerKey];
+    if (toVC && HGVideoBackdropControllerInSubtree(owner, toVC)) return YES;
+    if (fromVC && HGVideoBackdropControllerInSubtree(owner, fromVC)) return YES;
+    return !fromVC && !toVC && tc.presentationStyle == UIModalPresentationNone;
+}
+
 static BOOL HGVideoBackdropHasTransition(UIViewController *owner) {
     for (UIViewController *controller = owner; controller; controller = controller.parentViewController) {
         if (controller.isBeingDismissed || controller.isBeingPresented) return YES;
         id<UIViewControllerTransitionCoordinator> tc = controller.transitionCoordinator;
-        if (tc && tc.presentationStyle != UIModalPresentationNone) return YES;
+        if (tc && tc.presentationStyle != UIModalPresentationNone &&
+            !HGVideoBackdropIsNavigationTransition(tc, owner)) return YES;
     }
     return NO;
 }
@@ -312,6 +336,13 @@ static BOOL HGVideoBackdropInfoIsPortrait(id info, BOOL *resolved) {
         if (resolved) *resolved = YES;
         return y > x;
     }
+    SEL verticalSel = sel_registerName("vertical");
+    Method vm = class_getInstanceMethod(object_getClass(info), verticalSel);
+    const char *venc = vm ? method_getTypeEncoding(vm) : NULL;
+    if (venc && !strcmp(venc, "B16@0:8") && ((BOOL(*)(id,SEL))objc_msgSend)(info, verticalSel)) {
+        if (resolved) *resolved = YES;
+        return YES;
+    }
     return NO;
 }
 
@@ -328,9 +359,10 @@ static BOOL HGVideoBackdropPortraitModel(id model) {
         objc_setAssociatedObject(model, &HGVideoBackdropPortraitModelKey, @(result), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return result;
     }
-    const char *keys[] = {"shortVideoModel","videoInfo","videoData","episodeVideoData",
-        "seriesVideoData","derivateVideoData","filterableEpisodeVideoData","filterableSeriesVideoData"};
-    const char *inner[] = {"shortVideoModel","videoInfo"};
+    const char *keys[] = {"shortVideoModel","seriesShortVideoModel","videoInfo","videoDataModel","getVideoDataModel",
+        "videoData","episodeVideoData","seriesVideoData","derivateVideoData",
+        "filterableEpisodeVideoData","filterableSeriesVideoData"};
+    const char *inner[] = {"shortVideoModel","seriesShortVideoModel","videoInfo","videoData"};
     for (NSUInteger i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
         id child = HGReadObjectGetter(model, keys[i]);
         if (!child) continue;
@@ -643,8 +675,15 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         }
         // A decoded, visible landscape picture still owns its native crop.
         if (!renderer.hidden && renderer.alpha>0.01 && !player.hidden && player.alpha>0.01 &&
-            !CGRectIsEmpty(renderer.frame) && renderer.bounds.size.width>=renderer.bounds.size.height &&
-            HGVideoBackdropFrameReady(player)) return NO;
+            !CGRectIsEmpty(renderer.frame) && renderer.bounds.size.width > renderer.bounds.size.height + 0.75 &&
+            HGVideoBackdropFrameReady(player)) {
+            static Class metalLandscapeCache;
+            UIView *surface = renderer.subviews.firstObject;
+            BOOL portraitMetal = [surface isKindOfClass:HGBackdropResolveClass("TTMetalView", &metalLandscapeCache)] &&
+                !surface.hidden && surface.alpha > 0.01 &&
+                surface.bounds.size.width > 0 && surface.bounds.size.height > surface.bounds.size.width;
+            if (!portraitMetal) return NO;
+        }
     }
     BOOL filled=NO, tx=NO;
     BOOL extends=CGRectGetMaxY(full)>CGRectGetMaxY(viewport)+0.75;
@@ -685,7 +724,8 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         if (!cover || (i==1 && cover==covers[0]) || cover.layer.mask ||
             (transferring && (!cover.image || !HGVideoBackdropCoverVisible(cover,canvas))) ||
             !CGAffineTransformIsIdentity(cover.transform) || !(cover.image ? HGVideoBackdropPortraitImage(cover) :
-            (filled || HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model"))))) continue;
+            (filled || HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model")) ||
+             HGVideoBackdropPortraitModel(HGReadObjectGetter(player,"model"))))) continue;
         NSValue *old=[self.portraitCovers objectForKey:cover];
         HGVideoPortraitCover saved={cover.frame,CGRectZero,cover.contentMode};
         if (old) {
@@ -883,6 +923,7 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     NSArray<UIView *> *renderers=self.portraitRenderers.keyEnumerator.allObjects;
     NSArray<UIImageView *> *covers=self.portraitCovers.keyEnumerator.allObjects;
     NSMutableSet *keep=[NSMutableSet set];
+    UICollectionViewCell *keptCell=nil;
     BOOL moving=NO;
     for (UIView *surface in [(renderers ?: @[]) arrayByAddingObjectsFromArray:covers ?: @[]]) {
         if (surface==view || [surface isDescendantOfView:view] || [view isDescendantOfView:surface]) {
@@ -891,7 +932,10 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         }
         UIView *canvas=HGDetailVideoBackdropCanvas(surface);
         UIView *boundary=self.feed ?: canvas;
-        for (UIView *node=surface; node && node!=boundary; node=node.superview) [keep addObject:node];
+        for (UIView *node=surface; node && node!=boundary; node=node.superview) {
+            [keep addObject:node];
+            if (!keptCell && [node isKindOfClass:UICollectionViewCell.class]) keptCell=(UICollectionViewCell *)node;
+        }
         for (CAGradientLayer *layer in self.portraitGradients) {
             UIView *gradient=(id)layer.delegate;
             if ([gradient isKindOfClass:UIView.class] && [gradient isDescendantOfView:canvas]) [keep addObject:layer];
@@ -899,12 +943,14 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     }
     if (!moving) return;
     [self restorePortraitExcept:keep];
-    if (!self.frontPortraitCell || ![keep containsObject:self.frontPortraitCell]) {
+    if (!keep.count) {
         [self restoreClipping];
         [self bringPortraitForward:nil];
+        [self restoreCornerImages];
+        [self restoreDetailTray];
+    } else if (!self.frontPortraitCell || ![keep containsObject:self.frontPortraitCell]) {
+        [self bringPortraitForward:keptCell];
     }
-    [self restoreCornerImages];
-    [self restoreDetailTray];
 }
 
 static char HGDetailOwnerTrayRectKey;
@@ -1227,9 +1273,12 @@ void HGRefreshVideoBackdropForPlayer(UIView *view) {
     if (feedLink ||
         (feed.window && CGRectGetMaxY(feed.frame) < CGRectGetMaxY(feed.superview.bounds)-20)) {
         [detail restore];
+        UIView *player = view == canvas ? HGVideoBackdropPlayer(canvas) : nil;
         if(!HGAppearancePlayerIsTransferring(view) &&
            ((view==canvas && (HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model")) ||
-              HGVideoBackdropPortraitImage(HGVideoBackdropCover(canvas)))) ||
+              HGVideoBackdropPortraitModel(HGReadObjectGetter(player,"model")) ||
+              HGVideoBackdropPortraitImage(HGVideoBackdropCover(canvas)) ||
+              HGVideoBackdropPortraitImage(HGVideoBackdropCover(player)))) ||
             [view isKindOfClass:objc_lookUpClass("TTPlayerView")] || [view isKindOfClass:objc_lookUpClass("FQVPlayer")]))
             HGRefreshVideoBackdropForFeed(feed);
         HGScheduleFeedLayoutRefresh(feed);

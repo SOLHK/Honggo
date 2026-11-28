@@ -48,6 +48,8 @@ BOOL HGFeedSidebarOwnsLayout(UIWindow *window) {
 }
 
 static void (*HGOriginalControllerLayout)(id, SEL);
+static void (*HGOriginalControllerWillAppear)(id, SEL, BOOL);
+static void (*HGOriginalControllerDidAppear)(id, SEL, BOOL);
 static void (*HGOriginalSetAppearance)(id, SEL);
 static void (*HGOriginalResetRatio)(id, SEL, double);
 static void (*HGOriginalBarLayout)(id, SEL);
@@ -260,6 +262,11 @@ static void HGRestoreViewports(NSArray<HGViewportRecord *> *records) {
 
 #import "TabBarVideoBackdrop.inc"
 
+@interface HGBackdropTransitionRef : NSObject
+@property(nonatomic, weak) id<UIViewControllerTransitionCoordinator> coordinator;
+@end
+@implementation HGBackdropTransitionRef @end
+
 @interface HGTabState : NSObject
 @property(nonatomic, weak) UIView *bar;
 @property(nonatomic, weak) UIViewController *controller;
@@ -269,6 +276,7 @@ static void HGRestoreViewports(NSArray<HGViewportRecord *> *records) {
 @property(nonatomic, strong) NSHashTable<UIView *> *observed;
 @property(nonatomic, strong) NSMapTable<UILabel *, HGTabTitleRecord *> *titles;
 @property(nonatomic, strong) HGVideoBackdrop *videoBackdrop;
+@property(nonatomic, weak) id<UIViewControllerTransitionCoordinator> pendingTransition;
 @property(nonatomic) BOOL refreshing;
 @property(nonatomic) BOOL customDock;
 @property(nonatomic) BOOL refreshPending;
@@ -402,6 +410,21 @@ static BOOL HGTabBarIsInTransitionOrDisplaced(UIView *bar, UIViewController *con
     }
     if (controller.transitionCoordinator || controller.navigationController.transitionCoordinator) return YES;
     return HGTabControllerHasOpenSidebar(controller);
+}
+
+static BOOL HGTabBarCanRefreshVideoBackdrop(UIView *bar, UIViewController *controller) {
+    if (!bar || !controller || HGFeedSidebarOwnsLayout(bar.window)) return NO;
+    if (fabs(bar.frame.origin.x) > 2.0) return NO;
+    UIView *root = controller.viewIfLoaded;
+    if (root && bar.window && root.window == bar.window && [bar isDescendantOfView:root]) {
+        CGRect rect = [bar convertRect:bar.bounds toView:root];
+        if (fabs(CGRectGetMinX(rect)) > 2.0) return NO;
+    }
+    if (HGTabControllerHasOpenSidebar(controller)) return NO;
+    if (controller.isBeingPresented || controller.isBeingDismissed) return NO;
+    id<UIViewControllerTransitionCoordinator> tc = controller.transitionCoordinator;
+    if (tc && !HGVideoBackdropIsNavigationTransition(tc, controller)) return NO;
+    return YES;
 }
 
 static void HGObserveView(UIView *view, HGTabState *state, BOOL knownBackground) {
@@ -766,6 +789,24 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     for (UIView *child in view.subviews.copy)
         [self collectViewports:child root:root barTop:barTop bottom:bottom records:records depth:depth + 1];
 }
+- (void)scheduleRefreshAfterTransition:(id<UIViewControllerTransitionCoordinator>)transition {
+    if (!transition || self.pendingTransition == transition) return;
+    self.pendingTransition = transition;
+    __weak HGTabState *weakSelf = self;
+    __weak id<UIViewControllerTransitionCoordinator> weakTransition = transition;
+    [transition animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        HGTabState *strongSelf = weakSelf;
+        if (!strongSelf || strongSelf.pendingTransition != weakTransition) return;
+        strongSelf.pendingTransition = nil;
+        if (strongSelf.bar.window) [strongSelf refresh];
+        // UIKit may still report transitionCoordinator inside the completion
+        // block itself; reconcile once more on the next turn after teardown.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            HGTabState *settled = weakSelf;
+            if (settled.bar.window) [settled refresh];
+        });
+    }];
+}
 - (void)refreshViewports {
     UIView *bar = self.bar;
     UIView *root = self.controller.viewIfLoaded;
@@ -779,7 +820,13 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     CGFloat bottom = MIN(CGRectGetMaxY(root.bounds), CGRectGetMaxY(windowRect));
     CGRect barRect = [bar convertRect:bar.bounds toView:root];
     CGFloat barTop = CGRectGetMinY(barRect);
-    if (HGTabBarIsInTransitionOrDisplaced(bar, self.controller)) return;
+    id<UIViewControllerTransitionCoordinator> activeTransition =
+        self.controller.transitionCoordinator ?: self.controller.navigationController.transitionCoordinator;
+    BOOL blockedByTransition = HGTabBarIsInTransitionOrDisplaced(bar, self.controller);
+    if (blockedByTransition) {
+        [self scheduleRefreshAfterTransition:activeTransition];
+        if (!HGTabBarCanRefreshVideoBackdrop(bar, self.controller)) return;
+    }
     if (bottom - barTop < 20 || bottom - barTop > 160) {
         [self.videoBackdrop refreshFeed];
         return;
@@ -802,6 +849,7 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     BOOL renderVideo=HGAppearanceEnabled();
     if (renderVideo && !self.videoBackdrop) self.videoBackdrop = [HGVideoBackdrop new];
     [self.videoBackdrop refreshWithBranches:branches root:root bar:bar active:renderVideo];
+    if (blockedByTransition) return;
     for (UIView *branch in branches) {
         if (!HGContainsVisibleVerticalPager(branch, root))
             [self collectViewports:branch root:root barTop:barTop bottom:bottom records:records depth:0];
@@ -935,7 +983,15 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
     // Never open a disabled-actions CATransaction or mutate viewports/dock while
     // customTabBar is displaced horizontally (sidebar slide or nav push to search).
     if (HGTabBarIsInTransitionOrDisplaced(currentBar, self.controller)) {
+        id<UIViewControllerTransitionCoordinator> activeTransition =
+            self.controller.transitionCoordinator ?: self.controller.navigationController.transitionCoordinator;
+        [self scheduleRefreshAfterTransition:activeTransition];
         if (!currentBar.window || !HGAppearanceEnabled()) [self.videoBackdrop restore];
+        else if (HGTabBarCanRefreshVideoBackdrop(currentBar, self.controller)) {
+            self.refreshing = YES;
+            @try { [self refreshViewports]; }
+            @finally { self.refreshing = NO; }
+        }
         if (currentBar.frame.origin.x < -2 && currentBar.window && HGAppearanceDockEnabled() &&
             !HGAppearanceDockIsMutating(currentBar)) {
             self.refreshing = YES;
@@ -1138,18 +1194,42 @@ static void HGRefreshTabBar(UIViewController *controller) {
         [state refresh];
     }
 }
+static void HGScheduleVideoBackdropAfterTransition(UIScrollView *feed, id<UIViewControllerTransitionCoordinator> transition) {
+    if (!feed || !transition) return;
+    static char pendingTransitionKey;
+    HGBackdropTransitionRef *existing = objc_getAssociatedObject(feed, &pendingTransitionKey);
+    if (existing.coordinator == transition) return;
+    HGBackdropTransitionRef *ref = [HGBackdropTransitionRef new];
+    ref.coordinator = transition;
+    objc_setAssociatedObject(feed, &pendingTransitionKey, ref, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak UIScrollView *weakFeed = feed;
+    __weak id<UIViewControllerTransitionCoordinator> weakTransition = transition;
+    [transition animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        UIScrollView *current = weakFeed;
+        if (!current) return;
+        HGBackdropTransitionRef *active = objc_getAssociatedObject(current, &pendingTransitionKey);
+        if (active.coordinator != weakTransition) return;
+        objc_setAssociatedObject(current, &pendingTransitionKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        HGRefreshVideoBackdropForFeed(current);
+        HGScheduleFeedLayoutRefresh(current);
+    }];
+}
+
 void HGRefreshVideoBackdropForCategoryPager(UIView *pager) {
     if (!NSThread.isMainThread || !pager.window || !HGAppearanceEnabled() ||
-        HGFeedSidebarOwnsLayout(pager.window) || !HGVideoBackdropFullWindow(pager, pager.window)) return;
+        HGFeedSidebarOwnsLayout(pager.window) || !HGVideoBackdropHorizontalWindowSlice(pager, pager.window)) return;
     UIResponder *responder = pager.nextResponder;
     while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
     for (UIViewController *controller = (UIViewController *)responder; controller; controller = controller.parentViewController) {
         UIView *bar = HGView(controller, "customTabBar");
         if (![bar isKindOfClass:HGTabBarClass]) continue;
         HGTabState *state = HGState(bar);
+        id<UIViewControllerTransitionCoordinator> tc =
+            controller.transitionCoordinator ?: controller.navigationController.transitionCoordinator;
+        if (tc) [state scheduleRefreshAfterTransition:tc];
         UIView *root = controller.viewIfLoaded;
         if (root.window == pager.window && [pager isDescendantOfView:root] &&
-            !HGTabBarIsInTransitionOrDisplaced(bar, controller)) {
+            HGTabBarCanRefreshVideoBackdrop(bar, controller)) {
             if (!state.videoBackdrop) state.videoBackdrop = [HGVideoBackdrop new];
             [state.videoBackdrop refreshWithBranches:@[pager] root:root bar:bar active:YES];
         }
@@ -1159,45 +1239,36 @@ void HGRefreshVideoBackdropForCategoryPager(UIView *pager) {
 
 void HGRefreshVideoBackdropForFeed(UIScrollView *feed) {
     if (!NSThread.isMainThread || HGFeedSidebarOwnsLayout(feed.window)) return;
+    UIViewController *videoOwner = HGVideoBackdropOwner(feed);
+    id<UIViewControllerTransitionCoordinator> transition =
+        videoOwner.transitionCoordinator ?: videoOwner.navigationController.transitionCoordinator;
+    if (transition) HGScheduleVideoBackdropAfterTransition(feed, transition);
     if (HGVideoBackdropRefreshForFeed(feed) || !feed.window) return;
     if (!HGAppearanceEnabled()) return;
-    UIViewController *videoOwner=HGVideoBackdropOwner(feed);
-    id<UIViewControllerTransitionCoordinator> transition=videoOwner.transitionCoordinator;
-    if (transition) {
-        static char pendingTransition;
-        if (objc_getAssociatedObject(feed,&pendingTransition)!=transition) {
-            objc_setAssociatedObject(feed,&pendingTransition,transition,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            __weak UIScrollView *weakFeed=feed;
-            BOOL registered=[transition animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
-                UIScrollView *current=weakFeed;
-                if (!current || objc_getAssociatedObject(current,&pendingTransition)!=transition) return;
-                objc_setAssociatedObject(current,&pendingTransition,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                HGScheduleFeedLayoutRefresh(current);
-            }];
-            if (!registered) objc_setAssociatedObject(feed,&pendingTransition,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        return;
-    }
+    if (HGVideoBackdropHasTransition(videoOwner)) return;
     UIView *pager = HGVideoBackdropCategoryPager(feed.superview, feed.window);
     if (pager) {
         HGRefreshVideoBackdropForCategoryPager(pager);
         return;
     }
-    if (!HGVideoBackdropFullWindow(feed.superview, feed.window)) return;
-    // A renderer or a channel may arrive during a swipe, after the tab bar's
-    // layout. The callback already identifies the exact feed: attach it
-    // directly, without traversing all sibling pages or waiting for idle.
+    if (!HGVideoBackdropHorizontalWindowSlice(feed.superview, feed.window)) return;
+    // A renderer or a channel may arrive during a swipe or pop transition,
+    // after the tab bar's layout. The callback already identifies the exact
+    // feed: attach it directly without waiting for idle.
     UIResponder *responder = feed.nextResponder;
     while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
     for (UIViewController *controller = (UIViewController *)responder; controller; controller = controller.parentViewController) {
         UIView *bar = HGView(controller, "customTabBar");
         if (![bar isKindOfClass:HGTabBarClass]) continue;
         HGTabState *state = HGState(bar);
+        id<UIViewControllerTransitionCoordinator> tc =
+            controller.transitionCoordinator ?: controller.navigationController.transitionCoordinator;
+        if (tc) [state scheduleRefreshAfterTransition:tc];
         UIView *root = controller.viewIfLoaded;
         if ([feed isDescendantOfView:root] &&
-            !HGTabBarIsInTransitionOrDisplaced(bar, controller) &&
+            HGTabBarCanRefreshVideoBackdrop(bar, controller) &&
             HGVideoBackdropFeedGeometry((UICollectionView *)feed, videoOwner, root, bar)) {
-            if (!state.videoBackdrop) state.videoBackdrop=[HGVideoBackdrop new];
+            if (!state.videoBackdrop) state.videoBackdrop = [HGVideoBackdrop new];
             [state.videoBackdrop refreshWithBranches:@[feed] root:root bar:bar active:YES];
         }
         break;
@@ -1224,6 +1295,14 @@ static void HGSpeedTipMove(UIView *tip,SEL cmd,UIView *parent) {
 
 static void HGControllerLayout(id self, SEL cmd) {
     HGOriginalControllerLayout(self, cmd);
+    HGRefreshTabBar(self);
+}
+static void HGControllerWillAppear(id self, SEL cmd, BOOL animated) {
+    HGOriginalControllerWillAppear(self, cmd, animated);
+    HGRefreshTabBar(self);
+}
+static void HGControllerDidAppear(id self, SEL cmd, BOOL animated) {
+    HGOriginalControllerDidAppear(self, cmd, animated);
     HGRefreshTabBar(self);
 }
 
@@ -1474,6 +1553,8 @@ BOOL HGInstallTabBar(void) {
         }
         HGGlassEnabled = HGIsEnabled(HGGlass);
         HGOriginalControllerLayout = (void (*)(id, SEL))HGReplaceMethod(controller, selectors[0], encodings[0], (IMP)HGControllerLayout);
+        HGOriginalControllerWillAppear = (void (*)(id, SEL, BOOL))HGReplaceMethod(controller, @selector(viewWillAppear:), "v20@0:8B16", (IMP)HGControllerWillAppear);
+        HGOriginalControllerDidAppear = (void (*)(id, SEL, BOOL))HGReplaceMethod(controller, @selector(viewDidAppear:), "v20@0:8B16", (IMP)HGControllerDidAppear);
         Class feed = objc_lookUpClass("SSVideoSeriesFeedViewController");
         SEL getter = sel_registerName("isSidebarOpen");
         Method method = class_getInstanceMethod(feed, getter);

@@ -180,7 +180,15 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL pauseNext=playerCanvas && selector==sel_registerName("pauseWhenPlayNext");
     BOOL backdropChange=playerCanvas && (selector==sel_registerName("refreshBgColor") ||
         selector==sel_registerName("refreshCoverImageView") ||
-        selector==sel_registerName("layoutVideoView"));
+        selector==sel_registerName("layoutVideoView") ||
+        selector==sel_registerName("updatePlayerSuperViewLayout") ||
+        selector==sel_registerName("resumeWhenViewWillAppear") ||
+        selector==sel_registerName("modelWillDisplay") ||
+        selector==sel_registerName("modelDidDisplay"));
+    BOOL backdropPrefersPlayer=playerCanvas && (selector==sel_registerName("layoutVideoView") ||
+        selector==sel_registerName("updatePlayerSuperViewLayout") ||
+        selector==sel_registerName("resumeWhenViewWillAppear") ||
+        selector==sel_registerName("modelDidDisplay"));
     BOOL firstPicture=playerCanvas && selector==sel_registerName("vPlayerReadyToDisPlay:");
     BOOL player=[className isEqual:@"TTPlayerView"] || [className isEqual:@"FQVShortVideoPlayerCellView"];
     BOOL mediaPlayer=[className isEqual:@"FQVPlayer"];
@@ -239,14 +247,14 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGAApplyPlaybackButton(hud);
         });
     } else if (automaticCleanStart && !strcmp(encoding,"v24@0:8q16")) {
-        BOOL resumesCachedPlayer=selector==sel_registerName("resumeWithType:");
         replacement=imp_implementationWithBlock(^(UIView *cell,NSInteger reason) {
             HGARecordCellPlaybackStart(cell);
             ((void(*)(id,SEL,NSInteger))original)(cell,selector,reason);
-            if(resumesCachedPlayer && NSThread.isMainThread && cell.window && !HGAApplying) {
-                // A cached frame can resume without sending another ready callback.
+            if(NSThread.isMainThread && cell.window && !HGAApplying) {
+                // Both playWithType: and resumeWithType: can resume a cached or
+                // pooled frame without sending another ready callback.
                 UIView *player=HGAViewGetter(cell,"vPlayer",cell);
-                if([player isKindOfClass:objc_lookUpClass("FQVPlayer")])HGRefreshVideoBackdropForPlayer(player);
+                HGRefreshVideoBackdropForPlayer([player isKindOfClass:objc_lookUpClass("FQVPlayer")] ? player : cell);
             }
             HGAStartAutomaticCleanForCell(cell,NO);
         });
@@ -378,7 +386,14 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 return;
             }
             if(backdropChange) {
-                if(!HGAApplying)HGRefreshVideoBackdropForPlayer(object);
+                if(!HGAApplying) {
+                    UIView *target=object;
+                    if(backdropPrefersPlayer) {
+                        UIView *media=HGAViewGetter(object,"vPlayer",object);
+                        if([media isKindOfClass:objc_lookUpClass("FQVPlayer")])target=media;
+                    }
+                    HGRefreshVideoBackdropForPlayer(target);
+                }
                 return;
             }
             if(player && !controller && (selector==@selector(didMoveToWindow) || selector==@selector(didMoveToSuperview))) {
@@ -592,12 +607,12 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 // Ending a seek reclips the control's feed ancestors. Reapply
                 // the active dock extension after the original clipping pass.
                 if(value)HGRefreshVideoBackdropForPlayer(object);
-            } else if (controller && selector==@selector(viewDidAppear:) &&
+            } else if (controller && (selector==@selector(viewWillAppear:) || selector==@selector(viewDidAppear:)) &&
                        [className isEqual:@"FQVShortVideoListViewController"]) {
                 HGAppearanceProcessController(object);
-                // The incoming feed is known here even when the old tab is
-                // still in the transition tree and a whole-window scan abstains.
-                for (UIView *child in ((UIViewController *)object).viewIfLoaded.subviews)
+                // The incoming feed is known here even when the old tab or pushed
+                // detail is still in the transition tree. Scan nested wrappers too.
+                for (UIView *child in HGADescendants(((UIViewController *)object).viewIfLoaded,96))
                     HGARefreshBackdropAfterScroll(child);
             } else if(episodeWrapper && selector==@selector(setHidden:)) {
                 if(!HGAApplying) {
@@ -869,8 +884,27 @@ void HGInstallAppearance(void) {
                 HGAHook(cls,sel_registerName("refreshUIWhenApplayNewStyle"),"v16@0:8",NO);
             if([name isEqual:@"SSShortVideoEpisodePanelCollectView"])
                 HGAHook(cls,sel_registerName("updateCollectStatus:collectText:"),"v28@0:8B16@20",NO);
-            if([name isEqual:@"TTPlayerView"])
+            if([name isEqual:@"TTPlayerView"]) {
                 HGAHook(cls,@selector(didAddSubview:),"v24@0:8@16",NO);
+                static IMP originalRendererFrame;
+                if (!originalRendererFrame) {
+                    IMP update=imp_implementationWithBlock(^(UIView *renderer,CGRect frame) {
+                        CGRect previous=renderer.frame;
+                        ((void (*)(id,SEL,CGRect))originalRendererFrame)(renderer,@selector(setFrame:),frame);
+                        if (renderer.window && !CGRectEqualToRect(previous,renderer.frame) &&
+                            !HGAppearancePlayerIsTransferring(renderer) && !HGAApplying)
+                            HGRefreshVideoBackdropForPlayer(renderer);
+                    });
+                    originalRendererFrame=HGInstallVerifiedHook(cls,@selector(setFrame:),"v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",update,@"appearance");
+                    if (!originalRendererFrame) imp_removeBlock(update);
+                }
+            }
+            if([name isEqual:@"FQVPlayer"]) {
+                for(NSString *selName in @[@"rebindVideoEnginePlayerView",@"updatePlayerLayout",@"refreshPlayerViewLayout"]) {
+                    SEL sel=NSSelectorFromString(selName);
+                    if(class_getInstanceMethod(cls,sel))HGAHook(cls,sel,"v16@0:8",NO);
+                }
+            }
             if([name isEqual:@"TTPlayerView"] || [name isEqual:@"FQVShortVideoPlayerCellView"]) {
                 HGAHook(cls,@selector(willMoveToSuperview:),"v24@0:8@16",NO);
                 HGAHook(cls,@selector(willMoveToWindow:),"v24@0:8@16",NO);
@@ -883,6 +917,10 @@ void HGInstallAppearance(void) {
                     HGAHook(cls,sel_registerName("layoutVideoView"),"v16@0:8",NO);
                 if(class_getInstanceMethod(cls,sel_registerName("refreshUIWithPlayViewFrame:")))
                     HGAHook(cls,sel_registerName("refreshUIWithPlayViewFrame:"),"v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",NO);
+                for(NSString *selName in @[@"updatePlayerSuperViewLayout",@"resumeWhenViewWillAppear",@"modelWillDisplay",@"modelDidDisplay"]) {
+                    SEL sel=NSSelectorFromString(selName);
+                    if(class_getInstanceMethod(cls,sel))HGAHook(cls,sel,"v16@0:8",NO);
+                }
                 HGAHook(cls,sel_registerName("vPlayerReadyToDisPlay:"),"v24@0:8@16",NO);
                 HGAHook(cls,sel_registerName("playWithType:"),"v24@0:8q16",NO);
                 HGAHook(cls,sel_registerName("resumeWithType:"),"v24@0:8q16",NO);
@@ -997,6 +1035,7 @@ void HGInstallAppearance(void) {
         Class dockController=NSClassFromString(@"SSTabBarController");
         Class playbackController=NSClassFromString(@"FQVShortVideoListViewController");
         if([playbackController isSubclassOfClass:UIViewController.class]) {
+            HGAHook(playbackController,@selector(viewWillAppear:),"v20@0:8B16",YES);
             HGAHook(playbackController,@selector(viewDidAppear:),"v20@0:8B16",YES);
             HGAHook(playbackController,@selector(viewDidDisappear:),"v20@0:8B16",YES);
             HGAHook(playbackController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
