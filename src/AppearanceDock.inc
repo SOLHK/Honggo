@@ -159,6 +159,10 @@ static char HGAFeedDockItemPartKey;
 @property(nonatomic) DKFeedPanState panState;
 + (instancetype)shared;
 - (void)pan:(UIPanGestureRecognizer *)gesture;
+- (void)clearStaleFeedPanIfNeeded;
+- (void)prepareForTouchOnView:(UIView *)leaf;
+- (BOOL)isObservingScrollView:(UIScrollView *)scroll;
+- (void)scanWindowsForMountedScrollViews;
 - (void)cancelFeedPan;
 @end
 
@@ -622,6 +626,8 @@ static void HGADockSetViewGeometry(UIView *view,CGAffineTransform transform,CGPo
         _feedLastSelectedTab=NSNotFound;
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleApplicationDidEnterBackground:)
             name:UIApplicationDidEnterBackgroundNotification object:nil];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(handleApplicationDidBecomeActive:)
+            name:UIApplicationDidBecomeActiveNotification object:nil];
         self.targets=[NSMapTable strongToWeakObjectsMapTable];
         self.hiddenSources=[NSMapTable weakToStrongObjectsMapTable];
         self.buttons=[NSMutableDictionary dictionary];
@@ -1439,9 +1445,26 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
             _feedSpring.siriai=(collapseMode==HGADockCollapseModeSiriai) ? 1 : 0;
             NSInteger selected=HGASelectedTab(self.hostController);
             BOOL landscape=bar.window && CGRectGetWidth(bar.window.bounds)>CGRectGetHeight(bar.window.bounds);
-            if(self.hidden || landscape || (self.feedLastSelectedTab!=NSNotFound && selected!=self.feedLastSelectedTab)) {
+            BOOL wasColdStart=(self.feedLastSelectedTab==NSNotFound);
+            BOOL tabChanged=(!wasColdStart && selected!=self.feedLastSelectedTab);
+            if(self.hidden || landscape || tabChanged) {
                 [self cancelActiveFeedObserverIfNeeded];
                 [self setFeedCompact:NO animated:NO];
+            }
+            if(wasColdStart || tabChanged) {
+                dispatch_async(dispatch_get_main_queue(),^{
+                    [HGADockScrollObserver.shared scanWindowsForMountedScrollViews];
+                });
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)((wasColdStart ? 0.25 : 0.35)*NSEC_PER_SEC)),
+                    dispatch_get_main_queue(),^{
+                    [HGADockScrollObserver.shared scanWindowsForMountedScrollViews];
+                });
+                if(wasColdStart) {
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.90*NSEC_PER_SEC)),
+                        dispatch_get_main_queue(),^{
+                        [HGADockScrollObserver.shared scanWindowsForMountedScrollViews];
+                    });
+                }
             }
             self.feedLastSelectedTab=selected;
         } else {
@@ -2668,6 +2691,16 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         [self setFeedCompact:(_feedSpring.compact!=0) animated:NO];
 }
 
+- (void)handleApplicationDidBecomeActive:(__unused NSNotification *)note {
+    [HGADockScrollObserver.shared clearStaleFeedPanIfNeeded];
+    if([self usesFeedMotion]) {
+        [HGADockScrollObserver.shared scanWindowsForMountedScrollViews];
+        BOOL running=(self.feedDisplayLink!=nil && !self.feedDisplayLink.paused);
+        if(!running && !self.hidden && !CGRectIsEmpty(self.feedCapsuleAtRest))
+            [self applyFeedMotion:_feedSpring.progress];
+    }
+}
+
 - (void)prepareSystemFeedItems:(NSArray<NSString *> *)keys content:(NSString *)content
     selected:(NSInteger)selected videoClear:(BOOL)videoClear {
     UIView *platter=self.systemPlatter ?: self.systemTabBar;
@@ -3223,32 +3256,146 @@ static BOOL HGAWindowHasModalTransitionOverlay(UIWindow *window,UIView *feed) {
     if(!transitionCls || !window)return NO;
     for(UIView *sub in window.subviews) {
         if(!HGAVisible(sub) || [feed isDescendantOfView:sub])continue;
+        if(!CGRectIntersectsRect(sub.frame,window.bounds))continue;
         if([sub isKindOfClass:transitionCls])return YES;
         for(UIView *child in sub.subviews)
-            if([child isKindOfClass:transitionCls] && HGAVisible(child))return YES;
+            if([child isKindOfClass:transitionCls] && HGAVisible(child) &&
+               CGRectIntersectsRect([child convertRect:child.bounds toView:window],window.bounds))return YES;
     }
     return NO;
 }
+static BOOL HGAControllerNameBlocksFeedDockMotion(NSString *name) {
+    if(!name.length)return NO;
+    return [name containsString:@"SideBar"] ||
+           [name containsString:@"Comment"] ||
+           [name containsString:@"Episode"] ||
+           [name containsString:@"Share"] ||
+           [name containsString:@"Search"] ||
+           [name containsString:@"Detail"] ||
+           [name containsString:@"Reader"] ||
+           [name containsString:@"AudioPlay"] ||
+           [name containsString:@"Setting"] ||
+           [name containsString:@"Alert"] ||
+           [name containsString:@"Popover"] ||
+           [name hasPrefix:@"HGA"] ||
+           [name hasPrefix:@"Honggo"];
+}
+static void HGACollectMountedScrollViews(UIView *root,NSMutableArray<UIScrollView *> *out,NSInteger depth) {
+    if(!root || depth>36)return;
+    if([root isKindOfClass:UIScrollView.class] && ![root isKindOfClass:UITextView.class])
+        [out addObject:(UIScrollView *)root];
+    for(UIView *sub in root.subviews)
+        HGACollectMountedScrollViews(sub,out,depth+1);
+}
+static char HGAFollowsFeed;
 @implementation HGADockScrollObserver
 + (instancetype)shared{static HGADockScrollObserver *s;static dispatch_once_t once;dispatch_once(&once,^{s=[self new];});return s;}
+- (BOOL)isObservingScrollView:(UIScrollView *)scroll {
+    return [scroll isKindOfClass:UIScrollView.class] && [objc_getAssociatedObject(scroll,&HGAFollowsFeed) boolValue];
+}
+- (void)clearStaleFeedPanIfNeeded {
+    UIPanGestureRecognizer *active=self.activeGesture;
+    if(active) {
+        UIGestureRecognizerState st=active.state;
+        BOOL alive=(st==UIGestureRecognizerStateBegan || st==UIGestureRecognizerStateChanged) &&
+                   active.view.window!=nil;
+        if(!alive) {
+            DKFeedPanReset(&_panState);
+            self.activeGesture=nil;
+            self.activeDock=nil;
+        }
+    } else if(_panState.active) {
+        DKFeedPanReset(&_panState);
+        self.activeDock=nil;
+    }
+}
+- (void)prepareForTouchOnView:(UIView *)leaf {
+    if(!leaf)return;
+    [self clearStaleFeedPanIfNeeded];
+    HGADockCollapseMode mode=HGACurrentDockCollapseMode();
+    if(!HGAppearanceDockEnabled() || !HGADockUsesFeedMotionMode(mode))return;
+    for(UIView *cur=leaf;cur;cur=cur.superview) {
+        if([cur isKindOfClass:UIScrollView.class] && ![cur isKindOfClass:UITextView.class] && cur.window)
+            HGAObserveFeed((UIScrollView *)cur);
+    }
+}
+- (void)scanWindowsForMountedScrollViews {
+    HGADockCollapseMode mode=HGACurrentDockCollapseMode();
+    if(!HGAppearanceDockEnabled() || !HGADockUsesFeedMotionMode(mode))return;
+    NSMutableArray<UIScrollView *> *found=[NSMutableArray array];
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if(![scene isKindOfClass:UIWindowScene.class])continue;
+        for(UIWindow *win in ((UIWindowScene *)scene).windows) {
+            if(win.hidden || win.alpha<=0.01)continue;
+            HGACollectMountedScrollViews(win,found,0);
+        }
+    }
+    for(UIScrollView *scroll in found)
+        HGAObserveFeed(scroll);
+}
 - (HGAAppearanceDock *)eligibleDockForFeed:(UIScrollView *)feed {
     UIWindow *win=feed.window;
-    if(!win || ![feed isKindOfClass:UIScrollView.class] || !feed.isScrollEnabled)return nil;
+    if(!win || ![feed isKindOfClass:UIScrollView.class] || [feed isKindOfClass:UITextView.class] ||
+        !feed.isScrollEnabled || feed.hidden || feed.alpha<=0.01)return nil;
+    for(UIView *v=feed.superview;v && v!=win;v=v.superview) {
+        if(v.hidden || v.alpha<=0.01)return nil;
+    }
     CGRect winBounds=win.bounds;
     if(CGRectGetHeight(winBounds)<=CGRectGetWidth(winBounds))return nil;
     CGRect inWin=[feed convertRect:feed.bounds toView:win];
-    if(CGRectGetWidth(inWin)<CGRectGetWidth(winBounds)-4.0 || CGRectGetHeight(inWin)<CGRectGetHeight(winBounds)*0.60)return nil;
-    if(CGRectGetMaxX(inWin)<=4.0 || CGRectGetMinX(inWin)>=CGRectGetWidth(winBounds)-4.0)return nil;
     if(HGFeedSidebarOwnsLayout(win) || HGAWindowHasActionSheet(win) || HGAWindowHasModalTransitionOverlay(win,feed))return nil;
+    Class videoFeedCls=objc_lookUpClass("FQVCollectionView");
+    BOOL isVideoFeed=(videoFeedCls && [feed isKindOfClass:videoFeedCls]);
+    UIViewController *nearestVC=nil;
+    for(UIResponder *resp=feed.nextResponder;resp;resp=resp.nextResponder) {
+        if([resp isKindOfClass:UIViewController.class]) {
+            nearestVC=(UIViewController *)resp;
+            break;
+        }
+    }
+    UIEdgeInsets insets=feed.adjustedContentInset;
     for(UIView *bar in HGABars.allObjects) {
         HGAAppearanceDock *dock=objc_getAssociatedObject(bar,&HGADockKey);
         if(bar.window!=win || dock.superview!=bar || dock.hidden || dock.sidebarSuspended)continue;
         if(fabs(bar.frame.origin.x)>2.0 || bar.alpha<=0.05 || [bar.layer animationForKey:HGACleanOpacity])continue;
+        BOOL barHidden=NO;
+        for(UIView *v=bar;v && v!=win;v=v.superview) {
+            if(v.hidden || v.alpha<=0.05){barHidden=YES;break;}
+        }
+        if(barHidden)continue;
         UIViewController *host=dock.hostController;
         if(host.presentedViewController)continue;
-        NSInteger selected=HGASelectedTab(host);
-        if(selected!=NSNotFound && selected!=0)continue;
         if(host.viewIfLoaded && ![feed isDescendantOfView:host.viewIfLoaded])continue;
+        if(nearestVC && host) {
+            BOOL blocked=NO;
+            for(UIViewController *cur=nearestVC;cur;cur=cur.parentViewController) {
+                if(cur.presentedViewController!=nil){blocked=YES;break;}
+                if(cur!=host && HGAControllerNameBlocksFeedDockMotion(NSStringFromClass(cur.class))){blocked=YES;break;}
+                UIViewController *parent=cur.parentViewController;
+                if([parent isKindOfClass:UINavigationController.class] &&
+                   ((UINavigationController *)parent).viewControllers.firstObject!=cur){blocked=YES;break;}
+                if(parent==host) {
+                    UIViewController *selVC=HGReadObjectGetter(host,"selectedViewController");
+                    if([selVC isKindOfClass:UIViewController.class] && cur!=selVC)blocked=YES;
+                    break;
+                }
+                if(cur==host)break;
+            }
+            if(blocked)continue;
+        }
+        CGRect barInWin=[bar convertRect:bar.bounds toView:win];
+        if(!DKFeedScrollGeometryEligible(CGRectGetWidth(winBounds),CGRectGetHeight(winBounds),
+                                         CGRectGetMinX(inWin),CGRectGetWidth(inWin),CGRectGetHeight(inWin),
+                                         CGRectGetWidth(feed.bounds),CGRectGetHeight(feed.bounds),
+                                         feed.contentSize.width,feed.contentSize.height,
+                                         insets.top,insets.bottom,
+                                         (feed.alwaysBounceVertical || isVideoFeed) ? 1 : 0,
+                                         CGRectGetMinX(barInWin),CGRectGetWidth(barInWin)))continue;
+        if(CGRectIsEmpty(dock.feedCapsuleAtRest)) {
+            [dock setNeedsLayout];
+            [dock layoutIfNeeded];
+        }
+        if(CGRectIsEmpty(dock.feedCapsuleAtRest))continue;
         return dock;
     }
     return nil;
@@ -3268,6 +3415,8 @@ static BOOL HGAWindowHasModalTransitionOverlay(UIWindow *window,UIView *feed) {
     }
     HGADockCollapseMode mode=HGACurrentDockCollapseMode();
     if(mode==HGADockCollapseModeLegacy) {
+        Class videoFeedCls=objc_lookUpClass("FQVCollectionView");
+        if(videoFeedCls && ![gesture.view isKindOfClass:videoFeedCls])return;
         if(!HGAppearanceFlag(@"dock.autoCollapse") || gesture.state!=UIGestureRecognizerStateEnded)return;
         CGPoint translation=[gesture translationInView:gesture.view];
         if(fabs(translation.y)<40 || fabs(translation.y)<=fabs(translation.x))return;
@@ -3292,8 +3441,11 @@ static BOOL HGAWindowHasModalTransitionOverlay(UIWindow *window,UIView *feed) {
     }
     UIGestureRecognizerState state=gesture.state;
     if(self.activeGesture && self.activeGesture!=gesture) {
-        if(state==UIGestureRecognizerStateBegan)[self cancelFeedPan];
-        else return;
+        [self clearStaleFeedPanIfNeeded];
+        if(self.activeGesture && self.activeGesture!=gesture) {
+            if(state==UIGestureRecognizerStateBegan)[self cancelFeedPan];
+            else return;
+        }
     }
     if(!_panState.active) {
         if(state!=UIGestureRecognizerStateBegan && state!=UIGestureRecognizerStateChanged)return;
@@ -3342,16 +3494,20 @@ static BOOL HGAWindowHasModalTransitionOverlay(UIWindow *window,UIView *feed) {
     }
 }
 @end
-static char HGAFollowsFeed;
 static void HGAObserveFeed(UIScrollView *feed) {
+    if(![feed isKindOfClass:UIScrollView.class] || [feed isKindOfClass:UITextView.class])return;
+    UIPanGestureRecognizer *pan=feed.panGestureRecognizer;
+    if(!pan)return;
     HGADockCollapseMode mode=HGACurrentDockCollapseMode();
     BOOL enabled=HGAppearanceDockEnabled() && feed.window &&
         (HGADockUsesFeedMotionMode(mode) || (mode==HGADockCollapseModeLegacy && HGAppearanceFlag(@"dock.autoCollapse")));
     BOOL registered=[objc_getAssociatedObject(feed,&HGAFollowsFeed) boolValue];
-    if(enabled && !registered)[feed.panGestureRecognizer addTarget:HGADockScrollObserver.shared action:@selector(pan:)];
-    if(!enabled && registered) {
-        [feed.panGestureRecognizer removeTarget:HGADockScrollObserver.shared action:@selector(pan:)];
-        if(HGADockScrollObserver.shared.activeGesture==feed.panGestureRecognizer)
+    if(enabled) {
+        [pan removeTarget:HGADockScrollObserver.shared action:@selector(pan:)];
+        [pan addTarget:HGADockScrollObserver.shared action:@selector(pan:)];
+    } else if(registered) {
+        [pan removeTarget:HGADockScrollObserver.shared action:@selector(pan:)];
+        if(HGADockScrollObserver.shared.activeGesture==pan)
             [HGADockScrollObserver.shared cancelFeedPan];
     }
     objc_setAssociatedObject(feed,&HGAFollowsFeed,@(enabled),OBJC_ASSOCIATION_RETAIN_NONATOMIC);

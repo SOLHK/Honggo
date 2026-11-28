@@ -30,6 +30,8 @@ static NSUInteger HGFixtureDockImpacts;
 @interface NSObject (HGATestDockScrollObserver)
 + (instancetype)shared;
 - (void)pan:(UIPanGestureRecognizer *)gesture;
+- (void)prepareForTouchOnView:(UIView *)leaf;
+- (BOOL)isObservingScrollView:(UIScrollView *)scroll;
 @end
 static void HGRunDockFeedMotionChecks(SSTabBarController *host);
 @interface HGTestDockStoredPlatter : UIView {
@@ -1636,6 +1638,85 @@ static void HGRunDockFeedMotionChecks(SSTabBarController *host) {
     Check(![dock isFeedCompact] && ![dock feedControlsHidden],
         @"switching root tabs resets Dock feed collapse back to expanded state");
 
+    // Non-tab-0 Dock pages (e.g. Theater / Mine) also support TikTok & Siri AI Dock motion,
+    // while horizontal pagers remain ignored and touch-down pre-attach + stale pan recovery work on the first swipe.
+    UIScrollView *theaterScroll = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 96, CGRectGetWidth(host.view.bounds), CGRectGetHeight(host.view.bounds) - 96)];
+    theaterScroll.contentSize = CGSizeMake(CGRectGetWidth(host.view.bounds), CGRectGetHeight(host.view.bounds) * 2.0);
+    [host.view insertSubview:theaterScroll belowSubview:bar];
+    UIView *theaterLeaf = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 120, 120)];
+    [theaterScroll addSubview:theaterLeaf];
+
+    // Simulate stale inactive pan left over after long idle + cold-start touch-down pre-attachment.
+    HGAFeedPanFixture *stalePan = [HGAFeedPanFixture new];
+    stalePan.fixtureView = feed;
+    stalePan.fixtureState = UIGestureRecognizerStatePossible;
+    [observer setValue:stalePan forKey:@"activeGesture"];
+    [observer prepareForTouchOnView:theaterLeaf];
+    Check([observer valueForKey:@"activeGesture"] == nil &&
+        [observer isObservingScrollView:theaterScroll],
+        @"touch-down pre-attachment clears stale idle gesture and wires non-home scroll view before first swipe");
+
+    HGAppearanceApply(@{@"dock.collapseMode": @"tiktok", @"dock.siriaiHideLine": @NO}, nil);
+    HGAppearanceLayoutDock(bar, host);
+    pan.fixtureView = theaterScroll;
+    pan.fixtureTranslation = CGPointZero;
+    pan.fixtureState = UIGestureRecognizerStateBegan;
+    [observer pan:pan];
+    for (NSNumber *ty in @[@-8, @-70, @-150]) {
+        pan.fixtureTranslation = CGPointMake(0, ty.doubleValue);
+        pan.fixtureState = UIGestureRecognizerStateChanged;
+        [observer pan:pan];
+        HGStepDockFeedSpring(dock, 1.0 / 60.0, &clock);
+    }
+    pan.fixtureVelocity = CGPointMake(0, -380);
+    pan.fixtureState = UIGestureRecognizerStateEnded;
+    [observer pan:pan];
+    HGStepDockFeedSpring(dock, 0.55, &clock);
+    Check([dock isFeedCompact],
+        @"first vertical swipe on non-home Dock page (tab 1) engages TikTok Dock collapse");
+
+    // Horizontal category pager on non-home page must NOT trigger Dock collapse.
+    [dock setFeedCompact:NO animated:NO];
+    UIScrollView *horizontalPager = [[UIScrollView alloc] initWithFrame:theaterScroll.frame];
+    horizontalPager.contentSize = CGSizeMake(CGRectGetWidth(theaterScroll.bounds) * 3.0, CGRectGetHeight(theaterScroll.bounds));
+    [host.view insertSubview:horizontalPager belowSubview:bar];
+    pan.fixtureView = horizontalPager;
+    pan.fixtureTranslation = CGPointZero;
+    pan.fixtureState = UIGestureRecognizerStateBegan;
+    [observer pan:pan];
+    pan.fixtureTranslation = CGPointMake(0, -140);
+    pan.fixtureState = UIGestureRecognizerStateChanged;
+    [observer pan:pan];
+    pan.fixtureVelocity = CGPointMake(0, -400);
+    pan.fixtureState = UIGestureRecognizerStateEnded;
+    [observer pan:pan];
+    HGStepDockFeedSpring(dock, 0.40, &clock);
+    Check(![dock isFeedCompact],
+        @"horizontal pager scroll view on non-home Dock page is excluded from vertical Dock collapse");
+
+    // Siri AI collapse and pull-down recovery on Mine tab (tab 3).
+    host.selectedIndex = 3;
+    HGAppearanceApply(@{@"dock.collapseMode": @"siriai", @"dock.siriaiHideLine": @NO}, nil);
+    HGAppearanceLayoutDock(bar, host);
+    pan.fixtureView = theaterScroll;
+    pan.fixtureTranslation = CGPointZero;
+    pan.fixtureState = UIGestureRecognizerStateBegan;
+    [observer pan:pan];
+    for (NSNumber *ty in @[@-8, @-65, @-135]) {
+        pan.fixtureTranslation = CGPointMake(0, ty.doubleValue);
+        pan.fixtureState = UIGestureRecognizerStateChanged;
+        [observer pan:pan];
+        HGStepDockFeedSpring(dock, 1.0 / 60.0, &clock);
+    }
+    pan.fixtureVelocity = CGPointMake(0, -360);
+    pan.fixtureState = UIGestureRecognizerStateEnded;
+    [observer pan:pan];
+    HGStepDockFeedSpring(dock, 0.75, &clock);
+    Check([dock isFeedCompact] && [dock feedControlsHidden],
+        @"Siri AI Dock collapse works on Mine tab (tab 3) with visible Dock");
+
+    [horizontalPager removeFromSuperview];
+    [theaterScroll removeFromSuperview];
     [feed removeFromSuperview];
     host.selectedIndex = savedTab;
     HGAppearanceApply(saved, nil);

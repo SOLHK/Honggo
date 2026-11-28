@@ -383,6 +383,24 @@ static inline int DKFeedAllowsHit(double feedProgress, int siriai, int controlsH
     return 0;
 }
 
+static inline int DKFeedScrollGeometryEligible(double winW, double winH,
+                                               double scrollMinX, double scrollW, double scrollH,
+                                               double boundsW, double boundsH,
+                                               double contentW, double contentH,
+                                               double insetTop, double insetBottom,
+                                               int alwaysBounceVertical,
+                                               double barMinX, double barW) {
+    if (winW <= 0.0 || winH <= 0.0 || winW >= winH) return 0;
+    if (scrollW < winW * 0.78 || scrollH < winH * 0.38) return 0;
+    double scrollMidX = scrollMinX + scrollW * 0.5;
+    if (fabs(scrollMidX - winW * 0.5) > winW * 0.25) return 0;
+    if (barMinX < -8.0 || barMinX + barW > winW + 8.0) return 0;
+    int isHorizontalPager = (contentW > boundsW + 20.0) && (contentH <= boundsH + 2.0);
+    if (isHorizontalPager) return 0;
+    int canScrollV = (contentH + insetTop + insetBottom > boundsH + 8.0) || alwaysBounceVertical;
+    return canScrollV ? 1 : 0;
+}
+
 typedef enum {
     DKFeedPanIgnored = 0,
     DKFeedPanMoved = 1,

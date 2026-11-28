@@ -588,6 +588,21 @@ static void check_spring_material_lifecycle_and_hittest(void) {
     assert(!DKFeedAllowsHit(1.0, 0, 0, 286.0, 40.0, 60.0, 18.0, 220.0, 46.0, 1, 292.0, 18.0, 45.0, 45.0));
 }
 
+static void check_scroll_geometry_eligibility(void) {
+    // Fullscreen vertical feed (Tab 0)
+    assert(DKFeedScrollGeometryEligible(393.0, 852.0, 0.0, 393.0, 852.0, 393.0, 852.0, 393.0, 2556.0, 0.0, 0.0, 0, 0.0, 393.0) == 1);
+    // Scrollable secondary root tab (e.g. Theater / Bookshelf / Mine with top header)
+    assert(DKFeedScrollGeometryEligible(393.0, 852.0, 0.0, 393.0, 640.0, 393.0, 640.0, 393.0, 1600.0, 0.0, 84.0, 0, 0.0, 393.0) == 1);
+    // Horizontal category pager must be rejected
+    assert(DKFeedScrollGeometryEligible(393.0, 852.0, 0.0, 393.0, 640.0, 393.0, 640.0, 1572.0, 640.0, 0.0, 0.0, 0, 0.0, 393.0) == 0);
+    // Small horizontal banner carousel inside page must be rejected
+    assert(DKFeedScrollGeometryEligible(393.0, 852.0, 12.0, 369.0, 180.0, 369.0, 180.0, 1100.0, 180.0, 0.0, 0.0, 0, 0.0, 393.0) == 0);
+    // Landscape viewport must be rejected
+    assert(DKFeedScrollGeometryEligible(852.0, 393.0, 0.0, 852.0, 393.0, 852.0, 393.0, 852.0, 1200.0, 0.0, 0.0, 1, 0.0, 852.0) == 0);
+    // Offscreen tab bar (e.g. during sidebar/push transition) must be rejected
+    assert(DKFeedScrollGeometryEligible(393.0, 852.0, 0.0, 393.0, 640.0, 393.0, 640.0, 393.0, 1600.0, 0.0, 0.0, 1, 240.0, 393.0) == 0);
+}
+
 int main(void) {
     check_centered_dock(440.0, 324.0, 62.0, 0.0, 83.0);
     check_centered_dock(375.0, 254.0, 62.0, 52.0, 80.0);
@@ -616,6 +631,7 @@ int main(void) {
     check_fluid_spring_slight_pull_and_release(60.0);
     check_fluid_spring_slight_pull_and_release(120.0);
     check_spring_material_lifecycle_and_hittest();
+    check_scroll_geometry_eligibility();
     puts("PASS: Honggo DYe TikTok + Siri AI motion, gesture state machine, detached module sync, and hit-test pass-through");
     return 0;
 }

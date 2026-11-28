@@ -1048,12 +1048,48 @@ void HGInstallAppearance(void) {
         }
         if ([dockController isSubclassOfClass:UIViewController.class])
             HGAHook(dockController,@selector(viewDidLayoutSubviews),"v16@0:8",YES);
+        static dispatch_once_t scrollDockHooksOnce;
+        dispatch_once(&scrollDockHooksOnce, ^{
+            __block IMP origSendEvent = NULL;
+            IMP sendEventHook = imp_implementationWithBlock(^(UIWindow *win, UIEvent *event) {
+                if (event.type == UIEventTypeTouches && HGAppearanceDockEnabled() &&
+                    HGADockUsesFeedMotionMode(HGACurrentDockCollapseMode())) {
+                    for (UITouch *touch in [event touchesForWindow:win]) {
+                        if (touch.phase == UITouchPhaseBegan)
+                            [HGADockScrollObserver.shared prepareForTouchOnView:touch.view];
+                    }
+                }
+                if (origSendEvent) ((void (*)(id, SEL, id))origSendEvent)(win, @selector(sendEvent:), event);
+            });
+            origSendEvent = HGInstallVerifiedHook(UIWindow.class, @selector(sendEvent:), "v24@0:8@16",
+                                                  sendEventHook, @"appearance");
+            if (!origSendEvent) imp_removeBlock(sendEventHook);
+
+            for (Class scrollCls in @[UIScrollView.class, UICollectionView.class, UITableView.class]) {
+                __block IMP origDidMove = NULL;
+                IMP didMoveHook = imp_implementationWithBlock(^(UIScrollView *scroll) {
+                    if (origDidMove) ((void (*)(id, SEL))origDidMove)(scroll, @selector(didMoveToWindow));
+                    if ([scroll isKindOfClass:UIScrollView.class] && ![scroll isKindOfClass:UITextView.class]) {
+                        if (!scroll.window || (HGAppearanceDockEnabled() &&
+                            HGADockUsesFeedMotionMode(HGACurrentDockCollapseMode()))) {
+                            HGAObserveFeed(scroll);
+                        }
+                    }
+                });
+                origDidMove = HGInstallVerifiedHook(scrollCls, @selector(didMoveToWindow), "v16@0:8",
+                                                    didMoveHook, @"appearance");
+                if (!origDidMove) imp_removeBlock(didMoveHook);
+            }
+        });
         HGAInstallLandscapeLoadFailureDiagnostic();
         static dispatch_once_t once;
         dispatch_once(&once, ^{
             HGAInstallAppSwitchHUDs();
             if(NSThread.isMainThread)HGAScanMountedViewsOnce();
-            dispatch_async(dispatch_get_main_queue(), ^{HGAppearanceRefresh();});
+            dispatch_async(dispatch_get_main_queue(), ^{
+                HGAppearanceRefresh();
+                [HGADockScrollObserver.shared scanWindowsForMountedScrollViews];
+            });
             NSArray *notifications=@[HGAppearanceDidChangeNotification,
                 UIAccessibilityReduceTransparencyStatusDidChangeNotification,
                 UIAccessibilityReduceMotionStatusDidChangeNotification,
