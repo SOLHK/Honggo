@@ -701,19 +701,27 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
         nextPortrait.player.model=frameModel;
         [scrollDriver scrollViewDidScroll:feed];
         Check(nextPortrait && cell.layer.zPosition==1 && nextPortrait.layer.zPosition==0 &&
+            cell.videoWrapper.layer.mask==nil &&
             CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit),
             @"scrollViewDidScroll synchronously orders the outgoing portrait above an unready neighbor without shifting its transform");
         frameModel.readyToDisPlay=YES;
         [nextPortrait.canvas vPlayerReadyToDisPlay:nextPortrait.player];
-        Check(cell.layer.zPosition==0 && nextPortrait.layer.zPosition==1 &&
+        CGFloat readyClip = cell.videoWrapper.layer.mask ? CGRectGetMaxY(cell.videoWrapper.layer.mask.frame) : 0;
+        Check(cell.layer.zPosition==1 && nextPortrait.layer.zPosition==0 &&
+            [cell.videoWrapper.layer.mask.name isEqualToString:@"honggo.video.seam-mask"] &&
+            readyClip > feedHeight && readyClip < height &&
             CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit) &&
             fabs(nextPortrait.renderer.layer.sublayerTransform.m42-fit.m42)<0.75,
-            @"native first-frame arrival hands over drawing order cleanly while both cells maintain constant 1:1 scroll transforms");
-        [feed setContentOffset:CGPointMake(0,feedHeight+80) animated:NO];Layout(feed);
+            @"native first-frame arrival inside the Dock transition zone reveals the incoming portrait along the smooth seam without shifting transforms");
+        [feed setContentOffset:CGPointMake(0,feedHeight+90) animated:NO];Layout(feed);
         [scrollDriver scrollViewDidScroll:feed];
-        Check(CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit) &&
+        CGFloat pastZoneClip = cell.videoWrapper.layer.mask ? CGRectGetMaxY(cell.videoWrapper.layer.mask.frame) : 0;
+        Check(cell.layer.zPosition==0 && nextPortrait.layer.zPosition==1 &&
+            [cell.videoWrapper.layer.mask.name isEqualToString:@"honggo.video.seam-mask"] &&
+            fabs(pastZoneClip - feedHeight) < 0.75 &&
+            CATransform3DEqualToTransform(cell.renderer.layer.sublayerTransform,fit) &&
             fabs(cell.renderer.layer.sublayerTransform.m11-fit.m11)<0.001,
-            @"outgoing placement follows scrolling 1:1 with constant zoom and zero rubber-band shift");
+            @"crossing past the Dock strip hands drawing order to the incoming portrait and clips the outgoing portrait strictly at its cell edge");
         nextPortrait.player.model=nil;
         [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
         [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
@@ -879,22 +887,114 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
             !CATransform3DIsIdentity(previous.renderer.layer.sublayerTransform),
             @"reverse scroll deceleration smoothly sweeps the incoming portrait across the Dock strip and clears the seam mask on settle");
 
-        // Cancelling a partial forward drag (0 -> 45 -> 40 -> 0) stays on the
-        // bottom cell while moving forward, then sweeps smoothly on snap-back with no jump.
+        // Forward drag and cancellation (0 -> 45 -> 40 -> 0) share the exact same
+        // symmetric seam curve so the next video never teleports behind the Dock on start
+        // and reversing direction mid-drag is strictly monotonic with zero jump.
         [feed setContentOffset:CGPointMake(0,45) animated:NO];Layout(feed);
         [scrollDriver scrollViewDidScroll:feed];
-        BOOL forwardClean = cell.layer.zPosition==1 && previous.layer.zPosition==0 &&
-            previous.videoWrapper.layer.mask==nil;
+        CGFloat forwardClip45 = previous.videoWrapper.layer.mask ? CGRectGetMaxY(previous.videoWrapper.layer.mask.frame) : 0;
+        BOOL forwardSmooth = previous.layer.zPosition==1 && cell.layer.zPosition==0 &&
+            [previous.videoWrapper.layer.mask.name isEqualToString:@"honggo.video.seam-mask"] &&
+            forwardClip45 > feedHeight + 60 && forwardClip45 < height;
         [feed setContentOffset:CGPointMake(0,40) animated:NO];Layout(feed);
         [scrollDriver scrollViewDidScroll:feed];
         CGFloat snapClip = previous.videoWrapper.layer.mask ? CGRectGetMaxY(previous.videoWrapper.layer.mask.frame) : 0;
         BOOL snapContinuous = previous.layer.zPosition==1 &&
             [previous.videoWrapper.layer.mask.name isEqualToString:@"honggo.video.seam-mask"] &&
-            snapClip > feedHeight && snapClip < feedHeight + 25;
+            snapClip > forwardClip45 && snapClip < height;
         [feed setContentOffset:CGPointMake(0,0) animated:NO];Layout(feed);
         [scrollDriver scrollViewDidScroll:feed];
-        Check(forwardClean && snapContinuous && previous.videoWrapper.layer.mask==nil && previous.layer.zPosition==1,
-            @"a cancelled forward drag avoids jumping on turnaround and clears the seam mask at rest");
+        Check(forwardSmooth && snapContinuous && previous.videoWrapper.layer.mask==nil && previous.layer.zPosition==1,
+            @"forward drag and snap-back follow one symmetric seam without jumping on start or turnaround");
+
+        // Landscape top cell above portrait lower cell (exact device repro):
+        // scrolling down into the landscape page extends its native matte smoothly
+        // across the Dock strip instead of leaving the lower portrait lingering until 0.75pt,
+        // and dragging forward never teleports the lower portrait into the Dock at 1px.
+        UIColor *landscapeMatte = [UIColor colorWithRed:0.06 green:0.06 blue:0.06 alpha:1];
+        [feed setContentOffset:CGPointMake(0, feedHeight) animated:NO]; Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        [feed setContentOffset:CGPointMake(0, 45) animated:NO]; Layout(feed);
+        previous = (id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
+        cell = (id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        previous.videoHeight = width * 9 / 16;
+        previous.canvas.backgroundColor = landscapeMatte;
+        cell.videoHeight = 0; cell.canvas.backgroundColor = UIColor.blackColor;
+        Layout(previous); Layout(previous.renderer);
+        Layout(cell); Layout(cell.renderer);
+        [scrollDriver scrollViewDidScroll:feed];
+        CALayer *topMatte45 = nil;
+        for (CALayer *sub in previous.layer.sublayers)
+            if ([sub.name isEqualToString:@"honggo.video.top-matte"]) { topMatte45 = sub; break; }
+        CGFloat matteMax45 = topMatte45 ? CGRectGetMaxY(topMatte45.frame) : 0;
+        BOOL landscapeRev45 = previous.layer.zPosition == 1 && cell.layer.zPosition == 0 &&
+            topMatte45 != nil && CGColorEqualToColor(topMatte45.backgroundColor, landscapeMatte.CGColor) &&
+            matteMax45 > feedHeight + 60 && matteMax45 < height;
+        [feed setContentOffset:CGPointMake(0, 7) animated:NO]; Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        CGFloat matteMax7 = topMatte45 ? CGRectGetMaxY(topMatte45.frame) : 0;
+        BOOL landscapeRev7 = previous.layer.zPosition == 1 && cell.layer.zPosition == 0 &&
+            topMatte45.superlayer == previous.layer && matteMax7 > height - 2 && matteMax7 < height;
+        [feed setContentOffset:CGPointMake(0, 0) animated:NO]; Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        BOOL landscapeSettled = feed.clipsToBounds && topMatte45.superlayer == nil &&
+            previous.layer.zPosition == 0;
+        [feed setContentOffset:CGPointMake(0, 11) animated:NO]; Layout(feed);
+        previous = (id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
+        cell = (id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        previous.videoHeight = width * 9 / 16; previous.canvas.backgroundColor = landscapeMatte;
+        cell.videoHeight = 0; cell.canvas.backgroundColor = UIColor.blackColor;
+        Layout(previous); Layout(previous.renderer);
+        Layout(cell); Layout(cell.renderer);
+        [scrollDriver scrollViewDidScroll:feed];
+        CALayer *topMatteFwd = nil;
+        for (CALayer *sub in previous.layer.sublayers)
+            if ([sub.name isEqualToString:@"honggo.video.top-matte"]) { topMatteFwd = sub; break; }
+        BOOL landscapeFwd11 = !feed.clipsToBounds && previous.layer.zPosition == 1 &&
+            topMatteFwd != nil && CGRectGetMaxY(topMatteFwd.frame) > height - 3;
+        [feed setContentOffset:CGPointMake(0, 90) animated:NO]; Layout(feed);
+        cell = (id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        Layout(cell); Layout(cell.renderer);
+        [scrollDriver scrollViewDidScroll:feed];
+        BOOL landscapeFwdPast = topMatteFwd.superlayer == nil && cell.layer.zPosition == 1 && previous.layer.zPosition == 0;
+        Check(landscapeRev45 && landscapeRev7 && landscapeSettled && landscapeFwd11 && landscapeFwdPast,
+            @"landscape-above-portrait transitions sweep the landscape matte smoothly across the Dock in both directions without lower-video residue");
+
+        // Portrait above landscape past the Dock zone plus a prefetched third cell:
+        // the outgoing portrait is strictly clipped at feedHeight (cannot bleed over the
+        // landscape cell even when later in subviews) and the prefetched third cell below
+        // the landscape cell is zero-masked so it never leaks behind the Dock before settling.
+        UICollectionViewCell *prefetchedCell = [[UICollectionViewCell alloc] initWithFrame:CGRectMake(0, feedHeight * 2, width, feedHeight)];
+        [feed addSubview:prefetchedCell];
+        [feed setContentOffset:CGPointMake(0, feedHeight - 24) animated:NO]; Layout(feed);
+        previous = (id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
+        cell = (id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        previous.videoHeight = 0; previous.canvas.backgroundColor = UIColor.blackColor;
+        cell.videoHeight = width * 9 / 16; cell.canvas.backgroundColor = landscapeMatte;
+        Layout(previous); Layout(previous.renderer);
+        Layout(cell); Layout(cell.renderer);
+        [feed bringSubviewToFront:previous];
+        [scrollDriver scrollViewDidScroll:feed];
+        CGFloat clippedOutgoing = previous.videoWrapper.layer.mask ? CGRectGetMaxY(previous.videoWrapper.layer.mask.frame) : 0;
+        BOOL prefetchedHidden = [prefetchedCell.layer.mask.name isEqualToString:@"honggo.video.seam-mask"] &&
+            CGColorGetAlpha(prefetchedCell.layer.mask.backgroundColor) == 0;
+        Check([previous.videoWrapper.layer.mask.name isEqualToString:@"honggo.video.seam-mask"] &&
+            fabs(clippedOutgoing - feedHeight) < 0.75 && prefetchedHidden &&
+            previous.layer.zPosition == 0 && cell.layer.zPosition == 0,
+            @"scrolling into a landscape cell clips the previous portrait at its edge and hides prefetched cells below behind the Dock");
+        [feed setContentOffset:CGPointMake(0, feedHeight) animated:NO]; Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        Check(feed.clipsToBounds && prefetchedCell.layer.mask == nil,
+            @"settling on the landscape cell restores feed clipping and clears temporary prefetched cell masks");
+        [prefetchedCell removeFromSuperview];
+        cell = (id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        cell.videoHeight = 0; cell.canvas.backgroundColor = UIColor.blackColor;
+        Layout(cell); Layout(cell.renderer);
+        [feed setContentOffset:CGPointMake(0, 0) animated:NO]; Layout(feed);
+        previous = (id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
+        previous.videoHeight = 0; previous.canvas.backgroundColor = UIColor.blackColor;
+        Layout(previous); Layout(previous.renderer);
+        [scrollDriver scrollViewDidScroll:feed];
 
         // Nested AutoLayout cover container (FQVPlayer -> UIView -> UIImageView,
         // matching 7.4.7's live player tree) expands via container sublayerTransform
