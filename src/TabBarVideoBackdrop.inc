@@ -463,6 +463,17 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     Class gradientClass = HGBackdropResolveClass("FQVShortVideoGradientLayerView", &gradientCache);
     for (UIView *control in canvas.subviews) {
         if (![control isKindOfClass:controlsClass]) continue;
+        UIView *grad = HGView(control, "bottomGradientView");
+        if (grad && [grad isDescendantOfView:control] &&
+            (!gradientClass || [grad isKindOfClass:gradientClass]) &&
+            [grad.layer isKindOfClass:CAGradientLayer.class]) {
+            CGRect frame = [grad convertRect:grad.bounds toView:canvas];
+            if (frame.size.width >= viewport.size.width - 1.5 && frame.size.height > 0.5 &&
+                CGRectGetMaxY(frame) >= CGRectGetMaxY(viewport) - 24.0 &&
+                CGRectGetMinY(frame) >= CGRectGetMidY(viewport)) {
+                return (CAGradientLayer *)grad.layer;
+            }
+        }
         for (UIView *view in control.subviews) {
             if (![view isKindOfClass:gradientClass]) continue;
             CGRect frame = [view convertRect:view.bounds toView:canvas];

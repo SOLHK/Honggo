@@ -14,7 +14,7 @@ static const double DKSiriaiCompactElasticScale = 0.30;
 typedef struct {
     double width, height, centerX, centerY;
     double cameraScale, cameraX, cameraY;
-    double glyphScale, captionAmount, contentAlpha, surfaceAlpha, whiteAmount;
+    double glyphScale, captionAmount, captionScale, iconLift, contentAlpha, surfaceAlpha, whiteAmount;
 } DKSiriaiDockGeometry;
 
 static inline double DKSiriaiSmoothstep(double from, double to, double value) {
@@ -190,9 +190,11 @@ static inline DKSiriaiDockGeometry DKSiriaiDockShape(double capsuleWidth, double
     shape.centerY = bottom - shape.height * 0.5;
     shape.cameraX = shape.centerX + shape.width * 0.5 + (gap + camera * 0.5) * shape.cameraScale;
     shape.cameraY = bottom - camera * shape.cameraScale * 0.5;
-    // 图标保持等比，先靠拢，再随短条收小；标题在图标仍清晰时退出。
+    // 图标保持等比，先靠拢，再随短条收小；标题在原位等比缩淡，图标滞后平滑回中避免重叠。
     shape.glyphScale = (1.0 - q) * (1.0 + 0.78 * q);
     shape.captionAmount = 1.0 - DKSiriaiSmoothstep(0.0, 0.20, q);
+    shape.captionScale = shape.glyphScale * (0.64 + 0.36 * shape.captionAmount);
+    shape.iconLift = 1.0 - DKSiriaiSmoothstep(0.04, 0.26, q);
     shape.contentAlpha = 1.0 - DKSiriaiSmoothstep(0.48, 0.93, p);
     DKSiriaiSetDockMaterial(&shape, progress);
     return shape;
@@ -236,8 +238,9 @@ static const double DKFeedVerticalRatio = 1.2;
 static const double DKSiriaiWhiteningDuration = 0.14;
 static const double DKSiriaiFadeDuration = 0.18;
 static const double DKSiriaiFadeDelay = 1.4;
-static const double DKFeedFluidMaxElastic = 0.042;
-static const double DKFeedFluidMaxDuration = 0.54;
+static const double DKFeedFluidMaxElastic = 0.044;
+static const double DKFeedFluidMaxDuration = 0.53;
+static const double DKFeedBoundaryRubberMax = 0.038;
 
 typedef struct {
     int active;
@@ -258,9 +261,9 @@ static inline DKFeedFluidSpring DKFeedMakeFluidSpring(double from, double goal, 
     double y0 = from - goal;
     if (fabs(y0) < 0.0005 && fabs(v) < 0.01) return sp;
     double d = fmin(1.0, fabs(y0));
-    // 轻拉回位更利落（omega=17.8, T≈0.35s），跨全行程收缩/展开更舒展灵动（omega=15.8, T≈0.40s）。
-    double omega = 17.8 - 2.0 * d;
-    const double zeta = 0.76;
+    // 轻拉回位更利落（omega=17.6, T≈0.36s），跨全行程收缩/展开更舒展灵动（omega=15.8, T≈0.40s）。
+    double omega = 17.6 - 1.8 * d;
+    const double zeta = 0.75;
     double alpha = zeta * omega;
     double omegaD = omega * sqrt(1.0 - zeta * zeta);
     sp.active = 1;
@@ -363,6 +366,8 @@ static inline DKSiriaiDockGeometry DKTikTokDockShape(double capsuleX, double cap
     shape.cameraY = cameraMidY;
     shape.glyphScale = 1.0 - 0.09 * compact;
     shape.captionAmount = 1.0 - DKSiriaiSmoothstep(0.0, 0.80, compact);
+    shape.captionScale = shape.glyphScale * (0.64 + 0.36 * shape.captionAmount);
+    shape.iconLift = 1.0 - DKSiriaiSmoothstep(0.18, 0.95, compact);
     shape.contentAlpha = 1.0;
     shape.surfaceAlpha = 1.0;
     shape.whiteAmount = 0.0;
@@ -641,6 +646,7 @@ static inline int DKFeedSpringBeginDrag(DKFeedSpringState *s, int displayLinkRun
     s->fluidSpring.active = 0;
     s->lastDragDelta = 0.0;
     s->dragReversals = 0;
+    s->lastDragTime = 0.0;
     s->previousInputInterval = 0.0;
     s->inputTimeLeft = 0.0;
     s->dragTarget = DKFeedSpringDisplayedProgress(s);
@@ -667,8 +673,10 @@ static inline int DKFeedSpringMoveDrag(DKFeedSpringState *s, double delta, doubl
         s->dragTarget = shown;
         s->sampleProgress = shown;
     }
-    double lower = fmin(0.0, s->elasticExtent);
-    double upper = 1.0 + fmax(0.0, s->elasticExtent);
+    double rubberLower = -DKFeedBoundaryRubberMax;
+    double rubberUpper = s->siriai ? 1.0 : (1.0 + DKFeedBoundaryRubberMax);
+    double lower = fmin(rubberLower, s->elasticExtent);
+    double upper = fmax(rubberUpper, 1.0 + fmax(0.0, s->elasticExtent));
     double interval = now - s->lastDragTime;
     if (!s->directTracking || reversed) {
         s->previousInputInterval = 0.0;
@@ -684,7 +692,21 @@ static inline int DKFeedSpringMoveDrag(DKFeedSpringState *s, double delta, doubl
         turned = 0;
     }
     s->lastDragTime = now;
-    s->dragTarget = fmin(upper, fmax(lower, s->dragTarget + delta));
+    double nextTarget = s->dragTarget + delta;
+    if (nextTarget < 0.0 && delta < 0.0) {
+        double start = fmin(0.0, s->dragTarget);
+        double beyond = (s->dragTarget > 0.0) ? nextTarget : delta;
+        double room = fmax(0.0, start - lower);
+        double scale = room / fmax(DKFeedBoundaryRubberMax, -lower);
+        nextTarget = start + beyond * 0.24 * scale;
+    } else if (nextTarget > 1.0 && delta > 0.0 && !s->siriai) {
+        double start = fmax(1.0, s->dragTarget);
+        double beyond = (s->dragTarget < 1.0) ? (nextTarget - 1.0) : delta;
+        double room = fmax(0.0, upper - start);
+        double scale = room / fmax(DKFeedBoundaryRubberMax, upper - 1.0);
+        nextTarget = start + beyond * 0.24 * scale;
+    }
+    s->dragTarget = fmin(upper, fmax(lower, nextTarget));
     if (s->dragTarget != shown) {
         if (turned && s->dragReversals < 2) s->dragReversals++;
         if (displayLinkPaused && now - s->lastFrame >= 0.08) {

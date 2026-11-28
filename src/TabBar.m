@@ -52,6 +52,15 @@ static void (*HGOriginalControllerWillAppear)(id, SEL, BOOL);
 static void (*HGOriginalControllerDidAppear)(id, SEL, BOOL);
 static void (*HGOriginalSetAppearance)(id, SEL);
 static void (*HGOriginalResetRatio)(id, SEL, double);
+static void (*HGOriginalApplyBlurVisualStyle)(id, SEL, id);
+static void (*HGOriginalApplyTabBarAppearanceStyle)(id, SEL, id, BOOL, BOOL);
+static void (*HGOriginalApplyAppearanceOverride)(id, SEL, id, BOOL);
+static void (*HGOriginalResetTabBarRatio)(id, SEL, double);
+static void (*HGOriginalResetTabBarRatioForce)(id, SEL, double, BOOL);
+static void (*HGOriginalResetTabBarLegacyRatioForce)(id, SEL, double, BOOL);
+static void (*HGOriginalResetTabBarOptimizedRatio)(id, SEL, double, BOOL, BOOL);
+static void (*HGOriginalSetTabBarBackgroundImage)(id, SEL, id);
+static void (*HGOriginalReseTabBarAlpha)(id, SEL, double);
 static void (*HGOriginalBarLayout)(id, SEL);
 static void (*HGOriginalBarMove)(id, SEL);
 static void (*HGOriginalBarAdd)(id, SEL, UIView *);
@@ -1073,7 +1082,8 @@ static BOOL HGContainsVisibleVerticalPager(UIView *branch, UIView *root) {
             }
         }
         [self clearBackgrounds:bar content:content frame:frame depth:0];
-        const char *names[] = {"backgroundImageView", "lightView", "darkView", "lineView"};
+        const char *names[] = {"backgroundImageView", "lightView", "darkView",
+            "lightNormalView", "darkNormalView", "lightEffectView", "darkEffectView", "lineView"};
         for (NSUInteger index = 0; index < sizeof(names) / sizeof(names[0]); index++) {
             UIView *background = HGView(bar, names[index]);
             if (!background || background == bar || background == content ||
@@ -1388,10 +1398,58 @@ static void HGRefreshBar(UIView *bar) {
         !objc_getAssociatedObject(bar, &HGStateKey)) return;
     [HGState(bar) refresh];
 }
+static void HGTabBarAfterHostAppearanceChange(UIView *bar) {
+    if (HGAppearanceDockEnabled()) {
+        HGAppearanceReclaimDockChrome(bar);
+        BOOL hasDock = NO;
+        for (UIView *child in bar.subviews) {
+            if ([child.accessibilityIdentifier isEqual:@"honggo.appearance.dock"]) { hasDock = YES; break; }
+        }
+        if (!hasDock) HGRefreshBar(bar);
+        return;
+    }
+    if (HGTabBarGlassActive()) HGRefreshBar(bar);
+}
 static void HGResetRatio(id self, SEL cmd, double ratio) {
     HGOriginalResetRatio(self, cmd, ratio);
     if (HGAppearanceDockEnabled()) HGAppearanceReclaimDockChrome(self);
     if (HGTabBarGlassActive() || HGAppearanceDockEnabled()) HGRefreshBar(self);
+}
+static void HGApplyBlurVisualStyle(id self, SEL cmd, id style) {
+    HGOriginalApplyBlurVisualStyle(self, cmd, style);
+    HGTabBarAfterHostAppearanceChange(self);
+}
+static void HGApplyTabBarAppearanceStyle(id self, SEL cmd, id style, BOOL refreshFg, BOOL refreshImg) {
+    HGOriginalApplyTabBarAppearanceStyle(self, cmd, style, refreshFg, refreshImg);
+    HGTabBarAfterHostAppearanceChange(self);
+}
+static void HGApplyAppearanceOverride(id self, SEL cmd, id overrideStyle, BOOL forceRefresh) {
+    HGOriginalApplyAppearanceOverride(self, cmd, overrideStyle, forceRefresh);
+    HGTabBarAfterHostAppearanceChange(self);
+}
+static void HGResetTabBarRatio(id self, SEL cmd, double ratio) {
+    HGOriginalResetTabBarRatio(self, cmd, ratio);
+    HGTabBarAfterHostAppearanceChange(self);
+}
+static void HGResetTabBarRatioForce(id self, SEL cmd, double ratio, BOOL forceRefresh) {
+    HGOriginalResetTabBarRatioForce(self, cmd, ratio, forceRefresh);
+    HGTabBarAfterHostAppearanceChange(self);
+}
+static void HGResetTabBarLegacyRatioForce(id self, SEL cmd, double ratio, BOOL forceRefresh) {
+    HGOriginalResetTabBarLegacyRatioForce(self, cmd, ratio, forceRefresh);
+    HGTabBarAfterHostAppearanceChange(self);
+}
+static void HGResetTabBarOptimizedRatio(id self, SEL cmd, double ratio, BOOL darkMode, BOOL forceRefresh) {
+    HGOriginalResetTabBarOptimizedRatio(self, cmd, ratio, darkMode, forceRefresh);
+    HGTabBarAfterHostAppearanceChange(self);
+}
+static void HGSetTabBarBackgroundImage(id self, SEL cmd, id image) {
+    HGOriginalSetTabBarBackgroundImage(self, cmd, image);
+    HGTabBarAfterHostAppearanceChange(self);
+}
+static void HGReseTabBarAlpha(id self, SEL cmd, double alpha) {
+    HGOriginalReseTabBarAlpha(self, cmd, alpha);
+    HGTabBarAfterHostAppearanceChange(self);
 }
 static void HGBarLayoutSublayers(UIView *self, SEL cmd, CALayer *layer) {
     HGOriginalBarLayoutSublayers(self, cmd, layer);
@@ -1589,6 +1647,15 @@ BOOL HGInstallTabBar(void) {
                 (IMP)HGTheaterOcclusionChanged);
         }
         HGOriginalResetRatio = (void (*)(id, SEL, double))HGReplaceMethod(HGTabBarClass, sel_registerName("resetBlurVisualViewWithRatio:"), "v24@0:8d16", (IMP)HGResetRatio);
+        HGOriginalApplyBlurVisualStyle = (void (*)(id, SEL, id))HGReplaceMethod(HGTabBarClass, sel_registerName("applyBlurVisualStyle:"), "v24@0:8@16", (IMP)HGApplyBlurVisualStyle);
+        HGOriginalApplyTabBarAppearanceStyle = (void (*)(id, SEL, id, BOOL, BOOL))HGReplaceMethod(HGTabBarClass, sel_registerName("applyTabBarAppearanceStyle:refreshForeground:refreshImages:"), "v32@0:8@16B24B28", (IMP)HGApplyTabBarAppearanceStyle);
+        HGOriginalApplyAppearanceOverride = (void (*)(id, SEL, id, BOOL))HGReplaceMethod(HGTabBarClass, sel_registerName("applyAppearanceOverride:forceRefresh:"), "v28@0:8@16B24", (IMP)HGApplyAppearanceOverride);
+        HGOriginalResetTabBarRatio = (void (*)(id, SEL, double))HGReplaceMethod(HGTabBarClass, sel_registerName("resetTabBarWithRatio:"), "v24@0:8d16", (IMP)HGResetTabBarRatio);
+        HGOriginalResetTabBarRatioForce = (void (*)(id, SEL, double, BOOL))HGReplaceMethod(HGTabBarClass, sel_registerName("resetTabBarWithRatio:forceRefresh:"), "v28@0:8d16B24", (IMP)HGResetTabBarRatioForce);
+        HGOriginalResetTabBarLegacyRatioForce = (void (*)(id, SEL, double, BOOL))HGReplaceMethod(HGTabBarClass, sel_registerName("resetTabBarWithLegacyRatio:forceRefresh:"), "v28@0:8d16B24", (IMP)HGResetTabBarLegacyRatioForce);
+        HGOriginalResetTabBarOptimizedRatio = (void (*)(id, SEL, double, BOOL, BOOL))HGReplaceMethod(HGTabBarClass, sel_registerName("resetTabBarWithOptimizedRatio:darkMode:forceRefresh:"), "v32@0:8d16B24B28", (IMP)HGResetTabBarOptimizedRatio);
+        HGOriginalSetTabBarBackgroundImage = (void (*)(id, SEL, id))HGReplaceMethod(HGTabBarClass, sel_registerName("setTabBarBackgroundImage:"), "v24@0:8@16", (IMP)HGSetTabBarBackgroundImage);
+        HGOriginalReseTabBarAlpha = (void (*)(id, SEL, double))HGReplaceMethod(HGTabBarClass, sel_registerName("reseTabBarWithAlpha:"), "v24@0:8d16", (IMP)HGReseTabBarAlpha);
         Class mine = objc_lookUpClass("SSMine737KMPViewController");
         if ([mine isSubclassOfClass:UIViewController.class]) {
             HGOriginalMineLayout = (void (*)(id, SEL))HGReplaceMethod(mine,

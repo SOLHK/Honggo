@@ -1385,14 +1385,12 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     }
     if(bar.opaque)bar.opaque=NO;
     [self hideSource:HGAViewGetter(bar,"contentView",bar)];
-    const char *backdrops[]={"backgroundImageView","lightView","darkView","lineView"};
-    for(NSUInteger i=0;i<4;i++)[self hideSource:HGAViewGetter(bar,backdrops[i],bar)];
+    const char *backdrops[]={"backgroundImageView","lightView","darkView",
+        "lightNormalView","darkNormalView","lightEffectView","darkEffectView","lineView"};
+    for(NSUInteger i=0;i<sizeof(backdrops)/sizeof(backdrops[0]);i++)[self hideSource:HGAViewGetter(bar,backdrops[i],bar)];
     for(UIView *v in bar.subviews) {
         if(v==self || [v isDescendantOfView:self] || [self isDescendantOfView:v])continue;
-        if([v.accessibilityIdentifier isEqual:@"honggo.tabbar.glass"] ||
-            [v isKindOfClass:UIVisualEffectView.class]) {
-            [self hideSource:v];
-        }
+        [self hideSource:v];
     }
 }
 - (void)refresh {
@@ -2778,14 +2776,22 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
 }
 
 - (void)applyFeedItemsScaleX:(CGFloat)sx scaleY:(CGFloat)sy glyphScale:(CGFloat)glyphScale
-    captionAmount:(CGFloat)captionAmount contentAlpha:(CGFloat)contentAlpha {
+    captionAmount:(CGFloat)captionAmount captionScale:(CGFloat)captionScale
+    iconLift:(CGFloat)iconLift contentAlpha:(CGFloat)contentAlpha {
+    CGFloat safeGlyph=MAX(0.001,glyphScale);
+    CGFloat safeCapScale=MAX(0.001,captionScale);
+    CGFloat capAlpha=(captionAmount>0.0 ? pow(captionAmount,1.35) : 0.0)*contentAlpha;
     if(self.systemDockActive) {
-        CATransform3D iconOnly=CATransform3DMakeScale(glyphScale/sx,glyphScale/sy,1.0);
+        CATransform3D iconOnly=CATransform3DMakeScale(safeGlyph/sx,safeGlyph/sy,1.0);
         CATransform3D withCaption=iconOnly;
-        withCaption.m42=-7.0*captionAmount/sy;
+        CGFloat iconRelY=-7.0*iconLift;
+        withCaption.m42=iconRelY/sy;
         CGAffineTransform text=CGAffineTransformIdentity;
         if(captionAmount>0.0) {
-            text=CGAffineTransformMake(1.0/glyphScale,0,0,1.0/glyphScale,0,(13.0-withCaption.m42)/withCaption.m22);
+            CGFloat captionRelY=MAX(12.2+0.8*captionAmount,iconRelY+10.5*safeGlyph+6.0*safeCapScale+1.2);
+            CGFloat capLocalScale=safeCapScale/safeGlyph;
+            CGFloat capLocalY=(captionRelY-iconRelY)/safeGlyph;
+            text=CGAffineTransformMake(capLocalScale,0,0,capLocalScale,0,capLocalY);
         }
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
@@ -2797,7 +2803,6 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
             if(layer && !CATransform3DEqualToTransform(layer.sublayerTransform,contents))layer.sublayerTransform=contents;
             if(part.icon && part.icon.alpha!=contentAlpha)part.icon.alpha=contentAlpha;
             if(hasCaption) {
-                CGFloat capAlpha=captionAmount*contentAlpha;
                 if(caption.alpha!=capAlpha)caption.alpha=capAlpha;
                 if(captionAmount>0.0 && !CGAffineTransformEqualToTransform(caption.transform,text))caption.transform=text;
             }
@@ -2815,26 +2820,29 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         CGFloat pressBoost=(self.motionGlyph==b && !UIAccessibilityIsReduceMotionEnabled()) ? 1.14 : 1.0;
         if(hasImage && hasTitle) {
             CGFloat titleHeight=MIN(CGRectGetHeight(b.bounds)-4.0,ceil(b.titleLabel.font.lineHeight));
-            CGFloat iconShiftY=((titleHeight+2.0)*0.5)*(1.0-captionAmount);
-            CGAffineTransform iconTx=CGAffineTransformMake((glyphScale*pressBoost)/sx,0.0,0.0,
-                (glyphScale*pressBoost)/sy,0.0,iconShiftY);
+            CGFloat nativeIconY=-((titleHeight+2.0)*0.5);
+            CGFloat iconScreenY=nativeIconY*iconLift;
+            CGFloat iconShiftY=iconScreenY/sy-nativeIconY;
+            CGAffineTransform iconTx=CGAffineTransformMake((safeGlyph*pressBoost)/sx,0.0,0.0,
+                (safeGlyph*pressBoost)/sy,0.0,iconShiftY);
             if(!CGAffineTransformEqualToTransform(b.imageView.transform,iconTx))b.imageView.transform=iconTx;
             if(b.imageView.alpha!=contentAlpha)b.imageView.alpha=contentAlpha;
 
             CGFloat glyphH=CGRectGetHeight(b.imageView.bounds);
-            CGFloat titleOffset=(glyphH+2.0)*0.5;
-            CGFloat titleShiftY=titleOffset*(captionAmount/sy-1.0);
-            CGAffineTransform titleTx=CGAffineTransformMake(1.0/sx,0.0,0.0,1.0/sy,0.0,titleShiftY);
-            CGFloat capAlpha=captionAmount*contentAlpha;
+            CGFloat nativeTitleY=(glyphH+2.0)*0.5;
+            CGFloat targetTitleY=MAX(nativeTitleY*(0.94+0.06*captionAmount),
+                iconScreenY+(glyphH*safeGlyph+titleHeight*safeCapScale)*0.5+1.5);
+            CGFloat titleShiftY=targetTitleY/sy-nativeTitleY;
+            CGAffineTransform titleTx=CGAffineTransformMake(safeCapScale/sx,0.0,0.0,safeCapScale/sy,0.0,titleShiftY);
             if(b.titleLabel.alpha!=capAlpha)b.titleLabel.alpha=capAlpha;
             if(capAlpha>0.0 && !CGAffineTransformEqualToTransform(b.titleLabel.transform,titleTx))b.titleLabel.transform=titleTx;
         } else if(hasImage) {
-            CGAffineTransform iconTx=CGAffineTransformMakeScale((glyphScale*pressBoost)/sx,(glyphScale*pressBoost)/sy);
+            CGAffineTransform iconTx=CGAffineTransformMakeScale((safeGlyph*pressBoost)/sx,(safeGlyph*pressBoost)/sy);
             if(!CGAffineTransformEqualToTransform(b.imageView.transform,iconTx))b.imageView.transform=iconTx;
             if(b.imageView.alpha!=contentAlpha)b.imageView.alpha=contentAlpha;
         } else if(hasTitle) {
             CGFloat textBoost=(self.motionGlyph==b && !UIAccessibilityIsReduceMotionEnabled()) ? 1.06 : 1.0;
-            CGAffineTransform titleTx=CGAffineTransformMakeScale((glyphScale*textBoost)/sx,(glyphScale*textBoost)/sy);
+            CGAffineTransform titleTx=CGAffineTransformMakeScale((safeGlyph*textBoost)/sx,(safeGlyph*textBoost)/sy);
             if(!CGAffineTransformEqualToTransform(b.titleLabel.transform,titleTx))b.titleLabel.transform=titleTx;
             if(b.titleLabel.alpha!=contentAlpha)b.titleLabel.alpha=contentAlpha;
         }
@@ -2907,7 +2915,9 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
             if(carrier.accessibilityElementsHidden!=hideCarrierA11y)carrier.accessibilityElementsHidden=hideCarrierA11y;
         }
         CGFloat glyphScale=MAX(0.001,shape.glyphScale);
-        [self applyFeedItemsScaleX:sx scaleY:sy glyphScale:glyphScale captionAmount:shape.captionAmount contentAlpha:shape.contentAlpha];
+        CGFloat captionScale=MAX(0.001,shape.captionScale);
+        [self applyFeedItemsScaleX:sx scaleY:sy glyphScale:glyphScale captionAmount:shape.captionAmount
+            captionScale:captionScale iconLift:shape.iconLift contentAlpha:shape.contentAlpha];
         if(hasExtra) {
             CGFloat cameraScale=MAX(0.001,shape.cameraScale);
             self.feedExtraScale=cameraScale;
@@ -2950,7 +2960,8 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
             target.y+(self.feedSystemCarrierAtRest.y-pivot.y)*sy);
         HGADockSetViewGeometry(carrier,CGAffineTransformMakeScale(self.feedSystemBaseScale*sx,self.feedSystemBaseScale*sy),carrierCenter);
     }
-    [self applyFeedItemsScaleX:sx scaleY:sy glyphScale:shape.glyphScale captionAmount:shape.captionAmount contentAlpha:1.0];
+    [self applyFeedItemsScaleX:sx scaleY:sy glyphScale:shape.glyphScale captionAmount:shape.captionAmount
+        captionScale:shape.captionScale iconLift:shape.iconLift contentAlpha:1.0];
     if(hasExtra) {
         CGFloat cameraScale=MAX(0.001,shape.cameraScale);
         self.feedExtraScale=cameraScale;
@@ -3062,7 +3073,10 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
 }
 
 - (BOOL)beginFeedDrag {
-    if(![self usesFeedMotion] || !self.window || self.hidden || self.sidebarSuspended)return NO;
+    if(!self.window || self.hidden || self.sidebarSuspended)return NO;
+    if(self.appliedCollapseMode!=HGACurrentDockCollapseMode() || CGRectIsEmpty(self.feedCapsuleAtRest))
+        [self refresh];
+    if(![self usesFeedMotion] || CGRectIsEmpty(self.feedCapsuleAtRest))return NO;
     [self clearSelectionDrag];
     BOOL running=self.feedDisplayLink && !self.feedDisplayLink.paused;
     int direct=DKFeedSpringBeginDrag(&_feedSpring,running ? 1 : 0);
@@ -3391,11 +3405,10 @@ static char HGAFollowsFeed;
                                          insets.top,insets.bottom,
                                          (feed.alwaysBounceVertical || isVideoFeed) ? 1 : 0,
                                          CGRectGetMinX(barInWin),CGRectGetWidth(barInWin)))continue;
-        if(CGRectIsEmpty(dock.feedCapsuleAtRest)) {
-            [dock setNeedsLayout];
-            [dock layoutIfNeeded];
+        if(dock.appliedCollapseMode!=HGACurrentDockCollapseMode() || CGRectIsEmpty(dock.feedCapsuleAtRest)) {
+            [dock refresh];
         }
-        if(CGRectIsEmpty(dock.feedCapsuleAtRest))continue;
+        if(![dock usesFeedMotion] || CGRectIsEmpty(dock.feedCapsuleAtRest))continue;
         return dock;
     }
     return nil;
@@ -3446,6 +3459,9 @@ static char HGAFollowsFeed;
             if(state==UIGestureRecognizerStateBegan)[self cancelFeedPan];
             else return;
         }
+    }
+    if(_panState.active && (state==UIGestureRecognizerStateBegan || !self.activeGesture || !self.activeDock)) {
+        [self cancelFeedPan];
     }
     if(!_panState.active) {
         if(state!=UIGestureRecognizerStateBegan && state!=UIGestureRecognizerStateChanged)return;
@@ -3511,4 +3527,18 @@ static void HGAObserveFeed(UIScrollView *feed) {
             [HGADockScrollObserver.shared cancelFeedPan];
     }
     objc_setAssociatedObject(feed,&HGAFollowsFeed,@(enabled),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static void HGAEnsureFeedObserved(UIScrollView *feed, BOOL forwardActiveGesture) {
+    if(![feed isKindOfClass:UIScrollView.class] || [feed isKindOfClass:UITextView.class])return;
+    HGAObserveFeed(feed);
+    if(!forwardActiveGesture || !feed.window)return;
+    HGADockCollapseMode mode=HGACurrentDockCollapseMode();
+    if(!HGAppearanceDockEnabled() || !HGADockUsesFeedMotionMode(mode))return;
+    UIPanGestureRecognizer *pan=feed.panGestureRecognizer;
+    if(!pan)return;
+    UIGestureRecognizerState st=pan.state;
+    if((st==UIGestureRecognizerStateBegan || st==UIGestureRecognizerStateChanged) &&
+        HGADockScrollObserver.shared.activeGesture!=pan) {
+        [HGADockScrollObserver.shared pan:pan];
+    }
 }

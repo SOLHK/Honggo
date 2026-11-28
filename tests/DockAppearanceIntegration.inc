@@ -1530,11 +1530,30 @@ static void HGRunDockFeedMotionChecks(SSTabBarController *host) {
         fabs(CGRectGetWidth([capsule convertRect:capsule.bounds toView:dock]) - CGRectGetWidth(expCap)) < 0.5,
         @"slight gentle upward lift springs back smoothly to expanded TikTok Dock instead of collapsing");
 
-    // Upward vertical drag shrinks group to 81% x 80%, icons to 91% uniform, fades captions, keeps material & clickability.
+    // Mid-collapse check: captions shrink uniformly IN PLACE below icons with zero overlap.
     pan.fixtureTranslation = CGPointZero;
     pan.fixtureState = UIGestureRecognizerStateBegan;
     [observer pan:pan];
-    for (NSNumber *ty in @[@-6, @-60, @-130, @-200]) {
+    for (NSNumber *ty in @[@-6, @-45, @-85]) {
+        pan.fixtureTranslation = CGPointMake(0, ty.doubleValue);
+        pan.fixtureState = UIGestureRecognizerStateChanged;
+        [observer pan:pan];
+        HGStepDockFeedSpring(dock, 1.0 / 60.0, &clock);
+    }
+    HGStepDockFeedSpring(dock, 0.08, &clock);
+    CGRect midCap = [capsule convertRect:capsule.bounds toView:dock];
+    CGFloat midScaleX = CGRectGetWidth(midCap) / CGRectGetWidth(expCap);
+    CGFloat midScaleY = CGRectGetHeight(midCap) / CGRectGetHeight(expCap);
+    CGRect midIcon = [home.imageView convertRect:home.imageView.bounds toView:dock];
+    CGRect midTitle = [home.titleLabel convertRect:home.titleLabel.bounds toView:dock];
+    CGFloat titleWorldX = home.titleLabel.transform.a * midScaleX;
+    CGFloat titleWorldY = home.titleLabel.transform.d * midScaleY;
+    Check(CGRectGetMinY(midTitle) >= CGRectGetMaxY(midIcon) - 0.5 &&
+        titleWorldX < 0.96 && titleWorldX > 0.55 &&
+        fabs(titleWorldX - titleWorldY) < 0.015 &&
+        home.titleLabel.alpha > 0.0 && home.titleLabel.alpha < 0.95,
+        @"mid-collapse scales captions down uniformly in place below icons without overlapping");
+    for (NSNumber *ty in @[@-130, @-200]) {
         pan.fixtureTranslation = CGPointMake(0, ty.doubleValue);
         pan.fixtureState = UIGestureRecognizerStateChanged;
         [observer pan:pan];
@@ -1714,6 +1733,45 @@ static void HGRunDockFeedMotionChecks(SSTabBarController *host) {
     HGStepDockFeedSpring(dock, 0.75, &clock);
     Check([dock isFeedCompact] && [dock feedControlsHidden],
         @"Siri AI Dock collapse works on Mine tab (tab 3) with visible Dock");
+
+    // Same-gesture stale active pan (interrupted without Ended/Cancelled) must recover on the very first new swipe.
+    host.selectedIndex = 0;
+    HGAppearanceApply(@{@"dock.collapseMode": @"tiktok", @"dock.siriaiHideLine": @NO}, nil);
+    HGAppearanceLayoutDock(bar, host);
+    [dock setFeedCompact:NO animated:NO];
+    pan.fixtureView = feed;
+    pan.fixtureTranslation = CGPointZero;
+    pan.fixtureState = UIGestureRecognizerStateBegan;
+    [observer pan:pan];
+    pan.fixtureTranslation = CGPointMake(0, -25);
+    pan.fixtureState = UIGestureRecognizerStateChanged;
+    [observer pan:pan];
+    // Start a brand-new pan on the same gesture without ever delivering Ended/Cancelled for the previous one.
+    pan.fixtureTranslation = CGPointZero;
+    pan.fixtureState = UIGestureRecognizerStateBegan;
+    [observer pan:pan];
+    for (NSNumber *ty in @[@-8, @-80, @-170]) {
+        pan.fixtureTranslation = CGPointMake(0, ty.doubleValue);
+        pan.fixtureState = UIGestureRecognizerStateChanged;
+        [observer pan:pan];
+        HGStepDockFeedSpring(dock, 1.0 / 60.0, &clock);
+    }
+    pan.fixtureVelocity = CGPointMake(0, -420);
+    pan.fixtureState = UIGestureRecognizerStateEnded;
+    [observer pan:pan];
+    HGStepDockFeedSpring(dock, 0.55, &clock);
+    Check([dock isFeedCompact],
+        @"first swipe after an interrupted same-gesture pan resets stale state and collapses Dock immediately");
+
+    // Host dark shade subview (modeling 7.4.7 darkNormalView reappearing on cold start / scroll) is hidden by reclaim.
+    UIView *hostDarkVeil = [[UIView alloc] initWithFrame:bar.bounds];
+    hostDarkVeil.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
+    [bar insertSubview:hostDarkVeil belowSubview:dock];
+    hostDarkVeil.hidden = NO;
+    HGAppearanceReclaimDockChrome(bar);
+    Check(hostDarkVeil.hidden,
+        @"reclaiming host chrome hides newly mounted dark SSTabBar shade views behind the floating Dock");
+    [hostDarkVeil removeFromSuperview];
 
     [horizontalPager removeFromSuperview];
     [theaterScroll removeFromSuperview];

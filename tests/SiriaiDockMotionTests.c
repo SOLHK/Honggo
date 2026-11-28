@@ -603,6 +603,86 @@ static void check_scroll_geometry_eligibility(void) {
     assert(DKFeedScrollGeometryEligible(393.0, 852.0, 0.0, 393.0, 640.0, 393.0, 640.0, 393.0, 1600.0, 0.0, 0.0, 1, 240.0, 393.0) == 0);
 }
 
+static void check_inplace_caption_scale_and_boundary_rubber_band(void) {
+    // Verify in-place caption scaling, lagged icon centering, and zero icon/caption overlap
+    // across all progress values in both TikTok and Siri AI modes.
+    double prevTikTokCapScale = 1.0, prevTikTokIconLift = 1.0;
+    double prevSiriaiCapScale = 1.0, prevSiriaiIconLift = 1.0;
+    for (int i = 0; i <= 1000; i++) {
+        double p = i / 1000.0;
+        DKSiriaiDockGeometry tt = DKTikTokDockShape(20.0, 12.0, 282.0, 58.0, 41.0, 56.0, 12.0, 3, p);
+        assert(tt.captionScale <= prevTikTokCapScale + 1e-9 && tt.iconLift <= prevTikTokIconLift + 1e-9);
+        assert(tt.iconLift >= 0.0 && tt.iconLift <= 1.0);
+        if (tt.captionAmount > 0.0) {
+            double iconY = -7.0 * tt.iconLift;
+            double capY = fmax(12.2 + 0.8 * tt.captionAmount, iconY + 10.5 * tt.glyphScale + 6.0 * tt.captionScale + 1.2);
+            assert((capY - 6.0 * tt.captionScale) - (iconY + 10.5 * tt.glyphScale) > 1.0);
+        }
+        prevTikTokCapScale = tt.captionScale;
+        prevTikTokIconLift = tt.iconLift;
+
+        DKSiriaiDockGeometry sa = DKSiriaiDockShape(324.0, 62.0, 0.0, 0.0, 83.0, p);
+        assert(sa.captionScale <= prevSiriaiCapScale + 1e-9 && sa.iconLift <= prevSiriaiIconLift + 1e-9);
+        assert(sa.iconLift >= 0.0 && sa.iconLift <= 1.0);
+        if (sa.captionAmount > 0.0) {
+            double iconY = -7.0 * sa.iconLift;
+            double capY = fmax(12.2 + 0.8 * sa.captionAmount, iconY + 10.5 * sa.glyphScale + 6.0 * sa.captionScale + 1.2);
+            assert((capY - 6.0 * sa.captionScale) - (iconY + 10.5 * sa.glyphScale) > 1.0);
+        }
+        prevSiriaiCapScale = sa.captionScale;
+        prevSiriaiIconLift = sa.iconLift;
+    }
+    DKSiriaiDockGeometry ttMid = DKTikTokDockShape(20.0, 12.0, 282.0, 58.0, 41.0, 56.0, 12.0, 3, 0.40);
+    assert(ttMid.captionScale < ttMid.glyphScale && ttMid.captionScale > 0.70);
+    assert(ttMid.iconLift > ttMid.captionAmount);
+
+    // Boundary rubber-band breathing at expanded (0.0) and compact (1.0) in TikTok mode,
+    // and clean post-idle drag after long inactivity.
+    {
+        DKFeedSpringState s;
+        DKFeedSpringInit(&s);
+        s.lastDragTime = 10.0;
+        assert(!DKFeedSpringBeginDrag(&s, 0));
+        assert(s.lastDragTime == 0.0);
+        assert(DKFeedSpringMoveDrag(&s, -0.25, 3600.0, 1.0 / 120.0, 0));
+        assert(s.dragTarget < 0.0 && s.dragTarget >= -DKFeedBoundaryRubberMax - 1e-9);
+        double progress = 0.0, t = 3600.0;
+        int finished = 0, startLink = 0, scheduleFade = 0, apply = 0;
+        for (int i = 0; i < 10; i++) {
+            DKFeedSpringAdvance(&s, t, t + 1.0 / 120.0, 0, &progress, &apply, &scheduleFade);
+            t += 1.0 / 120.0;
+        }
+        assert(s.overtravel < -0.002);
+        DKFeedSpringEndDrag(&s, 0, 0.0, t, 1.0 / 120.0, 1, 1, &progress, &finished, &startLink, &scheduleFade);
+        assert(!finished && startLink);
+        for (int i = 0; i < 90; i++) {
+            DKFeedAdvanceResult r = DKFeedSpringAdvance(&s, t, t + 1.0 / 120.0, 0, &progress, &apply, &scheduleFade);
+            t += 1.0 / 120.0;
+            if (r == DKFeedAdvanceFinished) { finished = 1; break; }
+        }
+        assert(finished && fabs(DKFeedSpringDisplayedProgress(&s)) < 1e-9);
+    }
+    // TikTok compact upward rubber-band breathes gently past 1.0; Siri AI compact stays silent at 1.0.
+    {
+        DKFeedSpringState tt;
+        DKFeedSpringInit(&tt);
+        tt.compact = 1;
+        tt.progress = 1.0;
+        DKFeedSpringBeginDrag(&tt, 0);
+        assert(DKFeedSpringMoveDrag(&tt, 0.20, 1.0, 1.0 / 120.0, 0));
+        assert(tt.dragTarget > 1.0 && tt.dragTarget <= 1.0 + DKFeedBoundaryRubberMax + 1e-9);
+
+        DKFeedSpringState sa;
+        DKFeedSpringInit(&sa);
+        sa.siriai = 1;
+        sa.compact = 1;
+        sa.progress = DKSiriaiWhiteProgress;
+        DKFeedSpringBeginDrag(&sa, 0);
+        assert(!DKFeedSpringMoveDrag(&sa, 0.20, 1.0, 1.0 / 120.0, 0));
+        assert(sa.dragTarget == 1.0);
+    }
+}
+
 int main(void) {
     check_centered_dock(440.0, 324.0, 62.0, 0.0, 83.0);
     check_centered_dock(375.0, 254.0, 62.0, 52.0, 80.0);
@@ -632,6 +712,7 @@ int main(void) {
     check_fluid_spring_slight_pull_and_release(120.0);
     check_spring_material_lifecycle_and_hittest();
     check_scroll_geometry_eligibility();
+    check_inplace_caption_scale_and_boundary_rubber_band();
     puts("PASS: Honggo DYe TikTok + Siri AI motion, gesture state machine, detached module sync, and hit-test pass-through");
     return 0;
 }

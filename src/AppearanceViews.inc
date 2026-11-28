@@ -987,6 +987,10 @@ void HGAppearanceProcessView(UIView *view) {
             }
             return;
         }
+        if([view isKindOfClass:objc_lookUpClass("FQVShortVideoGradientLayerView")]) {
+            if(view.window)HGRefreshVideoBackdropForPlayer(view);
+            return;
+        }
         if([view isKindOfClass:objc_lookUpClass("FQVShortVideoVPlayerSingleSeriesControlView")]) {
             HGRefreshVideoBackdropForPlayer(view);return;
         }

@@ -20,6 +20,7 @@ static NSHashTable<UIView *> *HGABars;
 static void HGARefreshAssets(void);
 static void HGAApplyTypography(UIView *root);
 static void HGAObserveFeed(UIScrollView *feed);
+static void HGAEnsureFeedObserved(UIScrollView *feed, BOOL forwardActiveGesture);
 static void HGAUpdateFeedProgressWidth(UIView *view);
 static void HGARegisterCategoryFeed(UIScrollView *feed);
 static void HGARefreshDock(UIView *bar);
@@ -57,8 +58,10 @@ void HGScheduleFeedLayoutRefresh(UIScrollView *feed) {
 }
 
 static void HGARefreshBackdropDuringScroll(id scroll) {
-    if ([scroll isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class])
+    if ([scroll isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class]) {
+        HGAEnsureFeedObserved(scroll, YES);
         HGRefreshVideoBackdropForFeed(scroll);
+    }
 }
 static void HGARefreshBackdropAfterScroll(id scroll) {
     if ([scroll isKindOfClass:objc_lookUpClass("FQVCollectionView")] && [scroll isKindOfClass:UIScrollView.class]) {
@@ -203,6 +206,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
     BOOL playComponent=[className isEqual:@"FQVShortVideoListVCPlayComponent"];
     BOOL scrubClipping=[className isEqual:@"FQVShortVideoVPlayerControlView"] &&
         selector==sel_registerName("handleOutterFeedClipBounds:");
+    BOOL resetBottomGradient=[className isEqual:@"FQVShortVideoVPlayerControlView"] &&
+        selector==sel_registerName("resetBottomGradientViewHiddenStatus");
     BOOL progressStyle=[className isEqual:@"FQVShortVideoProgressView"] &&
         selector==sel_registerName("updateProgressViewWithActivatedState:");
     BOOL episode=[HGAViewRoles()[className] isEqual:@"episodes"];
@@ -385,6 +390,10 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 }
                 return;
             }
+            if(resetBottomGradient) {
+                if([(UIView *)object window] && !HGAApplying)HGRefreshVideoBackdropForPlayer(object);
+                return;
+            }
             if(backdropChange) {
                 if(!HGAApplying) {
                     UIView *target=object;
@@ -496,7 +505,8 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 }
             }
             else if(scrollComponent) {
-                if(selector==@selector(scrollViewDidScroll:))HGARefreshBackdropDuringScroll(argument);
+                if(selector==@selector(scrollViewWillBeginDragging:))HGAEnsureFeedObserved(argument,YES);
+                else if(selector==@selector(scrollViewDidScroll:))HGARefreshBackdropDuringScroll(argument);
                 else HGARefreshBackdropAfterScroll(argument);
             }
             else if(controller)HGAppearanceProcessController(object);
@@ -766,7 +776,7 @@ void HGInstallAppearance(void) {
         [classes addObject:@"FQVTransitionPlayerTopContentView"];
         [classes addObject:@"FQVShortVideoVPlayerSingleSeriesControlView"];
         [classes addObjectsFromArray:@[@"SSShortVideoDistributionContentView",@"SSShortVideoDistributionContentBaseView",@"SSShortVideoRecommendPeopleCardView"]];
-        [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"FQVPlayer",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar",@"FQVShortVideoBaseInsertView"]];
+        [classes addObjectsFromArray:@[@"FQVShortVideoPlayerCellView",@"FQVPlayer",@"TTPlayerView",@"FQVCollectionView",@"SSTabBar",@"FQVShortVideoBaseInsertView",@"FQVShortVideoGradientLayerView"]];
         for (NSString *name in classes) {
             Class cls=NSClassFromString(name);
             if (![cls isSubclassOfClass:UIView.class]) {
@@ -827,6 +837,8 @@ void HGInstallAppearance(void) {
                 }
                 if(class_getInstanceMethod(cls,sel_registerName("playerPlaybackStateDidChanged:")))
                     HGAHook(cls,sel_registerName("playerPlaybackStateDidChanged:"),"v24@0:8q16",NO);
+                if(class_getInstanceMethod(cls,sel_registerName("resetBottomGradientViewHiddenStatus")))
+                    HGAHook(cls,sel_registerName("resetBottomGradientViewHiddenStatus"),"v16@0:8",NO);
             }
             if([name isEqual:@"FQVShortVideoProgressView"] && class_getInstanceMethod(cls,sel_registerName("updateProgressViewWithActivatedState:")))
                 HGAHook(cls,sel_registerName("updateProgressViewWithActivatedState:"),"v24@0:8Q16",NO);
@@ -997,6 +1009,8 @@ void HGInstallAppearance(void) {
             HGAHook(categoryPager,sel_registerName("listDidAppear:"),"v24@0:8q16",NO);
         }
         if(scrollComponent) {
+            if(class_getInstanceMethod(scrollComponent,@selector(scrollViewWillBeginDragging:)))
+                HGAHook(scrollComponent,@selector(scrollViewWillBeginDragging:),"v24@0:8@16",NO);
             HGAHook(scrollComponent,@selector(scrollViewDidScroll:),"v24@0:8@16",NO);
             HGAHook(scrollComponent,@selector(scrollViewDidEndDecelerating:),"v24@0:8@16",NO);
             HGAHook(scrollComponent,@selector(scrollViewDidEndScrollingAnimation:),"v24@0:8@16",NO);
