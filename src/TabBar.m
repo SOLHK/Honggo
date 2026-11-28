@@ -61,6 +61,9 @@ static void (*HGOriginalResetTabBarLegacyRatioForce)(id, SEL, double, BOOL);
 static void (*HGOriginalResetTabBarOptimizedRatio)(id, SEL, double, BOOL, BOOL);
 static void (*HGOriginalSetTabBarBackgroundImage)(id, SEL, id);
 static void (*HGOriginalReseTabBarAlpha)(id, SEL, double);
+static void (*HGOriginalUpdateTabBarAppearance)(id, SEL, id, id, id, id, id, BOOL);
+static void (*HGOriginalSetHideLine)(id, SEL, BOOL);
+static void (*HGOriginalSetSelectedItemForceSync)(id, SEL, id, BOOL);
 static void (*HGOriginalBarLayout)(id, SEL);
 static void (*HGOriginalBarMove)(id, SEL);
 static void (*HGOriginalBarAdd)(id, SEL, UIView *);
@@ -1451,6 +1454,19 @@ static void HGReseTabBarAlpha(id self, SEL cmd, double alpha) {
     HGOriginalReseTabBarAlpha(self, cmd, alpha);
     HGTabBarAfterHostAppearanceChange(self);
 }
+static void HGUpdateTabBarAppearance(id self, SEL cmd, id textColor, id selectedTextColor,
+        id bgColor, id imgColor, id selectedImgColor, BOOL refreshImages) {
+    HGOriginalUpdateTabBarAppearance(self, cmd, textColor, selectedTextColor, bgColor, imgColor, selectedImgColor, refreshImages);
+    HGTabBarAfterHostAppearanceChange(self);
+}
+static void HGSetHideLine(id self, SEL cmd, BOOL hideLine) {
+    HGOriginalSetHideLine(self, cmd, hideLine);
+    HGTabBarAfterHostAppearanceChange(self);
+}
+static void HGSetSelectedItemForceSync(id self, SEL cmd, id item, BOOL forceSync) {
+    HGOriginalSetSelectedItemForceSync(self, cmd, item, forceSync);
+    HGTabBarAfterHostAppearanceChange(self);
+}
 static void HGBarLayoutSublayers(UIView *self, SEL cmd, CALayer *layer) {
     HGOriginalBarLayoutSublayers(self, cmd, layer);
     if (layer == self.layer && layer.mask && (HGTabBarGlassActive() || HGAppearanceDockEnabled()))
@@ -1656,6 +1672,9 @@ BOOL HGInstallTabBar(void) {
         HGOriginalResetTabBarOptimizedRatio = (void (*)(id, SEL, double, BOOL, BOOL))HGReplaceMethod(HGTabBarClass, sel_registerName("resetTabBarWithOptimizedRatio:darkMode:forceRefresh:"), "v32@0:8d16B24B28", (IMP)HGResetTabBarOptimizedRatio);
         HGOriginalSetTabBarBackgroundImage = (void (*)(id, SEL, id))HGReplaceMethod(HGTabBarClass, sel_registerName("setTabBarBackgroundImage:"), "v24@0:8@16", (IMP)HGSetTabBarBackgroundImage);
         HGOriginalReseTabBarAlpha = (void (*)(id, SEL, double))HGReplaceMethod(HGTabBarClass, sel_registerName("reseTabBarWithAlpha:"), "v24@0:8d16", (IMP)HGReseTabBarAlpha);
+        HGOriginalUpdateTabBarAppearance = (void (*)(id, SEL, id, id, id, id, id, BOOL))HGReplaceMethod(HGTabBarClass, sel_registerName("updateTabBarAppearanceWithTextColor:selectedTextColor:bgColor:imgColor:selectedImgColor:refreshImages:"), "v60@0:8@16@24@32@40@48B56", (IMP)HGUpdateTabBarAppearance);
+        HGOriginalSetHideLine = (void (*)(id, SEL, BOOL))HGReplaceMethod(HGTabBarClass, sel_registerName("setHideLine:"), "v20@0:8B16", (IMP)HGSetHideLine);
+        HGOriginalSetSelectedItemForceSync = (void (*)(id, SEL, id, BOOL))HGReplaceMethod(HGTabBarClass, sel_registerName("setSelectedItem:forceSyncAppearance:"), "v28@0:8@16B24", (IMP)HGSetSelectedItemForceSync);
         Class mine = objc_lookUpClass("SSMine737KMPViewController");
         if ([mine isSubclassOfClass:UIViewController.class]) {
             HGOriginalMineLayout = (void (*)(id, SEL))HGReplaceMethod(mine,

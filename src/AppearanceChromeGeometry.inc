@@ -20,6 +20,7 @@ API_AVAILABLE(ios(26.0))
 @property(nonatomic,copy) NSArray<UIButton *> *buttons;
 @property(nonatomic,strong) UIView *railSurface;
 @property(nonatomic,strong) HGAAppearanceMaterial *rail;
+@property(nonatomic) HGASelectionColorMode selectionColor;
 - (instancetype)initWithTitles:(NSArray<NSString *> *)titles material:(NSString *)material;
 @end
 @implementation HGAHeaderGlassChannels
@@ -75,10 +76,26 @@ API_AVAILABLE(ios(26.0))
     self.rail.materialCornerRadius=radius;
     if (self.rail.layer.cornerRadius!=radius) self.rail.layer.cornerRadius=radius;
 }
+- (void)setSelectionColor:(HGASelectionColorMode)selectionColor {
+    if (_selectionColor==selectionColor) return;
+    _selectionColor=selectionColor;
+    BOOL matte=selectionColor==HGASelectionColorSoftRoseMist;
+    UIColor *selectedInk=matte ? HGASoftRoseMistInkColor() : UIColor.whiteColor;
+    for (UIButton *button in self.buttons) {
+        [button setTitleColor:selectedInk forState:UIControlStateSelected];
+        [button setTitleColor:matte ? selectedInk : [UIColor.whiteColor colorWithAlphaComponent:0.86]
+            forState:UIControlStateSelected|UIControlStateHighlighted];
+    }
+}
 - (void)applySelection:(BOOL)selected toButton:(UIButton *)button {
     button.selected=selected;
     button.accessibilityTraits=UIAccessibilityTraitButton | (selected ? UIAccessibilityTraitSelected : 0);
     button.titleLabel.font=[UIFont systemFontOfSize:HGAChannelTitleSize weight:selected ? UIFontWeightSemibold : UIFontWeightMedium];
+    BOOL matte=self.selectionColor==HGASelectionColorSoftRoseMist;
+    UIColor *selectedInk=matte ? HGASoftRoseMistInkColor() : UIColor.whiteColor;
+    [button setTitleColor:selectedInk forState:UIControlStateSelected];
+    [button setTitleColor:matte ? selectedInk : [UIColor.whiteColor colorWithAlphaComponent:0.86]
+        forState:UIControlStateSelected|UIControlStateHighlighted];
 }
 - (void)setSelectedSegmentIndex:(NSInteger)index {
     if (_selectedSegmentIndex==index) return;
@@ -120,6 +137,7 @@ API_AVAILABLE(ios(26.0))
 @property(nonatomic,strong) UIControl<HGAHeaderSelecting> *channelControl;
 @property(nonatomic,copy) NSString *channelStyle;
 @property(nonatomic) BOOL glassSelection;
+@property(nonatomic) HGASelectionColorMode headerSelectionColor;
 @property(nonatomic,weak) UICollectionView *channelCollection;
 @property(nonatomic,copy) NSArray<NSNumber *> *channelIndices;
 @property(nonatomic,copy) NSArray<NSString *> *channelTitles;
@@ -340,8 +358,10 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     lens.accessibilityElementsHidden=YES;
     lens.accessibilityIdentifier=@"honggo.appearance.header.swipeLens";
     lens.layer.cornerCurve=kCACornerCurveContinuous;
-    lens.backgroundColor=self.glassSelection ? [UIColor colorWithWhite:1 alpha:0.16] :
-        HGADockSelectionColor(self.channelControl.traitCollection,YES);
+    BOOL customColor=self.headerSelectionColor!=HGASelectionColorDefault;
+    lens.backgroundColor=customColor ? UIColor.clearColor :
+        (self.glassSelection ? [UIColor colorWithWhite:1 alpha:0.16] :
+        HGADockSelectionColor(self.channelControl.traitCollection,YES));
     lens.hidden=YES;
     if (@available(iOS 26.0,*)) {
         if (self.glassSelection) {
@@ -370,6 +390,9 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
             [control.railSurface insertSubview:lens aboveSubview:control.rail];
         }
     }
+    HGASelectedPillView *pill=HGASyncSelectedPillViewInHost(lens,self.headerSelectionColor,
+        self.headerSelectionColor==HGASelectionColorSoftRoseMist,0,1.0,@"honggo.appearance.header.selectionPill");
+    if (pill && self.channelRefraction) [lens bringSubviewToFront:pill];
     if (!lens.superview) [self.channelControl.superview insertSubview:lens aboveSubview:self.channelControl];
     self.channelLens=lens;
 }
@@ -385,8 +408,12 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     if (self.channelRefraction && !CGRectEqualToRect(self.channelRefraction.frame,targetBounds))
         self.channelRefraction.frame=targetBounds;
     self.channelRefraction.materialCornerRadius=radius;
+    BOOL customColor=self.headerSelectionColor!=HGASelectionColorDefault;
+    HGASelectedPillView *pill=HGASyncSelectedPillViewInHost(lens,self.headerSelectionColor,
+        self.headerSelectionColor==HGASelectionColorSoftRoseMist,0,1.0,@"honggo.appearance.header.selectionPill");
+    if (pill && self.channelRefraction) [lens bringSubviewToFront:pill];
     if (self.channelRefraction) {
-        if (lifted) {
+        if (lifted && self.headerSelectionColor!=HGASelectionColorSoftRoseMist) {
             [self.channelRefraction.layer removeAnimationForKey:@"opacity"];
             self.channelRefraction.alpha=1;
             self.channelRefraction.hidden=NO;
@@ -395,13 +422,13 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
         } else if (!self.channelLensSettling) {
             self.channelRefraction.hidden=YES;
             self.channelRefraction.alpha=1;
-            lens.backgroundColor=[UIColor colorWithWhite:1 alpha:0.16];
+            lens.backgroundColor=customColor ? UIColor.clearColor : [UIColor colorWithWhite:1 alpha:0.16];
             lens.layer.borderWidth=0;
         }
     } else if ([self hasChannelButtons]) {
-        lens.backgroundColor=[UIColor colorWithWhite:1 alpha:lifted ? 0.24 : 0.16];
-        lens.layer.borderWidth=lifted ? 0.5 : 0;
-        if (lifted) lens.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.32].CGColor;
+        lens.backgroundColor=customColor ? UIColor.clearColor : [UIColor colorWithWhite:1 alpha:lifted ? 0.24 : 0.16];
+        lens.layer.borderWidth=(lifted && !customColor) ? 0.5 : 0;
+        if (lifted && !customColor) lens.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.32].CGColor;
     }
     if(self.channelRefraction.window && !self.channelRefraction.effect)[self.channelRefraction layoutIfNeeded];
 }
@@ -570,11 +597,13 @@ static UIViewController *HGAHeaderToolOwner(UIView *source,SEL selector) {
     }
     BOOL fadeRefraction=self.channelRefraction && !self.channelRefraction.hidden;
     if (fadeRefraction) {
+        UIColor *restFill=self.headerSelectionColor!=HGASelectionColorDefault ?
+            UIColor.clearColor : [UIColor colorWithWhite:1 alpha:0.16];
         [UIView animateWithDuration:wasDragged ? 0.18 : 0.14 delay:wasDragged ? 0.10 : 0.04
             options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionCurveEaseOut
             animations:^{
                 self.channelRefraction.alpha=0;
-                lens.backgroundColor=[UIColor colorWithWhite:1 alpha:0.16];
+                lens.backgroundColor=restFill;
             } completion:nil];
     }
     [UIView animateWithDuration:wasDragged ? 0.36 : 0.26 delay:0
@@ -1598,13 +1627,14 @@ static void HGARemoveHeaderChannelControl(HGAHeaderInsetState *state) {
     [state.channelControl removeFromSuperview];
     state.channelControl=nil;
     state.channelStyle=nil;
+    state.headerSelectionColor=HGASelectionColorDefault;
     HGASetHidden(state.channelCollection,NO);
     state.channelCollection=nil;
     state.channelIndices=nil;
     state.channelTitles=nil;
 }
 
-static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *state,CGRect frame,NSString *style,BOOL glassSelection) {
+static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *state,CGRect frame,NSString *style,BOOL glassSelection,HGASelectionColorMode selectionColor) {
     UIView *categories=state.categories;
     HGAHeaderChannelLayout *layout=objc_getAssociatedObject(categories,&HGAHeaderLayoutKey);
     NSArray *titles=layout.titles ?: HGReadObjectGetter(categories,"titles");
@@ -1657,13 +1687,15 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
     NSString *controlStyle=useGlass ? style : @"flat";
     UIControl<HGAHeaderSelecting> *control=state.channelControl;
     if (collection!=state.channelCollection || ![indices isEqualToArray:state.channelIndices] ||
-        ![items isEqualToArray:state.channelTitles] || ![controlStyle isEqual:state.channelStyle] || glassSelection!=state.glassSelection) {
+        ![items isEqualToArray:state.channelTitles] || ![controlStyle isEqual:state.channelStyle] ||
+        glassSelection!=state.glassSelection || selectionColor!=state.headerSelectionColor) {
         HGARemoveHeaderChannelControl(state);
         control=nil;
         NSArray<UIButton *> *glassButtons=nil;
         if (@available(iOS 26.0,*)) {
-            if (useGlass || glassSelection) {
+            if (useGlass || glassSelection || selectionColor!=HGASelectionColorDefault) {
                 HGAHeaderGlassChannels *glassControl=[[HGAHeaderGlassChannels alloc] initWithTitles:items material:controlStyle];
+                glassControl.selectionColor=selectionColor;
                 control=glassControl;
                 glassButtons=glassControl.buttons;
             }
@@ -1691,6 +1723,7 @@ static BOOL HGAApplyHeaderChannelControl(UIView *header,HGAHeaderInsetState *sta
         state.channelIndices=indices;
         state.channelStyle=controlStyle;
         state.glassSelection=glassSelection;
+        state.headerSelectionColor=selectionColor;
         state.channelTitles=items;
         state.channelCollection=collection;
     }
@@ -1838,10 +1871,12 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
     }
     if(HGFlatTopStyle())style=@"flat";
     else if(HGAUsesNativeGlass(style))style=HGALiquidButtonMaterial();
+    HGASelectionColorMode headerSelectionColor=HGASelectionColorModeForKey(@"player.headerSelectionColor");
     BOOL glassSelection=HGNativeGlassConfigured() && !UIAccessibilityIsReduceTransparencyEnabled() &&
         [HGAppearanceString(@"player.headerSelectionStyle") isEqual:@"glass"];
     BOOL tracksChannels=state.channelControl && [state.channelStyle isEqual:style] &&
-        state.glassSelection==glassSelection && (state.channelLensTracking || state.channelLensSettling || state.channelSelectionDepth);
+        state.glassSelection==glassSelection && state.headerSelectionColor==headerSelectionColor &&
+        (state.channelLensTracking || state.channelLensSettling || state.channelSelectionDepth);
     // Compact remaining visible tabs when any channel is hidden so there is no
     // empty gap inside the center capsule.
     if (!tracksChannels || !enabled) HGACompactHeaderChannels(header,state);
@@ -1904,7 +1939,7 @@ static void HGAApplyHeaderSeparatedGlass(UIView *header,BOOL enabled,BOOL layout
         if(maxX-minX>=24.0) {
             CGRect centerFrame=CGRectMake(minX,midY-side*0.5,maxX-minX,side);
             CGRect available=CGRectMake(minAllowed,centerFrame.origin.y,maxAllowed-minAllowed,side);
-            if (HGAApplyHeaderChannelControl(header,state,available,style,glassSelection)) {
+            if (HGAApplyHeaderChannelControl(header,state,available,style,glassSelection,headerSelectionColor)) {
                 HGAViewState *material=HGAState(header,YES);
                 [material.glass removeFromSuperview];
                 material.glass=nil;

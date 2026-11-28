@@ -48,6 +48,7 @@ static char HGAFeedDockItemPartKey;
 @property(nonatomic,weak) UIView *systemPlatter;
 @property(nonatomic,weak) UIView *systemWrapper;
 @property(nonatomic,weak) UIView *customSystemPlatter;
+@property(nonatomic,weak) UIView *systemSelectionView;
 @property(nonatomic,strong) UIVisualEffect *installedSystemGlass;
 @property(nonatomic,copy) NSString *systemMaterialStyle;
 @property(nonatomic,copy) NSArray *systemItemSignature;
@@ -851,6 +852,10 @@ static void HGADockSetViewGeometry(UIView *view,CGAffineTransform transform,CGPo
 
 - (void)removeSystemDock {
     [self endQuietLens];
+    if(self.systemSelectionView) {
+        HGASyncSelectedPillLayerInView(self.systemSelectionView,HGASelectionColorDefault,NO);
+        self.systemSelectionView=nil;
+    }
     self.systemDockActive=NO;
     self.quietSystemTouches=NO;self.systemHitSlots=nil;
     UIView *bar=self.hostBar,*wrapper=self.systemWrapper;
@@ -922,12 +927,15 @@ static void HGADockSetViewGeometry(UIView *view,CGAffineTransform transform,CGPo
         normal=[UIColor.whiteColor colorWithAlphaComponent:traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.94 : 0.78];
     }
     UIColor *edge=videoClear ? [UIColor colorWithWhite:0 alpha:0.78] : nil;
+    HGASelectionColorMode selColor=HGASelectionColorModeForKey(@"dock.selectionColor");
+    UIColor *selectedInk=(selColor==HGASelectionColorSoftRoseMist) ? HGASoftRoseMistInkColor() : selected;
+    UIColor *selectedEdge=(selColor==HGASelectionColorSoftRoseMist) ? nil : edge;
     NSMutableArray<NSNumber *> *enabled=[NSMutableArray arrayWithCapacity:keys.count];
     for(NSString *key in keys)[enabled addObject:@([(UIControl *)[self.targets objectForKey:key] isEnabled])];
     BOOL separateFeedCaptions=[self usesFeedMotion] && [content isEqual:@"both"];
-    NSArray *signature=@[keys,content,@(size),selected,normal,enabled,@(videoClear),@(separateFeedCaptions)];
+    NSArray *signature=@[keys,content,@(size),selectedInk,normal,enabled,@(videoClear),@(separateFeedCaptions),@(selColor)];
     if([self.systemItemSignature isEqualToArray:signature])return NO;
-    self.systemTabBar.tintColor=selected;
+    self.systemTabBar.tintColor=selectedInk;
     self.systemTabBar.unselectedItemTintColor=normal;
     BOOL replace=![self.systemItemSignature.firstObject isEqual:keys];
     BOOL metricsChanged=replace || ![self.systemItemSignature[1] isEqual:content] || ![self.systemItemSignature[2] isEqual:@(size)] ||
@@ -940,7 +948,7 @@ static void HGADockSetViewGeometry(UIView *view,CGAffineTransform transform,CGPo
         NSString *symbol=[content isEqual:@"text"] ? nil : HGATabSymbols()[index];
         NSString *caption=([content isEqual:@"icon"] || separateFeedCaptions) ? nil : label;
         UIImage *image=HGADockSystemImage(symbol,caption,size,normal,NO,edge);
-        UIImage *selectedImage=HGADockSystemImage(symbol,caption,size,selected,YES,edge);
+        UIImage *selectedImage=HGADockSystemImage(symbol,caption,size,selectedInk,YES,selectedEdge);
         if(self.systemTabController) {
             if(@available(iOS 26.0,*)) {
                 UITab *tab=replace ? [[UITab alloc] initWithTitle:@"" image:image identifier:key viewControllerProvider:^UIViewController *(UITab *requestedTab) {
@@ -986,6 +994,46 @@ static void HGADockSetViewGeometry(UIView *view,CGAffineTransform transform,CGPo
         for(UITabBarItem *candidate in self.systemTabBar.items)if(candidate.tag==selected){item=candidate;break;}
         if(self.systemTabBar.selectedItem!=item)self.systemTabBar.selectedItem=item;
     }
+    if(self.systemSelectionView)HGASyncSelectionLayerBounds(self.systemSelectionView);
+}
+
+- (UIView *)findSystemSelectionView {
+    UIView *root=self.systemPlatter ?: self.systemTabBar;
+    if(!root)return nil;
+    CGFloat platterWidth=CGRectGetWidth(root.bounds);
+    UIView *fallbackLens=nil;
+    for(UIView *part in HGADockSystemSubviews(root)) {
+        if(part.alpha<0.05 || [part isKindOfClass:UIControl.class] || HGADockSystemItems(part).count)continue;
+        NSString *name=NSStringFromClass(part.class) ?: @"";
+        if([name containsString:@"DestOut"])continue;
+        CGFloat w=CGRectGetWidth(part.bounds),h=CGRectGetHeight(part.bounds);
+        if(w<24.0 || h<18.0 || (platterWidth>=40.0 && w>platterWidth*0.68))continue;
+        if([name containsString:@"TabSelectionView"] || [name containsString:@"SelectionPlatter"] ||
+            [name containsString:@"SelectionIndicator"] || [name containsString:@"SelectionBackground"] ||
+            [name containsString:@"PlatterSelection"]) {
+            return part;
+        }
+        if(!fallbackLens && HGADockUIKitPart(part,@"_UILiquidLensView")) {
+            fallbackLens=part;
+        }
+    }
+    return fallbackLens;
+}
+
+- (void)syncSystemSelectionColor:(HGASelectionColorMode)selColor lightBackdrop:(BOOL)lightBackdrop {
+    if(selColor==HGASelectionColorDefault) {
+        if(self.systemSelectionView) {
+            HGASyncSelectedPillLayerInView(self.systemSelectionView,HGASelectionColorDefault,NO);
+            self.systemSelectionView=nil;
+        }
+        return;
+    }
+    UIView *selView=[self findSystemSelectionView];
+    if(self.systemSelectionView && self.systemSelectionView!=selView) {
+        HGASyncSelectedPillLayerInView(self.systemSelectionView,HGASelectionColorDefault,NO);
+    }
+    self.systemSelectionView=selView;
+    if(selView)HGASyncSelectedPillLayerInView(selView,selColor,lightBackdrop);
 }
 
 static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
@@ -1649,19 +1697,36 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     self.extra.layer.borderColor=[UIColor colorWithWhite:light?0:1 alpha:0.14].CGColor;
     BOOL darkSurface=surfaceStyle==UIUserInterfaceStyleDark ||
         self.capsule.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    HGASelectionColorMode selColor=HGASelectionColorModeForKey(@"dock.selectionColor");
+    BOOL customSelectionColor=(selColor!=HGASelectionColorDefault);
+    if(useSystem) {
+        [self syncSystemSelectionColor:selColor lightBackdrop:!darkSurface];
+        if(self.quietDragLens)[self syncQuietDragLensAppearance];
+    } else if(self.systemSelectionView) {
+        HGASyncSelectedPillLayerInView(self.systemSelectionView,HGASelectionColorDefault,NO);
+        self.systemSelectionView=nil;
+    }
     BOOL nativeSelection=liquidSelection && !reduced && HGNativeGlassConfigured();
     // The native resting thumb is recessed into the rail. Refract only while tracking.
-    UIColor *selectionBg=nativeSelection ? UIColor.secondarySystemFillColor : HGADockSelectionColor(self.capsule.traitCollection,flat || !liquidSelection);
+    UIColor *selectionBg=customSelectionColor ? UIColor.clearColor :
+        (nativeSelection ? UIColor.secondarySystemFillColor : HGADockSelectionColor(self.capsule.traitCollection,flat || !liquidSelection));
     UIColor *selectionEdge=[UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.23:0.11];
     self.restingSelectionColor=selectionBg;
     BOOL opticalLensActive=(self.pressedTab || self.selectionDragging || self.selectionSettling) &&
         self.dragLens && !self.dragLens.hidden && [self.dragLens.effect isKindOfClass:NSClassFromString(@"UIGlassEffect")];
     if(!opticalLensActive)self.selection.backgroundColor=selectionBg;
-    self.selection.layer.borderWidth=liquidSelection && !nativeSelection ? 0.5 : 0;
-    self.selectionHighlight.backgroundColor=nativeSelection ?
-        [UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.10:0.06] : [UIColor colorWithWhite:1 alpha:0.16];
-    self.selectionHighlight.layer.borderWidth=nativeSelection ? 0 : 1;
+    self.selection.layer.borderWidth=(!customSelectionColor && liquidSelection && !nativeSelection) ? 0.5 : 0;
+    HGASyncSelectedPillViewInHost(self.selection,selColor,!darkSurface,radius,1.0,@"honggo.appearance.dock.selection-pill");
+    if(customSelectionColor && self.selectionHighlight.superview==self.selection)
+        [self.selection bringSubviewToFront:self.selectionHighlight];
+    self.selectionHighlight.backgroundColor=customSelectionColor ?
+        [UIColor colorWithWhite:1 alpha:(selColor==HGASelectionColorSoftRoseMist ? 0.10 : 0.14)] :
+        (nativeSelection ? [UIColor colorWithWhite:darkSurface?1:0 alpha:darkSurface?0.10:0.06] : [UIColor colorWithWhite:1 alpha:0.16]);
+    self.selectionHighlight.layer.borderWidth=(nativeSelection || customSelectionColor) ? 0 : 1;
     self.selection.layer.borderColor=selectionEdge.CGColor;
+    if(flat && customSelectionColor && self.flatSegments && self.selection.superview==self.capsule) {
+        [self.capsule insertSubview:self.selection aboveSubview:self.flatSegments];
+    }
     CGRect selectedFrame=CGRectNull;
     NSInteger flatIndex=UISegmentedControlNoSegment;
     CGFloat slotWidth=expanded.size.width/visible.count;
@@ -1677,7 +1742,8 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         b.isAccessibilityElement=YES;
         b.accessibilityLabel=HGATabTitles()[index];
         b.accessibilityTraits=UIAccessibilityTraitButton | (active?UIAccessibilityTraitSelected:0);
-        HGADockSetInkEdge(b,self.quietSystemTouches ? nil : inkEdge);
+        BOOL matteSelectedInk=(active && selColor==HGASelectionColorSoftRoseMist);
+        HGADockSetInkEdge(b,(self.quietSystemTouches || matteSelectedInk) ? nil : inkEdge);
         if(self.quietSystemTouches) {
             // The UITabBar draws both content and selection. These unpainted
             // controls use its measured slots without triggering touch haptics.
@@ -1690,12 +1756,13 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         CGRect slotFrame=CGRectMake(position*slotWidth,0,slotWidth,height);
         if(!CGRectEqualToRect(b.frame,slotFrame))b.frame=slotFrame;
         CGRect thumb=HGADockSelectionFrame(CGRectGetMidX(b.frame),expanded.size.width,height,slotWidth,NO);
-        CGFloat nextOffset=flat ? 0 : CGRectGetMidX(thumb)-CGRectGetMidX(b.frame);
+        CGFloat nextOffset=(flat && !customSelectionColor) ? 0 : CGRectGetMidX(thumb)-CGRectGetMidX(b.frame);
         if(fabs(b.faceOffsetX-nextOffset)>0.001){b.faceOffsetX=nextOffset;[b setNeedsLayout];}
         UIColor *color=active ? UIColor.labelColor :
             (translucent ? [UIColor.labelColor colorWithAlphaComponent:unselectedOpacity] : UIColor.secondaryLabelColor);
         if(videoClear || (darkSurface && translucent))
             color=active ? UIColor.whiteColor : [UIColor.whiteColor colorWithAlphaComponent:unselectedOpacity];
+        if(matteSelectedInk)color=HGASoftRoseMistInkColor();
         NSString *symbol=HGATabSymbols()[index];
         NSString *title=[content isEqual:@"icon"]?nil:HGATabTitles()[index];
         UIFont *font=[UIFont systemFontOfSize:[content isEqual:@"text"]?15:11 weight:active?UIFontWeightSemibold:UIFontWeightRegular];
@@ -1705,7 +1772,7 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         // A host layout during tracking must not replace the image view that
         // is being animated and sampled by the moving lens.
         if((!self.pressedTab && !self.selectionDragging) || (!b.currentImage && !b.currentTitle.length)) {
-            NSArray *btnSig=@[symbol,title ?: @"",@(flat || active),@(iconSize),color,font,@(darkSurface),@(videoClear),@(b.enabled),content];
+            NSArray *btnSig=@[symbol,title ?: @"",@(flat || active),@(iconSize),color,font,@(darkSurface),@(videoClear),@(b.enabled),content,@(selColor)];
             if(![b.visualSignature isEqualToArray:btnSig] || (!b.currentImage && !b.currentTitle.length)) {
                 UIImage *image=[UIImage systemImageNamed:(flat || active) ? [symbol stringByAppendingString:@".fill"] : symbol] ?: [UIImage systemImageNamed:symbol];
                 UIImageSymbolConfiguration *symbolConfig=[UIImageSymbolConfiguration configurationWithPointSize:iconSize weight:UIImageSymbolWeightMedium];
@@ -1726,11 +1793,13 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     }
     self.restingFlatIndex=flatIndex;
     self.restingSelectionFrame=selectedFrame;
+    BOOL useFlatThumb=flat && !customSelectionColor;
     if((self.selectionDragging || self.pressedTab) && !self.collapsed)
         [self positionDragSelection:self.selectionDragX];
     else if(!self.selectionSettling) {
-        self.selection.hidden=flat || CGRectIsNull(selectedFrame);
-        if(flat && self.flatSegments.selectedSegmentIndex!=flatIndex)self.flatSegments.selectedSegmentIndex=flatIndex;
+        self.selection.hidden=useFlatThumb || CGRectIsNull(selectedFrame);
+        NSInteger targetFlatIndex=useFlatThumb ? flatIndex : UISegmentedControlNoSegment;
+        if(flat && self.flatSegments.selectedSegmentIndex!=targetFlatIndex)self.flatSegments.selectedSegmentIndex=targetFlatIndex;
         if(!CGRectIsNull(selectedFrame))[self placeSelection:selectedFrame];
     }
     if(useSystem) {
@@ -1746,9 +1815,11 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         (detachedIndex!=NSNotFound && translucent ? [UIColor.labelColor colorWithAlphaComponent:unselectedOpacity] : UIColor.labelColor);
     if(videoClear || (darkSurface && translucent))
         accessoryColor=detachedSelected || detachedIndex==NSNotFound ? UIColor.whiteColor : [UIColor.whiteColor colorWithAlphaComponent:unselectedOpacity];
+    BOOL matteExtraInk=(detachedSelected && selColor==HGASelectionColorSoftRoseMist);
+    if(matteExtraInk)accessoryColor=HGASoftRoseMistInkColor();
     UIFont *accessoryFont=[UIFont systemFontOfSize:11];
     CGFloat extraIconSize=MIN(requestedIcon,circle*0.34);
-    NSArray *extraSig=@[baseSymbol ?: @"",@(detachedSelected || (flat && detachedIndex!=NSNotFound)),@(extraIconSize),accessoryColor,@(darkSurface),@(videoClear),@(self.extraButton.enabled)];
+    NSArray *extraSig=@[baseSymbol ?: @"",@(detachedSelected || (flat && detachedIndex!=NSNotFound)),@(extraIconSize),accessoryColor,@(darkSurface),@(videoClear),@(self.extraButton.enabled),@(selColor)];
     if(![self.extraButtonSignature isEqualToArray:extraSig] || !self.extraButton.configuration) {
         UIImage *extraImage=detachedSelected || (flat && detachedIndex!=NSNotFound) ?
             ([UIImage systemImageNamed:[baseSymbol stringByAppendingString:@".fill"]] ?: [UIImage systemImageNamed:baseSymbol]) : [UIImage systemImageNamed:baseSymbol];
@@ -1761,10 +1832,11 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         HGADockConfigureButton(self.expandButton,nil,[UIImage systemImageNamed:@"ellipsis"],expandIconSize,accessoryFont,accessoryColor);
         self.expandButtonSignature=expandSig;
     }
-    HGADockSetInkEdge(self.extraButton,inkEdge);HGADockSetInkEdge(self.expandButton,inkEdge);
-    NSInteger detachedSegment=detachedSelected ? 0 : UISegmentedControlNoSegment;
+    HGADockSetInkEdge(self.extraButton,matteExtraInk ? nil : inkEdge);HGADockSetInkEdge(self.expandButton,inkEdge);
+    BOOL useFlatExtraThumb=flat && !customSelectionColor;
+    NSInteger detachedSegment=(useFlatExtraThumb && detachedSelected) ? 0 : UISegmentedControlNoSegment;
     if(extraTrack && extraTrack.selectedSegmentIndex!=detachedSegment)extraTrack.selectedSegmentIndex=detachedSegment;
-    self.extraSelection.hidden=flat || !detachedSelected || self.extra.hidden;
+    self.extraSelection.hidden=useFlatExtraThumb || !detachedSelected || self.extra.hidden;
     if(!self.extraSelection.hidden) {
         CGFloat side=CGRectGetHeight(self.extra.bounds);
         CGFloat inset=HGADockRestingInset(side);
@@ -1773,8 +1845,14 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         self.extraSelection.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
         self.extraSelection.layer.cornerRadius=MIN(inner.size.width,inner.size.height)/2;
         self.extraSelection.backgroundColor=selectionBg;
-        self.extraSelection.layer.borderWidth=liquidSelection && !nativeSelection ? 0.5 : 0;
+        self.extraSelection.layer.borderWidth=(!customSelectionColor && liquidSelection && !nativeSelection) ? 0.5 : 0;
         self.extraSelection.layer.borderColor=selectionEdge.CGColor;
+        HGASyncSelectedPillViewInHost(self.extraSelection,selColor,!darkSurface,0,1.0,@"honggo.appearance.dock.extra.selection-pill");
+        if(flat && customSelectionColor && extraTrack && self.extraSelection.superview==self.extra) {
+            [self.extra insertSubview:self.extraSelection aboveSubview:extraTrack];
+        }
+    } else {
+        HGASyncSelectedPillViewInHost(self.extraSelection,HGASelectionColorDefault,NO,0,1.0,nil);
     }
     self.extraButton.selected=detachedSelected;
     self.extraButton.accessibilityLabel=[action isEqual:@"settings"]?@"Honggo 外观设置":([action isEqual:@"search"]?@"搜索":HGATabTitles()[detachedIndex]);
@@ -1963,6 +2041,18 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         }
     }
 }
+- (void)syncQuietDragLensAppearance {
+    if(!self.quietDragLens)return;
+    HGASelectionColorMode selColor=HGASelectionColorModeForKey(@"dock.selectionColor");
+    if(selColor==HGASelectionColorDefault) {
+        HGASyncSelectedPillViewInHost(self.quietDragLens,HGASelectionColorDefault,NO,0,1.0,nil);
+        return;
+    }
+    BOOL lightTint=(selColor==HGASelectionColorSoftRoseMist) ? YES : self.feedLightSurface;
+    CGFloat pillAlpha=(selColor==HGASelectionColorSoftRoseMist) ? 0.78 : 1.0;
+    HGASyncSelectedPillViewInHost(self.quietDragLens,HGASelectionColorRoseMistGlass,lightTint,0,pillAlpha,
+        @"honggo.appearance.dock.quiet-lens-pill");
+}
 - (void)hideQuietLens {
     self.quietLensActive=NO;
     [self.quietDragLens.layer removeAllAnimations];
@@ -2034,6 +2124,7 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
             UIGlassEffect *glass=[UIGlassEffect effectWithStyle:UIGlassEffectStyleClear];
             glass.interactive=NO;lens.effect=glass;
             self.quietDragLens=lens;self.quietProvider=self.systemPlatter;
+            [self syncQuietDragLensAppearance];
         }
     }
     return self.quietDragLens!=nil;
@@ -2043,6 +2134,7 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         if(self.quietLensActive)[self hideQuietLens];
         return NO;
     }
+    [self syncQuietDragLensAppearance];
     CGRect frame=[self quietFrameAtX:x button:button lifted:YES];
     if(self.quietDragLens.overrideUserInterfaceStyle!=self.capsule.overrideUserInterfaceStyle)
         self.quietDragLens.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
@@ -2170,9 +2262,11 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
 - (void)prepareSelectionLens {
     // Never stack a second UIGlassEffect lens inside a glass capsule: nested
     // Clear/Regular backdrop layers double-refract background covers and warp glyphs.
-    // Reserve the moving optical lens strictly for the non-glass flat segment track.
+    // Reserve the moving optical lens strictly for the non-glass flat segment track,
+    // and skip it for matte SoftRoseMist so the resting pill behind buttons glides unobstructed.
+    HGASelectionColorMode selColor=HGASelectionColorModeForKey(@"dock.selectionColor");
     if(!self.flatSegments || !HGADockLiquidSelection() || !HGNativeGlassConfigured() ||
-        UIAccessibilityIsReduceTransparencyEnabled()) {
+        UIAccessibilityIsReduceTransparencyEnabled() || selColor==HGASelectionColorSoftRoseMist) {
         [self.dragLens removeFromSuperview];self.dragLens=nil;
         self.dragLensIsCapsule=NO;self.dragLensCornerRadius=0;
         return;
@@ -2188,6 +2282,9 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
             self.dragLens.overrideUserInterfaceStyle=self.capsule.overrideUserInterfaceStyle;
             if(@available(iOS 17.0,*))[self.dragLens updateTraitsIfNeeded];
         }
+        HGASyncSelectedPillViewInHost(self.dragLens,
+            selColor==HGASelectionColorRoseMistGlass ? HGASelectionColorRoseMistGlass : HGASelectionColorDefault,
+            self.feedLightSurface,0,1.0,@"honggo.appearance.dock.drag-lens-pill");
         return;
     }
     if(CGRectIsEmpty(self.selection.bounds))return;
@@ -2210,6 +2307,9 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
         // and caption beneath the moving optical surface.
         [self.capsule addSubview:lens];
         lens.effect=effect;
+        HGASyncSelectedPillViewInHost(lens,
+            selColor==HGASelectionColorRoseMistGlass ? HGASelectionColorRoseMistGlass : HGASelectionColorDefault,
+            self.feedLightSurface,0,1.0,@"honggo.appearance.dock.drag-lens-pill");
     }
 }
 - (void)showSelectionMotionMaterial {
@@ -2473,9 +2573,13 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
                 });
             }
             [UIView performWithoutAnimation:^{
-                if(self.flatSegments && self.flatSegments.selectedSegmentIndex!=self.restingFlatIndex)
-                    self.flatSegments.selectedSegmentIndex=self.restingFlatIndex;
-                self.selection.hidden=self.flatSegments || CGRectIsNull(resting);
+                BOOL useFlatThumb=self.flatSegments && HGASelectionColorModeForKey(@"dock.selectionColor")==HGASelectionColorDefault;
+                if(self.flatSegments) {
+                    NSInteger targetFlat=useFlatThumb ? self.restingFlatIndex : UISegmentedControlNoSegment;
+                    if(self.flatSegments.selectedSegmentIndex!=targetFlat)
+                        self.flatSegments.selectedSegmentIndex=targetFlat;
+                }
+                self.selection.hidden=useFlatThumb || CGRectIsNull(resting);
                 [self clearSelectionDrag];
             }];
             if(self.window && !self.collapsed && !self.restoring)[self refresh];
@@ -2720,6 +2824,9 @@ static NSMutableDictionary<NSString *,NSNumber *> *HGASystemPlatterKVCProbe;
     if(videoClear) {
         selectedColor=UIColor.whiteColor;
         normalColor=[UIColor.whiteColor colorWithAlphaComponent:traits.accessibilityContrast==UIAccessibilityContrastHigh ? 0.94 : 0.78];
+    }
+    if(HGASelectionColorModeForKey(@"dock.selectionColor")==HGASelectionColorSoftRoseMist) {
+        selectedColor=HGASoftRoseMistInkColor();
     }
     BOOL rtl=self.systemTabBar.effectiveUserInterfaceLayoutDirection==UIUserInterfaceLayoutDirectionRightToLeft;
     BOOL showCaption=[content isEqual:@"both"];

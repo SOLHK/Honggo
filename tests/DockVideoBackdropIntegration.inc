@@ -136,6 +136,40 @@
 @property(nonatomic,strong) FQVShortVideoPlayerBottomView *singleSeriesBottomView;
 @end
 @implementation FQVShortVideoVPlayerSingleSeriesControlView @end
+@interface FQVShortVideoVPlayerControlView (HGBackdropGradientFixture)
+- (void)resetBottomGradientViewHiddenStatus;
+@end
+@implementation FQVShortVideoVPlayerControlView (HGBackdropGradientFixture)
+- (void)resetBottomGradientViewHiddenStatus {
+    UIView *bottom = HGReadObjectGetter(self, "bottomGradientView");
+    if (bottom) {
+        bottom.hidden = NO;
+        bottom.alpha = 1;
+        bottom.layer.opacity = 1;
+    }
+}
+@end
+@interface FQVShortVideoVPlayerOutterMultiSeriesControlView (HGBackdropGradientFixture)
+@property(nonatomic,strong) FQVShortVideoGradientLayerView *bottomGradientView;
+- (void)setVideoDataModel:(id)model;
+@end
+@implementation FQVShortVideoVPlayerOutterMultiSeriesControlView (HGBackdropGradientFixture)
+static char HGBackdropOutterGradientKey;
+- (FQVShortVideoGradientLayerView *)bottomGradientView {
+    return objc_getAssociatedObject(self, &HGBackdropOutterGradientKey);
+}
+- (void)setBottomGradientView:(FQVShortVideoGradientLayerView *)view {
+    objc_setAssociatedObject(self, &HGBackdropOutterGradientKey, view, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+- (void)setVideoDataModel:(id)model {
+    UIView *bottom = self.bottomGradientView;
+    if (bottom) {
+        bottom.hidden = NO;
+        bottom.alpha = 1;
+        bottom.layer.opacity = 1;
+    }
+}
+@end
 @interface HGAAspectSourceFixture : NSObject
 @property(nonatomic) double videoWidth;
 @property(nonatomic) double videoHeight;
@@ -1323,6 +1357,103 @@ static void RunDockVideoBackdropChecks(SSTabBarController *host) {
 
         [container.view addSubview:page.view];page.view.frame=container.view.bounds;
         [page.view insertSubview:feed atIndex:0];
+
+        // Transient mask flash regressions (7.4.7.32 vertical scroll):
+        // 1. Synchronous suppression of FQVShortVideoGradientLayerView bottom gradient
+        //    on setAlpha:, setHidden:, resetBottomGradientViewHiddenStatus, and
+        //    setVideoDataModel:, while keeping the top gradient untouched.
+        // 2. Early suppression on incoming portrait cells with detached renderer, and
+        //    keeping departing portrait cell's bottom gradient suppressed mid-scroll
+        //    when TTPlayerView transfers while another portrait cell stays active.
+        // 3. Never attaching honggo.video.top-matte onto a portrait top cell whose
+        //    renderer is mid-transfer and cover is hidden.
+        [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
+        cell=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:1 inSection:0]];
+        cell.videoHeight=0;cell.canvas.backgroundColor=UIColor.blackColor;
+        Layout(cell);Layout(cell.renderer);
+        NSArray *gradColors=@[(__bridge id)UIColor.clearColor.CGColor,(__bridge id)UIColor.blackColor.CGColor];
+        FQVShortVideoVPlayerOutterMultiSeriesControlView *outterHud=[[FQVShortVideoVPlayerOutterMultiSeriesControlView alloc] initWithFrame:cell.canvas.bounds];
+        FQVShortVideoGradientLayerView *bottomGrad=[[FQVShortVideoGradientLayerView alloc] initWithFrame:CGRectMake(0,feedHeight-280,width,280)];
+        ((CAGradientLayer *)bottomGrad.layer).colors=gradColors;
+        FQVShortVideoGradientLayerView *topGrad=[[FQVShortVideoGradientLayerView alloc] initWithFrame:CGRectMake(0,0,width,159)];
+        ((CAGradientLayer *)topGrad.layer).colors=gradColors;
+        outterHud.bottomGradientView=bottomGrad;
+        [outterHud addSubview:bottomGrad];[outterHud addSubview:topGrad];
+        [cell.canvas addSubview:outterHud];
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        BOOL initialGradSuppressed=bottomGrad.layer.opacity==0 && topGrad.layer.opacity==1;
+        bottomGrad.alpha=1.0;
+        BOOL syncAfterAlpha=bottomGrad.layer.opacity==0 && topGrad.layer.opacity==1;
+        bottomGrad.hidden=YES;bottomGrad.layer.opacity=1.0;bottomGrad.hidden=NO;
+        BOOL syncAfterUnhide=bottomGrad.layer.opacity==0 && topGrad.layer.opacity==1;
+        HGBackdropEpisodeInfoFixture *flashEpisode=[HGBackdropEpisodeInfoFixture new];
+        flashEpisode.vertical=YES;
+        HGBackdropWrappedModelFixture *flashModel=[HGBackdropWrappedModelFixture new];
+        flashModel.videoData=flashEpisode;
+        [outterHud setVideoDataModel:flashModel];
+        BOOL syncAfterModel=bottomGrad.layer.opacity==0 && topGrad.layer.opacity==1;
+        [outterHud removeFromSuperview];
+        HGBackdropGradientControl *baseGradHud=[[HGBackdropGradientControl alloc] initWithFrame:cell.canvas.bounds];
+        FQVShortVideoGradientLayerView *baseBottomGrad=[[FQVShortVideoGradientLayerView alloc] initWithFrame:CGRectMake(0,feedHeight-280,width,280)];
+        ((CAGradientLayer *)baseBottomGrad.layer).colors=gradColors;
+        baseGradHud.bottomGradientView=baseBottomGrad;
+        [baseGradHud addSubview:baseBottomGrad];
+        [cell.canvas addSubview:baseGradHud];
+        [baseGradHud resetBottomGradientViewHiddenStatus];
+        BOOL syncAfterReset=baseBottomGrad.layer.opacity==0 && topGrad.layer.opacity==1;
+        [baseGradHud removeFromSuperview];
+        [cell.canvas addSubview:outterHud];
+        [manager refreshWithBranches:branches root:container.view bar:bar active:YES];
+        Check(initialGradSuppressed && syncAfterAlpha && syncAfterUnhide && syncAfterModel && syncAfterReset,
+            @"bottom HUD gradient is suppressed synchronously on setAlpha:, setHidden:, setVideoDataModel: and resetBottomGradientViewHiddenStatus without disturbing top gradient");
+
+        [feed setContentOffset:CGPointMake(0,feedHeight+45) animated:NO];Layout(feed);
+        incoming=(id)[feed cellForItemAtIndexPath:[NSIndexPath indexPathForItem:2 inSection:0]];
+        incoming.videoHeight=0;Layout(incoming);Layout(incoming.renderer);
+        incoming.canvas.model=flashModel;
+        FQVShortVideoVPlayerOutterMultiSeriesControlView *incomingHud=[[FQVShortVideoVPlayerOutterMultiSeriesControlView alloc] initWithFrame:incoming.canvas.bounds];
+        FQVShortVideoGradientLayerView *incomingBottomGrad=[[FQVShortVideoGradientLayerView alloc] initWithFrame:CGRectMake(0,feedHeight-280,width,280)];
+        ((CAGradientLayer *)incomingBottomGrad.layer).colors=gradColors;
+        incomingHud.bottomGradientView=incomingBottomGrad;
+        [incomingHud addSubview:incomingBottomGrad];
+        [incoming.canvas addSubview:incomingHud];
+        [incoming.renderer removeFromSuperview];
+        [scrollDriver scrollViewDidScroll:feed];
+        BOOL incomingEarlySuppressed=incomingBottomGrad.layer.opacity==0;
+        [incoming.player addSubview:incoming.renderer];
+        Layout(incoming);
+        [scrollDriver scrollViewDidScroll:feed];
+        UIView *transferHolder=[[UIView alloc] initWithFrame:cell.player.bounds];
+        [cell.player addSubview:transferHolder];
+        __block BOOL keptDepartingGradSuppressed=NO;
+        cell.renderer.nativeWillMoveObserver=^{
+            keptDepartingGradSuppressed=bottomGrad.layer.opacity==0;
+        };
+        [transferHolder addSubview:cell.renderer];
+        cell.renderer.nativeWillMoveObserver=nil;
+        [cell.player addSubview:cell.renderer];
+        [transferHolder removeFromSuperview];
+        Check(incomingEarlySuppressed && keptDepartingGradSuppressed,
+            @"incoming portrait cell suppresses bottom gradient before renderer attaches and departing cell keeps it suppressed mid-scroll during renderer transfer");
+
+        // Portrait top cell mid-transfer with hidden cover and non-black background
+        // must never flash an opaque top-matte over the lower video when advance < extra.
+        cell.canvas.model=flashModel;
+        cell.canvas.backgroundColor=[UIColor colorWithRed:0.22 green:0.16 blue:0.14 alpha:1];
+        [cell.renderer removeFromSuperview];
+        [feed setContentOffset:CGPointMake(0,feedHeight+30) animated:NO];Layout(feed);
+        [scrollDriver scrollViewDidScroll:feed];
+        BOOL hasTopMatteOnPortrait=NO;
+        for (CALayer *sub in cell.layer.sublayers)
+            if ([sub.name isEqualToString:@"honggo.video.top-matte"]) hasTopMatteOnPortrait=YES;
+        Check(!hasTopMatteOnPortrait,
+            @"portrait top cell with detached renderer and hidden cover never flashes an opaque top-matte overlay during partial scroll");
+        [cell.player addSubview:cell.renderer];
+        cell.canvas.model=nil;incoming.canvas.model=nil;
+        cell.canvas.backgroundColor=UIColor.blackColor;
+        [outterHud removeFromSuperview];[incomingHud removeFromSuperview];
+        [feed setContentOffset:CGPointMake(0,feedHeight) animated:NO];Layout(feed);
+
         RunDetailVideoBackdropChecks(page.view);
     }@finally {
         [manager restore];feed.dataSource=nil;

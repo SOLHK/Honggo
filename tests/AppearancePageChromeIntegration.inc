@@ -1268,7 +1268,53 @@ static void VerifyPageChrome(UIView *root,SSTabBar *bar,SSTabBarController *host
                 }
             }
             Check(aligned,@"four visible channel titles, touch slots and both selected styles agree on every host index");
-            HGAppearanceApply(@{@"player.headerStyle":@"flat",@"player.headerSelectionStyle":@"plain"},nil);
+            // Verify 柔性粉雾 (softRoseMist) and 粉雾玻璃 (roseMistGlass) on top channel bar,
+            // including flat+plain style override, dark charcoal ink contrast, and clean restore.
+            HGAppearanceApply(@{@"player.headerStyle":@"flat",@"player.headerSelectionStyle":@"plain",
+                @"player.headerSelectionColor":@"softRoseMist"},nil);
+            Layout(header);
+            UIView *roseStrip=Find(header,material);
+            UIView *roseLens=Find(roseStrip,@"honggo.appearance.header.swipeLens");
+            UIView *rosePill=Find(roseLens,@"honggo.appearance.header.selectionPill");
+            NSArray<UIButton *> *roseButtons=[roseStrip respondsToSelector:NSSelectorFromString(@"buttons")] ? [roseStrip valueForKey:@"buttons"] : nil;
+            CGFloat sr=1,sg=1,sb=1,sa=0;
+            if (roseButtons.count) {
+                UIColor *selColor=[[roseButtons.firstObject titleColorForState:UIControlStateSelected]
+                    resolvedColorWithTraitCollection:roseButtons.firstObject.traitCollection];
+                [selColor getRed:&sr green:&sg blue:&sb alpha:&sa];
+            }
+            Check(roseButtons.count==4 && rosePill && !rosePill.hidden &&
+                rosePill.layer.sublayers.count>=2 &&
+                CGColorGetAlpha(roseLens.backgroundColor.CGColor)<0.01 &&
+                sr<0.15 && sg<0.15 && sb<0.15 && sa>0.95,
+                @"softRoseMist renders silky matte sakura pill with dark charcoal selected text even on flat+plain top channels");
+            HGAppearanceApply(@{@"player.headerStyle":@"glass",@"player.headerSelectionStyle":@"glass",
+                @"player.headerSelectionColor":@"roseMistGlass"},nil);
+            Layout(header);
+            UIView *glassStrip=Find(header,material);
+            UIView *glassLens=Find(glassStrip,@"honggo.appearance.header.swipeLens");
+            UIView *glassPill=Find(glassLens,@"honggo.appearance.header.selectionPill");
+            UIView *glassRefraction=Find(glassLens,@"honggo.appearance.header.refraction");
+            NSArray<UIButton *> *glassButtons=[glassStrip respondsToSelector:NSSelectorFromString(@"buttons")] ? [glassStrip valueForKey:@"buttons"] : nil;
+            CGFloat gr=0,gg=0,gb=0,ga=0;
+            if (glassButtons.count) {
+                UIColor *selColor=[[glassButtons.firstObject titleColorForState:UIControlStateSelected]
+                    resolvedColorWithTraitCollection:glassButtons.firstObject.traitCollection];
+                [selColor getRed:&gr green:&gg blue:&gb alpha:&ga];
+            }
+            Check(glassButtons.count==4 && glassPill && !glassPill.hidden &&
+                glassPill.layer.sublayers.count>=2 &&
+                (!glassRefraction || [glassLens.subviews indexOfObjectIdenticalTo:glassPill]>[glassLens.subviews indexOfObjectIdenticalTo:glassRefraction]) &&
+                CGColorGetAlpha(glassLens.backgroundColor.CGColor)<0.01 &&
+                gr>0.95 && gg>0.95 && gb>0.95 && ga>0.95,
+                @"roseMistGlass renders translucent sakura glass pill above refraction with white selected text");
+            HGAppearanceApply(@{@"player.headerStyle":@"flat",@"player.headerSelectionStyle":@"plain",
+                @"player.headerSelectionColor":@"default"},nil);
+            Layout(header);
+            UIView *restoredFlat=Find(header,material);
+            Check([restoredFlat isKindOfClass:UISegmentedControl.class] &&
+                !Find(header,@"honggo.appearance.header.selectionPill"),
+                @"restoring default header selection color returns cleanly to stock UISegmentedControl without leftover pills");
         }
     }
     [listContainer removeFromSuperview];

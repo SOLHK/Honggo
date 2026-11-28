@@ -137,6 +137,7 @@ static NSError *HGAAssetError(NSString *message) {
         userInfo:@{NSLocalizedDescriptionKey:message}];
 }
 #include "AppearanceAssets.inc"
+#include "AppearanceSelectionPill.inc"
 #include "AppearanceViews.inc"
 #include "AppearanceBottomLayout.inc"
 #include "AppearanceDock.inc"
@@ -211,6 +212,9 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
         selector==sel_registerName("handleOutterFeedClipBounds:");
     BOOL resetBottomGradient=[className isEqual:@"FQVShortVideoVPlayerControlView"] &&
         selector==sel_registerName("resetBottomGradientViewHiddenStatus");
+    BOOL gradientView=[className isEqual:@"FQVShortVideoGradientLayerView"];
+    BOOL controlModelChange=[className isEqual:@"FQVShortVideoVPlayerOutterMultiSeriesControlView"] &&
+        selector==sel_registerName("setVideoDataModel:");
     BOOL progressStyle=[className isEqual:@"FQVShortVideoProgressView"] &&
         selector==sel_registerName("updateProgressViewWithActivatedState:");
     BOOL episode=[HGAViewRoles()[className] isEqual:@"episodes"];
@@ -483,6 +487,11 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGATracePlayerTransfer(object,selector,argument,invocation,completed?@"return":@"exception");
             }
             if(selector==sel_registerName("setLeftContainer:")) {HGAApplyCleanView(object);return;}
+            if(controlModelChange) {
+                if(NSThread.isMainThread && [(UIView *)object window] && !HGAApplying)
+                    HGRefreshVideoBackdropForPlayer(object);
+                return;
+            }
             if(mediaPlayer) {
                 if(NSThread.isMainThread && [(UIView *)object window] && !HGAApplying)
                     HGRefreshVideoBackdropForPlayer(object);
@@ -633,6 +642,9 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 // Ending a seek reclips the control's feed ancestors. Reapply
                 // the active dock extension after the original clipping pass.
                 if(value)HGRefreshVideoBackdropForPlayer(object);
+            } else if (gradientView && selector==@selector(setHidden:)) {
+                if(!value && NSThread.isMainThread && [(UIView *)object window] && !HGAApplying)
+                    HGRefreshVideoBackdropForPlayer(object);
             } else if (controller && (selector==@selector(viewWillAppear:) || selector==@selector(viewDidAppear:)) &&
                        [className isEqual:@"FQVShortVideoListViewController"]) {
                 HGAppearanceProcessController(object);
@@ -652,6 +664,12 @@ static void HGAHook(Class cls, SEL selector, const char *encoding, BOOL controll
                 HGAppearanceProcessController(object);
             }
             else HGAppearanceProcessView(object);
+        });
+    } else if (gradientView && selector==@selector(setAlpha:) && !strcmp(encoding,"v24@0:8d16")) {
+        replacement=imp_implementationWithBlock(^(UIView *grad,CGFloat alpha) {
+            ((void(*)(id,SEL,CGFloat))original)(grad,selector,alpha);
+            if(alpha>0.01 && NSThread.isMainThread && grad.window && !HGAApplying)
+                HGRefreshVideoBackdropForPlayer(grad);
         });
     }
     if (!replacement) return;
@@ -863,6 +881,13 @@ void HGInstallAppearance(void) {
                 [name isEqual:@"FQVShortVideoVPlayerSingleSeriesControlView"]) {
                 if(class_getInstanceMethod(cls,sel_registerName("playerPlaybackStateDidChanged:")))
                     HGAHook(cls,sel_registerName("playerPlaybackStateDidChanged:"),"v24@0:8q16",NO);
+            }
+            if([name isEqual:@"FQVShortVideoVPlayerOutterMultiSeriesControlView"] &&
+                class_getInstanceMethod(cls,sel_registerName("setVideoDataModel:")))
+                HGAHook(cls,sel_registerName("setVideoDataModel:"),"v24@0:8@16",NO);
+            if([name isEqual:@"FQVShortVideoGradientLayerView"]) {
+                HGAHook(cls,@selector(setHidden:),"v20@0:8B16",NO);
+                HGAHook(cls,@selector(setAlpha:),"v24@0:8d16",NO);
             }
             if([name isEqual:@"SSShortVideoTagListBottomInsertView"])
                 HGAHook(cls,sel_registerName("relayout"),"v16@0:8",NO);

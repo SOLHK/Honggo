@@ -429,6 +429,27 @@ static BOOL HGVideoBackdropPortraitImage(UIImageView *cover) {
     return cover.image.size.height>cover.image.size.width;
 }
 
+static BOOL HGVideoBackdropLooksPortrait(UIView *canvas) {
+    if (!canvas) return NO;
+    UIView *player=HGVideoBackdropPlayer(canvas);
+    if (HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model")) ||
+        HGVideoBackdropPortraitModel(HGReadObjectGetter(player,"model"))) return YES;
+    if (HGVideoBackdropPortraitImage(HGVideoBackdropCover(canvas)) ||
+        HGVideoBackdropPortraitImage(HGVideoBackdropCover(player))) return YES;
+    static Class rendererCache, metalCache;
+    Class rendererClass=HGBackdropResolveClass("TTPlayerView",&rendererCache);
+    Class metalClass=HGBackdropResolveClass("TTMetalView",&metalCache);
+    for (UIView *renderer in player.subviews) {
+        if (![renderer isKindOfClass:rendererClass]) continue;
+        UIView *surface=renderer.subviews.firstObject;
+        if ([surface isKindOfClass:metalClass] && surface.bounds.size.width>0 &&
+            surface.bounds.size.height>surface.bounds.size.width+0.75) return YES;
+        if (renderer.bounds.size.width>0 && renderer.bounds.size.height>renderer.bounds.size.width+0.75)
+            return YES;
+    }
+    return NO;
+}
+
 static BOOL HGVideoBackdropFrameReady(UIView *player) {
     id model=HGReadObjectGetter(player,"model");
     SEL ready=sel_registerName("readyToDisPlay");
@@ -473,11 +494,12 @@ static CGFloat HGVideoBackdropFirstPictureY(UIView *canvas, UIView *feed) {
 }
 
 static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect viewport) {
-    static Class controlsCache, gradientCache;
+    static Class controlsCache, outterControlsCache, gradientCache;
     Class controlsClass = HGBackdropResolveClass("FQVShortVideoVPlayerControlView", &controlsCache);
+    Class outterControlsClass = HGBackdropResolveClass("FQVShortVideoVPlayerOutterMultiSeriesControlView", &outterControlsCache);
     Class gradientClass = HGBackdropResolveClass("FQVShortVideoGradientLayerView", &gradientCache);
     for (UIView *control in canvas.subviews) {
-        if (![control isKindOfClass:controlsClass]) continue;
+        if (![control isKindOfClass:controlsClass] && ![control isKindOfClass:outterControlsClass]) continue;
         UIView *grad = HGView(control, "bottomGradientView");
         if (grad && [grad isDescendantOfView:control] &&
             (!gradientClass || [grad isKindOfClass:gradientClass]) &&
@@ -823,7 +845,15 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
     // The series cover belongs to the cell and can be visible before FQVPlayer
     // attaches. Both covers can be present during the native handoff.
     UIImageView *covers[]={HGVideoBackdropCover(canvas),HGVideoBackdropCover(player)};
-    if ((!player && !covers[0]) || CGRectIsEmpty(viewport) || CGRectIsEmpty(full)) return NO;
+    BOOL extends=CGRectGetMaxY(full)>CGRectGetMaxY(viewport)+0.75;
+    if ((!player && !covers[0]) || CGRectIsEmpty(viewport) || CGRectIsEmpty(full)) {
+        if (extends && !CGRectIsEmpty(viewport) && HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model"))) {
+            BOOL earlyTx=NO;
+            [self suppressPortraitGradient:HGVideoBackdropBottomGradient(canvas,viewport) active:active transaction:&earlyTx];
+            if (earlyTx) [CATransaction commit];
+        }
+        return NO;
+    }
     UIView *coordinateView=player ?: canvas;
     for (UIView *node=coordinateView; node && node!=boundary; node=node.superview)
         if (HGVideoBackdropHasHostMask(node) || !CATransform3DIsIdentity(node.layer.transform) ||
@@ -850,7 +880,6 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         }
     }
     BOOL filled=NO, tx=NO;
-    BOOL extends=CGRectGetMaxY(full)>CGRectGetMaxY(viewport)+0.75;
     for (UIView *renderer in player.subviews) {
         if (![renderer isKindOfClass:rendererClass]) continue;
         CGRect native=[renderer convertRect:renderer.bounds toView:player];
@@ -969,7 +998,8 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
             filled=YES;
         }
     }
-    if (filled) [self suppressPortraitGradient:HGVideoBackdropBottomGradient(canvas,viewport) active:active transaction:&tx];
+    if (filled || (extends && !HGVideoBackdropHasLetterbox(canvas) && HGVideoBackdropLooksPortrait(canvas)))
+        [self suppressPortraitGradient:HGVideoBackdropBottomGradient(canvas,viewport) active:active transaction:&tx];
     if (tx) [CATransaction commit];
     return filled;
 }
@@ -1121,10 +1151,11 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
                     clipTopSeam=YES;
                     topClipHeight=CGRectGetHeight(topCanvas.bounds);
                 }
-            } else if (advance<extra && cell) {
+            } else if (advance<extra && cell && !HGVideoBackdropLooksPortrait(topCanvas)) {
                 // Extend a landscape top page's opaque matte smoothly across the
                 // Dock transition zone [0, extra] so the lower video never jumps
                 // into the Dock at 1px of drag or lingers during reverse settling.
+                // Never apply this matte to a portrait cell whose renderer is mid-transfer.
                 UIColor *candidateMatte=HGVideoBackdropMatte(topCanvas);
                 if (candidateMatte && !HGVideoBackdropHasHostMask(topCell)) {
                     CGFloat ext=HGVideoBackdropSeamExtension(advance,extra);
@@ -1231,6 +1262,17 @@ static CAGradientLayer *HGVideoBackdropBottomGradient(UIView *canvas, CGRect vie
         }
     }
     if (!moving) return;
+    if (keep.count && [view isKindOfClass:objc_lookUpClass("TTPlayerView")]) {
+        // Mid-scroll player transfer between two portrait cells in the same feed:
+        // keep the departing cell's bottom gradient suppressed while feed overflow
+        // remains active so the 280pt HUD gradient never flashes on screen.
+        UIView *departingCanvas = HGDetailVideoBackdropCanvas(view);
+        for (CAGradientLayer *layer in self.portraitGradients) {
+            UIView *gradient = (id)layer.delegate;
+            if ([gradient isKindOfClass:UIView.class] && [gradient isDescendantOfView:departingCanvas])
+                [keep addObject:layer];
+        }
+    }
     NSMutableSet<CALayer *> *keepMasks = [NSMutableSet set];
     for (CALayer *layer in self.seamMaskedLayers.allObjects) {
         UIView *delegate = (id)layer.delegate;
@@ -1568,13 +1610,14 @@ void HGRefreshVideoBackdropForPlayer(UIView *view) {
     if (feedLink ||
         (feed.window && CGRectGetMaxY(feed.frame) < CGRectGetMaxY(feed.superview.bounds)-20)) {
         [detail restore];
-        UIView *player = view == canvas ? HGVideoBackdropPlayer(canvas) : nil;
-        if(!HGAppearancePlayerIsTransferring(view) &&
-           ((view==canvas && (HGVideoBackdropPortraitModel(HGReadObjectGetter(canvas,"model")) ||
-              HGVideoBackdropPortraitModel(HGReadObjectGetter(player,"model")) ||
-              HGVideoBackdropPortraitImage(HGVideoBackdropCover(canvas)) ||
-              HGVideoBackdropPortraitImage(HGVideoBackdropCover(player)))) ||
-            [view isKindOfClass:objc_lookUpClass("TTPlayerView")] || [view isKindOfClass:objc_lookUpClass("FQVPlayer")]))
+        static Class rendererCache, playerCache, gradientCache, controlCache, outterControlCache;
+        BOOL immediate = (view == canvas && HGVideoBackdropLooksPortrait(canvas)) ||
+            [view isKindOfClass:HGBackdropResolveClass("TTPlayerView", &rendererCache)] ||
+            [view isKindOfClass:HGBackdropResolveClass("FQVPlayer", &playerCache)] ||
+            [view isKindOfClass:HGBackdropResolveClass("FQVShortVideoGradientLayerView", &gradientCache)] ||
+            [view isKindOfClass:HGBackdropResolveClass("FQVShortVideoVPlayerControlView", &controlCache)] ||
+            [view isKindOfClass:HGBackdropResolveClass("FQVShortVideoVPlayerOutterMultiSeriesControlView", &outterControlCache)];
+        if (!HGAppearancePlayerIsTransferring(view) && immediate)
             HGRefreshVideoBackdropForFeed(feed);
         HGScheduleFeedLayoutRefresh(feed);
         return;

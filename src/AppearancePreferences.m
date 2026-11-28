@@ -107,6 +107,11 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         [a addObject:HGADef(@"dock.enabled",@"dock",@"使用可定制悬浮底栏",@"bool",@YES,nil)];
         buttonStyle(@"dock.style",@"dock",@"底栏按钮风格",@"glass");
         choice(@"dock.selectionStyle",@"dock",@"底栏选中效果",@[@"glass",@"plain"],@[@"液态玻璃选中",@"普通选中"]);
+        [a addObject:HGADef(@"dock.selectionColor",@"dock",@"底栏选中色",@"choice",@"default",@{
+            @"choices":@[@"default",@"softRoseMist",@"roseMistGlass"],
+            @"labels":@[@"默认",@"柔性粉雾",@"粉雾玻璃"],
+            @"keywords":@"底栏选中色 Dock 选中色 选中 胶囊 柔性粉雾 粉雾玻璃 粉雾 粉色 樱粉 液态玻璃 渐变 视频同款"
+        })];
         choice(@"dock.material",@"dock",@"底栏材质",@[@"regular",@"clear",@"blur",@"solid"],@[@"普通液态玻璃",@"清透液态玻璃",@"经典磨砂（iOS 18）",@"纯色"]);
         choice(@"dock.content",@"dock",@"底栏显示",@[@"both",@"text",@"icon"],@[@"图标和文字",@"仅文字",@"仅图标"]);
         number(@"dock.width",@"dock",@"底栏宽度比例",HGADockDefaultWidth,0.55,1);
@@ -146,6 +151,11 @@ NSArray<NSDictionary *> *HGAppearanceCatalog(void) {
         flag(@"player.headerGlass",@"chrome",@"自定义顶部按钮");
         buttonStyle(@"player.headerStyle",@"chrome",@"顶部按钮风格",@"flat");
         choice(@"player.headerSelectionStyle",@"chrome",@"顶部频道选中效果",@[@"plain",@"glass"],@[@"普通选中",@"液态玻璃选中"]);
+        [a addObject:HGADef(@"player.headerSelectionColor",@"chrome",@"顶部频道选中色",@"choice",@"default",@{
+            @"choices":@[@"default",@"softRoseMist",@"roseMistGlass"],
+            @"labels":@[@"默认",@"柔性粉雾",@"粉雾玻璃"],
+            @"keywords":@"顶部频道选中色 顶部按钮选中色 顶部 频道 选中色 选中 胶囊 柔性粉雾 粉雾玻璃 粉雾 粉色 樱粉 液态玻璃 渐变 视频同款"
+        })];
         NSArray *channelIDs=@[@"sidebar",@"follow",@"comic",@"live",@"recommend",@"search"];
         NSArray *channelNames=@[@"菜单",@"关注",@"漫剧",@"真人剧",@"推荐",@"搜索"];
         for(NSUInteger i=0;i<channelIDs.count;i++)

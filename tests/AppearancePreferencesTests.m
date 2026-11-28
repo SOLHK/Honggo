@@ -214,6 +214,28 @@ int main(void) {@autoreleasepool {
     Check([styles[@"dock.style"] isEqual:@"flat"] && [styles[@"player.headerStyle"] isEqual:@"glass"] &&
         [styles[@"player.actionStyle"] isEqual:@"flat"] && !HGAppearanceSet(@"player.headerStyle",@"unknown",nil),
         @"both styles round trip through the appearance backup and invalid values are rejected");
+    Check([HGAppearanceString(@"dock.selectionColor") isEqual:@"default"] &&
+        [HGAppearanceString(@"player.headerSelectionColor") isEqual:@"default"] &&
+        HGAppearanceSet(@"dock.selectionColor",@"softRoseMist",nil) &&
+        [HGAppearanceString(@"dock.selectionColor") isEqual:@"softRoseMist"] &&
+        HGAppearanceSet(@"player.headerSelectionColor",@"roseMistGlass",nil) &&
+        [HGAppearanceString(@"player.headerSelectionColor") isEqual:@"roseMistGlass"] &&
+        !HGAppearanceSet(@"dock.selectionColor",@"invalidColor",nil) &&
+        !HGAppearanceSet(@"player.headerSelectionColor",@"invalidColor",nil),
+        @"dock and top channel selection colors default cleanly, accept softRoseMist/roseMistGlass, and reject invalid choices");
+    NSDictionary *selColorBackup=HGAppearanceParse(HGAppearanceExport(nil),nil);
+    NSArray *roseSearch=[HGAppearanceSearch(@"柔性粉雾") valueForKey:@"key"];
+    NSArray *glassRoseSearch=[HGAppearanceSearch(@"粉雾玻璃") valueForKey:@"key"];
+    Check([selColorBackup[@"dock.selectionColor"] isEqual:@"softRoseMist"] &&
+        [selColorBackup[@"player.headerSelectionColor"] isEqual:@"roseMistGlass"] &&
+        [roseSearch containsObject:@"dock.selectionColor"] &&
+        [roseSearch containsObject:@"player.headerSelectionColor"] &&
+        [glassRoseSearch containsObject:@"dock.selectionColor"] &&
+        [glassRoseSearch containsObject:@"player.headerSelectionColor"] &&
+        [HGAppearanceSearch(@"底栏选中色").firstObject[@"key"] isEqual:@"dock.selectionColor"] &&
+        [HGAppearanceSearch(@"顶部频道选中色").firstObject[@"key"] isEqual:@"player.headerSelectionColor"],
+        @"selection colors round trip through appearance JSON and are discoverable via search");
+    HGAppearanceApply(@{@"dock.selectionColor":@"default",@"player.headerSelectionColor":@"default"},nil);
     HGAppearanceSet(@"player.episodeGlass",@NO,nil);
     Check(!HGAppearanceFlag(@"player.episodeGlass"),@"an explicit disabled episode preference overrides the new default");
     HGAppearanceReset();

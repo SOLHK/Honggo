@@ -392,7 +392,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
     } else if([self.group isEqual:@"general"]) {
         HGAAddDefs(rows,@[@"enabled"]);
     } else if([self.group isEqual:@"dock"]) {
-        HGAAddDefs(rows,@[@"dock.enabled",@"dock.style",@"dock.selectionStyle"]);
+        HGAAddDefs(rows,@[@"dock.enabled",@"dock.style",@"dock.selectionStyle",@"dock.selectionColor"]);
         if(!HGFlatDockStyle())HGAAddDefs(rows,@[@"dock.material"]);
         HGAAddDefs(rows,@[@"dock.content",@"dock.haptics"]);
         section(@"布局与交互");
@@ -421,7 +421,7 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         HGAAddDefs(rows,@[@"dock.hide.home",@"dock.hide.theater",@"dock.hide.store",@"dock.hide.mine"]);
     } else if([self.group isEqual:@"chrome"]) {
         section(@"顶部导航");
-        HGAAddDefs(rows,@[@"player.headerGlass",@"player.headerStyle",@"player.headerSelectionStyle",@"player.hideFollowRecommendUsers"]);
+        HGAAddDefs(rows,@[@"player.headerGlass",@"player.headerStyle",@"player.headerSelectionStyle",@"player.headerSelectionColor",@"player.hideFollowRecommendUsers"]);
         [rows addObject:HGASubpage(@"@group.chrome.hide",@"顶部按钮与频道显示",@"菜单、频道与搜索")];
         section(@"找剧");
         HGAAddDefs(rows,@[@"player.finderGlass",@"player.finderSearch",@"player.finderRecognition",@"player.finderAI"]);
@@ -639,6 +639,8 @@ static void HGAAddDefs(NSMutableArray *rows,NSArray<NSString *> *keys) {
         @"panels.longpressMaterial":@"panels.longpress"}[key];
     if([key hasPrefix:@"dock."] && ![key isEqual:@"dock.enabled"] && !HGAppearanceFlag(@"dock.enabled"))
         area=@"dock.enabled";
+    if([key isEqual:@"player.headerSelectionColor"] && ![value isEqual:@"default"] && !HGAppearanceFlag(@"player.headerGlass"))
+        area=@"player.headerGlass";
     NSMutableDictionary *change=[@{key:value} mutableCopy];
     if(autoEnableMaster)change[@"enabled"]=@YES;
     if(area) {

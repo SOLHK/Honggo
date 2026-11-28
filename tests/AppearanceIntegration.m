@@ -503,7 +503,9 @@ static void HGRunAppearanceMenuNavigationChecks(UIWindow *window, Class settings
         if (styleKey && HGMenuPath(detail,styleKey)) styleRows++;
         if ([group isEqual:@"dock"] || [group isEqual:@"chrome"]) {
             NSString *selection=[group isEqual:@"dock"] ? @"dock.selectionStyle" : @"player.headerSelectionStyle";
-            Check(HGMenuPath(detail,selection)!=nil,@"the selection treatment is reachable beside its own rail style");
+            NSString *selectionColor=[group isEqual:@"dock"] ? @"dock.selectionColor" : @"player.headerSelectionColor";
+            Check(HGMenuPath(detail,selection)!=nil && HGMenuPath(detail,selectionColor)!=nil,
+                @"the selection treatment and selection color are reachable beside their own rail style");
         }
         if ([group isEqual:@"comments"])
             Check(HGMenuPath(detail,@"panels.comment") && HGMenuPath(detail,@"player.commentMovesVideo") &&

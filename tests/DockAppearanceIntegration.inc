@@ -19,6 +19,7 @@ static NSUInteger HGFixtureDockImpacts;
 @interface HGAAppearanceDock (HGATestQuietLayout)
 - (void)renderGeometry;
 - (NSString *)applySystemMaterial:(NSString *)style;
+- (void)syncSystemSelectionColor:(NSInteger)selColor lightBackdrop:(BOOL)lightBackdrop;
 - (BOOL)isFeedCompact;
 - (BOOL)feedControlsHidden;
 - (CALayer *)siriaiMinimumFill;
@@ -34,6 +35,11 @@ static NSUInteger HGFixtureDockImpacts;
 - (BOOL)isObservingScrollView:(UIScrollView *)scroll;
 @end
 static void HGRunDockFeedMotionChecks(SSTabBarController *host);
+static void HGRunDockSelectionColorChecks(SSTabBarController *host);
+@interface HGATestDestOutView : UIView @end
+@implementation HGATestDestOutView @end
+@interface HGATestTabSelectionView : UIView @end
+@implementation HGATestTabSelectionView @end
 @interface HGTestDockStoredPlatter : UIView {
 @public
     UIVisualEffect *_glassEffect;
@@ -1426,6 +1432,7 @@ static void HGRunDockAppearanceChecks(SSTabBarController *host) {
     HGAppearanceApply(saved,nil);HGAppearanceLayoutDock(host.customTabBar,host);
     HGRunDockCaptionChecks(host);
     HGRunDockSystemAdapterChecks(host);
+    HGRunDockSelectionColorChecks(host);
     HGRunDockFeedMotionChecks(host);
 }
 
@@ -1777,6 +1784,120 @@ static void HGRunDockFeedMotionChecks(SSTabBarController *host) {
     [theaterScroll removeFromSuperview];
     [feed removeFromSuperview];
     host.selectedIndex = savedTab;
+    HGAppearanceApply(saved, nil);
+    HGAppearanceLayoutDock(bar, host);
+}
+
+static void HGRunDockSelectionColorChecks(SSTabBarController *host) {
+    NSDictionary *saved = HGAppearanceValues();
+    NSUInteger savedTab = host.selectedIndex;
+    CGRect savedBarFrame = host.customTabBar.frame;
+    UIUserInterfaceStyle savedStyle = host.overrideUserInterfaceStyle;
+    SSTabBar *bar = host.customTabBar;
+    CGRect roomy = savedBarFrame;
+    roomy.size.height = 84;
+    roomy.origin.y = host.view.bounds.size.height - 84;
+    bar.frame = roomy;
+    host.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    if (@available(iOS 17.0, *)) [host.view updateTraitsIfNeeded];
+    host.selectedIndex = 0;
+
+    // 1. Compatibility glass Dock + detached circular button: softRoseMist & roseMistGlass.
+    HGAppearanceApply(@{
+        @"enabled": @YES, @"dock.enabled": @YES, @"dock.style": @"glass",
+        @"dock.material": @"regular", @"dock.selectionStyle": @"glass",
+        @"dock.selectionColor": @"softRoseMist", @"dock.content": @"both",
+        @"dock.height": @62, @"dock.radius": @30, @"dock.extra": @YES, @"dock.action": @"mine",
+        @"dock.hide.home": @NO, @"dock.hide.theater": @NO, @"dock.hide.store": @YES, @"dock.hide.mine": @NO
+    }, nil);
+    HGAppearanceLayoutDock(bar, host);
+    HGAAppearanceDock *dock = (id)Find(bar, @"honggo.appearance.dock");
+    Layout(dock);
+    UIView *capsule = Find(dock, @"honggo.appearance.dock.capsule");
+    UIView *selection = Find(dock, @"honggo.appearance.dock.selection");
+    UIView *selPill = Find(selection, @"honggo.appearance.dock.selection-pill");
+    UIButton *home = (id)Find(dock, @"honggo.appearance.tab.home");
+    CGFloat hr = 1, hg = 1, hb = 1, ha = 0;
+    [[home.tintColor resolvedColorWithTraitCollection:home.traitCollection] getRed:&hr green:&hg blue:&hb alpha:&ha];
+    Check(selPill && !selPill.hidden && selPill.layer.sublayers.count >= 2 &&
+        CGColorGetAlpha(selection.backgroundColor.CGColor) < 0.01 &&
+        hr < 0.15 && hg < 0.15 && hb < 0.15 && ha > 0.95,
+        @"softRoseMist mounts silky matte sakura pill inside Dock selection with dark charcoal selected ink");
+
+    // Detached circular tab button shows circular softRoseMist pill + dark ink when selected.
+    host.selectedIndex = 3;
+    HGAppearanceLayoutDock(bar, host);
+    Layout(dock);
+    UIButton *extra = (id)Find(dock, @"honggo.appearance.dock.extra");
+    UIView *extraSel = Find(dock, @"honggo.appearance.dock.extra.selection");
+    UIView *extraPill = Find(extraSel, @"honggo.appearance.dock.extra.selection-pill");
+    CGFloat er = 1, eg = 1, eb = 1, ea = 0;
+    [[extra.configuration.baseForegroundColor resolvedColorWithTraitCollection:extra.traitCollection]
+        getRed:&er green:&eg blue:&eb alpha:&ea];
+    Check(extra.selected && extraSel && !extraSel.hidden && extraPill && !extraPill.hidden &&
+        extraPill.layer.sublayers.count >= 2 &&
+        CGColorGetAlpha(extraSel.backgroundColor.CGColor) < 0.01 &&
+        er < 0.15 && eg < 0.15 && eb < 0.15 && ea > 0.95,
+        @"softRoseMist applies circular sakura pill and dark ink to selected detached circular Dock tab");
+
+    // 2. RoseMistGlass on dark video Dock keeps pill mounted and white ink readable.
+    host.selectedIndex = 0;
+    HGAppearanceSet(@"dock.selectionColor", @"roseMistGlass", nil);
+    HGAppearanceLayoutDock(bar, host);
+    Layout(dock);
+    UIView *glassPill = Find(selection, @"honggo.appearance.dock.selection-pill");
+    CGFloat gr = 0, gg = 0, gb = 0, ga = 0;
+    [[home.tintColor resolvedColorWithTraitCollection:home.traitCollection] getRed:&gr green:&gg blue:&gb alpha:&ga];
+    Check(glassPill && !glassPill.hidden && glassPill.layer.sublayers.count >= 2 &&
+        CGColorGetAlpha(selection.backgroundColor.CGColor) < 0.01 &&
+        gr > 0.95 && gg > 0.95 && gb > 0.95 && ga > 0.95,
+        @"roseMistGlass mounts translucent sakura glass pill on Dock selection with white ink over dark video");
+
+    // 3. Flat Dock supports custom selection colors by yielding UISegmentedControl's gray thumb.
+    HGAppearanceApply(@{@"dock.style": @"flat", @"dock.selectionColor": @"softRoseMist"}, nil);
+    HGAppearanceLayoutDock(bar, host);
+    Layout(dock);
+    UISegmentedControl *flatTrack = (id)Find(capsule, @"honggo.appearance.dock.flat");
+    Check(flatTrack && flatTrack.selectedSegmentIndex == UISegmentedControlNoSegment &&
+        !selection.hidden && Find(selection, @"honggo.appearance.dock.selection-pill") != nil,
+        @"flat Dock suppresses stock segment thumb when softRoseMist is active and displays sakura pill above track");
+
+    // 4. Restoring default cleans up custom pills and restores flat thumb cleanly.
+    HGAppearanceSet(@"dock.selectionColor", @"default", nil);
+    HGAppearanceLayoutDock(bar, host);
+    Layout(dock);
+    Check(flatTrack && flatTrack.selectedSegmentIndex == 0 && selection.hidden &&
+        !Find(selection, @"honggo.appearance.dock.selection-pill") &&
+        !Find(dock, @"honggo.appearance.dock.extra.selection-pill"),
+        @"restoring default Dock selection color removes custom pills and returns stock flat selection");
+
+    // 5. Native private _UITabSelectionView path: pure CALayer attach (zero subview mutation),
+    //    DestOut exclusion, layoutSubviews bounds tracking, and lossless removal on default.
+    HGAAppearanceDock *probe = [[HGAAppearanceDock alloc] initWithFrame:CGRectMake(0, 0, 320, 62)];
+    UIView *fakePlatter = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 274, 62)];
+    HGATestDestOutView *destOut = [[HGATestDestOutView alloc] initWithFrame:CGRectMake(4, 4, 94, 54)];
+    HGATestTabSelectionView *selView = [[HGATestTabSelectionView alloc] initWithFrame:CGRectMake(4, 4, 94, 54)];
+    [fakePlatter addSubview:destOut];
+    [fakePlatter addSubview:selView];
+    [probe setValue:fakePlatter forKey:@"systemPlatter"];
+    [probe syncSystemSelectionColor:1 lightBackdrop:YES];
+    CALayer *attached = nil;
+    for (CALayer *sub in selView.layer.sublayers)
+        if ([sub.name isEqualToString:@"honggo.appearance.dock.selection-pill"]) attached = sub;
+    BOOL ignoredDestOut = destOut.layer.sublayers.count == 0;
+    BOOL pureLayerAttach = attached != nil && selView.subviews.count == 0 &&
+        CGRectEqualToRect(attached.frame, selView.bounds);
+    selView.frame = CGRectMake(98, 4, 110, 54);
+    [selView layoutSubviews];
+    BOOL trackedBounds = attached != nil && CGRectEqualToRect(attached.frame, selView.bounds);
+    [probe syncSystemSelectionColor:0 lightBackdrop:YES];
+    BOOL cleanedUp = attached.superlayer == nil && selView.subviews.count == 0;
+    Check(ignoredDestOut && pureLayerAttach && trackedBounds && cleanedUp,
+        @"native UITabBar selection color skips DestOut, attaches pure CALayer with zero subview mutation, tracks bounds, and removes cleanly on default");
+
+    host.overrideUserInterfaceStyle = savedStyle;
+    host.selectedIndex = savedTab;
+    bar.frame = savedBarFrame;
     HGAppearanceApply(saved, nil);
     HGAppearanceLayoutDock(bar, host);
 }
