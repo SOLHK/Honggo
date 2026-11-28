@@ -703,10 +703,15 @@ static void HGRunDockPressGestureChecks(SSTabBarController *host,HGAAppearanceDo
         Check(held && CGRectGetHeight(held.bounds)>resting+2 && host.nativeTaps==taps+1,
             @"the enlarged press reaches the display while the finger is still down and navigation is unchanged");
     }
+    // Slight vertical thumb roll inside the capsule must not cancel a quick tap.
+    [dock moveDockTouchToPoint:CGPointMake(start.x,start.y+15)];
     [dock endDockTouchAtPoint:start cancelled:NO];
     Check(host.nativeTaps==taps+2 && host.selectedIndex==0,
-        @"release commits the selected destination immediately");
+        @"release commits the selected destination immediately even after minor vertical thumb roll");
+    CFTimeInterval settleBegin=CACurrentMediaTime();
     HGWaitForDockSelectionLensToSettle(selection);
+    Check(CACurrentMediaTime()-settleBegin<0.40,
+        @"Dock tap spring settles briskly without sluggish half-second trailing lag");
     [dock beginDockTouchAtPoint:start];
     [dock moveDockTouchToPoint:CGPointMake(finish.x,start.y)];
     [dock endDockTouchAtPoint:CGPointMake(finish.x,CGRectGetMinY(capsule.frame)-8) cancelled:NO];
@@ -1504,8 +1509,26 @@ static void HGRunDockFeedMotionChecks(SSTabBarController *host) {
     Check(![dock isFeedCompact] && CGRectEqualToRect([capsule convertRect:capsule.bounds toView:dock], expCap),
         @"horizontal category swipe does not trigger TikTok Dock collapse");
 
-    // Upward vertical drag shrinks group to 81% x 80%, icons to 91% uniform, fades captions, keeps material & clickability.
+    // Slight gentle upward lift (< 18pt) follows slightly then springs gracefully back to expanded.
     double clock = CACurrentMediaTime();
+    pan.fixtureTranslation = CGPointZero;
+    pan.fixtureState = UIGestureRecognizerStateBegan;
+    [observer pan:pan];
+    for (NSNumber *ty in @[@-6, @-10, @-12]) {
+        pan.fixtureTranslation = CGPointMake(0, ty.doubleValue);
+        pan.fixtureState = UIGestureRecognizerStateChanged;
+        [observer pan:pan];
+        HGStepDockFeedSpring(dock, 1.0 / 60.0, &clock);
+    }
+    pan.fixtureVelocity = CGPointMake(0, 0);
+    pan.fixtureState = UIGestureRecognizerStateEnded;
+    [observer pan:pan];
+    HGStepDockFeedSpring(dock, 0.50, &clock);
+    Check(![dock isFeedCompact] &&
+        fabs(CGRectGetWidth([capsule convertRect:capsule.bounds toView:dock]) - CGRectGetWidth(expCap)) < 0.5,
+        @"slight gentle upward lift springs back smoothly to expanded TikTok Dock instead of collapsing");
+
+    // Upward vertical drag shrinks group to 81% x 80%, icons to 91% uniform, fades captions, keeps material & clickability.
     pan.fixtureTranslation = CGPointZero;
     pan.fixtureState = UIGestureRecognizerStateBegan;
     [observer pan:pan];

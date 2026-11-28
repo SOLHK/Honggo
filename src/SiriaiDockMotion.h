@@ -229,13 +229,100 @@ static const double DKFeedCompactWidthRatio = 0.81;
 static const double DKFeedCompactHeightRatio = 0.80;
 static const double DKFeedLandingRange = 0.12;
 static const double DKFeedJitter = 4.0;
-static const double DKFeedPullDistance = 10.0;
-static const double DKSiriaiSettleDistance = 8.0;
+static const double DKFeedPullDistance = 18.0;
+static const double DKSiriaiSettleDistance = 14.0;
 static const double DKFeedFlickProjection = 0.08;
 static const double DKFeedVerticalRatio = 1.2;
 static const double DKSiriaiWhiteningDuration = 0.14;
 static const double DKSiriaiFadeDuration = 0.18;
 static const double DKSiriaiFadeDelay = 1.4;
+static const double DKFeedFluidMaxElastic = 0.042;
+static const double DKFeedFluidMaxDuration = 0.54;
+
+typedef struct {
+    int active;
+    double goal;
+    double a;
+    double b;
+    double alpha;
+    double omegaD;
+    double elapsed;
+    double maxDuration;
+} DKFeedFluidSpring;
+
+// 连续解析欠阻尼弹簧：完整承接松手瞬时速度，轻拉回弹幅度随位移与速度自然缩放，
+// 边界外通过 tanh 柔化限幅，保证 30/60/120Hz 下 C2 连续无突跳、无二次抖动。
+static inline DKFeedFluidSpring DKFeedMakeFluidSpring(double from, double goal, double velocity) {
+    DKFeedFluidSpring sp = {0, goal, 0.0, 0.0, 0.0, 0.0, 0.0, DKFeedFluidMaxDuration};
+    double v = fmax(-4.8, fmin(4.8, velocity));
+    double y0 = from - goal;
+    if (fabs(y0) < 0.0005 && fabs(v) < 0.01) return sp;
+    double d = fmin(1.0, fabs(y0));
+    // 轻拉回位更利落（omega=17.8, T≈0.35s），跨全行程收缩/展开更舒展灵动（omega=15.8, T≈0.40s）。
+    double omega = 17.8 - 2.0 * d;
+    const double zeta = 0.76;
+    double alpha = zeta * omega;
+    double omegaD = omega * sqrt(1.0 - zeta * zeta);
+    sp.active = 1;
+    sp.goal = goal;
+    sp.a = y0;
+    sp.b = (v + alpha * y0) / omegaD;
+    sp.alpha = alpha;
+    sp.omegaD = omegaD;
+    sp.elapsed = 0.0;
+    sp.maxDuration = DKFeedFluidMaxDuration;
+    return sp;
+}
+
+static inline double DKFeedFluidSpringSample(const DKFeedFluidSpring *sp, double t,
+                                             double *outVelocity, double *outRaw, double *outRawVel) {
+    if (!sp || !sp->active || t >= sp->maxDuration) {
+        double g = sp ? sp->goal : 0.0;
+        if (outVelocity) *outVelocity = 0.0;
+        if (outRaw) *outRaw = g;
+        if (outRawVel) *outRawVel = 0.0;
+        return g;
+    }
+    if (t <= 0.0) {
+        double raw = sp->goal + sp->a;
+        double rawVel = sp->omegaD * sp->b - sp->alpha * sp->a;
+        if (outRaw) *outRaw = raw;
+        if (outRawVel) *outRawVel = rawVel;
+        if (raw > 1.0) {
+            double th = tanh((raw - 1.0) / DKFeedFluidMaxElastic);
+            if (outVelocity) *outVelocity = rawVel * (1.0 - th * th);
+            return 1.0 + DKFeedFluidMaxElastic * th;
+        }
+        if (raw < 0.0) {
+            double th = tanh((-raw) / DKFeedFluidMaxElastic);
+            if (outVelocity) *outVelocity = rawVel * (1.0 - th * th);
+            return -DKFeedFluidMaxElastic * th;
+        }
+        if (outVelocity) *outVelocity = rawVel;
+        return raw;
+    }
+    double decay = exp(-sp->alpha * t);
+    double c = cos(sp->omegaD * t);
+    double s = sin(sp->omegaD * t);
+    double y = decay * (sp->a * c + sp->b * s);
+    double dy = decay * ((sp->omegaD * sp->b - sp->alpha * sp->a) * c
+                         - (sp->omegaD * sp->a + sp->alpha * sp->b) * s);
+    double raw = sp->goal + y;
+    if (outRaw) *outRaw = raw;
+    if (outRawVel) *outRawVel = dy;
+    if (raw > 1.0) {
+        double th = tanh((raw - 1.0) / DKFeedFluidMaxElastic);
+        if (outVelocity) *outVelocity = dy * (1.0 - th * th);
+        return 1.0 + DKFeedFluidMaxElastic * th;
+    }
+    if (raw < 0.0) {
+        double th = tanh((-raw) / DKFeedFluidMaxElastic);
+        if (outVelocity) *outVelocity = dy * (1.0 - th * th);
+        return -DKFeedFluidMaxElastic * th;
+    }
+    if (outVelocity) *outVelocity = dy;
+    return raw;
+}
 
 static inline double DKFeedMotionTravel(double height, int siriai) {
     return siriai ? fmin(104.0, fmax(52.0, height * 0.12))
@@ -398,7 +485,7 @@ static inline DKFeedPanResult DKFeedPanUpdate(DKFeedPanState *state,
     double pullDistance = state->siriai ? DKSiriaiSettleDistance : DKFeedPullDistance;
     double v = ended ? velocityY : 0.0;
     double projected = state->travel + fmax(0.0, (double)state->direction * v * DKFeedFlickProjection);
-    if (towardCompact || projected >= pullDistance) {
+    if (projected >= pullDistance) {
         state->targetCompact = towardCompact ? 1 : 0;
     }
     if (!ended) return DKFeedPanMoved;
@@ -424,6 +511,7 @@ typedef struct {
     int siriaiFadingLine;
     uint64_t siriaiFadeGeneration;
     double progress;
+    double dragStartProgress;
     double siriaiOpeningMaterial;
     double dragTarget;
     double lastDragDelta;
@@ -434,6 +522,7 @@ typedef struct {
     double sampleProgress;
     DKFeedReleaseMotion releaseMotion;
     double releaseElapsed;
+    DKFeedFluidSpring fluidSpring;
     double elasticExtent;
     double lastFrame;
     double dragVelocity;
@@ -454,6 +543,7 @@ static inline void DKFeedSpringInit(DKFeedSpringState *s) {
     s->siriaiFadingLine = 0;
     s->siriaiFadeGeneration = 0;
     s->progress = 0.0;
+    s->dragStartProgress = 0.0;
     s->siriaiOpeningMaterial = 1.0;
     s->dragTarget = 0.0;
     s->lastDragDelta = 0.0;
@@ -464,6 +554,7 @@ static inline void DKFeedSpringInit(DKFeedSpringState *s) {
     s->sampleProgress = 0.0;
     s->releaseMotion = (DKFeedReleaseMotion){0.0, 0.0, 0.0, 0.0};
     s->releaseElapsed = 0.0;
+    s->fluidSpring = (DKFeedFluidSpring){0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, DKFeedFluidMaxDuration};
     s->elasticExtent = 0.0;
     s->lastFrame = 0.0;
     s->dragVelocity = 0.0;
@@ -503,6 +594,7 @@ static inline void DKFeedSpringFinish(DKFeedSpringState *s, double *outApplyProg
     s->lastFrame = 0.0;
     s->dragVelocity = 0.0;
     s->releaseMotion.duration = 0.0;
+    s->fluidSpring.active = 0;
     s->landingBegan = 0.0;
     s->lastEndpoint = s->compact ? 1 : 0;
     s->overtravel = 0.0;
@@ -528,11 +620,13 @@ static inline int DKFeedSpringBeginDrag(DKFeedSpringState *s, int displayLinkRun
     s->siriaiFadeGeneration++;
     s->following = 1;
     s->releaseMotion.duration = 0.0;
+    s->fluidSpring.active = 0;
     s->lastDragDelta = 0.0;
     s->dragReversals = 0;
     s->previousInputInterval = 0.0;
     s->inputTimeLeft = 0.0;
     s->dragTarget = DKFeedSpringDisplayedProgress(s);
+    s->dragStartProgress = s->dragTarget;
     s->sampleProgress = s->dragTarget;
     return s->directTracking;
 }
@@ -612,14 +706,25 @@ static inline void DKFeedSpringSetCompact(DKFeedSpringState *s, int compact, int
         s->landingBegan = 0.0;
         s->dragVelocity = 0.0;
     }
+    double shown = DKFeedSpringDisplayedProgress(s);
+    double goal = compact ? 1.0 : 0.0;
+    if (s->fluidSpring.active && s->fluidSpring.goal != goal) {
+        s->fluidSpring.active = 0;
+    }
+    if (animated && canAnimate && !s->fluidSpring.active && s->releaseMotion.duration == 0.0 &&
+        s->landingBegan == 0.0 && (shown != goal || s->overtravel != 0.0)) {
+        double v0 = (now - s->lastFrame < 0.08) ? s->dragVelocity : 0.0;
+        s->fluidSpring = DKFeedMakeFluidSpring(shown, goal, v0);
+    }
     if (!animated || !canAnimate
-        || (s->releaseMotion.duration == 0.0 && s->landingBegan == 0.0 && s->overtravel == 0.0 && target == s->progress)) {
+        || (!s->fluidSpring.active && s->releaseMotion.duration == 0.0 && s->landingBegan == 0.0
+            && s->overtravel == 0.0 && target == s->progress)) {
         DKFeedSpringFinish(s, outApplyProgress, outScheduleFade);
         if (outFinishedImmediately) *outFinishedImmediately = 1;
         return;
     }
     s->siriaiMaterialBegan = 0.0;
-    if (s->landingBegan == 0.0 && now - s->lastFrame >= 0.08) {
+    if (s->landingBegan == 0.0 && !s->fluidSpring.active && now - s->lastFrame >= 0.08) {
         s->dragVelocity = 0.0;
         s->lastFrame = 0.0;
     }
@@ -633,20 +738,37 @@ static inline void DKFeedSpringEndDrag(DKFeedSpringState *s, int compact, double
                                        int *outStartLink, int *outScheduleFade) {
     if (!s->following) return;
     compact = compact ? 1 : 0;
-    if (s->directTracking && s->landingBegan == 0.0 && s->lastDragDelta != 0.0
-        && now - s->lastDragTime < 0.08) {
-        double shown = DKFeedSpringDisplayedProgress(s);
-        double pending = s->dragTarget - s->sampleProgress;
-        double speed = s->dragVelocity;
-        if (pending * s->lastDragDelta > 0.0) {
-            double fallbackFrame = displayLinkFrame > 0.0 ? displayLinkFrame : (1.0 / 60.0);
-            speed = pending / fmax(s->inputTimeLeft, fallbackFrame);
+    double shown = DKFeedSpringDisplayedProgress(s);
+    double handoffVel = 0.0;
+    int recentDrag = (s->lastDragTime > 0.0 && now - s->lastDragTime < 0.08);
+    if (recentDrag) {
+        double liveVel = s->dragVelocity;
+        if (s->directTracking && s->lastDragDelta != 0.0) {
+            double pending = s->dragTarget - s->sampleProgress;
+            if (pending * s->lastDragDelta > 0.0) {
+                double fallbackFrame = displayLinkFrame > 0.0 ? displayLinkFrame : (1.0 / 60.0);
+                double pendingVel = pending / fmax(s->inputTimeLeft, fallbackFrame);
+                if (liveVel == 0.0 || fabs(pendingVel) > fabs(liveVel)) liveVel = pendingVel;
+            }
         }
-        if (speed * s->lastDragDelta <= 0.0) speed = 0.0;
-        if (speed == 0.0 && velocity * s->lastDragDelta > 0.0) speed = velocity;
-        if (s->dragReversals >= 2 && speed != 0.0) compact = speed > 0.0 ? 1 : 0;
-        s->releaseMotion = DKFeedMakeReleaseMotion(shown, compact ? 1.0 : 0.0, speed, s->elasticExtent);
-        s->releaseElapsed = 0.0;
+        if (liveVel != 0.0 && velocity * liveVel > 0.0) {
+            double weight = fabs(velocity) > fabs(liveVel) ? 0.65 : 0.40;
+            handoffVel = (1.0 - weight) * liveVel + weight * velocity;
+        } else if (liveVel != 0.0) {
+            handoffVel = liveVel;
+        } else if (s->lastDragDelta != 0.0 && velocity * s->lastDragDelta > 0.0) {
+            handoffVel = velocity;
+        }
+        if (s->directTracking && s->dragReversals >= 2 && fabs(handoffVel) > 0.6) {
+            compact = handoffVel > 0.0 ? 1 : 0;
+        }
+    }
+    s->releaseMotion.duration = 0.0;
+    s->landingBegan = 0.0;
+    if (canAnimate) {
+        s->fluidSpring = DKFeedMakeFluidSpring(shown, compact ? 1.0 : 0.0, handoffVel);
+    } else {
+        s->fluidSpring.active = 0;
     }
     DKFeedSpringSetCompact(s, compact, 1, now, displayLinkActive, canAnimate,
                            outApplyProgress, outFinishedImmediately, outStartLink, outScheduleFade);
@@ -700,12 +822,17 @@ static inline DKFeedAdvanceResult DKFeedSpringAdvance(DKFeedSpringState *s,
     double goal = s->following ? s->dragTarget : (s->compact ? 1.0 : 0.0);
     double shown = DKFeedSpringDisplayedProgress(s);
 
-    if (s->landingBegan == 0.0 && shown != goal) {
+    if (reduceMotion && s->fluidSpring.active) {
+        s->fluidSpring.active = 0;
+    }
+
+    if (s->following && !s->fluidSpring.active && s->landingBegan == 0.0 && shown != goal) {
         if (fabs(shown - (double)s->lastEndpoint) > DKFeedLandingRange) s->lastEndpoint = -1;
         int endpoint = (goal == 0.0 || goal == 1.0);
+        int crossedHalf = fabs(s->dragStartProgress - goal) > 0.5;
         int approaching = s->releaseMotion.duration == 0.0 ||
             (s->releaseElapsed >= 1.0 / 30.0 && (goal - shown) * s->dragVelocity > 0.0);
-        if (approaching && endpoint && goal != (double)s->lastEndpoint && shown >= 0.0 && shown <= 1.0
+        if (approaching && crossedHalf && endpoint && goal != (double)s->lastEndpoint && shown >= 0.0 && shown <= 1.0
             && fabs(goal - shown) <= DKFeedLandingRange && !reduceMotion) {
             s->lastEndpoint = (int)goal;
             s->landingFrom = shown;
@@ -715,8 +842,23 @@ static inline DKFeedAdvanceResult DKFeedSpringAdvance(DKFeedSpringState *s,
         }
     }
 
-    if (s->landingBegan > 0.0 || s->releaseMotion.duration > 0.0 || shown != goal) {
-        if (s->landingBegan > 0.0) {
+    if (s->fluidSpring.active || s->landingBegan > 0.0 || s->releaseMotion.duration > 0.0 || shown != goal) {
+        if (s->fluidSpring.active) {
+            s->fluidSpring.elapsed += dt;
+            double vel = 0.0, raw = goal, rawVel = 0.0;
+            shown = DKFeedFluidSpringSample(&s->fluidSpring, s->fluidSpring.elapsed, &vel, &raw, &rawVel);
+            s->dragVelocity = vel;
+            if (s->fluidSpring.elapsed >= s->fluidSpring.maxDuration ||
+                (fabs(raw - goal) < 0.0009 && fabs(rawVel) < 0.018)) {
+                shown = goal;
+                s->dragVelocity = 0.0;
+                s->fluidSpring.active = 0;
+                s->lastEndpoint = (int)goal;
+                s->sampleProgress = goal;
+                s->inputTimeLeft = 0.0;
+                s->elasticExtent = 0.0;
+            }
+        } else if (s->landingBegan > 0.0) {
             double elapsed = now - s->landingBegan;
             shown = DKFeedLandingSample(s->landingFrom, goal, s->dragVelocity, elapsed);
             if (elapsed >= DKFeedLandingDuration) {
@@ -751,7 +893,7 @@ static inline DKFeedAdvanceResult DKFeedSpringAdvance(DKFeedSpringState *s,
         DKFeedSpringCommitProgress(s, geometry);
         if (outApplyProgress) *outApplyProgress = geometry;
         if (outShouldApply) *outShouldApply = 1;
-        if (s->landingBegan > 0.0 || s->releaseMotion.duration > 0.0 || shown != goal) {
+        if (s->fluidSpring.active || s->landingBegan > 0.0 || s->releaseMotion.duration > 0.0 || shown != goal) {
             return DKFeedAdvanceKeepRunning;
         }
     }

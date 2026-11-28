@@ -360,23 +360,160 @@ static void check_pan_gesture_state_machine(void) {
     assert(DKFeedPanUpdate(&pan, 0.0, -3.9, 0.0, 0, &delta, &endCompact, &endVel, &locked) == DKFeedPanIgnored);
     assert(!locked);
 
-    // Upward swipe past 4pt locks immediately and targets compact = 1 even on tiny travel
+    // Slight upward lift (6pt..10pt) locks and moves Dock smoothly, but stays expanded without hair-trigger collapse
     assert(DKFeedPanUpdate(&pan, 1.0, -6.0, 0.0, 0, &delta, &endCompact, &endVel, &locked) == DKFeedPanMoved);
+    assert(locked && delta > 0.0 && pan.targetCompact == 0);
+    assert(DKFeedPanUpdate(&pan, 1.0, -10.0, 0.0, 1, &delta, &endCompact, &endVel, &locked) == DKFeedPanEnded);
+    assert(endCompact == 0);
+
+    // Brisk short upward flick (10pt at -160pt/s -> projected 22.8pt >= 14pt) commits compact cleanly
+    DKFeedPanBegin(&pan, 844.0, 1, 0, 0, 0.0, 0.0, 1);
+    assert(DKFeedPanUpdate(&pan, 0.0, -10.0, 0.0, 0, &delta, &endCompact, &endVel, &locked) == DKFeedPanMoved);
+    assert(DKFeedPanUpdate(&pan, 0.0, -10.0, -160.0, 1, &delta, &endCompact, &endVel, &locked) == DKFeedPanEnded);
+    assert(endCompact == 1 && endVel > 0.0);
+
+    // Deliberate upward drag past settle distance (20pt) commits compact = 1
+    DKFeedPanBegin(&pan, 844.0, 1, 0, 0, 0.0, 0.0, 1);
+    assert(DKFeedPanUpdate(&pan, 1.0, -20.0, 0.0, 0, &delta, &endCompact, &endVel, &locked) == DKFeedPanMoved);
     assert(locked && delta > 0.0 && pan.targetCompact == 1);
     // Tiny 3pt downward jitter moves Dock immediately (delta < 0) without flipping settle endpoint!
-    assert(DKFeedPanUpdate(&pan, 1.0, -3.0, 0.0, 0, &delta, &endCompact, &endVel, &locked) == DKFeedPanMoved);
+    assert(DKFeedPanUpdate(&pan, 1.0, -17.0, 0.0, 0, &delta, &endCompact, &endVel, &locked) == DKFeedPanMoved);
     assert(delta < 0.0 && pan.direction == -1 && pan.targetCompact == 1);
-    // Reversing downward by 6.5pt (-6.0 -> +0.5) flips direction (>= 4pt), but < 8pt (Siri AI) keeps compact = 1
-    assert(DKFeedPanUpdate(&pan, 1.0, 0.5, 0.0, 0, &delta, &endCompact, &endVel, &locked) == DKFeedPanMoved);
-    assert(pan.direction == 1 && fabs(pan.travel - 6.5) < 1e-9 && pan.targetCompact == 1);
-    // Fast downward flick projects velocity * 0.08 >= 8pt to expand!
-    assert(DKFeedPanUpdate(&pan, 1.0, 0.5, 120.0, 1, &delta, &endCompact, &endVel, &locked) == DKFeedPanEnded);
+    // Reversing downward by 10pt (-20.0 -> -10.0) flips direction (>= 4pt), but < 14pt (Siri AI) keeps compact = 1
+    assert(DKFeedPanUpdate(&pan, 1.0, -10.0, 0.0, 0, &delta, &endCompact, &endVel, &locked) == DKFeedPanMoved);
+    assert(pan.direction == 1 && fabs(pan.travel - 10.0) < 1e-9 && pan.targetCompact == 1);
+    // Fast downward flick projects velocity * 0.08 >= 14pt to expand!
+    assert(DKFeedPanUpdate(&pan, 1.0, -10.0, 120.0, 1, &delta, &endCompact, &endVel, &locked) == DKFeedPanEnded);
     assert(endCompact == 0 && endVel < 0.0);
+
+    // Slight downward pull from compact (10pt slow) stays compact = 1 instead of snapping open
+    DKFeedPanBegin(&pan, 844.0, 0, 1, 0, 0.0, 0.0, 1);
+    assert(DKFeedPanUpdate(&pan, 0.0, 10.0, 0.0, 0, &delta, &endCompact, &endVel, &locked) == DKFeedPanMoved);
+    assert(delta < 0.0 && pan.targetCompact == 1);
+    assert(DKFeedPanUpdate(&pan, 0.0, 10.0, 0.0, 1, &delta, &endCompact, &endVel, &locked) == DKFeedPanEnded);
+    assert(endCompact == 1);
 
     // Catching in-flight motion uses 0pt deadzone and subtracts initial translation
     DKFeedPanBegin(&pan, 844.0, 0, 1, 1, 5.0, -12.0, 1);
     assert(DKFeedPanUpdate(&pan, 5.0, -13.5, 0.0, 0, &delta, &endCompact, &endVel, &locked) == DKFeedPanMoved);
     assert(locked && delta > 0.0);
+}
+
+// 3b. Fluid release spring: velocity-continuous handoff, proportional overshoot, smooth micro-pull return
+static void check_fluid_spring_slight_pull_and_release(double hz) {
+    double dt = 1.0 / hz;
+
+    // (a) Slight upward lift (0.08) still moving gently (+0.8/s), released back to expanded (0.0)
+    {
+        DKFeedSpringState s;
+        DKFeedSpringInit(&s);
+        double progress = 0.0;
+        int finished = 0, startLink = 0, scheduleFade = 0, apply = 0;
+        DKFeedSpringBeginDrag(&s, 0);
+        s.progress = 0.08;
+        s.dragTarget = 0.08;
+        s.dragVelocity = 0.8;
+        s.lastDragDelta = 0.01;
+        s.lastDragTime = 1.00;
+        DKFeedSpringEndDrag(&s, 0, 0.8, 1.01, dt, 1, 1, &progress, &finished, &startLink, &scheduleFade);
+        assert(!finished && startLink && s.fluidSpring.active);
+        double t = 1.01, peakUp = 0.08, maxUnder = 0.0;
+        int frames = 0;
+        for (; frames < (int)(hz * 0.65); frames++) {
+            double nextT = t + dt;
+            DKFeedAdvanceResult r = DKFeedSpringAdvance(&s, t, nextT, 0, &progress, &apply, &scheduleFade);
+            t = nextT;
+            double disp = DKFeedSpringDisplayedProgress(&s);
+            if (disp > peakUp) peakUp = disp;
+            if (disp < 0.0) maxUnder = fmax(maxUnder, -disp);
+            if (r == DKFeedAdvanceFinished) { finished = 1; break; }
+        }
+        // Smooth momentum turn-around above 0.08, feather-soft proportional breath (< 0.008, never 0.04 jolt!)
+        assert(finished && peakUp > 0.081 && maxUnder < 0.008);
+        assert(frames * dt <= 0.50);
+    }
+
+    // (b) Slight downward pull from compact (0.92, moving -0.8/s), released back to compact (1.0)
+    {
+        DKFeedSpringState s;
+        DKFeedSpringInit(&s);
+        s.compact = 1;
+        s.progress = 1.0;
+        double progress = 0.0;
+        int finished = 0, startLink = 0, scheduleFade = 0, apply = 0;
+        DKFeedSpringBeginDrag(&s, 0);
+        s.progress = 0.92;
+        s.dragTarget = 0.92;
+        s.dragVelocity = -0.8;
+        s.lastDragDelta = -0.01;
+        s.lastDragTime = 2.00;
+        DKFeedSpringEndDrag(&s, 1, -0.8, 2.01, dt, 1, 1, &progress, &finished, &startLink, &scheduleFade);
+        assert(!finished && startLink && s.fluidSpring.active);
+        double t = 2.01, peakDown = 0.92, maxOver = 0.0;
+        int frames = 0;
+        for (; frames < (int)(hz * 0.65); frames++) {
+            double nextT = t + dt;
+            DKFeedAdvanceResult r = DKFeedSpringAdvance(&s, t, nextT, 0, &progress, &apply, &scheduleFade);
+            t = nextT;
+            double disp = DKFeedSpringDisplayedProgress(&s);
+            if (disp < peakDown) peakDown = disp;
+            if (disp > 1.0) maxOver = fmax(maxOver, disp - 1.0);
+            if (r == DKFeedAdvanceFinished) { finished = 1; break; }
+        }
+        assert(finished && peakDown < 0.919 && maxOver < 0.008);
+        assert(frames * dt <= 0.50);
+    }
+
+    // (c) Slight lift (0.14) committing collapse to 1.0: C1 continuous frame-1 velocity (no jump to 6.0/s!)
+    {
+        DKFeedSpringState s;
+        DKFeedSpringInit(&s);
+        double progress = 0.0;
+        int finished = 0, startLink = 0, scheduleFade = 0, apply = 0;
+        DKFeedSpringBeginDrag(&s, 0);
+        s.progress = 0.14;
+        s.dragTarget = 0.14;
+        s.dragVelocity = 0.4;
+        s.lastDragDelta = 0.02;
+        s.lastDragTime = 3.00;
+        DKFeedSpringEndDrag(&s, 1, 0.4, 3.01, dt, 1, 1, &progress, &finished, &startLink, &scheduleFade);
+        assert(!finished && startLink && s.fluidSpring.active);
+        double t = 3.01, maxOver = 0.0, firstSpeed = 0.0;
+        int frames = 0;
+        for (; frames < (int)(hz * 0.65); frames++) {
+            double prev = DKFeedSpringDisplayedProgress(&s);
+            double nextT = t + dt;
+            DKFeedAdvanceResult r = DKFeedSpringAdvance(&s, t, nextT, 0, &progress, &apply, &scheduleFade);
+            t = nextT;
+            double disp = DKFeedSpringDisplayedProgress(&s);
+            if (frames == 0) firstSpeed = (disp - prev) / dt;
+            if (disp > 1.0) maxOver = fmax(maxOver, disp - 1.0);
+            if (r == DKFeedAdvanceFinished) { finished = 1; break; }
+        }
+        // Smooth ease-in acceleration on frame 1 (well below old 6.0/s slam), refined elastic breath, fast settle
+        assert(finished && firstSpeed > 0.4 && firstSpeed < 4.5);
+        assert(maxOver > 0.008 && maxOver <= DKFeedFluidMaxElastic + 1e-9);
+        assert(frames * dt <= 0.55);
+    }
+
+    // (d) Mid-spring interruption picks up exact displayed progress without position jump
+    {
+        DKFeedSpringState s;
+        DKFeedSpringInit(&s);
+        double progress = 0.0;
+        int finished = 0, startLink = 0, scheduleFade = 0, apply = 0;
+        DKFeedSpringSetCompact(&s, 1, 1, 4.0, 0, 1, &progress, &finished, &startLink, &scheduleFade);
+        assert(!finished && startLink && s.fluidSpring.active);
+        double t = 4.0;
+        for (int i = 0; i < (int)(hz * 0.12); i++) {
+            DKFeedSpringAdvance(&s, t, t + dt, 0, &progress, &apply, &scheduleFade);
+            t += dt;
+        }
+        double beforeCatch = DKFeedSpringDisplayedProgress(&s);
+        assert(beforeCatch > 0.20 && beforeCatch < 0.90);
+        assert(DKFeedSpringBeginDrag(&s, 1) == 1);
+        assert(!s.fluidSpring.active && fabs(s.dragTarget - beforeCatch) < 1e-9);
+    }
 }
 
 // 4. Full spring + Siri AI whitening/fading/interruption lifecycle & hit-test pass-through
@@ -475,6 +612,9 @@ int main(void) {
     check_rebound_shape(300.0, 76.0, 76.0);
     check_tiktok_geometry_and_detached_module();
     check_pan_gesture_state_machine();
+    check_fluid_spring_slight_pull_and_release(30.0);
+    check_fluid_spring_slight_pull_and_release(60.0);
+    check_fluid_spring_slight_pull_and_release(120.0);
     check_spring_material_lifecycle_and_hittest();
     puts("PASS: Honggo DYe TikTok + Siri AI motion, gesture state machine, detached module sync, and hit-test pass-through");
     return 0;
